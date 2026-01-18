@@ -1,0 +1,4 @@
+# Rustfmt configuration for faultline workspace
+
+edition = "2021"
+error_on_unformatted = true

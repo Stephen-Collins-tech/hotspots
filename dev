@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Development script to run faultline CLI
+# Usage: ./dev analyze [args...]
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+exec cargo run -- "$@"

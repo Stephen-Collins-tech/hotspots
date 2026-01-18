@@ -1,0 +1,21 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/faultline/tests/fixtures/loop-breaks.ts",
+    "function": "loopWithBreaks",
+    "line": 2,
+    "metrics": {
+      "cc": 8,
+      "nd": 2,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 6.169925001442312,
+    "band": "high"
+  }
+]

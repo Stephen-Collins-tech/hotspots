@@ -1,0 +1,39 @@
+# Rust / Cargo build artifacts
+/target
+
+# Note: Cargo.lock is committed for this project (binary/CLI workspace)
+# Cargo.lock ensures reproducible builds across environments
+
+# Local Cargo cache (if using workspace-local Cargo home)
+/.cargo
+
+# Backup files from rustfmt or editors
+**/*.rs.bk
+
+# Windows / MSVC debugging
+*.pdb
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# IDEs and editors
+/.idea/
+/.vscode/
+/.cursor/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# Test artifacts
+*.orig
+
+# Environment files
+.env
+.env.local
