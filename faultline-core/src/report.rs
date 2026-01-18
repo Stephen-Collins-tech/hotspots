@@ -23,7 +23,7 @@ pub struct FunctionRiskReport {
 }
 
 /// Metrics in report format
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MetricsReport {
     pub cc: usize,
     pub nd: usize,

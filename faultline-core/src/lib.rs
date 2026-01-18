@@ -13,12 +13,17 @@
 pub mod analysis;
 pub mod ast;
 pub mod cfg;
+pub mod delta;
 pub mod discover;
+pub mod git;
 pub mod metrics;
 pub mod parser;
+pub mod prune;
 pub mod report;
 pub mod risk;
+pub mod snapshot;
 
+pub use git::GitContext;
 pub use report::{FunctionRiskReport, render_json, render_text, sort_reports};
 
 use anyhow::{Context, Result};
