@@ -1,0 +1,69 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Risk Band Timeline - src/module_02.ts::f_07",
+  "data": {
+    "url": "data.json",
+    "format": {
+      "type": "json",
+      "property": "lrs_series"
+    }
+  },
+  "mark": {
+    "type": "line",
+    "interpolate": "step-after",
+    "point": true
+  },
+  "encoding": {
+    "x": {
+      "field": "commit_index",
+      "type": "quantitative",
+      "axis": {
+        "title": "Commit index (v0..v7)",
+        "tickMinStep": 1
+      }
+    },
+    "y": {
+      "field": "band",
+      "type": "ordinal",
+      "sort": [
+        "low",
+        "moderate",
+        "high",
+        "critical"
+      ],
+      "axis": {
+        "title": "Risk band"
+      }
+    },
+    "color": {
+      "field": "band",
+      "type": "nominal",
+      "sort": [
+        "low",
+        "moderate",
+        "high",
+        "critical"
+      ]
+    },
+    "tooltip": [
+      {
+        "field": "version",
+        "type": "nominal"
+      },
+      {
+        "field": "sha",
+        "type": "nominal",
+        "title": "SHA"
+      },
+      {
+        "field": "band",
+        "type": "nominal"
+      },
+      {
+        "field": "lrs",
+        "type": "quantitative",
+        "format": ".2f"
+      }
+    ]
+  }
+}

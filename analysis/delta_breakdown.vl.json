@@ -1,0 +1,78 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Delta Breakdown - metric deltas per commit",
+  "data": {
+    "url": "data.json",
+    "format": {
+      "type": "json",
+      "property": "deltas_long"
+    }
+  },
+  "params": [
+    {
+      "name": "commit",
+      "value": "v5",
+      "bind": {
+        "input": "select",
+        "options": [
+          "v1",
+          "v2",
+          "v3",
+          "v4",
+          "v5",
+          "v6",
+          "v7"
+        ],
+        "name": "Commit: "
+      }
+    }
+  ],
+  "transform": [
+    {
+      "filter": "datum.version == commit"
+    },
+    {
+      "calculate": "datum.metric == 'lrs' ? 'LRS' : upper(datum.metric)",
+      "as": "metric_label"
+    }
+  ],
+  "mark": {
+    "type": "bar"
+  },
+  "encoding": {
+    "x": {
+      "field": "metric_label",
+      "type": "nominal",
+      "axis": {
+        "title": "Metric"
+      }
+    },
+    "y": {
+      "field": "delta",
+      "type": "quantitative",
+      "axis": {
+        "title": "Delta (after - before)"
+      }
+    },
+    "tooltip": [
+      {
+        "field": "version",
+        "type": "nominal"
+      },
+      {
+        "field": "sha",
+        "type": "nominal",
+        "title": "SHA"
+      },
+      {
+        "field": "metric",
+        "type": "nominal"
+      },
+      {
+        "field": "delta",
+        "type": "quantitative",
+        "format": ".2f"
+      }
+    ]
+  }
+}

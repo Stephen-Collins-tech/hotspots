@@ -1,0 +1,100 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Repo Distribution (v7) - LRS histogram with hotspot marker",
+  "data": {
+    "url": "data.json",
+    "format": {
+      "type": "json",
+      "property": "snapshot_distribution"
+    }
+  },
+  "layer": [
+    {
+      "mark": {
+        "type": "bar"
+      },
+      "encoding": {
+        "x": {
+          "field": "lrs",
+          "type": "quantitative",
+          "bin": {
+            "step": 1
+          },
+          "axis": {
+            "title": "LRS (binned)"
+          }
+        },
+        "y": {
+          "aggregate": "count",
+          "type": "quantitative",
+          "axis": {
+            "title": "Function count"
+          }
+        },
+        "tooltip": [
+          {
+            "aggregate": "count",
+            "type": "quantitative",
+            "title": "Count"
+          }
+        ]
+      }
+    },
+    {
+      "transform": [
+        {
+          "filter": "datum.function_id == 'src/module_02.ts::f_07'"
+        }
+      ],
+      "mark": {
+        "type": "rule"
+      },
+      "encoding": {
+        "x": {
+          "field": "lrs",
+          "type": "quantitative"
+        },
+        "tooltip": [
+          {
+            "field": "function_id",
+            "type": "nominal",
+            "title": "Hotspot"
+          },
+          {
+            "field": "lrs",
+            "type": "quantitative",
+            "format": ".2f"
+          },
+          {
+            "field": "band",
+            "type": "nominal"
+          }
+        ]
+      }
+    },
+    {
+      "data": {
+        "values": [
+          {
+            "thr": 3
+          },
+          {
+            "thr": 6
+          },
+          {
+            "thr": 9
+          }
+        ]
+      },
+      "mark": {
+        "type": "rule"
+      },
+      "encoding": {
+        "x": {
+          "field": "thr",
+          "type": "quantitative"
+        }
+      }
+    }
+  ]
+}

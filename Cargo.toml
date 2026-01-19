@@ -1,5 +1,5 @@
 [workspace]
-members = ["faultline-core", "faultline-cli"]
+members = ["faultline-core", "faultline-cli", "analysis"]
 resolver = "2"
 
 [workspace.package]

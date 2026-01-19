@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Faultline Synthetic - Vega Report</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 28px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 16px; }
+    .note { color: #444; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+</head>
+<body>
+  <h1>Faultline Synthetic Hotspot Linear - Visual Report (Vega)</h1>
+  <p class="note">
+    Charts are driven by <code>data.json</code>. Replace that file with real extracted data to reuse the same specs.
+  </p>
+
+  <div class="grid">
+    <div class="card"><div id="lrs"></div></div>
+    <div class="card"><div id="band"></div></div>
+    <div class="card"><div id="delta"></div></div>
+    <div class="card"><div id="hist"></div></div>
+  </div>
+
+  <script>
+    const opts = { actions: {export: true, source: false, editor: false} };
+    vegaEmbed('#lrs', 'lrs_timeline.vl.json', opts);
+    vegaEmbed('#band', 'band_timeline.vl.json', opts);
+    vegaEmbed('#delta', 'delta_breakdown.vl.json', opts);
+    vegaEmbed('#hist', 'repo_distribution.vl.json', opts);
+  </script>
+</body>
+</html>

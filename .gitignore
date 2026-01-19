@@ -42,3 +42,7 @@
 .faultline/
 
 repomix-output.xml
+
+# Analysis generated data (derived from snapshots)
+analysis/data.json
+analysis/*.zip

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Structural Risk Timeline - LRS for src/module_02.ts::f_07",
+  "data": {
+    "url": "data.json",
+    "format": {
+      "type": "json",
+      "property": "lrs_series"
+    }
+  },
+  "layer": [
+    {
+      "mark": {
+        "type": "line",
+        "point": true
+      },
+      "encoding": {
+        "x": {
+          "field": "commit_index",
+          "type": "quantitative",
+          "axis": {
+            "title": "Commit index (v0..v7)",
+            "tickMinStep": 1
+          }
+        },
+        "y": {
+          "field": "lrs",
+          "type": "quantitative",
+          "axis": {
+            "title": "Local Risk Score (LRS)"
+          }
+        },
+        "tooltip": [
+          {
+            "field": "version",
+            "type": "nominal"
+          },
+          {
+            "field": "sha",
+            "type": "nominal",
+            "title": "SHA"
+          },
+          {
+            "field": "lrs",
+            "type": "quantitative",
+            "format": ".2f"
+          },
+          {
+            "field": "band",
+            "type": "nominal"
+          },
+          {
+            "field": "cc",
+            "type": "quantitative"
+          },
+          {
+            "field": "nd",
+            "type": "quantitative"
+          },
+          {
+            "field": "fo",
+            "type": "quantitative"
+          },
+          {
+            "field": "ns",
+            "type": "quantitative"
+          }
+        ]
+      }
+    },
+    {
+      "data": {
+        "values": [
+          {
+            "thr": 3
+          },
+          {
+            "thr": 6
+          },
+          {
+            "thr": 9
+          }
+        ]
+      },
+      "mark": {
+        "type": "rule"
+      },
+      "encoding": {
+        "y": {
+          "field": "thr",
+          "type": "quantitative"
+        }
+      }
+    }
+  ]
+}
