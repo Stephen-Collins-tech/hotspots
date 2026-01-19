@@ -40,3 +40,5 @@
 
 # Faultline history data (derived state, not source)
 .faultline/
+
+repomix-output.xml
