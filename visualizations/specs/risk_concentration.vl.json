@@ -1,0 +1,78 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "title": "Risk Concentration Over Time - Top K Functions + Other",
+  "description": "Stacked area chart showing cumulative LRS for Top K functions and remaining functions (Other bucket). Shows how risk concentration evolves across commits.",
+  "data": {
+    "url": "data.json",
+    "format": {
+      "type": "json",
+      "property": "risk_concentration"
+    }
+  },
+  "mark": {
+    "type": "area",
+    "interpolate": "monotone"
+  },
+  "encoding": {
+    "x": {
+      "field": "commit_index",
+      "type": "quantitative",
+      "axis": {
+        "title": "Commit Index",
+        "tickMinStep": 1
+      },
+      "scale": {
+        "nice": false
+      }
+    },
+    "y": {
+      "field": "lrs",
+      "type": "quantitative",
+      "axis": {
+        "title": "Cumulative LRS"
+      },
+      "stack": true
+    },
+    "color": {
+      "field": "function_id",
+      "type": "nominal",
+      "legend": {
+        "title": "Function",
+        "labelLimit": 40
+      },
+      "scale": {
+        "scheme": "category20"
+      }
+    },
+    "tooltip": [
+      {
+        "field": "version",
+        "type": "nominal",
+        "title": "Version"
+      },
+      {
+        "field": "sha",
+        "type": "nominal",
+        "title": "SHA"
+      },
+      {
+        "field": "function_id",
+        "type": "nominal",
+        "title": "Function"
+      },
+      {
+        "field": "lrs",
+        "type": "quantitative",
+        "format": ".2f",
+        "title": "LRS"
+      },
+      {
+        "field": "commit_index",
+        "type": "quantitative",
+        "title": "Commit Index"
+      }
+    ]
+  },
+  "width": 800,
+  "height": 400
+}

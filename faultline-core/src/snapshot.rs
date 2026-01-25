@@ -65,6 +65,8 @@ pub struct Snapshot {
     pub commit: CommitInfo,
     pub analysis: AnalysisInfo,
     pub functions: Vec<FunctionSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
 }
 
 /// Index entry for a commit
@@ -148,6 +150,7 @@ impl Snapshot {
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
             },
             functions,
+            aggregates: None, // Aggregates are computed on-demand, not stored
         }
     }
     

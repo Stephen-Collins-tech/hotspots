@@ -10,6 +10,7 @@
 // - Formatting, comments, and whitespace must not affect results
 // - Identical input yields byte-for-byte identical output
 
+pub mod aggregates;
 pub mod analysis;
 pub mod ast;
 pub mod cfg;
@@ -18,10 +19,12 @@ pub mod discover;
 pub mod git;
 pub mod metrics;
 pub mod parser;
+pub mod policy;
 pub mod prune;
 pub mod report;
 pub mod risk;
 pub mod snapshot;
+pub mod trends;
 
 pub use git::GitContext;
 pub use report::{FunctionRiskReport, render_json, render_text, sort_reports};

@@ -10,6 +10,7 @@
 
 use crate::snapshot::{Snapshot, FunctionSnapshot};
 use crate::report::MetricsReport;
+use crate::policy::PolicyResults;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -89,6 +90,10 @@ pub struct Delta {
     pub commit: DeltaCommitInfo,
     pub baseline: bool,
     pub deltas: Vec<FunctionDeltaEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PolicyResults>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregates: Option<crate::aggregates::DeltaAggregates>,
 }
 
 impl Delta {
@@ -156,6 +161,8 @@ impl Delta {
                 },
                 baseline: true,
                 deltas,
+                policy: None,
+                aggregates: None, // Aggregates computed on-demand
             });
         }
         
@@ -281,6 +288,8 @@ impl Delta {
             },
             baseline: false,
             deltas,
+            policy: None,
+            aggregates: None, // Aggregates computed on-demand
         })
     }
     

@@ -11,11 +11,15 @@ use clap::{Parser, Subcommand};
 use faultline_core::{analyze, render_json, render_text, AnalysisOptions};
 use faultline_core::{delta, git, prune};
 use faultline_core::snapshot::{self, Snapshot};
+use faultline_core::policy::PolicyResults;
+use faultline_core::delta::Delta;
+use faultline_core::trends::TrendsAnalysis;
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "faultline")]
 #[command(about = "Static analysis tool for TypeScript functions")]
+#[command(version = env!("FAULTLINE_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -36,6 +40,10 @@ enum Commands {
         /// When not specified, preserves existing text/JSON output behavior
         #[arg(long)]
         mode: Option<OutputMode>,
+        
+        /// Evaluate policies (only valid with --mode delta)
+        #[arg(long)]
+        policy: bool,
         
         /// Show only top N results
         #[arg(long)]
@@ -65,6 +73,23 @@ enum Commands {
         #[arg(long)]
         level: u32,
     },
+    /// Analyze trends from snapshot history
+    Trends {
+        /// Path to repository root
+        path: PathBuf,
+        
+        /// Output format
+        #[arg(long, default_value = "json")]
+        format: OutputFormat,
+        
+        /// Window size (number of snapshots to analyze)
+        #[arg(long, default_value = "10")]
+        window: usize,
+        
+        /// Top K functions for hotspot analysis
+        #[arg(long, default_value = "5")]
+        top: usize,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -73,7 +98,7 @@ enum OutputFormat {
     Json,
 }
 
-#[derive(Clone, Copy, clap::ValueEnum)]
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 enum OutputMode {
     Snapshot,
     Delta,
@@ -83,7 +108,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Analyze { path, format, mode, top, min_lrs } => {
+        Commands::Analyze { path, format, mode, policy, top, min_lrs } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
                 std::env::current_dir()?.join(&path)
@@ -96,9 +121,20 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("Path does not exist: {}", normalized_path.display());
             }
             
+            // Validate --policy flag (only valid with --mode delta)
+            if policy {
+                if let Some(m) = mode {
+                    if m != OutputMode::Delta {
+                        anyhow::bail!("--policy flag is only valid with --mode delta");
+                    }
+                } else {
+                    anyhow::bail!("--policy flag is only valid with --mode delta");
+                }
+            }
+
             // If mode is specified, use snapshot/delta mode
             if let Some(output_mode) = mode {
-                return handle_mode_output(&normalized_path, output_mode, format, top, min_lrs);
+                return handle_mode_output(&normalized_path, output_mode, format, policy, top, min_lrs);
             }
             
             // Default behavior: preserve existing text/JSON output
@@ -186,6 +222,38 @@ fn main() -> anyhow::Result<()> {
                 println!("Note: Compaction to level {} is not yet implemented. Only metadata was updated.", level);
             }
         }
+        Commands::Trends { path, format, window, top } => {
+            // Normalize path to absolute
+            let normalized_path = if path.is_relative() {
+                std::env::current_dir()?.join(&path)
+            } else {
+                path.clone()
+            };
+            
+            // Validate path exists
+            if !normalized_path.exists() {
+                anyhow::bail!("Path does not exist: {}", normalized_path.display());
+            }
+            
+            // Find repository root
+            let repo_root = find_repo_root(&normalized_path)?;
+            
+            // Analyze trends
+            let trends = faultline_core::trends::analyze_trends(&repo_root, window, top)
+                .context("failed to analyze trends")?;
+            
+            // Output results
+            match format {
+                OutputFormat::Json => {
+                    let json = trends.to_json()
+                        .context("failed to serialize trends to JSON")?;
+                    println!("{}", json);
+                }
+                OutputFormat::Text => {
+                    print_trends_text_output(&trends)?;
+                }
+            }
+        }
     }
     
     Ok(())
@@ -196,6 +264,7 @@ fn handle_mode_output(
     path: &PathBuf,
     mode: OutputMode,
     format: OutputFormat,
+    policy: bool,
     top: Option<usize>,
     min_lrs: Option<f64>,
 ) -> anyhow::Result<()> {
@@ -223,6 +292,7 @@ fn handle_mode_output(
             let snapshot = Snapshot::new(git_context, reports);
             
             // Persist snapshot only in mainline mode (not in PR mode)
+            // Note: Aggregates are NOT persisted (they're derived, computed on output)
             if is_mainline {
                 snapshot::persist_snapshot(&repo_root, &snapshot)
                     .context("failed to persist snapshot")?;
@@ -233,7 +303,10 @@ fn handle_mode_output(
             // Emit snapshot JSON
             match format {
                 OutputFormat::Json => {
-                    let json = snapshot.to_json()?;
+                    // Compute aggregates for output (not persisted)
+                    let mut snapshot_with_aggregates = snapshot.clone();
+                    snapshot_with_aggregates.aggregates = Some(faultline_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
+                    let json = snapshot_with_aggregates.to_json()?;
                     println!("{}", json);
                 }
                 OutputFormat::Text => {
@@ -259,16 +332,49 @@ fn handle_mode_output(
                 delta::compute_delta(&repo_root, &snapshot)?
             };
             
-            // Emit delta JSON
+            // Evaluate policies if requested
+            let mut delta_with_extras = delta.clone();
+            if policy {
+                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root)
+                    .context("failed to evaluate policies")?;
+                
+                if let Some(results) = policy_results {
+                    delta_with_extras.policy = Some(results.clone());
+                }
+            }
+            
+            // Compute aggregates for output (not stored in delta computation)
+            delta_with_extras.aggregates = Some(faultline_core::aggregates::compute_delta_aggregates(&delta));
+            
+            // Emit delta output
+            let has_blocking_failures = delta_with_extras.policy.as_ref().map(|p| p.has_blocking_failures()).unwrap_or(false);
+            
             match format {
                 OutputFormat::Json => {
-                    let json = delta.to_json()?;
+                    let json = delta_with_extras.to_json()?;
                     println!("{}", json);
                 }
                 OutputFormat::Text => {
-                    // Text format not supported for delta initially
-                    anyhow::bail!("text format is not supported for delta mode (use --format json)");
+                    if policy {
+                        // Text output for delta mode is only supported with --policy
+                        if let Some(ref policy_results) = delta_with_extras.policy {
+                            print_policy_text_output(&delta_with_extras, policy_results)?;
+                        } else {
+                            // Baseline delta - no policies evaluated, but still show delta info
+                            println!("Delta Analysis");
+                            println!("{}", "=".repeat(80));
+                            println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
+                            println!("\nDelta contains {} function changes.", delta_with_extras.deltas.len());
+                        }
+                    } else {
+                        anyhow::bail!("text format is not supported for delta mode without --policy (use --format json)");
+                    }
                 }
+            }
+            
+            // Exit with error code if there are blocking failures
+            if has_blocking_failures {
+                std::process::exit(1);
             }
         }
     }
@@ -311,6 +417,177 @@ fn compute_pr_delta(repo_root: &std::path::Path, snapshot: &Snapshot) -> anyhow:
     };
     
     delta::Delta::new(snapshot, parent.as_ref())
+}
+
+/// Print policy results as text output
+fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> anyhow::Result<()> {
+    // Print policy summary header
+    println!("Policy Evaluation Results");
+    println!("{}", "=".repeat(80));
+
+    // Print blocking failures first
+    if !policy_results.failed.is_empty() {
+        println!("\nPolicy failures:");
+        for result in &policy_results.failed {
+            if let Some(ref function_id) = result.function_id {
+                println!("- {}: {}", result.id.as_str(), function_id);
+            } else {
+                println!("- {}", result.id.as_str());
+            }
+        }
+
+        // Print function table for blocking failures
+        println!("\nViolating functions:");
+        println!("{:<40} {:<12} {:<12} {:<10} {:<20}", "Function", "Before", "After", "ΔLRS", "Policy");
+        println!("{}", "-".repeat(94));
+
+        // Collect function IDs that triggered failures
+        let violating_function_ids: std::collections::HashSet<&str> = policy_results
+            .failed
+            .iter()
+            .filter_map(|r| r.function_id.as_deref())
+            .collect();
+
+        // Find corresponding delta entries
+        for entry in &delta.deltas {
+            if violating_function_ids.contains(entry.function_id.as_str()) {
+                let before_band = entry.before.as_ref().map(|b| b.band.as_str()).unwrap_or("N/A");
+                let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("N/A");
+                let delta_lrs = entry.delta.as_ref().map(|d| format!("{:.2}", d.lrs)).unwrap_or_else(|| "N/A".to_string());
+                
+                // Find which policies this function violated
+                let policies: Vec<&str> = policy_results
+                    .failed
+                    .iter()
+                    .filter(|r| r.function_id.as_deref() == Some(entry.function_id.as_str()))
+                    .map(|r| r.id.as_str())
+                    .collect();
+                let policy_str = policies.join(", ");
+
+                println!(
+                    "{:<40} {:<12} {:<12} {:<10} {:<20}",
+                    truncate_string(&entry.function_id, 40),
+                    before_band,
+                    after_band,
+                    delta_lrs,
+                    policy_str
+                );
+            }
+        }
+    }
+
+    // Print warnings second (summary only, not in table)
+    if !policy_results.warnings.is_empty() {
+        println!("\nPolicy warnings:");
+        for result in &policy_results.warnings {
+            println!("- {}: {}", result.id.as_str(), result.message);
+        }
+    }
+
+    // Print summary
+    if policy_results.failed.is_empty() && policy_results.warnings.is_empty() {
+        println!("\nNo policy violations detected.");
+    } else {
+        println!("\nSummary:");
+        println!("  Blocking failures: {}", policy_results.failed.len());
+        println!("  Warnings: {}", policy_results.warnings.len());
+    }
+
+    Ok(())
+}
+
+/// Truncate string to max length
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
+}
+
+/// Print trends analysis as text output
+fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
+    println!("Trends Analysis");
+    println!("{}", "=".repeat(80));
+
+    // Risk Velocities
+    if !trends.velocities.is_empty() {
+        println!("\nRisk Velocities:");
+        println!("{:<40} {:<12} {:<12} {:<12} {:<12}", "Function", "Velocity", "Direction", "First LRS", "Last LRS");
+        println!("{}", "-".repeat(100));
+        
+        for velocity in &trends.velocities {
+            let direction_str = match velocity.direction {
+                faultline_core::trends::VelocityDirection::Positive => "positive",
+                faultline_core::trends::VelocityDirection::Negative => "negative",
+                faultline_core::trends::VelocityDirection::Flat => "flat",
+            };
+            
+            println!(
+                "{:<40} {:<12.2} {:<12} {:<12.2} {:<12.2}",
+                truncate_string(&velocity.function_id, 40),
+                velocity.velocity,
+                direction_str,
+                velocity.first_lrs,
+                velocity.last_lrs
+            );
+        }
+    }
+
+    // Hotspot Stability
+    if !trends.hotspots.is_empty() {
+        println!("\nHotspot Stability:");
+        println!("{:<40} {:<12} {:<12} {:<12}", "Function", "Stability", "Overlap", "Appearances");
+        println!("{}", "-".repeat(88));
+        
+        for hotspot in &trends.hotspots {
+            let stability_str = match hotspot.stability {
+                faultline_core::trends::HotspotStability::Stable => "stable",
+                faultline_core::trends::HotspotStability::Emerging => "emerging",
+                faultline_core::trends::HotspotStability::Volatile => "volatile",
+            };
+            
+            println!(
+                "{:<40} {:<12} {:<12.2} {:<12}/{}",
+                truncate_string(&hotspot.function_id, 40),
+                stability_str,
+                hotspot.overlap_ratio,
+                hotspot.appearances_in_top_k,
+                hotspot.total_snapshots
+            );
+        }
+    }
+
+    // Refactor Effectiveness
+    if !trends.refactors.is_empty() {
+        println!("\nRefactor Effectiveness:");
+        println!("{:<40} {:<12} {:<12} {:<12}", "Function", "Outcome", "Improvement", "Sustained");
+        println!("{}", "-".repeat(88));
+        
+        for refactor in &trends.refactors {
+            let outcome_str = match refactor.outcome {
+                faultline_core::trends::RefactorOutcome::Successful => "successful",
+                faultline_core::trends::RefactorOutcome::Partial => "partial",
+                faultline_core::trends::RefactorOutcome::Cosmetic => "cosmetic",
+            };
+            
+            println!(
+                "{:<40} {:<12} {:<12.2} {:<12}",
+                truncate_string(&refactor.function_id, 40),
+                outcome_str,
+                refactor.improvement_delta,
+                refactor.sustained_commits
+            );
+        }
+    }
+
+    // Summary
+    println!("\nSummary:");
+    println!("  Risk velocities: {}", trends.velocities.len());
+    println!("  Hotspots analyzed: {}", trends.hotspots.len());
+    println!("  Refactors detected: {}", trends.refactors.len());
+
+    Ok(())
 }
 
 /// Find git repository root by searching up the directory tree

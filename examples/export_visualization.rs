@@ -1,7 +1,7 @@
-//! Update analysis/data.json from Faultline snapshots
+//! Export visualization data from Faultline snapshots
 //!
-//! Reads snapshots from ../faultline-synthetic-hotspot-linear-repo/.faultline/snapshots/
-//! and updates analysis/data.json with extracted data.
+//! Reads snapshots from a repository's .faultline/ directory and generates
+//! data.json for use with the Vega-Lite visualizations in visualizations/
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-/// Data structure for analysis/data.json
+/// Data structure for visualizations/data.json
 #[derive(Debug, Serialize, Deserialize)]
 struct ReportData {
     meta: Meta,
     lrs_series: Vec<LrsSeriesEntry>,
     deltas_long: Vec<DeltaLongEntry>,
     repo_distribution: Vec<RepoDistributionEntry>,
+    risk_concentration: Vec<RiskConcentrationEntry>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,6 +55,15 @@ struct RepoDistributionEntry {
     function_id: String,
     lrs: f64,
     band: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RiskConcentrationEntry {
+    version: String,
+    sha: String,
+    commit_index: usize,
+    function_id: String,
+    lrs: f64,
 }
 
 /// Snapshot structure (from faultline-core)
@@ -123,20 +133,24 @@ struct IndexEntry {
 }
 
 #[derive(Parser)]
-#[command(name = "update-report")]
-#[command(about = "Update analysis/data.json from Faultline snapshots")]
+#[command(name = "export-visualization")]
+#[command(about = "Export visualization data from Faultline snapshots")]
 struct Args {
     /// Path to repository with .faultline snapshots
-    #[arg(long, default_value = "../faultline-synthetic-hotspot-linear-repo")]
+    #[arg(long, default_value = ".")]
     repo: String,
-    
+
     /// Target function ID (auto-detected if not specified)
     #[arg(long)]
     target_function: Option<String>,
-    
+
     /// Output directory
-    #[arg(long, default_value = "./analysis")]
+    #[arg(long, default_value = "./visualizations")]
     output_dir: String,
+    
+    /// Top K functions for risk concentration chart (default: 5)
+    #[arg(long, default_value = "5")]
+    top_k: usize,
 }
 
 fn main() -> Result<()> {
@@ -187,8 +201,14 @@ fn main() -> Result<()> {
         }
     }
 
-    // Sort by commit index (already in order from index, but ensure)
-    snapshots.sort_by_key(|(idx, _)| *idx);
+    // Sort deterministically: by commit timestamp ascending, tie-break by SHA ASCII
+    // This ensures consistent ordering for visualization
+    snapshots.sort_by(|(idx_a, snap_a), (idx_b, snap_b)| {
+        snap_a.commit.timestamp
+            .cmp(&snap_b.commit.timestamp)
+            .then_with(|| snap_a.commit.sha.cmp(&snap_b.commit.sha))
+            .then_with(|| idx_a.cmp(idx_b))
+    });
 
     if snapshots.is_empty() {
         anyhow::bail!("no snapshots found in {}", snapshots_dir.display());
@@ -327,6 +347,58 @@ fn main() -> Result<()> {
         })
         .collect();
 
+    // Compute risk concentration (Top K functions per snapshot + Other bucket)
+    let mut risk_concentration: Vec<RiskConcentrationEntry> = Vec::new();
+    
+    // For each snapshot, compute Top K and Other
+    for (commit_index, snapshot) in &snapshots {
+        // Sort functions by LRS descending
+        let mut sorted_functions: Vec<(&FunctionSnapshot, f64)> = snapshot.functions
+            .iter()
+            .map(|f| (f, f.lrs))
+            .collect();
+        sorted_functions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Take Top K
+        let top_k_functions: Vec<&FunctionSnapshot> = sorted_functions
+            .iter()
+            .take(args.top_k)
+            .map(|(f, _)| *f)
+            .collect();
+        
+        // Compute Other bucket (sum of remaining functions)
+        let other_lrs: f64 = sorted_functions
+            .iter()
+            .skip(args.top_k)
+            .map(|(_, lrs)| *lrs)
+            .sum();
+        
+        let version = format!("v{}", commit_index);
+        let short_sha = snapshot.commit.sha.chars().take(7).collect::<String>();
+        
+        // Add Top K functions
+        for func in &top_k_functions {
+            risk_concentration.push(RiskConcentrationEntry {
+                version: version.clone(),
+                sha: short_sha.clone(),
+                commit_index: *commit_index,
+                function_id: normalize_function_id(&func.function_id),
+                lrs: func.lrs,
+            });
+        }
+        
+        // Add Other bucket if non-zero
+        if other_lrs > 0.0 {
+            risk_concentration.push(RiskConcentrationEntry {
+                version: version.clone(),
+                sha: short_sha.clone(),
+                commit_index: *commit_index,
+                function_id: "Other".to_string(),
+                lrs: other_lrs,
+            });
+        }
+    }
+    
     // Build new report data
     let report_data = ReportData {
         meta: Meta {
@@ -337,6 +409,7 @@ fn main() -> Result<()> {
         lrs_series,
         deltas_long,
         repo_distribution,
+        risk_concentration,
     };
 
     // Write updated data.json
@@ -349,6 +422,7 @@ fn main() -> Result<()> {
     println!("  - LRS series: {} entries", report_data.lrs_series.len());
     println!("  - Deltas: {} entries", report_data.deltas_long.len());
     println!("  - Repo distribution: {} functions", report_data.repo_distribution.len());
+    println!("  - Risk concentration: {} entries", report_data.risk_concentration.len());
 
     Ok(())
 }

@@ -270,7 +270,7 @@ faultline/
 ├── .rustfmt.toml              # Rustfmt configuration
 ├── .clippy.toml               # Clippy configuration
 ├── README.md                  # User-facing documentation
-├── TASKS.md                   # Full task specification
+├── TASKS.md                   # MVP task specification (completed)
 ├── dev                        # Development helper script
 ├── docs/
 │   ├── architecture.md        # This file - system architecture

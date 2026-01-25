@@ -20,7 +20,7 @@ This directory contains comprehensive documentation for the Faultline MVP projec
 
 ### For Maintainers
 
-- **[TASKS.md](../TASKS.md)** - Original task specification (all phases complete)
+- **[TASKS.md](TASKS.md)** - Original MVP task specification (all phases complete)
 - **[design-decisions.md](./design-decisions.md)** - Design rationale for future changes
 - **[limitations.md](./limitations.md)** - Known limitations to address
 
@@ -59,6 +59,6 @@ All documentation is complete and up-to-date as of MVP completion:
 ## Related Files
 
 - `../README.md` - Main project README
-- `../TASKS.md` - Original task specification
+- `TASKS.md` - Original MVP task specification
 - `../tests/fixtures/` - Test TypeScript files
 - `../tests/golden/` - Expected JSON outputs

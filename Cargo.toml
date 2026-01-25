@@ -1,12 +1,17 @@
 [workspace]
-members = ["faultline-core", "faultline-cli", "analysis"]
+members = ["faultline-core", "faultline-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.75"
-authors = []
+authors = ["Stephen Collins"]
+license = "MIT"
+repository = "https://github.com/Stephen-Collins-tech/faultline"
+homepage = "https://github.com/Stephen-Collins-tech/faultline"
+keywords = ["typescript", "static-analysis", "complexity", "code-quality"]
+categories = ["development-tools"]
 
 [workspace.lints.clippy]
 # Enforce warnings as errors in workspace

@@ -1,636 +1,342 @@
-# TASKS.md - Faultline MVP (Fully Expanded)
+# TASKS.md – Faultline High-Leverage Extensions (Detailed)
 
 ## Status
 
 ```text
-project: faultline
-implementation: Rust
-analyzes: TypeScript
-scope: static, per-function analysis
-dependencies: none (standalone)
-kernel: explicitly not used
+status: completed
+scope: policy enforcement + trend semantics + aggregation views + visualization
+non-goals: new metrics, mutable history, config DSLs, heuristics
+depends_on:
+  - snapshot mode (stable)
+  - delta mode (stable)
+  - deterministic output invariants
 ```
 
 ---
 
-## Assumptions and Design Decisions
+## Global Constraints (Must Hold)
 
-These decisions are **final and binding**. The Coding Agent must implement exactly as specified.
-
-### Architecture and Setup
-
-**Workspace structure:**
-* Single Rust workspace with **two crates only**:
-  * `faultline-core` (library)
-  * `faultline-cli` (binary)
-* No additional crates in MVP
-
-**Rust edition and MSRV:**
-* Rust edition: **2021**
-* MSRV: **1.75**
-* Do not use nightly or 2024-only features
-
-**Dependencies and error handling:**
-* Allowed and recommended:
-  * `serde` + `serde_json` for JSON output
-  * `thiserror` for error types
-  * `anyhow` for CLI-level error propagation
-* Disallowed:
-  * Logging frameworks
-  * Async runtimes
-  * Heavy utility crates
-* Errors should be typed in `faultline-core` and wrapped at the CLI boundary
-
-### Parser and AST
-
-**JSX support:**
-* **No JSX in MVP**
-* Plain TypeScript only
-* If JSX syntax is encountered, emit a clear parse error and abort
-
-**Anonymous function naming:**
-* Format: `<anonymous>@<file>:<line>`
-* Example: `<anonymous>@src/api.ts:42`
-* This is stable, human-readable, and deterministic
-
-**Synthetic function IDs:**
-* Use a **monotonic numeric ID per file**, assigned in traversal order
-* Format: `FunctionId { file_index, local_index }`
-* IDs are internal only and must never appear in user output
-
-### CFG and Control Flow
-
-**Switch fallthrough:**
-* Fallthrough is **explicit only when `break` is missing**
-* CFG rules:
-  * Each `case` is a node
-  * If a case does not end in `break`, add an edge to the next case
-  * Default case participates the same way
-
-**Try / catch / finally CFG semantics:**
-* `finally` **always executes**
-* CFG structure:
-  * Try body flows to catch blocks on exception
-  * Normal try completion flows to finally
-  * Catch completion flows to finally
-  * Finally flows to a single join node
-* Even if no explicit join exists in source, the CFG must create one
-
-**Generator functions (`function*`):**
-* **Defer** (not supported in MVP)
-* If encountered:
-  * Emit a deterministic error
-  * Skip analysis of that function only
-  * Continue with remaining functions
-
-**Labeled break / continue:**
-* Support labeled `break` and `continue`
-* Rules:
-  * Resolve label target statically
-  * Edge jumps to the correct loop exit or header
-  * Count as non-structured exits
-* If label resolution fails, error deterministically
-
-### Metrics
-
-**Short-circuit operators and CC:**
-* Each logical short-circuit operator increments CC by 1:
-  * `a && b` → +1
-  * `a || b` → +1
-* Nested short-circuits accumulate
-
-**Fan-out and method calls:**
-* `obj.method()` counts as `obj.method`
-* `foo()` counts as `foo`
-* Computed calls like `obj[x]()` are counted as `"<computed>"`
-* Deduplication is done on the final string representation
-
-**Nesting depth and try blocks:**
-* `try` blocks **do increment nesting depth**
-* Included in ND:
-  * if
-  * loops
-  * switch
-  * try / catch
-* Excluded:
-  * lexical scopes
-  * blocks without control flow
-
-### Risk Score and Output
-
-**Floating point precision:**
-* Internal calculations use full `f64`
-* Final LRS is **not rounded internally**
-* Text output displays **2 decimal places**
-* JSON output emits full precision `f64`
-* No rounding of intermediate components
-
-**Sorting stability:**
-* Final sort order:
-  1. LRS descending
-  2. File path ascending
-  3. Line number ascending
-  4. Function name ascending
-* This guarantees total ordering
-
-**JSON output schema:**
-* Include both raw metrics and risk components
-* Use exactly this structure:
-
-```json
-{
-  "file": "...",
-  "function": "...",
-  "line": 42,
-  "metrics": {
-    "cc": 5,
-    "nd": 2,
-    "fo": 3,
-    "ns": 1
-  },
-  "risk": {
-    "r_cc": 2.58,
-    "r_nd": 2,
-    "r_fo": 2,
-    "r_ns": 1
-  },
-  "lrs": 5.96,
-  "band": "moderate"
-}
-```
-
-* No additional fields in MVP
-
-**CLI text output style:**
-* Simple, aligned columns. No borders
-* Example:
-
-```
-LRS   File              Line  Function
-11.2  src/api.ts        88    handleRequest
-9.8   src/db/migrate.ts 41    runMigration
-```
-
-* Human-readable, not pretty-printed
-
-### Testing and Validation
-
-**Golden file location:**
-* Golden files live in:
-  * `tests/fixtures/` (source code)
-  * `tests/golden/` (expected JSON output)
-
-**Determinism tests:**
-* **Explicitly required**
-* Tests must:
-  * Run analysis twice on same input
-  * Assert byte-for-byte identical JSON
-
-**Error handling strategy:**
-* Parse errors: fail fast per file
-* Function-level unsupported features: error for that function, continue
-* Aggregate errors and report at end
-* If errors occur, valid function reports are still emitted, and errors are printed to stderr
-* JSON output contains only valid function results
-* CLI exits non-zero if any errors occurred
-
-### Edge Cases
-
-**Empty functions:**
-* CC = 1
-* ND = 0
-* FO = 0
-* NS = 0
-* This yields a minimal but valid LRS
-
-**Recursive calls:**
-* Self-calls **do count** toward fan-out
-* Reason: recursion increases reasoning load
-
-**Arrow functions with implicit returns:**
-* Supported
-* Rules:
-  * Treat implicit return as a return node
-  * If it is the final expression, it is a tail return and does not count as non-structured
-* CFG must still include an edge to exit
+* [x] No new complexity metrics introduced
+* [x] Snapshot format remains backward compatible
+* [x] No snapshot mutation or rewriting
+* [x] No non-deterministic ordering or floating behavior
+* [x] No user-configurable policy files
+* [x] No impact on analyze behavior when new flags are omitted
 
 ---
 
-## Global invariants (non-negotiable)
+## Phase 1 – Minimal Policy Engine (CI Enforcement)
 
-These apply to **all phases**:
+### Objective
 
-* Analysis is strictly per-function
-* No global mutable state
-* No randomness, clocks, threads, or async
-* Deterministic traversal order must be explicit
-* Formatting, comments, and whitespace must not affect results
-* Identical input yields byte-for-byte identical output
-
-Any violation is a bug.
+Enable Faultline to **block or warn in CI** using a small, fixed set of built-in policies applied to delta output.
 
 ---
 
-## Task graph and execution order
+### 1.1 Policy Definitions
 
-The Coding Agent must execute phases strictly in this order:
+* [x] Define `PolicyId` enum
 
-```
-Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 6 → Phase 7
-```
+  * [x] `CriticalIntroduction`
+  * [x] `ExcessiveRiskRegression`
+  * [x] `NetRepoRegression`
 
-No phase may be partially skipped or interleaved.
+* [x] Define `PolicyResult` struct
 
----
+  * [x] `id: PolicyId`
+  * [x] `severity: Blocking | Warning`
+  * [x] `function_id: Option<String>`
+  * [x] `message: String`
+  * [x] `metadata: Option<PolicyMetadata>`
 
-## Phase 0 - Workspace, crate layout, invariants
+* [x] Define `PolicyMetadata` struct
 
-### 0.1 Workspace creation
-
-* [x] Create Rust workspace `faultline`
-* [x] Add crates:
-
-  * `faultline-core` (library)
-  * `faultline-cli` (binary)
-* [x] Lock Rust edition and MSRV
-* [x] Configure clippy and rustfmt
-* [x] Enable warnings as errors
-
-**Acceptance:** `cargo build` succeeds with zero warnings.
+  * [x] `delta_lrs: Option<f64>` (for Excessive Risk Regression)
+  * [x] `total_delta: Option<f64>` (for Net Repo Regression)
+  * [x] **Note**: `function_id` is stored in `PolicyResult` (top-level), not metadata. Metadata is for numeric values only.
 
 ---
 
-### 0.2 CLI skeleton
+### 1.2 Policy Evaluation Logic
 
-* [x] Add `analyze` subcommand
-* [x] Parse arguments:
+* [x] Implement Critical Introduction policy
 
-  * `<path>`
-  * `--format text|json`
-  * `--top <N>`
-  * `--min-lrs <float>`
-* [x] Normalize and validate paths
-* [x] Call core library with structured options
+  * [x] Trigger when `after.band == Critical AND (before.band != Critical OR before is None)`
+  * [x] `before is None` means no matching `function_id` in the parent snapshot (delta status `new`)
+  * [x] Covers: Modified functions crossing into Critical, New functions introduced as Critical, Re-added functions as Critical
+  * [x] Emit blocking failure
+  * [x] Attach `function_id` in `PolicyResult` (top-level field, not metadata)
 
-**Acceptance:** CLI runs and prints placeholder output deterministically.
+* [x] Implement Excessive Risk Regression policy
 
----
+  * [x] Trigger when `status == Modified && delta.lrs >= 1.0`
+  * [x] Threshold is fixed at 1.0 LRS (absolute, not relative)
+  * [x] Emit blocking failure
+  * [x] Attach `function_id` and `delta_lrs` in metadata
 
-### 0.3 Invariants documentation
+* [x] Implement Net Repo Regression policy
 
-* [x] Create `docs/invariants.md`
-* [x] Document all global invariants
-* [x] Reference invariants in code comments where enforced
-
-**Acceptance:** Invariants are explicit and referenced.
-
----
-
-## Phase 1 - TypeScript parsing and function discovery
-
-### 1.1 Parser selection and locking
-
-* [x] Use `swc_ecma_parser`
-* [x] Pin exact versions
-* [x] Enable TypeScript syntax only
-* [x] Disable experimental proposals
-* [x] Document supported syntax in `docs/ts-support.md`
-
-**Acceptance:** A simple TS file parses successfully.
+  * [x] Compute `Σ(all after.lrs) - Σ(all before.lrs)` by loading full snapshots (not reconstructing from delta entries)
+  * [x] Load parent snapshot and current snapshot using existing snapshot loading logic
+  * [x] Sum `lrs` across all `functions[]` in each snapshot
+  * [x] Trigger when result > 0
+  * [x] Emit warning only (non-blocking)
+  * [x] Attach `total_delta` in metadata
+  * [x] **Rationale**: Repo-level policies operate on snapshots, not delta internals. This ensures correctness, avoids edge cases, and remains stable if delta semantics evolve.
 
 ---
 
-### 1.2 AST adapter layer
+### 1.3 Policy Engine Integration
 
-Define a stable abstraction:
-
-```rust
-struct FunctionNode {
-  id: FunctionId,
-  name: Option<String>,
-  span: Span,
-  body: AstNode,
-}
-```
-
-Tasks:
-
-* [x] Map SWC nodes to `FunctionNode`
-* [x] Generate synthetic IDs for anonymous functions
-* [x] Extract start line number
-* [x] Enforce deterministic ordering by (file, span.start)
-
-**Acceptance:** All functions are discovered in stable order.
+* [x] Add policy evaluation stage after delta computation
+* [x] Evaluation order: Function-level policies first (Critical Introduction, Excessive Risk Regression), then repo-level (Net Repo Regression)
+* [x] Collect all violations before exit (do not short-circuit)
+* [x] Skip policy evaluation entirely if `baseline == true` (no violations, exit successfully)
+* [x] A function may trigger multiple policies - report all violations
 
 ---
 
-### 1.3 Supported and ignored constructs
+### 1.4 CLI Integration
 
-Explicitly support:
+* [x] Add `--policy` flag to `faultline analyze`
 
-* [x] Function declarations
-* [x] Function expressions
-* [x] Arrow functions
-* [x] Class methods
-* [x] Object literal methods
+* [x] Flag only valid in `--mode delta`
 
-Explicitly ignore:
+* [x] When omitted:
 
-* [x] Interfaces
-* [x] Type aliases
-* [x] Overload signatures without bodies
-* [x] Ambient declarations
+  * [x] No policy evaluation
+  * [x] No behavior change
 
-**Acceptance:** Ignored constructs never appear in analysis results.
+* [x] When present:
+
+  * [x] Blocking failures cause exit code 1
+  * [x] Warnings printed but do not fail (exit code 0 if warnings only)
+  * [x] Exit code 0 if no violations
 
 ---
 
-## Phase 2 - Control Flow Graph (CFG)
+### 1.5 Output Extensions
 
-### 2.1 CFG data model
+#### JSON
 
-Define:
+* [x] Extend delta JSON schema with optional `policy` field (only present when `--policy` flag used)
 
-```rust
-struct CfgNode { id: NodeId, kind: NodeKind }
-struct CfgEdge { from: NodeId, to: NodeId }
-struct Cfg {
-  nodes: Vec<CfgNode>,
-  edges: Vec<CfgEdge>,
-  entry: NodeId,
-  exit: NodeId,
-}
-```
+  * [x] `failed: []` (blocking violations)
+  * [x] `warnings: []` (non-blocking violations)
+* [x] Preserve deterministic ordering: Primary sort by `id` (enum discriminant order), secondary sort by `function_id` ASCII (None last)
+* [x] Keep `schema_version = 1` (backward compatible - policy field is optional)
 
-Rules:
+#### Text
 
-* One CFG per function
-* No cross-function edges
-* No global graph
-
-**Acceptance:** Empty CFG can be constructed and validated. ✅
+* [x] Print policy summary header
+* [x] Print blocking failures first (list function_ids and policy types)
+* [x] Print warnings second (summary only, not in table)
+* [x] Follow with filtered function table showing **only functions that triggered blocking failures**
+* [x] Table columns: Function, Before, After, ΔLRS, Policy
 
 ---
 
-### 2.2 Formal CFG lowering rules
+### Phase 1 Completion Criteria
 
-Lower AST → CFG using these exact rules:
-
-#### Sequential statements
-
-* Each *control-relevant statement* becomes a CFG node
-* Expression-only statements without control flow may be collapsed
-* Sequential edges connect in order
-
-#### If / else
-
-* Condition node
-* Two outgoing edges
-* Join node after both branches
-
-#### Switch
-
-* One node per case
-* Fallthrough edges explicit
-* Join node after switch
-
-#### Loops (for, while, do-while)
-
-* Loop header node
-* Back-edge to header
-* Exit edge to join node
-
-#### Break / continue
-
-* Edge to loop exit or header
-* Count as non-structured exit
-
-#### Return
-
-* Edge directly to CFG exit
-* Counts as non-structured exit unless it is the final statement
-
-#### Throw
-
-* Edge to CFG exit
-* Always non-structured
-
-#### Try / catch / finally
-
-* Try body flows into catch blocks
-* Finally always executes
-* All paths converge at join
-
-#### Boolean short-circuit operators
-
-* Boolean short-circuit operators (`&&`, `||`) do not introduce CFG nodes
-* They are treated as implicit decision points for CC calculation only
-
-**Acceptance:** CFGs match hand-drawn examples exactly.
-
-Note: Break/continue routing to loop exit/header requires loop context tracking (currently routes to exit as placeholder).
+* [x] CI can fail on Critical introductions
+* [x] CI can fail on excessive LRS regressions
+* [x] Net repo regression emits warning
+* [x] No behavior change without `--policy`
 
 ---
 
-### 2.3 CFG validation
+## Phase 2 – Trend Semantics (Meaning from History)
 
-* [x] Exactly one entry node
-* [x] Exactly one exit node
-* [x] All nodes reachable from entry
-* [x] All paths must either reach the exit node or terminate via a return or throw edge explicitly connected to exit
+### Objective
 
-**Acceptance:** Invalid CFGs error deterministically. ✅
+Extract high-signal trends from existing snapshots without new metrics or prediction.
 
 ---
 
-## Phase 3 - Metric extraction
+### 2.1 History Windowing
 
-### 3.1 Cyclomatic Complexity (CC)
-
-* [x] Compute `CC = E - N + 2`
-* [x] Increment CC for:
-
-  * boolean short-circuit operators
-  * each switch case
-  * each catch clause
-* [ ] Document CC contribution rules
-
-**Acceptance:** CC matches expected values in fixtures.
+* [x] Define sliding window abstraction
+* [x] Default window size = 10 snapshots (configurable via `--window`)
+* [x] If fewer than N snapshots exist, use all available
+* [x] Ignore gaps where function does not exist (skip commits where function missing)
+* [x] Maintain deterministic snapshot ordering
 
 ---
 
-### 3.2 Nesting Depth (ND)
+### 2.2 Risk Velocity
 
-* [x] Walk AST, not CFG
-* [x] Count control constructs only:
+* [x] Compute per-function `ΔLRS / Δcommits` using simple formula: `(LRS_last - LRS_first) / (commit_count - 1)`
+* [x] Require at least 2 data points (skip if insufficient)
+* [x] Skip commits where function does not exist
+* [x] Track:
 
-  * if, loop, switch, try
-* [x] Track maximum depth
-
-**Acceptance:** ND correct for nested examples.
-
----
-
-### 3.3 Fan-Out (FO)
-
-* [x] Collect call expressions
-* [x] Extract callee identifiers
-* [x] For chained calls, count each call expression independently using its immediate callee representation
-
-  Example: `foo().bar().baz()` counts as:
-  * `foo`
-  * `foo().bar`
-  * `foo().bar().baz`
-* [x] Deduplicate by symbol name
-* [x] Ignore intrinsics and operators
-
-**Acceptance:** FO invariant under formatting changes.
+  * [x] Latest velocity (numeric value)
+  * [x] Direction (positive, negative, flat)
+* [x] Flat direction defined as `abs(velocity) < 1e-9` (deterministic epsilon tolerance)
+* [x] Exclude baseline-only functions (functions that only appear in first snapshot)
 
 ---
 
-### 3.4 Non-Structured Exits (NS)
+### 2.3 Hotspot Stability
 
-* [x] Count early `return`
-* [x] Count `break`
-* [x] Count `continue`
-* [x] Count `throw`
-* [x] Exclude final tail return
+* [x] Identify top K functions per snapshot by LRS
+* [x] Compute overlap ratio across window
+* [x] Classify:
 
-**Acceptance:** NS matches CFG structure.
-
----
-
-## Phase 4 - Local Risk Score (LRS)
-
-### 4.1 Risk transforms
-
-Implement exactly:
-
-```
-R_cc = min(log2(CC + 1), 6)
-R_nd = min(ND, 8)
-R_fo = min(log2(FO + 1), 6)
-R_ns = min(NS, 6)
-```
-
-* [x] Implement all risk transforms
-* [x] Ensure transforms are monotonic and bounded
-
-**Acceptance:** All transforms monotonic and bounded. ✅
+  * [x] Stable hotspots
+  * [x] Emerging hotspots
+  * [x] Volatile hotspots
 
 ---
 
-### 4.2 LRS aggregation
+### 2.4 Refactor Effectiveness Detection
 
-```
-LRS =
-  1.0 * R_cc +
-  0.8 * R_nd +
-  0.6 * R_fo +
-  0.7 * R_ns
-```
+* [x] Detect significant negative LRS deltas (threshold: `delta.lrs <= -1.0`)
+* [x] Require sustainment across ≥ 2 commits
+* [x] Detect rebound within window (threshold: `delta.lrs >= +0.5` after improvement)
+* [x] Classify refactor outcome:
 
-* [x] Compute float score
-* [x] Assign band:
-
-  * <3 low
-  * 3-6 moderate
-  * 6-9 high
-  * ≥9 critical
-
-**Acceptance:** Scores match documented examples exactly. ✅
+  * [x] Successful (improvement sustained, no rebound)
+  * [x] Partial (improvement sustained, but rebound detected)
+  * [x] Cosmetic (improvement not sustained across ≥ 2 commits)
 
 ---
 
-## Phase 5 - Reporting and CLI output
+### 2.5 CLI Command
 
-### 5.1 Report model
+* [x] Add `faultline trends` command
+* [x] Flags:
 
-Define:
-
-```rust
-struct FunctionRiskReport {
-  file: String,
-  function: String,
-  line: u32,
-  metrics: RawMetrics,
-  risk: RiskComponents,
-  lrs: f64,
-  band: RiskBand,
-}
-```
-
-* [x] Define FunctionRiskReport struct
-* [x] Include all required fields
-* [x] Support JSON serialization
-
-**Acceptance:** Struct serializes deterministically. ✅
+  * [x] `--top K`
+  * [x] `--window N`
+* [x] JSON-first output
+* [x] Text output as summary only
 
 ---
 
-### 5.2 Output renderers
+### Phase 2 Completion Criteria
 
-* [x] Text renderer
-* [x] JSON renderer
-* [x] Stable sort by:
-
-  1. LRS descending
-  2. File path ascending
-  3. Line number ascending
-  4. Function name ascending
-
-**Acceptance:** Byte-for-byte identical output across runs. ✅
+* [x] Risk velocity surfaced per function
+* [x] Stable vs volatile hotspots identifiable
+* [x] Refactor effectiveness classified
+* [x] No snapshot format changes
 
 ---
 
-## Phase 6 - Test fixtures and determinism
+## Phase 3 – Aggregation Views (Derived Only)
 
-### 6.1 Golden fixtures
+### Objective
 
-Create TS files for:
-
-* [x] Single simple function
-* [x] Nested branching
-* [x] Loop with breaks
-* [x] Try/catch/finally
-* [x] Pathological complexity
-
-* [x] Snapshot expected JSON output (golden files)
-
-**Location:**
-- Golden JSON files: `tests/golden/*.json` (5 files)
-- Golden test code: `faultline-core/tests/golden_tests.rs`
-
-**Acceptance:** All 6 golden tests pass, verifying byte-for-byte identical output. ✅
+Expose architectural concentration without contaminating core metrics.
 
 ---
 
-### 6.2 Invariance tests
+### 3.1 Snapshot Aggregates
 
-* [x] Reordered functions (tested via deterministic ordering)
-* [x] Reordered files (tested via deterministic sorting)
-* [x] Whitespace-only changes (test_whitespace_invariance)
+* [x] Aggregate per file:
 
-**Acceptance:** Outputs unchanged. ✅
+  * [x] Sum LRS (sum of all functions in file)
+  * [x] Max LRS (highest LRS function in file)
+  * [x] Count High+ functions (band == "high" OR band == "critical")
 
----
+* [x] Aggregate per directory:
 
-## Phase 7 - Documentation and polish
-
-* [x] README with quickstart
-* [x] LRS spec
-* [x] Supported TS features
-* [x] Known limitations
-
-**Acceptance:** New user can run in under 5 minutes. ✅
+  * [x] Recursive rollup
+  * [x] Same metrics as files
 
 ---
 
-## Exit criteria
+### 3.2 Delta Aggregates
 
-Faultline MVP is complete when:
+* [x] Compute per-file net LRS delta
+* [x] Count regressions per file (regression = function with `delta.lrs > 0` in that file)
+* [x] Preserve deterministic ordering
 
-* All phases complete
-* All tests deterministic
-* No kernel dependency exists
-* Output is trusted and reproducible
+---
+
+### 3.3 Output Structure
+
+* [x] Add `aggregates` namespace to snapshot JSON and delta JSON only
+* [x] Trends command has its own schema (does not include aggregates)
+* [x] Ensure aggregates are strictly derived
+* [x] Do not modify existing function data
+
+---
+
+### Phase 3 Completion Criteria
+
+* [x] Repo risk concentration visible
+* [x] File-level regressions identifiable
+* [x] No change to LRS or bands
+
+---
+
+## Phase 4 – Persuasive Visualization
+
+### Objective
+
+Add one visualization that communicates risk evolution instantly.
+
+---
+
+### 4.1 Data Preparation
+
+* [x] Extend `update-report` to compute:
+
+  * [x] Top K functions by LRS per snapshot
+  * [x] Remaining functions as “Other”
+* [x] Preserve stable function ordering
+* [x] Ensure backward compatibility with existing charts
+
+---
+
+### 4.2 Chart Implementation
+
+* [x] Stacked area chart
+* [x] X-axis: commit order (deterministic ordering: sort by `commit.timestamp` ascending, tie-break by `commit.sha` ASCII)
+* [x] Y-axis: cumulative LRS (stacked sum of Top K + Other)
+* [x] Series:
+
+  * [x] Each of Top K functions as separate stack layer
+  * [x] "Other" bucket as final stack layer
+* [x] Shows total risk concentration and how it evolves
+
+---
+
+### 4.3 Integration
+
+* [x] Add chart to `index.html`
+* [x] Document interpretation in README or docs
+* [x] Do not add additional charts in this phase
+
+---
+
+### Phase 4 Completion Criteria
+
+* [x] Risk concentration over time visible
+* [x] Refactors clearly reflected
+* [x] Chart renders from existing snapshot data only
+
+---
+
+## Final Success Criteria
+
+* [x] Faultline can block CI on meaningful regressions
+* [x] Trend direction is visible and actionable
+* [x] Architectural risk concentration is obvious
+* [x] Visualization tells a story in under 10 seconds
+* [x] All determinism and git-native guarantees preserved
+
+---
+
+## Explicitly Deferred
+
+* [ ] User-configurable policies
+* [ ] Language plugins
+* [ ] SARIF export
+* [ ] IDE integration
+* [ ] New metrics or scoring logic
+
+---
+
+**This task set converts Faultline from a passive observer into a system that actively shapes engineering behavior while preserving its core rigor.**

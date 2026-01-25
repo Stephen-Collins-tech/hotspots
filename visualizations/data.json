@@ -1,0 +1,543 @@
+{
+  "meta": {
+    "repo": "faultline-synthetic-hotspot-linear",
+    "target_function_id": "src/module_02.ts::f_07"
+  },
+  "lrs_series": [
+    {
+      "version": "v0",
+      "sha": "0b5ddbe",
+      "commit_index": 0,
+      "lrs": 1.0,
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "band": "low"
+    },
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "lrs": 4.084962500721156,
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1,
+      "band": "moderate"
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "lrs": 5.199999999999999,
+      "cc": 7,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2,
+      "band": "moderate"
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "lrs": 6.169925001442312,
+      "cc": 8,
+      "nd": 2,
+      "fo": 0,
+      "ns": 2,
+      "band": "high"
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "lrs": 7.369925001442311,
+      "cc": 8,
+      "nd": 2,
+      "fo": 3,
+      "ns": 2,
+      "band": "high"
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "lrs": 9.300439718141092,
+      "cc": 12,
+      "nd": 2,
+      "fo": 3,
+      "ns": 4,
+      "band": "critical"
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "lrs": 8.384962500721155,
+      "cc": 11,
+      "nd": 1,
+      "fo": 3,
+      "ns": 4,
+      "band": "high"
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "lrs": 8.384962500721155,
+      "cc": 11,
+      "nd": 1,
+      "fo": 3,
+      "ns": 4,
+      "band": "high"
+    }
+  ],
+  "deltas_long": [
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "metric": "cc",
+      "delta": 4.0
+    },
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "metric": "nd",
+      "delta": 1.0
+    },
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "metric": "ns",
+      "delta": 1.0
+    },
+    {
+      "version": "v1",
+      "sha": "7e925b7",
+      "commit_index": 1,
+      "metric": "lrs",
+      "delta": 3.084962500721156
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "metric": "cc",
+      "delta": 2.0
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "metric": "nd",
+      "delta": 0.0
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "metric": "ns",
+      "delta": 1.0
+    },
+    {
+      "version": "v2",
+      "sha": "e9c08cf",
+      "commit_index": 2,
+      "metric": "lrs",
+      "delta": 1.1150374992788432
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "metric": "cc",
+      "delta": 1.0
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "metric": "nd",
+      "delta": 1.0
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "metric": "ns",
+      "delta": 0.0
+    },
+    {
+      "version": "v3",
+      "sha": "15547c6",
+      "commit_index": 3,
+      "metric": "lrs",
+      "delta": 0.9699250014423129
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "metric": "cc",
+      "delta": 0.0
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "metric": "nd",
+      "delta": 0.0
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "metric": "fo",
+      "delta": 3.0
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "metric": "ns",
+      "delta": 0.0
+    },
+    {
+      "version": "v4",
+      "sha": "c20b5b4",
+      "commit_index": 4,
+      "metric": "lrs",
+      "delta": 1.1999999999999993
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "metric": "cc",
+      "delta": 4.0
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "metric": "nd",
+      "delta": 0.0
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "metric": "ns",
+      "delta": 2.0
+    },
+    {
+      "version": "v5",
+      "sha": "46e5570",
+      "commit_index": 5,
+      "metric": "lrs",
+      "delta": 1.9305147166987808
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "metric": "cc",
+      "delta": -1.0
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "metric": "nd",
+      "delta": -1.0
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "metric": "ns",
+      "delta": 0.0
+    },
+    {
+      "version": "v6",
+      "sha": "11151aa",
+      "commit_index": 6,
+      "metric": "lrs",
+      "delta": -0.9154772174199373
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "metric": "cc",
+      "delta": 0.0
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "metric": "nd",
+      "delta": 0.0
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "metric": "fo",
+      "delta": 0.0
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "metric": "ns",
+      "delta": 0.0
+    },
+    {
+      "version": "v7",
+      "sha": "04ca538",
+      "commit_index": 7,
+      "metric": "lrs",
+      "delta": 0.0
+    }
+  ],
+  "repo_distribution": [
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_01",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_02",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_03",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_04",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_05",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_06",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_07",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_08",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_09",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_01.ts::f_10",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_01",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_02",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_03",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_04",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_05",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_06",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_07",
+      "lrs": 8.384962500721155,
+      "band": "high"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_08",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_09",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::f_10",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::helperA",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::helperB",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_02.ts::helperC",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_01",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_02",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_03",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_04",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_05",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_06",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_07",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_08",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_09",
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "version": "v7",
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline-synthetic-hotspot-linear-repo/./src/module_03.ts::f_10",
+      "lrs": 1.0,
+      "band": "low"
+    }
+  ]
+}

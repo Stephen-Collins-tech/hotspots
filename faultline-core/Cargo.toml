@@ -3,6 +3,12 @@ name = "faultline-core"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+description = "Core library for TypeScript static analysis and Local Risk Score (LRS) computation"
 
 [lib]
 name = "faultline_core"

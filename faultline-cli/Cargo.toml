@@ -3,6 +3,13 @@ name = "faultline-cli"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+description = "Static analysis CLI for TypeScript that computes Local Risk Score (LRS) based on control flow complexity"
+readme = "../README.md"
 
 [[bin]]
 name = "faultline"

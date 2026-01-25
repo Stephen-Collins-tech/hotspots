@@ -14,9 +14,9 @@
   <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
 </head>
 <body>
-  <h1>Faultline Synthetic Hotspot Linear - Visual Report (Vega)</h1>
+  <h1>Faultline - Visual Report</h1>
   <p class="note">
-    Charts are driven by <code>data.json</code>. Replace that file with real extracted data to reuse the same specs.
+    Charts are driven by <code>data.json</code>. Generate data using: <code>cargo run --example export_visualization</code>
   </p>
 
   <div class="grid">
@@ -24,14 +24,16 @@
     <div class="card"><div id="band"></div></div>
     <div class="card"><div id="delta"></div></div>
     <div class="card"><div id="hist"></div></div>
+    <div class="card"><div id="concentration"></div></div>
   </div>
 
   <script>
     const opts = { actions: {export: true, source: false, editor: false} };
-    vegaEmbed('#lrs', 'lrs_timeline.vl.json', opts);
-    vegaEmbed('#band', 'band_timeline.vl.json', opts);
-    vegaEmbed('#delta', 'delta_breakdown.vl.json', opts);
-    vegaEmbed('#hist', 'repo_distribution.vl.json', opts);
+    vegaEmbed('#lrs', 'specs/lrs_timeline.vl.json', opts);
+    vegaEmbed('#band', 'specs/band_timeline.vl.json', opts);
+    vegaEmbed('#delta', 'specs/delta_breakdown.vl.json', opts);
+    vegaEmbed('#hist', 'specs/repo_distribution.vl.json', opts);
+    vegaEmbed('#concentration', 'specs/risk_concentration.vl.json', opts);
   </script>
 </body>
 </html>

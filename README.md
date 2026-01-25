@@ -44,10 +44,50 @@ See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ## Installation
 
+### Local Development (No Installation)
+
+For development, use the `dev` script which runs `cargo run`:
+
 ```bash
-git clone <repo-url>
+./dev --version
+./dev analyze src/main.ts
+./dev analyze src/ --format json
+```
+
+This runs the tool directly without installing it globally. Useful for:
+- Quick testing during development
+- Avoiding PATH configuration
+- Always using the latest code
+
+### Development Installation (Global)
+
+Install to your local bin directory (`~/.local/bin`):
+
+```bash
+git clone https://github.com/Stephen-Collins-tech/faultline
+cd faultline
+./install-dev.sh
+# or
+make install
+```
+
+This will:
+- Build the release binary
+- Install it to `~/.local/bin/faultline`
+- Make it available globally (if `~/.local/bin` is in your PATH)
+
+**Note:** If `~/.local/bin` is not in your PATH, add this to your shell config:
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+```
+
+### Manual Build
+
+```bash
+git clone https://github.com/Stephen-Collins-tech/faultline
 cd faultline
 cargo build --release
+# Binary will be at ./target/release/faultline
 ```
 
 ## Usage
@@ -145,13 +185,39 @@ This makes faultline suitable for CI/CD integration and regression testing.
 
 ## Development
 
+### Testing
+
+**Unit Tests:**
 ```bash
-# Run tests
 cargo test
+```
 
-# Run integration tests
-cargo test --test integration_tests
+**Comprehensive Integration Tests:**
+```bash
+# Using Python script directly
+python3 test_comprehensive.py
 
+# Or using Make
+make test-comprehensive
+
+# Or using shell script
+./scripts/run-tests.sh comprehensive
+
+# Run all tests (unit + comprehensive)
+make test-all
+# or
+./scripts/run-tests.sh all
+```
+
+The comprehensive test suite validates all four phases:
+- **Policy Engine**: Critical Introduction, Excessive Risk Regression, Net Repo Regression
+- **Trend Semantics**: Risk Velocity, Hotspot Stability, Refactor Effectiveness  
+- **Aggregation Views**: File and Directory aggregates
+- **Output Formats**: JSON and Text formats
+
+### Code Quality
+
+```bash
 # Format code
 cargo fmt
 
@@ -161,4 +227,4 @@ cargo clippy
 
 ## License
 
-[Add license information]
+MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
