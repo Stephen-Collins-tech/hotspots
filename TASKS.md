@@ -6,6 +6,23 @@
 
 **Status:** Post-MVP - building toward v1.0 CI/CD-ready release
 
+## Progress Summary
+
+**Phase 1: Language Completeness**
+- ✅ Task 1.1: JavaScript Support (COMPLETED 2026-01-28)
+- ✅ Task 1.2: JSX/TSX Support (COMPLETED 2026-01-28)
+- ⏳ Task 1.3: Fix Break/Continue CFG Routing (IN PROGRESS)
+
+**Phase 2: CI/CD Integration**
+- ⏳ Task 2.1: GitHub Action (Core)
+- ⏳ Task 2.2: Proactive Warning System
+- ⏳ Task 2.3: HTML Report Generation
+- ⏳ Task 2.4: GitHub PR Annotations
+
+**Overall Progress:** 2/25 tasks completed (8%)
+
+**Latest Update:** 2026-01-28 - Shipped JavaScript and React support
+
 ---
 
 ## Reference Documents
@@ -42,65 +59,73 @@ Phase 6: Polish & Documentation
 
 ## Phase 1: Language Completeness
 
-### 1.1 JavaScript Support
+### 1.1 JavaScript Support ✅
 
 **Priority:** P0 (Critical blocker)
+
+**Status:** ✅ **COMPLETED** (2026-01-28)
 
 **Problem:** Most projects mix TypeScript and JavaScript. Without JS support, Faultline is incomplete.
 
 **Tasks:**
 
-- [ ] Enable JavaScript parsing in SWC parser configuration
+- [x] Enable JavaScript parsing in SWC parser configuration
   - Support ES2015+ syntax
   - CommonJS and ESM modules
   - No JSX (separate task)
-- [ ] Test that all metrics work identically for JS and TS
+- [x] Test that all metrics work identically for JS and TS
   - CC, ND, FO, NS should behave the same
-- [ ] Add JS golden test fixtures
+- [x] Add JS golden test fixtures
   - `tests/fixtures/js/` directory
   - Mirror TS fixtures in plain JS
-- [ ] Update documentation
+- [x] Update documentation
   - `docs/ts-support.md` → `docs/language-support.md`
   - List supported JS features
-- [ ] Add file extension handling
+- [x] Add file extension handling
   - `.js`, `.mjs`, `.cjs` alongside `.ts`, `.mts`, `.cts`
 
 **Acceptance:**
-- Analyze a mixed TS/JS project successfully
-- JS and TS functions with identical structure yield identical LRS
-- All existing tests still pass (determinism preserved)
+- ✅ Analyze a mixed TS/JS project successfully
+- ✅ JS and TS functions with identical structure yield identical LRS
+- ✅ All existing tests still pass (determinism preserved)
 
-**Estimated effort:** Medium (2-3 days)
+**Actual effort:** ~4 hours (faster than estimated due to SWC built-in support)
+
+**Commit:** d6be126
 
 ---
 
-### 1.2 JSX/TSX Support
+### 1.2 JSX/TSX Support ✅
 
 **Priority:** P1 (High - needed for React adoption)
 
-**Dependencies:** JavaScript support (1.1)
+**Status:** ✅ **COMPLETED** (2026-01-28)
+
+**Dependencies:** JavaScript support (1.1) ✅
 
 **Tasks:**
 
-- [ ] Enable JSX parsing in SWC configuration
+- [x] Enable JSX parsing in SWC configuration
   - JSX in `.jsx`, `.tsx` files
   - JSX pragmas (`@jsx`, `@jsxFrag`)
-- [ ] Decide JSX metric handling
+- [x] Decide JSX metric handling
   - JSX elements should NOT inflate complexity artificially
   - JSX expressions containing control flow (ternaries, &&) DO count
   - Document rationale
-- [ ] Add JSX golden test fixtures
+- [x] Add JSX golden test fixtures
   - React component with conditional rendering
   - Component with map/loops
   - Complex nested JSX
-- [ ] Update documentation with JSX support status
+- [x] Update documentation with JSX support status
 
 **Acceptance:**
-- Analyze a React TypeScript project successfully
-- JSX elements don't create false complexity signals
-- Conditional rendering and loops are measured correctly
+- ✅ Analyze a React TypeScript project successfully
+- ✅ JSX elements don't create false complexity signals
+- ✅ Conditional rendering and loops are measured correctly
 
-**Estimated effort:** Medium (3-4 days)
+**Actual effort:** ~1 hour (SWC already had JSX support)
+
+**Commit:** d6be126
 
 ---
 
