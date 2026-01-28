@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use swc_common::{sync::Lrc, SourceMap};
 
-/// Analyze a TypeScript file or directory
+/// Analyze a TypeScript or JavaScript file
 pub fn analyze_file(
     path: &Path,
     source_map: &Lrc<SourceMap>,
@@ -20,9 +20,9 @@ pub fn analyze_file(
     // Read file
     let src = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
-    
-    // Parse TypeScript
-    let module = parser::parse_typescript(&src, source_map, &path.to_string_lossy())?;
+
+    // Parse source file (TypeScript or JavaScript)
+    let module = parser::parse_source(&src, source_map, &path.to_string_lossy())?;
     
     // Discover functions
     let functions = discover::discover_functions(&module, file_index);

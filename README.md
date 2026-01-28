@@ -1,6 +1,6 @@
 # Faultline
 
-Static analysis tool for TypeScript functions that computes a Local Risk Score (LRS) based on control flow complexity metrics.
+Static analysis tool for TypeScript, JavaScript, and React that computes a Local Risk Score (LRS) based on control flow complexity metrics.
 
 ## Quickstart
 
@@ -8,10 +8,13 @@ Static analysis tool for TypeScript functions that computes a Local Risk Score (
 # Build the project
 cargo build --release
 
-# Analyze a TypeScript file
+# Analyze TypeScript, JavaScript, or React files
 ./target/release/faultline analyze src/main.ts
+./target/release/faultline analyze src/app.js
+./target/release/faultline analyze src/Component.tsx
+./target/release/faultline analyze src/Button.jsx
 
-# Analyze a directory
+# Analyze a directory (all .ts, .js, .tsx, .jsx files)
 ./target/release/faultline analyze src/
 
 # Output as JSON
@@ -26,7 +29,7 @@ cargo build --release
 
 ## What is LRS?
 
-Local Risk Score (LRS) is a composite metric that measures the complexity and risk of individual TypeScript functions. It combines four metrics:
+Local Risk Score (LRS) is a composite metric that measures the complexity and risk of individual functions. It combines four metrics:
 
 - **Cyclomatic Complexity (CC)**: Measures the number of linearly independent paths through a function
 - **Nesting Depth (ND)**: Measures the maximum depth of nested control structures

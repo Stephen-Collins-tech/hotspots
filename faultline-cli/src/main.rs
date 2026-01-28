@@ -1,4 +1,4 @@
-//! Faultline CLI - command-line interface for TypeScript analysis
+//! Faultline CLI - command-line interface for TypeScript/JavaScript/React analysis
 
 #![deny(warnings)]
 
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "faultline")]
-#[command(about = "Static analysis tool for TypeScript functions")]
+#[command(about = "Static analysis tool for TypeScript, JavaScript, and React")]
 #[command(version = env!("FAULTLINE_VERSION"))]
 struct Cli {
     #[command(subcommand)]
@@ -27,9 +27,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Analyze TypeScript files
+    /// Analyze TypeScript, JavaScript, JSX, and TSX files
     Analyze {
-        /// Path to TypeScript file or directory
+        /// Path to source file or directory
         path: PathBuf,
         
         /// Output format
