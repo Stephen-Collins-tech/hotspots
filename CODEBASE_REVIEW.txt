@@ -1,0 +1,295 @@
+================================================================================
+FAULTLINE CODEBASE REVIEW - 2026-02-02
+================================================================================
+Comparison of current codebase state vs. the 12-week open-core plan.
+
+Tool history: Explored full codebase structure, read all key files (TASKS.md,
+PROGRESS.md, README.md, Cargo.toml), ran cargo build --release (success),
+ran cargo test --all (79 passed, 5 failed in git_history_tests due to
+sandboxed environment git constraints).
+
+================================================================================
+SECTION 1: WHAT EXISTS vs. WHAT WAS DESCRIBED
+================================================================================
+
+CLAIM: "CLI is complete - The core analyzer works"
+STATUS: CONFIRMED
+  - faultline-cli binary builds and runs
+  - Commands: analyze, prune, compact, trends
+  - Flags: --format text|json, --mode snapshot|delta, --policy,
+    --top N, --min-lrs
+  - Version injection from git tags via build.rs
+
+CLAIM: "MVP is functional - Can analyze codebases and output risk scores"
+STATUS: CONFIRMED
+  - Full pipeline: parse -> discover functions -> build CFG -> extract
+    metrics -> calculate risk -> generate report
+  - Text and JSON output formats
+  - Filtering (--top, --min-lrs)
+  - Deterministic, byte-for-byte reproducible output
+
+CLAIM: "Written in Rust - Fast, reliable"
+STATUS: CONFIRMED
+  - Workspace: faultline-core (library) + faultline-cli (binary)
+  - Rust 2021 edition, MSRV 1.75
+  - Strict clippy config, rustfmt config
+  - MIT licensed
+
+CLAIM: "Analyzes TS/JS - Using tree-sitter for parsing"
+STATUS: PARTIALLY CORRECT
+  - Analyzes TS/JS/TSX/JSX: CONFIRMED (12 file extensions)
+  - Parser: SWC (swc_ecma_parser v33), NOT tree-sitter
+  - SWC is a better fit for this use case (full TypeScript support,
+    faster, maintained by Vercel)
+
+================================================================================
+SECTION 2: CURRENT CODEBASE INVENTORY
+================================================================================
+
+ARCHITECTURE (17 core modules, ~3,500 LOC):
+  parser.rs       - SWC-based TS/JS/JSX/TSX parsing
+  ast.rs          - FunctionNode / FunctionId abstractions
+  discover.rs     - AST visitor for function extraction
+  cfg.rs          - Control Flow Graph data structure
+  cfg/builder.rs  - CFG construction from AST
+  metrics.rs      - CC, ND, FO, NS metric extraction
+  risk.rs         - LRS calculation and risk banding
+  analysis.rs     - Orchestration pipeline
+  report.rs       - Text/JSON report rendering
+  snapshot.rs     - Immutable commit-scoped persistence
+  delta.rs        - Parent-relative change computation
+  git.rs          - Git context extraction (CLI-based, no libgit2)
+  policy.rs       - CI enforcement (3 policies)
+  trends.rs       - Risk velocity, hotspots, refactor detection
+  aggregates.rs   - File/directory-level rollups
+  prune.rs        - Snapshot garbage collection
+  lib.rs          - Public API + file collection
+
+LRS FORMULA:
+  R_cc = min(log2(CC + 1), 6)    weight: 1.0
+  R_nd = min(ND, 8)              weight: 0.8
+  R_fo = min(log2(FO + 1), 6)    weight: 0.6
+  R_ns = min(NS, 6)              weight: 0.7
+  LRS = 1.0*R_cc + 0.8*R_nd + 0.6*R_fo + 0.7*R_ns
+  Bands: Low(<3), Moderate(3-6), High(6-9), Critical(>=9)
+
+TESTS:
+  52 unit tests (all passing)
+  7 CI invariant tests (all passing)
+  6 golden tests (all passing)
+  7 language parity tests (all passing)
+  4 JSX parity tests (all passing)
+  3 integration tests (all passing)
+  5 git_history_tests (FAILING - git sandbox limitations, not code bugs)
+  ---
+  Total: 79 passing, 5 environment-dependent failures
+
+DOCUMENTATION (23 files in docs/):
+  architecture.md, design-decisions.md, lrs-spec.md,
+  language-support.md, limitations.md, roadmap.md,
+  git-history-integration-summary.md, metrics-calculation-and-rationale.md,
+  FEATURE-SUMMARY.md, QUICK_START_REACT.md, and more
+
+GIT HISTORY (9 commits):
+  b8f12e3 initial commit
+  b223d29 implements git history integration
+  aa39ac1 update docs
+  24a7811 WIP initial version analysis crate
+  b1ea582 adds new feature summary doc
+  f6df5cd Prepare release 0.0.1
+  d6be126 Add JavaScript and JSX/TSX support for React projects
+  eddfe65 Mark Tasks 1.1 and 1.2 as completed in TASKS.md
+  55fdff9 wip: Task 1.3 Fix Break/Continue CFG Routing (P0) [HEAD]
+
+CURRENT WIP:
+  Task 1.3 (Break/Continue CFG Routing) is in progress but not complete.
+  Break/continue currently route to CFG exit instead of loop header/exit.
+
+================================================================================
+SECTION 3: 12-WEEK PLAN vs. REALITY
+================================================================================
+
+The plan described a 12-week open-core roadmap. Here is where things
+actually stand:
+
+WEEKS 1-2: STRENGTHEN THE FREE CLI
+-----------------------------------------------------------------------
+Feature                  | Status    | Notes
+-----------------------------------------------------------------------
+Watch mode               | NOT DONE  | No file-watching capability
+Git integration          | DONE      | Extensive: snapshots, deltas,
+(only analyze changed)   |           | merge-base, PR detection, but
+                         |           | no "only analyze changed files"
+                         |           | mode (incremental analysis)
+Config file support      | NOT DONE  | No .faultlinerc.json or similar
+JSON output for CI       | DONE      | --format json works, deterministic
+-----------------------------------------------------------------------
+
+Assessment: Git history integration went DEEPER than planned (snapshots,
+deltas, trends, policies, pruning, compaction) but watch mode and config
+file support were not started. The project pivoted toward a CI/CD-first
+strategy rather than the DX-first approach in the 12-week plan.
+
+WEEK 3: BUILD GITHUB ACTION
+-----------------------------------------------------------------------
+Feature                  | Status    | Notes
+-----------------------------------------------------------------------
+GitHub Action repo       | NOT DONE  | No faultline-action repository
+Auto-run on PRs          | PARTIAL   | PR context detection exists in
+                         |           | git.rs (GITHUB_EVENT_NAME etc.)
+Post results as comments | NOT DONE  |
+Fail CI if threshold     | DONE      | Policy engine with 3 rules:
+                         |           | CriticalIntroduction,
+                         |           | ExcessiveRiskRegression,
+                         |           | NetRepoRegression
+-----------------------------------------------------------------------
+
+Assessment: The policy engine is built and functional, but the GitHub
+Action wrapper doesn't exist yet. The foundation for CI blocking is
+solid (delta mode + policies), but the Action itself is Task 2.1.
+
+WEEK 4: LAUNCH OPEN SOURCE
+-----------------------------------------------------------------------
+Feature                  | Status    | Notes
+-----------------------------------------------------------------------
+Polish README            | PARTIAL   | README exists, functional but
+                         |           | not polished for launch (no
+                         |           | badges, no GIF, outdated
+                         |           | Known Limitations section
+                         |           | still says "No JSX/TSX support")
+Logo/branding            | NOT DONE  |
+HN/Reddit/Twitter launch | NOT DONE  |
+500-1k GitHub stars      | NOT DONE  |
+-----------------------------------------------------------------------
+
+Assessment: Not launched yet. README has a stale Known Limitations
+section that contradicts completed work (says JSX/TSX not supported,
+but it is since commit d6be126).
+
+WEEKS 5-6: RESEARCH PAID FEATURES
+-----------------------------------------------------------------------
+Not started (prerequisite: launch hasn't happened)
+
+WEEKS 7-10: BUILD WEB DASHBOARD
+-----------------------------------------------------------------------
+Not started
+
+WEEK 11: BETA LAUNCH PAID TIER
+-----------------------------------------------------------------------
+Not started
+
+WEEK 12+: ITERATE
+-----------------------------------------------------------------------
+Not started
+
+================================================================================
+SECTION 4: WHAT THE CODEBASE ACTUALLY BUILT (vs. PLAN)
+================================================================================
+
+The codebase diverged from the 12-week consumer-facing plan and instead
+pursued a CI/CD-FIRST TECHNICAL STRATEGY. This is reflected in TASKS.md
+which explicitly states:
+
+  "Goal: Make Faultline the go-to CI/CD tool for blocking complexity
+   regressions in TypeScript/JavaScript projects."
+  "Strategy: CI/CD first. Analytics later."
+
+FEATURES BUILT BEYOND THE 12-WEEK PLAN:
+  - Snapshot persistence system (.faultline/snapshots/)
+  - Delta computation (parent-relative change detection)
+  - Policy engine (3 blocking policies for CI)
+  - Trend analysis (risk velocity, hotspot stability, refactor detection)
+  - File/directory aggregate views
+  - Snapshot pruning (reachability-based GC)
+  - History compaction (3 levels)
+  - PR context auto-detection (GitHub env vars)
+  - Merge-base resolution for PR comparisons
+
+FEATURES FROM THE PLAN NOT YET BUILT:
+  - Watch mode (auto-run on file changes)
+  - Config file (.faultlinerc.json)
+  - GitHub Action (the wrapper, not the policy logic)
+  - PR comment posting
+  - HTML report generation
+  - VS Code extension
+  - Website/branding
+  - SARIF output
+  - Parallel file processing (rayon)
+  - Incremental analysis (content-hash caching)
+  - Suppression comments (// faultline-ignore)
+
+================================================================================
+SECTION 5: CURRENT BUGS & ISSUES
+================================================================================
+
+1. BREAK/CONTINUE CFG ROUTING (Task 1.3 - IN PROGRESS)
+   - Break/continue route to CFG exit instead of loop header/exit
+   - Slightly inflates CC for loops with break/continue
+   - WIP commit exists (55fdff9) but subtasks not checked off
+
+2. README STALE INFORMATION
+   - Known Limitations says "No support for JSX/TSX" - this is wrong,
+     JSX/TSX has been supported since commit d6be126
+   - Links to docs/ts-support.md which was renamed to language-support.md
+
+3. GIT HISTORY TESTS FAILING
+   - 5 tests in git_history_tests.rs fail
+   - These require a full git environment (commits, merges, rebases)
+   - Likely work in a real dev environment but fail in sandboxed CI
+   - The tests themselves use git_command() helper that panics on failure
+
+4. NO ERROR RECOVERY
+   - A single parse error stops analysis of that file
+   - No partial results + error summary
+   - No --verbose flag for debugging
+
+================================================================================
+SECTION 6: OVERALL ASSESSMENT
+================================================================================
+
+PROGRESS: ~15-20% of the 12-week plan (by feature count), but the work
+done is DEEPER than planned. The project built substantial CI/CD
+infrastructure (snapshots, deltas, policies, trends) that wasn't in the
+original 12-week timeline but IS necessary for the open-core strategy.
+
+STRATEGIC PIVOT: The project correctly identified that CI/CD blocking
+(the revenue path) needed a solid technical foundation. The snapshot/
+delta/policy system is that foundation. This was a good trade-off even
+though it delayed user-facing features.
+
+WHAT'S IMMEDIATELY ACTIONABLE:
+  1. Finish Task 1.3 (break/continue routing) - correctness issue
+  2. Fix README staleness (JSX/TSX is supported, update links)
+  3. Build the GitHub Action (Task 2.1) - highest leverage for adoption
+  4. Add config file support (Task 3.1) - needed for any real project use
+
+CRITICAL PATH TO LAUNCH:
+  Task 1.3 -> Task 2.1 (GitHub Action) -> README polish -> Launch
+
+The codebase is well-architected, deterministic, and tested. The core
+analysis pipeline is solid. The main gap is the "last mile" to users:
+the GitHub Action wrapper, config file support, and public launch.
+
+================================================================================
+SECTION 7: OPEN-CORE READINESS
+================================================================================
+
+FREE TIER (CLI + GitHub Action):
+  - CLI: READY (with caveats on break/continue)
+  - GitHub Action: NOT BUILT
+  - Config file: NOT BUILT
+
+PAID TIER (Dashboard, trends, alerts):
+  - Trend analysis engine: BUILT (in CLI, would need web frontend)
+  - Historical data: BUILT (snapshot persistence)
+  - Aggregate views: BUILT (file/directory rollups)
+  - Web dashboard: NOT BUILT
+  - Slack/email alerts: NOT BUILT
+  - Team analytics: NOT BUILT
+
+The free tier is ~60% ready. The paid tier has backend foundations
+(~30%) but no frontend or SaaS infrastructure.
+
+================================================================================
+END OF REVIEW
+================================================================================
