@@ -20,10 +20,12 @@ fn create_temp_git_repo() -> tempfile::TempDir {
     let temp_dir = tempfile::tempdir().expect("failed to create temp directory");
     let repo_path = temp_dir.path();
     
-    // Initialize git repo
-    git_command(repo_path, &["init"]);
+    // Initialize git repo with explicit branch name for portability
+    git_command(repo_path, &["init", "--initial-branch=main"]);
     git_command(repo_path, &["config", "user.name", "Test User"]);
     git_command(repo_path, &["config", "user.email", "test@example.com"]);
+    // Disable commit signing (may be configured globally in some environments)
+    git_command(repo_path, &["config", "commit.gpgsign", "false"]);
     
     // Ensure .faultline/ is git-ignored (important for force-push tests)
     let gitignore_path = repo_path.join(".gitignore");

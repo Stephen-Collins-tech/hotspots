@@ -11,7 +11,7 @@
 **Phase 1: Language Completeness**
 - ✅ Task 1.1: JavaScript Support (COMPLETED 2026-01-28)
 - ✅ Task 1.2: JSX/TSX Support (COMPLETED 2026-01-28)
-- ⏳ Task 1.3: Fix Break/Continue CFG Routing (IN PROGRESS)
+- ✅ Task 1.3: Fix Break/Continue CFG Routing (COMPLETED 2026-02-02)
 
 **Phase 2: CI/CD Integration**
 - ⏳ Task 2.1: GitHub Action (Core)
@@ -19,9 +19,9 @@
 - ⏳ Task 2.3: HTML Report Generation
 - ⏳ Task 2.4: GitHub PR Annotations
 
-**Overall Progress:** 2/25 tasks completed (8%)
+**Overall Progress:** 3/25 tasks completed (12%)
 
-**Latest Update:** 2026-01-28 - Shipped JavaScript and React support
+**Latest Update:** 2026-02-02 - Fixed break/continue CFG routing (Task 1.3)
 
 ---
 
@@ -129,35 +129,45 @@ Phase 6: Polish & Documentation
 
 ---
 
-### 1.3 Fix Break/Continue CFG Routing
+### 1.3 Fix Break/Continue CFG Routing ✅
 
 **Priority:** P0 (Correctness issue)
+
+**Status:** ✅ **COMPLETED** (2026-02-02)
 
 **Problem:** Break/continue currently route to CFG exit instead of loop exit/header. This slightly inflates CC for loops.
 
 **Tasks:**
 
-- [ ] Add loop context tracking to CFG builder
-  - Stack of loop header/exit nodes during traversal
-  - Push on loop entry, pop on loop exit
-- [ ] Route `break` to loop exit node (top of stack)
-- [ ] Route `continue` to loop header node (top of stack)
-- [ ] Handle labeled break/continue
-  - Resolve label to correct loop in stack
-  - Error if label not found
-- [ ] Add comprehensive loop tests
-  - Nested loops with breaks
+- [x] Add loop context tracking to CFG builder
+  - `BreakableContext` struct with break_target, continue_target, label
+  - `breakable_stack: Vec<BreakableContext>` on CfgBuilder
+  - Push on loop/switch entry, pop on exit
+- [x] Route `break` to loop/switch join node (innermost breakable context)
+- [x] Route `continue` to loop header node (innermost loop context)
+- [x] Handle labeled break/continue
+  - Resolve label to correct context in stack
+  - `pending_label` field consumed by loop/switch visitors
+  - Fallback to exit if no matching context (shouldn't happen in valid code)
+- [x] Add comprehensive loop tests (7 new tests)
+  - Break routes to loop join
+  - Continue routes to loop header
   - Labeled break across multiple levels
-  - Continue in nested loops
-- [ ] Update golden fixtures to reflect corrected CC
+  - Labeled continue to outer loop
+  - Switch break routes to switch join
+  - Nested loop break targets inner
+  - For-of with break and continue
+- [x] Update golden fixtures to reflect corrected CC
+  - pathological.ts: CC 23→20 (3 switch breaks no longer inflate edges)
 
 **Acceptance:**
-- Break routes to loop exit, not CFG exit
-- Continue routes to loop header
-- CC values are accurate for complex loops
-- Labeled break/continue work correctly
+- ✅ Break routes to loop/switch join, not CFG exit
+- ✅ Continue routes to loop header
+- ✅ CC values are accurate for complex loops
+- ✅ Labeled break/continue work correctly
+- ✅ All 86 tests pass (59 unit + 27 integration)
 
-**Estimated effort:** Medium (3-5 days)
+**Actual effort:** ~2 hours
 
 ---
 
