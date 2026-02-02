@@ -152,26 +152,30 @@ LRS     File              Line  Function
 - **High**: 6 ≤ LRS < 9
 - **Critical**: LRS ≥ 9
 
-## Supported TypeScript Features
+## Language Support
 
-See [docs/ts-support.md](docs/ts-support.md) for full details.
+See [docs/language-support.md](docs/language-support.md) for full details.
 
-**Supported:**
+**Supported languages:** TypeScript, JavaScript, JSX, TSX
+
+**Supported file extensions:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+
+**Supported constructs:**
 - Function declarations, expressions, arrow functions
 - Class methods, object literal methods
 - All control flow constructs (if, loops, switch, try/catch/finally)
+- JSX/TSX elements (elements don't inflate complexity; embedded control flow is counted)
+- Labeled break/continue with correct loop targeting
 
-**Not Supported (MVP):**
-- JSX/TSX syntax
+**Not supported:**
 - Generator functions (`function*`)
+- Async/await CFG modeling
 - Experimental decorators
 
 ## Known Limitations
 
-- Break/continue statements route to exit (loop context tracking needed)
-- No support for JSX/TSX
 - Generator functions cause analysis errors
-- Labeled break/continue partially supported
+- Async/await not modeled in control flow (treated as regular statements)
 
 See [docs/limitations.md](docs/limitations.md) for full details.
 

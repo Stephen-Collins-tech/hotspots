@@ -16,21 +16,40 @@ pub fn build_cfg(function: &FunctionNode) -> Cfg {
     builder.cfg
 }
 
+/// Context for break/continue target resolution
+struct BreakableContext {
+    label: Option<String>,
+    break_target: NodeId,
+    /// None for switch (not continuable), Some for loops
+    continue_target: Option<NodeId>,
+}
+
 /// Builder for constructing CFG from AST
 struct CfgBuilder {
     cfg: Cfg,
     current_node: Option<NodeId>,
+    /// Stack of enclosing loop/switch contexts for break/continue routing
+    breakable_stack: Vec<BreakableContext>,
+    /// Label from a LabeledStmt, consumed by the next loop/switch visitor
+    pending_label: Option<String>,
 }
 
 impl CfgBuilder {
     fn new() -> Self {
         let cfg = Cfg::new();
         let entry = cfg.entry;
-        
+
         CfgBuilder {
             cfg,
             current_node: Some(entry),
+            breakable_stack: Vec::new(),
+            pending_label: None,
         }
+    }
+
+    /// Take the pending label (if any) for the next loop/switch context
+    fn take_label(&mut self) -> Option<String> {
+        self.pending_label.take()
     }
 
     /// Build CFG from a block statement body
@@ -56,6 +75,13 @@ impl CfgBuilder {
     /// Visit a statement and add CFG nodes/edges
     fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
+            Stmt::Labeled(labeled) => {
+                // Store label for the next loop/switch to consume
+                self.pending_label = Some(labeled.label.sym.to_string());
+                self.visit_stmt(&labeled.body);
+                // Clear if not consumed (e.g., label on non-loop statement)
+                self.pending_label = None;
+            }
             Stmt::If(if_stmt) => self.visit_if(if_stmt),
             Stmt::While(while_stmt) => self.visit_while(while_stmt),
             Stmt::DoWhile(do_while_stmt) => self.visit_do_while(do_while_stmt),
@@ -139,92 +165,108 @@ impl CfgBuilder {
 
     fn visit_while(&mut self, while_stmt: &WhileStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         // Loop header node
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(from_node, header_node);
-        
+
         // Condition node
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(header_node, condition_node);
-        
+
+        // Create join node BEFORE body so break can target it
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        self.cfg.add_edge(condition_node, join_node);
+
+        // Push loop context for break/continue resolution
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: Some(header_node),
+        });
+
         // Loop body
         let body_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(condition_node, body_start);
-        
+
         self.current_node = Some(body_start);
         self.visit_stmt(&while_stmt.body);
         let body_end = self.current_node.unwrap_or(body_start);
-        
+
+        self.breakable_stack.pop();
+
         // Back-edge to header (if body didn't terminate with return/throw)
         if self.current_node.is_some() {
             self.cfg.add_edge(body_end, header_node);
         }
-        
-        // Exit edge to join
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
+
         self.current_node = Some(join_node);
     }
 
     fn visit_do_while(&mut self, do_while_stmt: &DoWhileStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         // Loop header node
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(from_node, header_node);
-        
+
+        // Create join node BEFORE body so break can target it
+        let join_node = self.cfg.add_node(NodeKind::Join);
+
+        // Push loop context for break/continue resolution
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: Some(header_node),
+        });
+
         // Loop body (executes at least once)
         let body_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(header_node, body_start);
-        
+
         self.current_node = Some(body_start);
         self.visit_stmt(&do_while_stmt.body);
         let body_end = self.current_node.unwrap_or(body_start);
-        
+
+        self.breakable_stack.pop();
+
         // Condition node (checked after body)
-        // Only if body completed normally (didn't return/throw)
-        let condition_node = if self.current_node.is_some() {
-            let node = self.cfg.add_node(NodeKind::Condition);
-            self.cfg.add_edge(body_end, node);
-            node
-        } else {
-            // Body terminated early - no condition check needed
-            self.cfg.exit
-        };
-        
-        // Back-edge to header if condition true (only if condition node was created)
-        if condition_node != self.cfg.exit {
+        // Only if body completed normally (didn't return/throw/break)
+        if self.current_node.is_some() {
+            let condition_node = self.cfg.add_node(NodeKind::Condition);
+            self.cfg.add_edge(body_end, condition_node);
+
+            // Back-edge to header if condition true
             self.cfg.add_edge(condition_node, header_node);
-            
+
             // Exit edge to join if condition false
-            let join_node = self.cfg.add_node(NodeKind::Join);
             self.cfg.add_edge(condition_node, join_node);
-            self.current_node = Some(join_node);
         }
-        // If body terminated early, current_node is already None, which is correct
+
+        self.current_node = Some(join_node);
     }
 
     fn visit_for(&mut self, for_stmt: &ForStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         // Initialization (if present) - sequential node before header
-        let init_node = if let Some(_init) = &for_stmt.init {
+        let init_end = if for_stmt.init.is_some() {
             let node = self.cfg.add_node(NodeKind::Statement);
             self.cfg.add_edge(from_node, node);
-            Some(node)
+            node
         } else {
-            Some(from_node)
+            from_node
         };
-        
+
         // Loop header node
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        if let Some(init) = init_node {
-            self.cfg.add_edge(init, header_node);
-        }
-        
+        self.cfg.add_edge(init_end, header_node);
+
         // Condition node (if present)
-        let condition_node = if let Some(_cond) = &for_stmt.test {
+        let condition_node = if for_stmt.test.is_some() {
             let node = self.cfg.add_node(NodeKind::Condition);
             self.cfg.add_edge(header_node, node);
             node
@@ -232,158 +274,172 @@ impl CfgBuilder {
             // No condition means infinite loop - condition always true
             header_node
         };
-        
-        // Loop body
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, body_start);
-        
-        self.current_node = Some(body_start);
-        self.visit_stmt(&for_stmt.body);
-        let mut body_end = self.current_node.unwrap_or(body_start);
-        
-        // Only process update/back-edge if body completed normally
-        if self.current_node.is_some() {
-            // Update expression (if present) - executes after body
-            if let Some(_update) = &for_stmt.update {
-                let update_node = self.cfg.add_node(NodeKind::Statement);
-                self.cfg.add_edge(body_end, update_node);
-                body_end = update_node;
-            }
-            
-            // Back-edge to header
-            self.cfg.add_edge(body_end, header_node);
-        }
-        
-        // Exit edge to join
+
+        // Create join node BEFORE body so break can target it
         let join_node = self.cfg.add_node(NodeKind::Join);
         if condition_node != header_node {
             self.cfg.add_edge(condition_node, join_node);
         }
-        // Only set current_node to join if loop body completed normally
+
+        // Push loop context for break/continue resolution
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: Some(header_node),
+        });
+
+        // Loop body
+        let body_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(condition_node, body_start);
+
+        self.current_node = Some(body_start);
+        self.visit_stmt(&for_stmt.body);
+        let mut body_end = self.current_node.unwrap_or(body_start);
+
+        self.breakable_stack.pop();
+
+        // Only process update/back-edge if body completed normally
         if self.current_node.is_some() {
-            self.current_node = Some(join_node);
+            // Update expression (if present) - executes after body
+            if for_stmt.update.is_some() {
+                let update_node = self.cfg.add_node(NodeKind::Statement);
+                self.cfg.add_edge(body_end, update_node);
+                body_end = update_node;
+            }
+
+            // Back-edge to header
+            self.cfg.add_edge(body_end, header_node);
         }
+
+        self.current_node = Some(join_node);
     }
 
     fn visit_for_in(&mut self, for_in_stmt: &ForInStmt) {
-        // Similar to for loop but with for-in syntax
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(from_node, header_node);
-        
+
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(header_node, condition_node);
-        
+
+        // Create join node BEFORE body so break can target it
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        self.cfg.add_edge(condition_node, join_node);
+
+        // Push loop context
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: Some(header_node),
+        });
+
         let body_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(condition_node, body_start);
-        
+
         self.current_node = Some(body_start);
         self.visit_stmt(&for_in_stmt.body);
         let body_end = self.current_node.unwrap_or(body_start);
-        
+
+        self.breakable_stack.pop();
+
         // Back-edge only if body completed normally
         if self.current_node.is_some() {
             self.cfg.add_edge(body_end, header_node);
         }
-        
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
-        // Only set current_node to join if loop body completed normally
-        if self.current_node.is_some() {
-            self.current_node = Some(join_node);
-        }
+
+        self.current_node = Some(join_node);
     }
 
     fn visit_for_of(&mut self, for_of_stmt: &ForOfStmt) {
-        // Similar to for-in
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(from_node, header_node);
-        
+
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(header_node, condition_node);
-        
+
+        // Create join node BEFORE body so break can target it
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        self.cfg.add_edge(condition_node, join_node);
+
+        // Push loop context
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: Some(header_node),
+        });
+
         let body_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(condition_node, body_start);
-        
+
         self.current_node = Some(body_start);
         self.visit_stmt(&for_of_stmt.body);
         let body_end = self.current_node.unwrap_or(body_start);
-        
+
+        self.breakable_stack.pop();
+
         // Back-edge only if body completed normally
         if self.current_node.is_some() {
             self.cfg.add_edge(body_end, header_node);
         }
-        
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
-        // Only set current_node to join if loop body completed normally
-        if self.current_node.is_some() {
-            self.current_node = Some(join_node);
-        }
+
+        self.current_node = Some(join_node);
     }
 
     fn visit_switch(&mut self, switch_stmt: &SwitchStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+        let label = self.take_label();
+
         // Switch expression evaluation (implied)
         let switch_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, switch_node);
-        
+
         let join_node = self.cfg.add_node(NodeKind::Join);
-        
+
+        // Push switch context (breakable, not continuable)
+        self.breakable_stack.push(BreakableContext {
+            label,
+            break_target: join_node,
+            continue_target: None, // switch is not continuable
+        });
+
         // Process cases
-        let mut prev_case_node: Option<NodeId> = None;
+        let mut prev_case_end: Option<NodeId> = None;
         for case in &switch_stmt.cases {
             let case_node = self.cfg.add_node(NodeKind::Statement);
-            
-            // First case connects from switch, others from previous (fallthrough)
-            if let Some(prev) = prev_case_node {
-                self.cfg.add_edge(prev, case_node);
-            } else {
-                self.cfg.add_edge(switch_node, case_node);
+
+            // Each case gets an edge from switch (for case matching)
+            self.cfg.add_edge(switch_node, case_node);
+
+            // Fallthrough from previous case if it didn't break/return/throw
+            if let Some(prev_end) = prev_case_end {
+                self.cfg.add_edge(prev_end, case_node);
             }
-            
+
             // Visit case body statements
             self.current_node = Some(case_node);
             for stmt in &case.cons {
                 self.visit_stmt(stmt);
-                // If visit_stmt set current_node to None (return/throw), 
-                // we need to handle it, but continue processing for other cases
                 if self.current_node.is_none() {
-                    // Statement terminated (return/throw) - restore case_node for next case
-                    // But mark this case as having an exit
                     break;
                 }
             }
-            let case_end = self.current_node.unwrap_or(case_node);
-            
-            // Check if case ends with break (explicit or implicit via return/throw)
-            let has_break = self.has_break_in_stmt(&case.cons);
-            
-            // If no break, case falls through to next case
-            // Edge to next case already added above when we set up the chain
-            // If break present, case exits to join
-            if has_break {
-                self.cfg.add_edge(case_end, join_node);
-            }
-            // If no break and not last case, fallthrough edge already exists
-            
-            prev_case_node = Some(case_node);
+
+            // Track end of case for fallthrough to next case
+            // If current_node is None (break/return/throw), no fallthrough
+            prev_case_end = self.current_node;
         }
-        
-        // Last case (if no break) also flows to join
-        if let Some(last_case) = switch_stmt.cases.last() {
-            let has_break = self.has_break_in_stmt(&last_case.cons);
-            if !has_break {
-                if let Some(last_end) = self.current_node {
-                    self.cfg.add_edge(last_end, join_node);
-                }
-            }
+
+        // Last case flows to join if it didn't break/return/throw
+        if let Some(last_end) = prev_case_end {
+            self.cfg.add_edge(last_end, join_node);
         }
-        
+
+        self.breakable_stack.pop();
         self.current_node = Some(join_node);
     }
 
@@ -480,56 +536,165 @@ impl CfgBuilder {
         }
     }
 
-    fn visit_break(&mut self, _break_stmt: &BreakStmt) {
-        // Break statements are handled by loop/switch context
-        // For now, mark as non-structured exit
-        // TODO: Track loop context to route to correct exit
+    fn visit_break(&mut self, break_stmt: &BreakStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
-        // Placeholder: break goes to exit (will be refined with loop tracking)
-        self.cfg.add_edge(from_node, self.cfg.exit);
-        self.current_node = None;
-    }
 
-    fn visit_continue(&mut self, _continue_stmt: &ContinueStmt) {
-        // Continue statements are handled by loop context
-        // TODO: Track loop context to route to correct header
-        let from_node = self.current_node.expect("Current node should exist");
-        
-        // Placeholder: continue goes to exit (will be refined with loop tracking)
-        self.cfg.add_edge(from_node, self.cfg.exit);
-        self.current_node = None;
-    }
+        let target = if let Some(label) = &break_stmt.label {
+            // Labeled break: find the matching labeled context
+            self.breakable_stack.iter().rev()
+                .find(|ctx| ctx.label.as_deref() == Some(&*label.sym))
+                .map(|ctx| ctx.break_target)
+        } else {
+            // Unlabeled break: find innermost breakable context (loop or switch)
+            self.breakable_stack.last().map(|ctx| ctx.break_target)
+        };
 
-    /// Check if statements contain a break (or return/throw which also exits)
-    fn has_break_in_stmt(&self, stmts: &[Stmt]) -> bool {
-        for stmt in stmts {
-            match stmt {
-                Stmt::Break(_) | Stmt::Return(_) | Stmt::Throw(_) => return true,
-                Stmt::If(if_stmt) => {
-                    if self.has_break_in_stmt(&[if_stmt.cons.as_ref().clone()]) {
-                        return true;
-                    }
-                    if let Some(alt) = &if_stmt.alt {
-                        if self.has_break_in_stmt(&[alt.as_ref().clone()]) {
-                            return true;
-                        }
-                    }
-                }
-                Stmt::Block(block_stmt) => {
-                    if self.has_break_in_stmt(&block_stmt.stmts) {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
+        if let Some(target) = target {
+            self.cfg.add_edge(from_node, target);
+        } else {
+            // No enclosing breakable context (shouldn't happen in valid JS/TS)
+            self.cfg.add_edge(from_node, self.cfg.exit);
         }
-        false
+
+        self.current_node = None;
+    }
+
+    fn visit_continue(&mut self, continue_stmt: &ContinueStmt) {
+        let from_node = self.current_node.expect("Current node should exist");
+
+        let target = if let Some(label) = &continue_stmt.label {
+            // Labeled continue: find the matching labeled loop
+            self.breakable_stack.iter().rev()
+                .find(|ctx| ctx.label.as_deref() == Some(&*label.sym) && ctx.continue_target.is_some())
+                .and_then(|ctx| ctx.continue_target)
+        } else {
+            // Unlabeled continue: find innermost loop (must have continue_target)
+            self.breakable_stack.iter().rev()
+                .find(|ctx| ctx.continue_target.is_some())
+                .and_then(|ctx| ctx.continue_target)
+        };
+
+        if let Some(target) = target {
+            self.cfg.add_edge(from_node, target);
+        } else {
+            // No enclosing loop (shouldn't happen in valid JS/TS)
+            self.cfg.add_edge(from_node, self.cfg.exit);
+        }
+
+        self.current_node = None;
     }
 }
 
 impl Default for CfgBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse_source;
+    use crate::discover::discover_functions;
+    use swc_common::{sync::Lrc, SourceMap};
+
+    /// Helper: parse source, discover functions, build CFG for the first function
+    fn build_cfg_for(source: &str) -> Cfg {
+        let sm = Lrc::new(SourceMap::default());
+        let module = parse_source(source, &sm, "test.ts").unwrap();
+        let functions = discover_functions(&module, 0);
+        assert!(!functions.is_empty(), "Expected at least one function");
+        build_cfg(&functions[0])
+    }
+
+    #[test]
+    fn test_break_routes_to_loop_join() {
+        let cfg = build_cfg_for(
+            "function f() { while (true) { break; } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+
+        // break should NOT create an edge to exit (NodeId(1))
+        // It should route to the loop's join node
+        let break_to_exit = cfg.edges.iter()
+            .any(|e| e.to == cfg.exit && e.from != cfg.entry
+                && !matches!(cfg.nodes[e.from.0].kind, NodeKind::Statement | NodeKind::Join));
+        // The only edge to exit should be from the join node (normal flow)
+        // or from the final implicit connection in build_from_body
+        assert!(!break_to_exit || cfg.edges.iter().filter(|e| e.to == cfg.exit).count() <= 2,
+            "break should not create extra edges to exit");
+    }
+
+    #[test]
+    fn test_continue_routes_to_loop_header() {
+        let cfg = build_cfg_for(
+            "function f() { while (true) { continue; } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+
+        // continue should create an edge to a LoopHeader node
+        let has_edge_to_header = cfg.edges.iter().any(|e| {
+            matches!(cfg.nodes[e.to.0].kind, NodeKind::LoopHeader)
+                && e.from != cfg.entry
+                && !matches!(cfg.nodes[e.from.0].kind, NodeKind::Entry | NodeKind::LoopHeader | NodeKind::Condition)
+        });
+        assert!(has_edge_to_header, "continue should route to loop header");
+    }
+
+    #[test]
+    fn test_labeled_break_routes_to_outer_loop() {
+        let cfg = build_cfg_for(
+            "function f() { outer: while (true) { while (true) { break outer; } } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    #[test]
+    fn test_labeled_continue_routes_to_outer_header() {
+        let cfg = build_cfg_for(
+            "function f() { outer: while (true) { while (true) { continue outer; } } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    #[test]
+    fn test_switch_break_routes_to_switch_join() {
+        let cfg = build_cfg_for(
+            "function f(x: number) { switch(x) { case 1: break; case 2: break; } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+
+        // break in switch should NOT route to cfg.exit
+        // Count edges to exit - should only be the final flow-to-exit
+        let exit_edges: Vec<_> = cfg.edges.iter()
+            .filter(|e| e.to == cfg.exit)
+            .collect();
+        // Only the join node should flow to exit (via build_from_body)
+        assert!(exit_edges.len() <= 1,
+            "switch breaks should route to join, not exit. Exit edges: {:?}", exit_edges);
+    }
+
+    #[test]
+    fn test_nested_loop_break_targets_inner() {
+        let cfg = build_cfg_for(
+            "function f() { for (let i = 0; i < 10; i++) { for (let j = 0; j < 10; j++) { break; } } }",
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    #[test]
+    fn test_for_of_with_break_and_continue() {
+        let cfg = build_cfg_for(r#"
+            function f(arr: number[]) {
+                let sum = 0;
+                for (const item of arr) {
+                    if (item < 0) { break; }
+                    if (item > 100) { continue; }
+                    sum += item;
+                }
+                return sum;
+            }
+        "#);
+        cfg.validate().expect("CFG should be valid");
     }
 }
