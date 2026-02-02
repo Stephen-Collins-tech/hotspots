@@ -14,6 +14,7 @@ pub mod aggregates;
 pub mod analysis;
 pub mod ast;
 pub mod cfg;
+pub mod config;
 pub mod delta;
 pub mod discover;
 pub mod git;
@@ -26,6 +27,7 @@ pub mod risk;
 pub mod snapshot;
 pub mod trends;
 
+pub use config::ResolvedConfig;
 pub use git::GitContext;
 pub use report::{FunctionRiskReport, render_json, render_text, sort_reports};
 
@@ -37,18 +39,50 @@ pub struct AnalysisOptions {
     pub top_n: Option<usize>,
 }
 
+/// Analyze files at the given path with default configuration
 pub fn analyze(path: &std::path::Path, options: AnalysisOptions) -> anyhow::Result<Vec<FunctionRiskReport>> {
+    analyze_with_config(path, options, None)
+}
+
+/// Analyze files at the given path with optional resolved configuration
+pub fn analyze_with_config(
+    path: &std::path::Path,
+    options: AnalysisOptions,
+    resolved_config: Option<&ResolvedConfig>,
+) -> anyhow::Result<Vec<FunctionRiskReport>> {
     let cm: Lrc<SourceMap> = Default::default();
     let mut all_reports = Vec::new();
     let mut file_index = 0;
 
+    // Build weights/thresholds from config
+    let weights = resolved_config.map(|c| risk::LrsWeights {
+        cc: c.weight_cc,
+        nd: c.weight_nd,
+        fo: c.weight_fo,
+        ns: c.weight_ns,
+    });
+    let thresholds = resolved_config.map(|c| risk::RiskThresholds {
+        moderate: c.moderate_threshold,
+        high: c.high_threshold,
+        critical: c.critical_threshold,
+    });
+
     // Collect TypeScript and JavaScript files
     let source_files = collect_source_files(path)?;
 
-    // Analyze each file
+    // Analyze each file (applying include/exclude from config)
     for file_path in source_files {
-        let reports = analysis::analyze_file(&file_path, &cm, file_index, &options)
-            .with_context(|| format!("Failed to analyze file: {}", file_path.display()))?;
+        // Apply config include/exclude filter
+        if let Some(config) = resolved_config {
+            if !config.should_include(&file_path) {
+                continue;
+            }
+        }
+
+        let reports = analysis::analyze_file_with_config(
+            &file_path, &cm, file_index, &options,
+            weights.as_ref(), thresholds.as_ref(),
+        ).with_context(|| format!("Failed to analyze file: {}", file_path.display()))?;
         all_reports.extend(reports);
         file_index += 1;
     }

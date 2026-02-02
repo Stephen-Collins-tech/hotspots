@@ -8,7 +8,8 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use faultline_core::{analyze, render_json, render_text, AnalysisOptions};
+use faultline_core::{analyze_with_config, render_json, render_text, AnalysisOptions};
+use faultline_core::config;
 use faultline_core::{delta, git, prune};
 use faultline_core::snapshot::{self, Snapshot};
 use faultline_core::policy::PolicyResults;
@@ -31,27 +32,31 @@ enum Commands {
     Analyze {
         /// Path to source file or directory
         path: PathBuf,
-        
+
         /// Output format
         #[arg(long, default_value = "text")]
         format: OutputFormat,
-        
+
         /// Output mode (snapshot or delta)
         /// When not specified, preserves existing text/JSON output behavior
         #[arg(long)]
         mode: Option<OutputMode>,
-        
+
         /// Evaluate policies (only valid with --mode delta)
         #[arg(long)]
         policy: bool,
-        
-        /// Show only top N results
+
+        /// Show only top N results (overrides config file)
         #[arg(long)]
         top: Option<usize>,
-        
-        /// Minimum LRS threshold
+
+        /// Minimum LRS threshold (overrides config file)
         #[arg(long)]
         min_lrs: Option<f64>,
+
+        /// Path to config file (default: auto-discover)
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -77,18 +82,40 @@ enum Commands {
     Trends {
         /// Path to repository root
         path: PathBuf,
-        
+
         /// Output format
         #[arg(long, default_value = "json")]
         format: OutputFormat,
-        
+
         /// Window size (number of snapshots to analyze)
         #[arg(long, default_value = "10")]
         window: usize,
-        
+
         /// Top K functions for hotspot analysis
         #[arg(long, default_value = "5")]
         top: usize,
+    },
+    /// Validate a configuration file
+    #[command(name = "config")]
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Validate a config file without running analysis
+    Validate {
+        /// Path to config file (default: auto-discover from current directory)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Show the resolved configuration (merged defaults + config file)
+    Show {
+        /// Path to config file (default: auto-discover from current directory)
+        #[arg(long)]
+        path: Option<PathBuf>,
     },
 }
 
@@ -108,19 +135,19 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Analyze { path, format, mode, policy, top, min_lrs } => {
+        Commands::Analyze { path, format, mode, policy, top, min_lrs, config: config_path } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
                 std::env::current_dir()?.join(&path)
             } else {
                 path
             };
-            
+
             // Validate path exists
             if !normalized_path.exists() {
                 anyhow::bail!("Path does not exist: {}", normalized_path.display());
             }
-            
+
             // Validate --policy flag (only valid with --mode delta)
             if policy {
                 if let Some(m) = mode {
@@ -132,20 +159,42 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Load configuration
+            let project_root = find_repo_root(&normalized_path)
+                .unwrap_or_else(|_| normalized_path.clone());
+            let resolved_config = config::load_and_resolve(
+                &project_root,
+                config_path.as_deref(),
+            ).context("failed to load configuration")?;
+
+            if resolved_config.config_path.is_some() {
+                eprintln!(
+                    "Using config: {}",
+                    resolved_config.config_path.as_ref().unwrap().display()
+                );
+            }
+
+            // CLI flags override config file values
+            let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
+            let effective_top = top.or(resolved_config.top_n);
+
             // If mode is specified, use snapshot/delta mode
             if let Some(output_mode) = mode {
-                return handle_mode_output(&normalized_path, output_mode, format, policy, top, min_lrs);
+                return handle_mode_output(
+                    &normalized_path, output_mode, format, policy,
+                    effective_top, effective_min_lrs, &resolved_config,
+                );
             }
-            
+
             // Default behavior: preserve existing text/JSON output
             let options = AnalysisOptions {
-                min_lrs,
-                top_n: top,
+                min_lrs: effective_min_lrs,
+                top_n: effective_top,
             };
-            
-            // Analyze
-            let reports = analyze(&normalized_path, options)?;
-            
+
+            // Analyze with config
+            let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+
             // Render output
             match format {
                 OutputFormat::Text => {
@@ -222,6 +271,62 @@ fn main() -> anyhow::Result<()> {
                 println!("Note: Compaction to level {} is not yet implemented. Only metadata was updated.", level);
             }
         }
+        Commands::Config { action } => {
+            match action {
+                ConfigAction::Validate { path } => {
+                    let project_root = std::env::current_dir()?;
+                    let resolved = config::load_and_resolve(
+                        &project_root,
+                        path.as_deref(),
+                    );
+
+                    match resolved {
+                        Ok(config) => {
+                            if let Some(ref p) = config.config_path {
+                                println!("Config valid: {}", p.display());
+                            } else {
+                                println!("No config file found. Using defaults.");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Config validation failed: {:#}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                ConfigAction::Show { path } => {
+                    let project_root = std::env::current_dir()?;
+                    let resolved = config::load_and_resolve(
+                        &project_root,
+                        path.as_deref(),
+                    ).context("failed to load configuration")?;
+
+                    println!("Configuration:");
+                    if let Some(ref p) = resolved.config_path {
+                        println!("  Source: {}", p.display());
+                    } else {
+                        println!("  Source: defaults (no config file found)");
+                    }
+                    println!();
+                    println!("Weights:");
+                    println!("  cc: {}", resolved.weight_cc);
+                    println!("  nd: {}", resolved.weight_nd);
+                    println!("  fo: {}", resolved.weight_fo);
+                    println!("  ns: {}", resolved.weight_ns);
+                    println!();
+                    println!("Thresholds:");
+                    println!("  moderate: {}", resolved.moderate_threshold);
+                    println!("  high: {}", resolved.high_threshold);
+                    println!("  critical: {}", resolved.critical_threshold);
+                    println!();
+                    println!("Filters:");
+                    println!("  min_lrs: {}", resolved.min_lrs.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()));
+                    println!("  top: {}", resolved.top_n.map(|v| v.to_string()).unwrap_or_else(|| "none".to_string()));
+                    println!("  include: {}", if resolved.include.is_some() { "custom patterns" } else { "all files" });
+                    println!("  exclude: active ({} patterns)", if resolved.config_path.is_some() { "custom" } else { "default" });
+                }
+            }
+        }
         Commands::Trends { path, format, window, top } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
@@ -267,16 +372,17 @@ fn handle_mode_output(
     policy: bool,
     top: Option<usize>,
     min_lrs: Option<f64>,
+    resolved_config: &faultline_core::ResolvedConfig,
 ) -> anyhow::Result<()> {
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
-    
+
     // Analyze codebase
     let options = AnalysisOptions {
         min_lrs,
         top_n: top,
     };
-    let reports = analyze(path, options)?;
+    let reports = analyze_with_config(path, options, Some(resolved_config))?;
     
     // Detect PR context (best-effort, CI env vars only)
     let pr_context = git::detect_pr_context();
