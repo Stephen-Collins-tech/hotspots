@@ -15,7 +15,7 @@ use faultline_core::snapshot::{self, Snapshot};
 use faultline_core::policy::PolicyResults;
 use faultline_core::delta::Delta;
 use faultline_core::trends::TrendsAnalysis;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "faultline")]
@@ -57,6 +57,10 @@ enum Commands {
         /// Path to config file (default: auto-discover)
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Output file path (for HTML format, default: .faultline/report.html)
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -123,6 +127,7 @@ enum ConfigAction {
 enum OutputFormat {
     Text,
     Json,
+    Html,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -135,7 +140,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Analyze { path, format, mode, policy, top, min_lrs, config: config_path } => {
+        Commands::Analyze { path, format, mode, policy, top, min_lrs, config: config_path, output } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
                 std::env::current_dir()?.join(&path)
@@ -182,7 +187,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(output_mode) = mode {
                 return handle_mode_output(
                     &normalized_path, output_mode, format, policy,
-                    effective_top, effective_min_lrs, &resolved_config,
+                    effective_top, effective_min_lrs, &resolved_config, output,
                 );
             }
 
@@ -202,6 +207,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 OutputFormat::Json => {
                     println!("{}", render_json(&reports));
+                }
+                OutputFormat::Html => {
+                    anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
                 }
             }
         }
@@ -357,6 +365,9 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Text => {
                     print_trends_text_output(&trends)?;
                 }
+                OutputFormat::Html => {
+                    anyhow::bail!("HTML format is not supported for trends analysis");
+                }
             }
         }
     }
@@ -373,6 +384,7 @@ fn handle_mode_output(
     top: Option<usize>,
     min_lrs: Option<f64>,
     resolved_config: &faultline_core::ResolvedConfig,
+    output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
@@ -418,6 +430,19 @@ fn handle_mode_output(
                 OutputFormat::Text => {
                     // Text format not supported for snapshot initially
                     anyhow::bail!("text format is not supported for snapshot mode (use --format json)");
+                }
+                OutputFormat::Html => {
+                    // Compute aggregates for output
+                    let mut snapshot_with_aggregates = snapshot.clone();
+                    snapshot_with_aggregates.aggregates = Some(faultline_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
+
+                    // Render HTML
+                    let html = faultline_core::html::render_html_snapshot(&snapshot_with_aggregates);
+
+                    // Write to file
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    write_html_report(&output_path, &html)?;
+                    eprintln!("HTML report written to: {}", output_path.display());
                 }
             }
         }
@@ -475,6 +500,15 @@ fn handle_mode_output(
                     } else {
                         anyhow::bail!("text format is not supported for delta mode without --policy (use --format json)");
                     }
+                }
+                OutputFormat::Html => {
+                    // Render HTML
+                    let html = faultline_core::html::render_html_delta(&delta_with_extras);
+
+                    // Write to file
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    write_html_report(&output_path, &html)?;
+                    eprintln!("HTML report written to: {}", output_path.display());
                 }
             }
             
@@ -802,6 +836,27 @@ fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
     println!("  Risk velocities: {}", trends.velocities.len());
     println!("  Hotspots analyzed: {}", trends.hotspots.len());
     println!("  Refactors detected: {}", trends.refactors.len());
+
+    Ok(())
+}
+
+/// Write HTML report to file with atomic write pattern
+fn write_html_report(path: &Path, html: &str) -> anyhow::Result<()> {
+    use std::fs;
+
+    // Create parent directories if needed
+    if let Some(parent) = path.parent() {
+        let parent_str = parent.display().to_string();
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent_str))?;
+    }
+
+    // Atomic write (temp + rename pattern)
+    let temp_path = path.with_extension("html.tmp");
+    std::fs::write(&temp_path, html)
+        .with_context(|| format!("Failed to write temporary file: {}", temp_path.display()))?;
+    std::fs::rename(&temp_path, path)
+        .with_context(|| format!("Failed to rename temporary file to: {}", path.display()))?;
 
     Ok(())
 }
