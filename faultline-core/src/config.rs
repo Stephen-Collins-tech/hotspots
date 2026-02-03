@@ -52,6 +52,10 @@ pub struct FaultlineConfig {
     #[serde(default)]
     pub weights: Option<WeightConfig>,
 
+    /// Warning thresholds for proactive alerts
+    #[serde(default)]
+    pub warning_thresholds: Option<WarningThresholdConfig>,
+
     /// Minimum LRS to report (default: 0.0, report all)
     #[serde(default)]
     pub min_lrs: Option<f64>,
@@ -87,6 +91,22 @@ pub struct WeightConfig {
     pub ns: Option<f64>,
 }
 
+/// Warning thresholds for proactive alerts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WarningThresholdConfig {
+    /// Watch threshold minimum - approaching moderate (default: 2.5)
+    pub watch_min: Option<f64>,
+    /// Watch threshold maximum - approaching moderate (default: 3.0)
+    pub watch_max: Option<f64>,
+    /// Attention threshold minimum - approaching high (default: 5.5)
+    pub attention_min: Option<f64>,
+    /// Attention threshold maximum - approaching high (default: 6.0)
+    pub attention_max: Option<f64>,
+    /// Rapid growth threshold - percent increase (default: 50.0)
+    pub rapid_growth_percent: Option<f64>,
+}
+
 impl Default for FaultlineConfig {
     fn default() -> Self {
         FaultlineConfig {
@@ -94,6 +114,7 @@ impl Default for FaultlineConfig {
             exclude: Vec::new(),
             thresholds: None,
             weights: None,
+            warning_thresholds: None,
             min_lrs: None,
             top: None,
         }
@@ -116,6 +137,12 @@ pub struct ResolvedConfig {
     pub weight_nd: f64,
     pub weight_fo: f64,
     pub weight_ns: f64,
+    /// Warning thresholds
+    pub watch_min: f64,
+    pub watch_max: f64,
+    pub attention_min: f64,
+    pub attention_max: f64,
+    pub rapid_growth_percent: f64,
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
@@ -173,6 +200,46 @@ impl FaultlineConfig {
                         anyhow::bail!("weights.{} must be at most 10.0 (got {})", name, v);
                     }
                 }
+            }
+        }
+
+        // Validate warning thresholds
+        if let Some(ref wt) = self.warning_thresholds {
+            let watch_min = wt.watch_min.unwrap_or(2.5);
+            let watch_max = wt.watch_max.unwrap_or(3.0);
+            let attention_min = wt.attention_min.unwrap_or(5.5);
+            let attention_max = wt.attention_max.unwrap_or(6.0);
+            let rapid_growth = wt.rapid_growth_percent.unwrap_or(50.0);
+
+            if watch_min <= 0.0 {
+                anyhow::bail!("warning_thresholds.watch_min must be positive (got {})", watch_min);
+            }
+            if watch_max <= 0.0 {
+                anyhow::bail!("warning_thresholds.watch_max must be positive (got {})", watch_max);
+            }
+            if attention_min <= 0.0 {
+                anyhow::bail!("warning_thresholds.attention_min must be positive (got {})", attention_min);
+            }
+            if attention_max <= 0.0 {
+                anyhow::bail!("warning_thresholds.attention_max must be positive (got {})", attention_max);
+            }
+            if rapid_growth <= 0.0 {
+                anyhow::bail!("warning_thresholds.rapid_growth_percent must be positive (got {})", rapid_growth);
+            }
+
+            if watch_min >= watch_max {
+                anyhow::bail!(
+                    "warning_thresholds.watch_min ({}) must be less than watch_max ({})",
+                    watch_min,
+                    watch_max
+                );
+            }
+            if attention_min >= attention_max {
+                anyhow::bail!(
+                    "warning_thresholds.attention_min ({}) must be less than attention_max ({})",
+                    attention_min,
+                    attention_max
+                );
             }
         }
 
@@ -246,6 +313,18 @@ impl FaultlineConfig {
             None => (1.0, 0.8, 0.6, 0.7),
         };
 
+        let (watch_min, watch_max, attention_min, attention_max, rapid_growth_percent) =
+            match &self.warning_thresholds {
+                Some(wt) => (
+                    wt.watch_min.unwrap_or(2.5),
+                    wt.watch_max.unwrap_or(3.0),
+                    wt.attention_min.unwrap_or(5.5),
+                    wt.attention_max.unwrap_or(6.0),
+                    wt.rapid_growth_percent.unwrap_or(50.0),
+                ),
+                None => (2.5, 3.0, 5.5, 6.0, 50.0),
+            };
+
         Ok(ResolvedConfig {
             include,
             exclude,
@@ -256,6 +335,11 @@ impl FaultlineConfig {
             weight_nd: w_nd,
             weight_fo: w_fo,
             weight_ns: w_ns,
+            watch_min,
+            watch_max,
+            attention_min,
+            attention_max,
+            rapid_growth_percent,
             min_lrs: self.min_lrs,
             top_n: self.top,
             config_path: None,
@@ -613,5 +697,103 @@ mod tests {
         assert_eq!(resolved.moderate_threshold, 3.0); // default
         assert_eq!(resolved.high_threshold, 6.0);     // default
         assert_eq!(resolved.critical_threshold, 12.0);
+    }
+
+    #[test]
+    fn test_default_warning_thresholds() {
+        let config = FaultlineConfig::default();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.watch_min, 2.5);
+        assert_eq!(resolved.watch_max, 3.0);
+        assert_eq!(resolved.attention_min, 5.5);
+        assert_eq!(resolved.attention_max, 6.0);
+        assert_eq!(resolved.rapid_growth_percent, 50.0);
+    }
+
+    #[test]
+    fn test_parse_warning_thresholds() {
+        let json = r#"{
+            "warning_thresholds": {
+                "watch_min": 2.0,
+                "watch_max": 3.5,
+                "attention_min": 5.0,
+                "attention_max": 7.0,
+                "rapid_growth_percent": 75.0
+            }
+        }"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.watch_min, 2.0);
+        assert_eq!(resolved.watch_max, 3.5);
+        assert_eq!(resolved.attention_min, 5.0);
+        assert_eq!(resolved.attention_max, 7.0);
+        assert_eq!(resolved.rapid_growth_percent, 75.0);
+    }
+
+    #[test]
+    fn test_partial_warning_thresholds_use_defaults() {
+        let json = r#"{"warning_thresholds": {"rapid_growth_percent": 100.0}}"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.watch_min, 2.5); // default
+        assert_eq!(resolved.watch_max, 3.0); // default
+        assert_eq!(resolved.attention_min, 5.5); // default
+        assert_eq!(resolved.attention_max, 6.0); // default
+        assert_eq!(resolved.rapid_growth_percent, 100.0);
+    }
+
+    #[test]
+    fn test_reject_negative_watch_min() {
+        let json = r#"{"warning_thresholds": {"watch_min": -1.0}}"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_reject_negative_rapid_growth() {
+        let json = r#"{"warning_thresholds": {"rapid_growth_percent": -10.0}}"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_reject_unordered_watch_thresholds() {
+        let json = r#"{"warning_thresholds": {"watch_min": 3.0, "watch_max": 2.0}}"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_reject_unordered_attention_thresholds() {
+        let json = r#"{"warning_thresholds": {"attention_min": 7.0, "attention_max": 5.0}}"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_full_config_with_warnings() {
+        let json = r#"{
+            "thresholds": {
+                "moderate": 3.0,
+                "high": 6.0,
+                "critical": 9.0
+            },
+            "warning_thresholds": {
+                "watch_min": 2.5,
+                "watch_max": 3.0,
+                "attention_min": 5.5,
+                "attention_max": 6.0,
+                "rapid_growth_percent": 50.0
+            }
+        }"#;
+        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.watch_min, 2.5);
+        assert_eq!(resolved.watch_max, 3.0);
+        assert_eq!(resolved.attention_min, 5.5);
+        assert_eq!(resolved.attention_max, 6.0);
+        assert_eq!(resolved.rapid_growth_percent, 50.0);
     }
 }

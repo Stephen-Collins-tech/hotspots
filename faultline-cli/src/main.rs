@@ -441,7 +441,7 @@ fn handle_mode_output(
             // Evaluate policies if requested
             let mut delta_with_extras = delta.clone();
             if policy {
-                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root)
+                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root, resolved_config)
                     .context("failed to evaluate policies")?;
                 
                 if let Some(results) = policy_results {
@@ -582,11 +582,103 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
         }
     }
 
-    // Print warnings second (summary only, not in table)
+    // Print warnings second, grouped by level
     if !policy_results.warnings.is_empty() {
-        println!("\nPolicy warnings:");
-        for result in &policy_results.warnings {
-            println!("- {}: {}", result.id.as_str(), result.message);
+        // Group warnings by policy ID
+        let watch_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "watch-threshold")
+            .collect();
+        let attention_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "attention-threshold")
+            .collect();
+        let rapid_growth_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "rapid-growth")
+            .collect();
+        let repo_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "net-repo-regression")
+            .collect();
+
+        // Print Watch level warnings
+        if !watch_warnings.is_empty() {
+            println!("\nWatch Level (approaching moderate threshold):");
+            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
+            println!("{}", "-".repeat(64));
+
+            for warning in watch_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    // Find the function in delta to get details
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("N/A");
+
+                        println!(
+                            "{:<40} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            after_band
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print Attention level warnings
+        if !attention_warnings.is_empty() {
+            println!("\nAttention Level (approaching high threshold):");
+            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
+            println!("{}", "-".repeat(64));
+
+            for warning in attention_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("N/A");
+
+                        println!(
+                            "{:<40} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            after_band
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print Rapid Growth warnings
+        if !rapid_growth_warnings.is_empty() {
+            println!("\nRapid Growth (significant LRS increase):");
+            println!("{:<40} {:<12} {:<12} {:<12}", "Function", "Current LRS", "Delta", "Growth");
+            println!("{}", "-".repeat(76));
+
+            for warning in rapid_growth_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let delta_lrs = entry.delta.as_ref().map(|d| format!("{:+.2}", d.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let growth_pct = warning.metadata.as_ref()
+                            .and_then(|m| m.growth_percent)
+                            .map(|g| format!("{:+.0}%", g))
+                            .unwrap_or_else(|| "N/A".to_string());
+
+                        println!(
+                            "{:<40} {:<12} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            delta_lrs,
+                            growth_pct
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print repo-level warnings
+        if !repo_warnings.is_empty() {
+            println!("\nRepository-Level Warnings:");
+            for warning in repo_warnings {
+                println!("- {}", warning.message);
+            }
         }
     }
 
@@ -596,7 +688,25 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
     } else {
         println!("\nSummary:");
         println!("  Blocking failures: {}", policy_results.failed.len());
-        println!("  Warnings: {}", policy_results.warnings.len());
+
+        // Break down warnings by type
+        let watch_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "watch-threshold").count();
+        let attention_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "attention-threshold").count();
+        let rapid_growth_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "rapid-growth").count();
+        let other_warnings_count = policy_results.warnings.len() - watch_count - attention_count - rapid_growth_count;
+
+        if watch_count > 0 {
+            println!("  Watch warnings: {}", watch_count);
+        }
+        if attention_count > 0 {
+            println!("  Attention warnings: {}", attention_count);
+        }
+        if rapid_growth_count > 0 {
+            println!("  Rapid growth warnings: {}", rapid_growth_count);
+        }
+        if other_warnings_count > 0 {
+            println!("  Other warnings: {}", other_warnings_count);
+        }
     }
 
     Ok(())
