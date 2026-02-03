@@ -20,6 +20,8 @@ pub struct FunctionRiskReport {
     pub risk: RiskReport,
     pub lrs: f64,
     pub band: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppression_reason: Option<String>,
 }
 
 /// Metrics in report format
@@ -58,7 +60,7 @@ impl FunctionRiskReport {
         let function_name = function.name.as_deref()
             .unwrap_or(&format!("<anonymous>@{}:{}", file, function.start_line(source_map)))
             .to_string();
-        
+
         FunctionRiskReport {
             file,
             function: function_name,
@@ -77,6 +79,7 @@ impl FunctionRiskReport {
             },
             lrs,
             band: band.as_str().to_string(),
+            suppression_reason: function.suppression_reason.clone(),
         }
     }
 }

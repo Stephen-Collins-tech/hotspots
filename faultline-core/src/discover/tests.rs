@@ -9,7 +9,7 @@ mod tests {
     fn parse_and_discover(src: &str, file_index: usize) -> Vec<crate::ast::FunctionNode> {
         let cm: Lrc<SourceMap> = Default::default();
         let module = parser::parse_source(src, &cm, "test.ts").unwrap();
-        discover::discover_functions(&module, file_index)
+        discover::discover_functions(&module, file_index, src, &cm)
     }
 
     #[test]

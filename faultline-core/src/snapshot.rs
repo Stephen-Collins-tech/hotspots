@@ -54,6 +54,8 @@ pub struct FunctionSnapshot {
     pub metrics: MetricsReport,
     pub lrs: f64,
     pub band: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppression_reason: Option<String>,
 }
 
 /// Complete snapshot for a commit
@@ -130,6 +132,7 @@ impl Snapshot {
                     metrics: report.metrics,
                     lrs: report.lrs,
                     band: report.band,
+                    suppression_reason: report.suppression_reason,
                 }
             })
             .collect();
@@ -481,6 +484,7 @@ mod tests {
             },
             lrs: 4.8,
             band: "moderate".to_string(),
+            suppression_reason: None,
         };
         
         Snapshot::new(git_context, vec![report])

@@ -26,6 +26,7 @@ pub mod prune;
 pub mod report;
 pub mod risk;
 pub mod snapshot;
+pub mod suppression;
 pub mod trends;
 
 pub use config::ResolvedConfig;

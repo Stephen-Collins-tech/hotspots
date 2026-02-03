@@ -27,6 +27,7 @@ pub enum PolicyId {
     WatchThreshold,
     AttentionThreshold,
     RapidGrowth,
+    SuppressionMissingReason,
 }
 
 impl PolicyId {
@@ -39,6 +40,7 @@ impl PolicyId {
             PolicyId::WatchThreshold => "watch-threshold",
             PolicyId::AttentionThreshold => "attention-threshold",
             PolicyId::RapidGrowth => "rapid-growth",
+            PolicyId::SuppressionMissingReason => "suppression-missing-reason",
         }
     }
 }
@@ -119,7 +121,7 @@ fn compare_policy_results(a: &PolicyResult, b: &PolicyResult) -> Ordering {
     use PolicyId::*;
 
     // Primary: by id (enum discriminant order)
-    // Order: CriticalIntroduction → ExcessiveRiskRegression → WatchThreshold → AttentionThreshold → RapidGrowth → NetRepoRegression
+    // Order: CriticalIntroduction → ExcessiveRiskRegression → WatchThreshold → AttentionThreshold → RapidGrowth → SuppressionMissingReason → NetRepoRegression
     let id_order = match (a.id, b.id) {
         // Same IDs are equal
         (CriticalIntroduction, CriticalIntroduction) => Ordering::Equal,
@@ -127,6 +129,7 @@ fn compare_policy_results(a: &PolicyResult, b: &PolicyResult) -> Ordering {
         (WatchThreshold, WatchThreshold) => Ordering::Equal,
         (AttentionThreshold, AttentionThreshold) => Ordering::Equal,
         (RapidGrowth, RapidGrowth) => Ordering::Equal,
+        (SuppressionMissingReason, SuppressionMissingReason) => Ordering::Equal,
         (NetRepoRegression, NetRepoRegression) => Ordering::Equal,
 
         // CriticalIntroduction is always first
@@ -148,6 +151,10 @@ fn compare_policy_results(a: &PolicyResult, b: &PolicyResult) -> Ordering {
         // RapidGrowth is fifth
         (RapidGrowth, _) => Ordering::Less,
         (_, RapidGrowth) => Ordering::Greater,
+
+        // SuppressionMissingReason is sixth
+        (SuppressionMissingReason, _) => Ordering::Less,
+        (_, SuppressionMissingReason) => Ordering::Greater,
     };
 
     if id_order != Ordering::Equal {
@@ -197,6 +204,7 @@ pub fn evaluate_policies(
     evaluate_watch_threshold(&delta.deltas, config, &mut results);
     evaluate_attention_threshold(&delta.deltas, config, &mut results);
     evaluate_rapid_growth(&delta.deltas, config, &mut results);
+    evaluate_suppression_missing_reason(&delta.deltas, &mut results);
 
     // 3. Repo-level policies
     evaluate_net_repo_regression(delta, current_snapshot, repo_root, &mut results)?;
@@ -215,6 +223,11 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
     const CRITICAL_BAND: &str = "critical";
 
     for entry in deltas {
+        // Skip suppressed functions
+        if entry.suppression_reason.is_some() {
+            continue;
+        }
+
         // Check if function becomes Critical
         let becomes_critical = if let Some(after) = &entry.after {
             after.band == CRITICAL_BAND
@@ -260,6 +273,11 @@ fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &m
     const REGRESSION_THRESHOLD: f64 = 1.0;
 
     for entry in deltas {
+        // Skip suppressed functions
+        if entry.suppression_reason.is_some() {
+            continue;
+        }
+
         // Only check Modified functions
         if entry.status != FunctionStatus::Modified {
             continue;
@@ -300,6 +318,11 @@ fn evaluate_watch_threshold(
     results: &mut PolicyResults,
 ) {
     for entry in deltas {
+        // Skip suppressed functions
+        if entry.suppression_reason.is_some() {
+            continue;
+        }
+
         // Only check New or Modified functions
         if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
             continue;
@@ -358,6 +381,11 @@ fn evaluate_attention_threshold(
     results: &mut PolicyResults,
 ) {
     for entry in deltas {
+        // Skip suppressed functions
+        if entry.suppression_reason.is_some() {
+            continue;
+        }
+
         // Only check New or Modified functions
         if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
             continue;
@@ -417,6 +445,11 @@ fn evaluate_rapid_growth(
     results: &mut PolicyResults,
 ) {
     for entry in deltas {
+        // Skip suppressed functions
+        if entry.suppression_reason.is_some() {
+            continue;
+        }
+
         // Only check Modified functions
         if entry.status != FunctionStatus::Modified {
             continue;
@@ -458,6 +491,32 @@ fn evaluate_rapid_growth(
                     growth_percent: Some(growth_percent),
                 }),
             });
+        }
+    }
+}
+
+/// Evaluate Suppression Missing Reason policy
+///
+/// Triggers when `suppression_reason == Some("")` (suppression without reason)
+/// Warning only - reminds developers to document why functions are suppressed
+fn evaluate_suppression_missing_reason(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
+    for entry in deltas {
+        // Check if function has suppression without reason
+        if let Some(reason) = &entry.suppression_reason {
+            if reason.is_empty() {
+                let message = format!(
+                    "Function {} suppressed without reason",
+                    entry.function_id
+                );
+
+                results.warnings.push(PolicyResult {
+                    id: PolicyId::SuppressionMissingReason,
+                    severity: PolicySeverity::Warning,
+                    function_id: Some(entry.function_id.clone()),
+                    message,
+                    metadata: None,
+                });
+            }
         }
     }
 }
@@ -557,6 +616,7 @@ mod tests {
             after,
             delta,
             band_transition: None,
+            suppression_reason: None,
         }
     }
 
@@ -801,6 +861,7 @@ mod tests {
             after,
             delta,
             band_transition: None,
+            suppression_reason: None,
         }
     }
 

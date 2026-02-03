@@ -30,6 +30,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         },
         lrs: 4.8,
         band: "moderate".to_string(),
+        suppression_reason: None,
     };
     
     snapshot::Snapshot::new(git_context, vec![report])
@@ -153,6 +154,7 @@ fn test_delta_single_parent_only() {
         },
         lrs: 4.8,
         band: "moderate".to_string(),
+        suppression_reason: None,
     };
     
     let merge_snapshot = snapshot::Snapshot::new(git_context, vec![report]);
@@ -222,6 +224,7 @@ fn test_delta_negative_deltas_allowed() {
         },
         lrs: 2.5, // Lower than parent
         band: "low".to_string(),
+        suppression_reason: None,
     };
     
     let current = snapshot::Snapshot::new(git_context, vec![report]);

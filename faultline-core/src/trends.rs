@@ -459,6 +459,7 @@ mod tests {
                 },
                 lrs: f.lrs,
                 band: f.band.clone(),
+                suppression_reason: None,
             }
         }).collect();
 
@@ -476,6 +477,7 @@ mod tests {
                     metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
                     lrs: 1.0,
                     band: "low".to_string(),
+                    suppression_reason: None,
                 },
             ]),
             create_test_snapshot("sha2", "sha1", vec![
@@ -486,6 +488,7 @@ mod tests {
                     metrics: MetricsReport { cc: 2, nd: 1, fo: 0, ns: 0 },
                     lrs: 3.0,
                     band: "moderate".to_string(),
+                    suppression_reason: None,
                 },
             ]),
         ];
@@ -508,6 +511,7 @@ mod tests {
                     metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
                     lrs: 1.0,
                     band: "low".to_string(),
+                    suppression_reason: None,
                 },
             ]),
             create_test_snapshot("sha2", "sha1", vec![
@@ -518,6 +522,7 @@ mod tests {
                     metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
                     lrs: 1.0,
                     band: "low".to_string(),
+                    suppression_reason: None,
                 },
             ]),
         ];
@@ -538,6 +543,7 @@ mod tests {
                     metrics: MetricsReport { cc: 10, nd: 5, fo: 3, ns: 2 },
                     lrs: 15.0,
                     band: "high".to_string(),
+                    suppression_reason: None,
                 },
                 FunctionSnapshot {
                     function_id: "src/bar.ts::func2".to_string(),
@@ -546,6 +552,7 @@ mod tests {
                     metrics: MetricsReport { cc: 5, nd: 2, fo: 1, ns: 0 },
                     lrs: 5.0,
                     band: "moderate".to_string(),
+                    suppression_reason: None,
                 },
             ]),
             create_test_snapshot("sha2", "sha1", vec![
@@ -556,6 +563,7 @@ mod tests {
                     metrics: MetricsReport { cc: 12, nd: 6, fo: 4, ns: 2 },
                     lrs: 18.0,
                     band: "high".to_string(),
+                    suppression_reason: None,
                 },
                 FunctionSnapshot {
                     function_id: "src/bar.ts::func2".to_string(),
@@ -564,6 +572,7 @@ mod tests {
                     metrics: MetricsReport { cc: 5, nd: 2, fo: 1, ns: 0 },
                     lrs: 5.0,
                     band: "moderate".to_string(),
+                    suppression_reason: None,
                 },
             ]),
         ];

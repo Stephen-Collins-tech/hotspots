@@ -369,6 +369,291 @@ For development, use the `dev` script:
 
 ---
 
+## Configuration
+
+### Configuration File
+
+Faultline supports project-specific configuration via config files. Create one of the following:
+
+- `.faultlinerc.json` (recommended)
+- `faultline.config.json`
+- `package.json` with a `"faultline"` key
+
+**Example `.faultlinerc.json`:**
+
+```json
+{
+  "include": ["src/**/*.ts", "lib/**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.spec.ts"],
+  "thresholds": {
+    "moderate": 3.0,
+    "high": 6.0,
+    "critical": 9.0
+  },
+  "weights": {
+    "cc": 1.0,
+    "nd": 1.0,
+    "fo": 0.5,
+    "ns": 1.0
+  },
+  "warnings": {
+    "watch": {
+      "min": 4.0,
+      "max": 6.0
+    },
+    "attention": {
+      "min": 6.0,
+      "max": 9.0
+    },
+    "rapid_growth_percent": 50.0
+  }
+}
+```
+
+**Configuration options:**
+
+- `include`: Glob patterns for files to analyze (default: all TypeScript/JavaScript files)
+- `exclude`: Glob patterns for files to exclude (default: test files, node_modules, dist, build)
+- `thresholds`: Custom risk band thresholds (moderate, high, critical)
+- `weights`: Custom weights for metrics (cc, nd, fo, ns) - values 0.0-10.0
+- `warnings`: Proactive warning thresholds (see Policy Engine section)
+
+**Validate configuration:**
+
+```bash
+faultline config validate
+```
+
+**View resolved configuration:**
+
+```bash
+faultline config show
+```
+
+**CLI flags override config:**
+
+```bash
+# Config file has --min-lrs 3.0, this overrides to 5.0
+faultline analyze . --min-lrs 5.0
+```
+
+---
+
+## Policy Engine
+
+The policy engine evaluates complexity regressions and enforces quality gates in CI/CD.
+
+### Running Policy Checks
+
+```bash
+# Analyze with policy evaluation
+faultline analyze . --mode delta --policies --format json
+```
+
+Output includes a `policy` section with failures and warnings.
+
+### Built-in Policies
+
+**Blocking Policies (cause non-zero exit code):**
+
+1. **Critical Introduction** - Triggers when a function becomes Critical
+   - New functions introduced as Critical
+   - Existing functions crossing into Critical band
+
+2. **Excessive Risk Regression** - Triggers when LRS increases by ≥1.0
+   - Modified functions only
+   - Threshold: +1.0 LRS (fixed)
+
+**Warning Policies (informational only):**
+
+3. **Watch Threshold** - Functions entering the "watch zone"
+   - Range: `watch_min` to `watch_max` (default: 4.0-6.0)
+   - Proactive alert before functions become high-risk
+
+4. **Attention Threshold** - Functions entering the "attention zone"
+   - Range: `attention_min` to `attention_max` (default: 6.0-9.0)
+   - Alerts for functions approaching critical complexity
+
+5. **Rapid Growth** - Functions with high percentage LRS increase
+   - Threshold: `rapid_growth_percent` (default: 50%)
+   - Detects sudden complexity spikes
+
+6. **Suppression Missing Reason** - Suppressions without documentation
+   - Warns when `// faultline-ignore:` has no reason
+   - Encourages documenting why functions are suppressed
+
+7. **Net Repo Regression** - Overall repository complexity increase
+   - Sum of all function LRS scores increased
+   - Warning only (allows controlled growth)
+
+**Example policy output:**
+
+```json
+{
+  "policy": {
+    "failed": [
+      {
+        "id": "critical-introduction",
+        "severity": "blocking",
+        "function_id": "src/api.ts::handleRequest",
+        "message": "Function src/api.ts::handleRequest introduced as Critical"
+      }
+    ],
+    "warnings": [
+      {
+        "id": "watch-threshold",
+        "severity": "warning",
+        "function_id": "src/db.ts::query",
+        "message": "Function src/db.ts::query entered watch threshold range (LRS: 4.5)"
+      },
+      {
+        "id": "net-repo-regression",
+        "severity": "warning",
+        "message": "Repository total LRS increased by 3.20",
+        "metadata": {
+          "total_delta": 3.20
+        }
+      }
+    ]
+  }
+}
+```
+
+### Configuring Warning Thresholds
+
+Customize warning ranges in your config file:
+
+```json
+{
+  "warnings": {
+    "watch": {
+      "min": 5.0,
+      "max": 7.0
+    },
+    "attention": {
+      "min": 7.0,
+      "max": 10.0
+    },
+    "rapid_growth_percent": 75.0
+  }
+}
+```
+
+---
+
+## Suppressing Policy Violations
+
+Use suppression comments to exclude specific functions from policy checks while keeping them in reports.
+
+### Suppression Syntax
+
+Place a comment **immediately before** the function:
+
+```typescript
+// faultline-ignore: legacy code, refactor planned for Q2 2026
+function complexLegacyParser(input: string) {
+  // High complexity code...
+}
+```
+
+**Rules:**
+- Comment must be on the line immediately before the function
+- Format: `// faultline-ignore: reason`
+- Reason is required (warning if missing)
+- Blank lines break the suppression
+
+### What Suppressions Do
+
+**Excluded from:**
+- Critical Introduction policy
+- Excessive Risk Regression policy
+- Watch/Attention/Rapid Growth warnings
+
+**Included in:**
+- Analysis reports (visible with `suppression_reason` field)
+- Net Repo Regression (repo-level metric includes all functions)
+- HTML reports
+
+**Example suppressed function in JSON:**
+
+```json
+{
+  "file": "src/legacy.ts",
+  "function": "oldParser",
+  "line": 42,
+  "lrs": 12.5,
+  "band": "critical",
+  "suppression_reason": "legacy code, refactor planned for Q2 2026"
+}
+```
+
+### Suppression Validation
+
+Functions suppressed without a reason will trigger a warning:
+
+```typescript
+// faultline-ignore:
+function foo() { }  // ⚠️  Warning: suppressed without reason
+```
+
+**Best practices:**
+- Document WHY the function is suppressed
+- Include planned action (e.g., "refactor in Q2")
+- Require code review for new suppressions
+- Periodically audit suppressed functions
+
+**When to suppress:**
+- Complex algorithms with well-established tests
+- Legacy code pending migration
+- Generated code
+- Intentionally complex code (e.g., state machines)
+
+**When NOT to suppress:**
+- New code that should be refactored
+- "I'll fix it later" without a concrete plan
+- Code that could be simplified
+
+---
+
+## HTML Reports
+
+Generate interactive HTML reports for better visualization:
+
+```bash
+faultline analyze . --format html > report.html
+```
+
+**HTML report features:**
+- Interactive sorting by any column
+- Filter by risk band
+- Filter by file path
+- Color-coded risk bands
+- Responsive design
+- Self-contained (no external dependencies)
+
+**Delta mode HTML:**
+
+```bash
+faultline analyze . --mode delta --format html > delta-report.html
+```
+
+Shows function changes with:
+- Status badges (new/modified/deleted/unchanged)
+- Before/after metrics
+- Band transitions
+- Policy violations highlighted
+
+**Open in browser:**
+
+```bash
+faultline analyze . --format html > report.html
+open report.html  # macOS
+xdg-open report.html  # Linux
+start report.html  # Windows
+```
+
+---
+
 ## See Also
 
 - [Capabilities and Use Cases](capabilities-and-use-cases.md) - Detailed feature overview

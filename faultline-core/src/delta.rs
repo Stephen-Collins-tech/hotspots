@@ -71,6 +71,8 @@ pub struct FunctionDeltaEntry {
     pub delta: Option<FunctionDelta>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub band_transition: Option<BandTransition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suppression_reason: Option<String>,
 }
 
 /// Commit info in delta
@@ -150,6 +152,7 @@ impl Delta {
                     }),
                     delta: None,
                     band_transition: None,
+                    suppression_reason: func.suppression_reason.clone(),
                 })
                 .collect();
             
@@ -241,10 +244,11 @@ impl Delta {
                         after,
                         delta,
                         band_transition,
+                        suppression_reason: current.suppression_reason.clone(),
                     });
                 }
                 (Some(parent), None) => {
-                    // Function deleted
+                    // Function deleted - preserve parent suppression
                     deltas.push(FunctionDeltaEntry {
                         function_id: function_id.to_string(),
                         status: FunctionStatus::Deleted,
@@ -256,6 +260,7 @@ impl Delta {
                         after: None,
                         delta: Some(compute_delete_delta(parent)),
                         band_transition: None,
+                        suppression_reason: parent.suppression_reason.clone(),
                     });
                 }
                 (None, Some(current)) => {
@@ -271,6 +276,7 @@ impl Delta {
                         }),
                         delta: None,
                         band_transition: None,
+                        suppression_reason: current.suppression_reason.clone(),
                     });
                 }
                 (None, None) => {
@@ -440,6 +446,7 @@ mod tests {
             },
             lrs,
             band: band.to_string(),
+            suppression_reason: None,
         };
         
         Snapshot::new(git_context, vec![report])

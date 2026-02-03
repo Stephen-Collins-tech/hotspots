@@ -286,6 +286,7 @@ mod tests {
             metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
             lrs,
             band: band.to_string(),
+            suppression_reason: None,
         }
     }
 

@@ -41,8 +41,8 @@ pub fn analyze_file_with_config(
     // Parse source file (TypeScript or JavaScript)
     let module = parser::parse_source(&src, source_map, &path.to_string_lossy())?;
 
-    // Discover functions
-    let functions = discover::discover_functions(&module, file_index);
+    // Discover functions (with suppression extraction)
+    let functions = discover::discover_functions(&module, file_index, &src, source_map);
 
     // Analyze each function
     let mut reports = Vec::new();
