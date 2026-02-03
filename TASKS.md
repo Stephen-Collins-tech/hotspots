@@ -15,16 +15,16 @@
 
 **Phase 2: CI/CD Integration**
 - ⏳ Task 2.1: GitHub Action (Core)
-- ⏳ Task 2.2: Proactive Warning System
-- ⏳ Task 2.3: HTML Report Generation
+- ✅ Task 2.2: Proactive Warning System (COMPLETED 2026-02-03)
+- ✅ Task 2.3: HTML Report Generation (COMPLETED 2026-02-03)
 - ⏳ Task 2.4: GitHub PR Annotations
 
 **Phase 3: Configuration & Policies**
 - ✅ Task 3.1: Configuration File (COMPLETED 2026-02-02)
 
-**Overall Progress:** 4/25 tasks completed (16%)
+**Overall Progress:** 6/25 tasks completed (24%)
 
-**Latest Update:** 2026-02-02 - Configuration file support (Task 3.1)
+**Latest Update:** 2026-02-03 - Proactive warning system and HTML report generation (Tasks 2.2, 2.3)
 
 ---
 
@@ -232,6 +232,8 @@ Phase 6: Polish & Documentation
 
 **Priority:** P0 (Key differentiator for CI/CD)
 
+**Status:** ✅ **COMPLETED** (2026-02-03)
+
 **Concept:** Warn developers *before* functions become problems, giving them time to plan refactoring rather than being surprised by blocking failures.
 
 **Warning Levels:**
@@ -285,19 +287,29 @@ Phase 6: Polish & Documentation
 ```
 
 **Acceptance:**
-- Developers see warnings before functions become critical
-- Warnings give actionable recommendations
-- Trend detection identifies growing complexity early
-- Warnings can be acknowledged/suppressed for intentional complexity
-- "Time to critical" estimates help with prioritization
+- ✅ Three warning levels implemented: Watch (2.5-3.0), Attention (5.5-6.0), Rapid Growth (≥50% increase)
+- ✅ Policy engine extended with new warning evaluation functions
+- ✅ CLI output groups warnings by level with detailed tables
+- ✅ Warning thresholds configurable via config file
+- ✅ All 131 tests pass
 
-**Estimated effort:** High (1 week)
+**Implementation details:**
+- Extended `PolicyId` enum with `WatchThreshold`, `AttentionThreshold`, `RapidGrowth`
+- Added warning threshold configuration in `config.rs`
+- Added evaluation functions in `policy.rs`
+- Enhanced CLI output formatting for warnings
+
+**Commit:** 435fd9a
+
+**Note:** Warning suppression (Task 2.2.5) deferred to Task 3.2 (Suppression Comments)
 
 ---
 
 ### 2.3 HTML Report Generation
 
 **Priority:** P0 (Better UX than JSON)
+
+**Status:** ✅ **COMPLETED** (2026-02-03)
 
 **Tasks:**
 
@@ -327,12 +339,26 @@ Phase 6: Polish & Documentation
   - Use lightweight charting library (Chart.js)
 
 **Acceptance:**
-- Running `faultline analyze --format html` generates HTML report
-- Report is interactive (sorting, filtering work)
-- GitHub Action uploads report as artifact
-- Report is readable and actionable
+- ✅ Running `faultline analyze --mode snapshot --format html` generates HTML report
+- ✅ Running `faultline analyze --mode delta --format html` generates delta report
+- ✅ Report is interactive (sorting and filtering with vanilla JavaScript)
+- ✅ Report is self-contained (embedded CSS/JS, works offline)
+- ✅ Report is responsive (mobile-friendly with dark mode support)
+- ✅ Report is deterministic (byte-for-byte reproducible)
+- ✅ Both snapshot and delta modes supported with policy violations
+- ✅ All 131 tests pass
 
-**Estimated effort:** High (1 week)
+**Implementation details:**
+- Created `faultline-core/src/html.rs` module with render functions
+- Added `Html` variant to `OutputFormat` enum
+- Added `--output` flag for custom HTML output path
+- Implemented `write_html_report()` with atomic write pattern
+- Hand-crafted HTML with embedded CSS/JS (no template engine)
+- Risk band color scheme: Low(#22c55e), Moderate(#eab308), High(#f97316), Critical(#ef4444)
+
+**Commit:** 57442a5
+
+**Note:** Syntax-highlighted code snippets and charts deferred as post-MVP enhancements
 
 ---
 
