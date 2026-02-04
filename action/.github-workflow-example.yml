@@ -1,0 +1,50 @@
+# Example GitHub Actions workflow using Faultline
+# Copy this to .github/workflows/faultline.yml in your repository
+
+name: Faultline Complexity Analysis
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  analyze:
+    name: Analyze Complexity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for delta analysis
+
+      - name: Run Faultline
+        uses: yourorg/faultline@v1  # Replace with actual action path
+        id: faultline
+        with:
+          path: '.'
+          policy: 'critical-introduction'
+          fail-on: 'error'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          post-comment: true
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: faultline-report
+          path: ${{ steps.faultline.outputs.report-path }}
+          retention-days: 30
+
+      - name: Check Results
+        if: steps.faultline.outputs.passed == 'false'
+        run: |
+          echo "::error::Faultline analysis failed"
+          echo "Violations: ${{ steps.faultline.outputs.violations }}"
+          exit 1

@@ -1,0 +1,52 @@
+name: 'Faultline'
+description: 'Analyze TypeScript/JavaScript complexity and block regressions in CI'
+author: 'Faultline'
+branding:
+  icon: 'alert-triangle'
+  color: 'orange'
+
+inputs:
+  path:
+    description: 'Path to analyze (default: repository root)'
+    required: false
+    default: '.'
+  policy:
+    description: 'Policy to enforce (critical-introduction, strict, etc.)'
+    required: false
+    default: 'critical-introduction'
+  min-lrs:
+    description: 'Minimum LRS threshold (overrides policy)'
+    required: false
+  config:
+    description: 'Path to faultline config file'
+    required: false
+  fail-on:
+    description: 'When to fail the build (error, warn, never)'
+    required: false
+    default: 'error'
+  version:
+    description: 'Faultline version to use (default: latest)'
+    required: false
+    default: 'latest'
+  github-token:
+    description: 'GitHub token for posting PR comments'
+    required: false
+    default: ${{ github.token }}
+  post-comment:
+    description: 'Post results as PR comment (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  violations:
+    description: 'JSON array of policy violations'
+  passed:
+    description: 'Whether analysis passed (true/false)'
+  summary:
+    description: 'Markdown summary of results'
+  report-path:
+    description: 'Path to generated HTML report'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -4,6 +4,32 @@ Static analysis tool for TypeScript, JavaScript, and React that computes a Local
 
 ## Quickstart
 
+### GitHub Action (Recommended for CI/CD)
+
+Add to `.github/workflows/faultline.yml`:
+
+```yaml
+name: Faultline
+
+on: [pull_request, push]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for delta analysis
+
+      - uses: yourorg/faultline@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [action/README.md](action/README.md) for full GitHub Action documentation.
+
+### CLI Usage
+
 ```bash
 # Build the project
 cargo build --release
@@ -44,6 +70,11 @@ See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ### CI/CD Integration
 
+- **GitHub Action**: Zero-config integration for pull requests and CI pipelines ([docs](action/README.md))
+  - Automatic PR/push detection and delta analysis
+  - PR comments with results and violations
+  - HTML report artifacts
+  - Job summaries in workflow runs
 - **Policy Engine**: Automated quality gates for complexity regressions
   - Block critical function introductions
   - Detect excessive risk regressions (+1.0 LRS threshold)
@@ -117,6 +148,37 @@ See [docs/USAGE.md#configuration](docs/USAGE.md#configuration) for details.
 - Cargo
 
 ## Installation
+
+### GitHub Action (Recommended)
+
+Add Faultline to your GitHub Actions workflow:
+
+```yaml
+- uses: yourorg/faultline@v1
+```
+
+See [action/README.md](action/README.md) for configuration options.
+
+### Binary Releases
+
+Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/faultline/releases):
+
+```bash
+# Linux
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-linux-x64.tar.gz
+tar -xzf faultline-linux-x64.tar.gz
+sudo mv faultline /usr/local/bin/
+
+# macOS (Intel)
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-x64.tar.gz
+tar -xzf faultline-darwin-x64.tar.gz
+sudo mv faultline /usr/local/bin/
+
+# macOS (Apple Silicon)
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-arm64.tar.gz
+tar -xzf faultline-darwin-arm64.tar.gz
+sudo mv faultline /usr/local/bin/
+```
 
 ### Local Development (No Installation)
 

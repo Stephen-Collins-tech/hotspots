@@ -14,7 +14,7 @@
 - ✅ Task 1.3: Fix Break/Continue CFG Routing (COMPLETED 2026-02-02)
 
 **Phase 2: CI/CD Integration**
-- ⏳ Task 2.1: GitHub Action (Core)
+- ✅ Task 2.1: GitHub Action (Core) (COMPLETED 2026-02-04)
 - ✅ Task 2.2: Proactive Warning System (COMPLETED 2026-02-03)
 - ✅ Task 2.3: HTML Report Generation (COMPLETED 2026-02-03)
 - ⏳ Task 2.4: GitHub PR Annotations
@@ -23,9 +23,9 @@
 - ✅ Task 3.1: Configuration File (COMPLETED 2026-02-02)
 - ✅ Task 3.2: Suppression Comments (COMPLETED 2026-02-03)
 
-**Overall Progress:** 7/25 tasks completed (28%)
+**Overall Progress:** 8/25 tasks completed (32%)
 
-**Latest Update:** 2026-02-03 - Suppression comments implementation (Task 3.2)
+**Latest Update:** 2026-02-04 - GitHub Action implementation (Task 2.1)
 
 ---
 
@@ -177,55 +177,58 @@ Phase 6: Polish & Documentation
 
 ## Phase 2: CI/CD Integration
 
-### 2.1 GitHub Action (Core)
+### 2.1 GitHub Action (Core) ✅
 
 **Priority:** P0 (Critical for adoption)
 
+**Status:** ✅ **COMPLETED** (2026-02-04)
+
 **Tasks:**
 
-- [ ] Create `faultline-action` repository
-  - Template from `actions/typescript-action`
-  - Setup TypeScript + Neon (or shell out to binary)
-- [ ] Implement action inputs
-  - `path` (default: `.`)
-  - `policy` (default: `critical-introduction`)
-  - `min-lrs` (optional float)
-  - `config` (optional path to config file)
-  - `fail-on` (error, warn, never)
-- [ ] Implement action outputs
-  - `violations` (JSON array of violations)
-  - `passed` (boolean)
-  - `summary` (markdown summary)
-- [ ] Add binary caching
-  - Cache faultline binary by version
-  - Download/extract on cache miss
-  - Verify checksum
-- [ ] Handle PR context automatically
-  - Detect PR via `GITHUB_EVENT_NAME`
-  - Extract merge-base from GitHub API
-  - Run delta mode comparing to merge-base
-  - Run snapshot mode for mainline pushes
-- [ ] Basic PR comment posting
-  - Use GitHub API to post comment
-  - Show top violations
-  - Link to full report (artifact)
-  - Update existing comment (don't spam)
-- [ ] Job summary output
-  - Use `GITHUB_STEP_SUMMARY`
-  - Markdown table of top violations
+- [x] Create action in monorepo (`action/` directory)
+  - TypeScript implementation with `@actions/*` packages
+  - Bundled with `@vercel/ncc` for distribution
+- [x] Implement action inputs
+  - `path`, `policy`, `min-lrs`, `config`, `fail-on`
+  - `version`, `github-token`, `post-comment`
+- [x] Implement action outputs
+  - `violations`, `passed`, `summary`, `report-path`
+- [x] Add binary caching
+  - Uses `@actions/tool-cache` for version-based caching
+  - Downloads from GitHub releases
+  - Fallback to building from source (for development)
+- [x] Handle PR context automatically
+  - Detects PR vs push via `github.context.eventName`
+  - Extracts merge-base from PR payload
+  - Runs delta mode for PRs, snapshot for mainline
+- [x] Basic PR comment posting
+  - Posts markdown summary to PR
+  - Updates existing comment (no spam)
+  - Links to HTML report artifact
+- [x] Job summary output
+  - Uses `GITHUB_STEP_SUMMARY`
+  - Markdown tables with violations by severity
   - Pass/fail status
 
 **Acceptance:**
-- Action can be used in any repo with:
-  ```yaml
-  - uses: faultline-action@v1
-  ```
-- Automatically detects PR vs mainline
-- Posts results to PR comments
-- Job summary shows violations
-- Passes/fails based on policy
+- ✅ Action can be used with `uses: ./action` or `yourorg/faultline@v1`
+- ✅ Automatically detects PR vs mainline
+- ✅ Posts results to PR comments
+- ✅ Job summary shows violations
+- ✅ Passes/fails based on policy
+- ✅ HTML reports generated and available as artifacts
 
-**Estimated effort:** High (1-2 weeks)
+**Implementation details:**
+- `action/src/main.ts`: Main action entry point (500+ lines)
+- `action/action.yml`: Action metadata with inputs/outputs
+- `.github/workflows/test-action.yml`: Test workflow for action
+- `.github/workflows/release.yml`: Automated release builds for all platforms
+- `action/README.md`: Complete documentation and examples
+- `RELEASE_PROCESS.md`: Release automation and binary distribution guide
+
+**Actual effort:** ~2 hours (initial implementation)
+
+**Note:** Binary releases need to be created using the release workflow. Test workflow validates action functionality using local build.
 
 ---
 
