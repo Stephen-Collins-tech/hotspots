@@ -24,7 +24,12 @@ use swc_ecma_visit::{Visit, VisitWith};
 /// Collect all functions from a TypeScript module
 ///
 /// Returns functions sorted deterministically by span start position.
-pub fn discover_functions(module: &Module, file_index: usize) -> Vec<FunctionNode> {
+pub fn discover_functions(
+    module: &Module,
+    file_index: usize,
+    source: &str,
+    source_map: &swc_common::SourceMap,
+) -> Vec<FunctionNode> {
     let mut collector = FunctionCollector {
         file_index,
         functions: Vec::new(),
@@ -35,8 +40,8 @@ pub fn discover_functions(module: &Module, file_index: usize) -> Vec<FunctionNod
 
     // Sort by span start for deterministic ordering
     collector.functions.sort_by_key(|f| f.span.lo);
-    
-    // Assign IDs based on sorted order
+
+    // Assign IDs and extract suppressions based on sorted order
     collector
         .functions
         .into_iter()
@@ -46,6 +51,12 @@ pub fn discover_functions(module: &Module, file_index: usize) -> Vec<FunctionNod
                 file_index,
                 local_index: idx,
             };
+            // Extract suppression comment for this function
+            func.suppression_reason = crate::suppression::extract_suppression(
+                source,
+                func.span,
+                source_map,
+            );
             func
         })
         .collect()
@@ -75,6 +86,7 @@ impl Visit for FunctionCollector {
                 name,
                 span: decl.function.span,
                 body,
+                suppression_reason: None,
             });
             self.local_index += 1;
         }
@@ -99,6 +111,7 @@ impl Visit for FunctionCollector {
                 name,
                 span: expr.function.span,
                 body,
+                suppression_reason: None,
             });
             self.local_index += 1;
         }
@@ -121,6 +134,7 @@ impl Visit for FunctionCollector {
                     name,
                     span: arrow.span,
                     body: body.clone(),
+                    suppression_reason: None,
                 });
                 self.local_index += 1;
             }
@@ -145,6 +159,7 @@ impl Visit for FunctionCollector {
                     name,
                     span: arrow.span,
                     body,
+                    suppression_reason: None,
                 });
                 self.local_index += 1;
             }
@@ -176,6 +191,7 @@ impl Visit for FunctionCollector {
                 name,
                 span: method.span,
                 body,
+                suppression_reason: None,
             });
             self.local_index += 1;
         }
@@ -206,6 +222,7 @@ impl Visit for FunctionCollector {
                 name,
                 span: method.function.span,
                 body,
+                suppression_reason: None,
             });
             self.local_index += 1;
         }

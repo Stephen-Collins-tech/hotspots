@@ -1,0 +1,203 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            platform: linux
+            arch: x64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            platform: darwin
+            arch: x64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            platform: darwin
+            arch: arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            platform: win32
+            arch: x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --bin faultline
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: strip target/${{ matrix.target }}/release/faultline
+
+      - name: Create archive (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf ../../../faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }} faultline
+          cd ../../..
+
+      - name: Create archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          cd target/${{ matrix.target }}/release
+          Compress-Archive -Path faultline.exe -DestinationPath ../../../faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: faultline-${{ matrix.platform }}-${{ matrix.arch }}
+          path: faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
+          retention-days: 7
+
+  create-release:
+    name: Create Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f -exec cp {} release-files/ \;
+          ls -lh release-files/
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          cat > release-notes.md << EOF
+          # Faultline $VERSION
+
+          TypeScript/JavaScript complexity analysis tool for CI/CD pipelines.
+
+          ## What's New
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+
+          ## Installation
+
+          ### GitHub Action
+
+          \`\`\`yaml
+          - uses: ${{ github.repository }}@$VERSION
+          \`\`\`
+
+          ### Binary Installation
+
+          **Linux:**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-linux-x64.tar.gz
+          tar -xzf faultline-linux-x64.tar.gz
+          sudo mv faultline /usr/local/bin/
+          \`\`\`
+
+          **macOS (Intel):**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-darwin-x64.tar.gz
+          tar -xzf faultline-darwin-x64.tar.gz
+          sudo mv faultline /usr/local/bin/
+          \`\`\`
+
+          **macOS (Apple Silicon):**
+          \`\`\`bash
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-darwin-arm64.tar.gz
+          tar -xzf faultline-darwin-arm64.tar.gz
+          sudo mv faultline /usr/local/bin/
+          \`\`\`
+
+          **Windows:**
+          Download \`faultline-win32-x64.zip\` and extract to a directory in your PATH.
+
+          ### Cargo
+
+          \`\`\`bash
+          cargo install --git https://github.com/${{ github.repository }} --tag $VERSION
+          \`\`\`
+
+          ## Documentation
+
+          - [Getting Started](https://github.com/${{ github.repository }}#readme)
+          - [GitHub Action Usage](https://github.com/${{ github.repository }}/tree/main/action)
+          - [Configuration Guide](https://github.com/${{ github.repository }}/blob/main/docs)
+
+          ## Support
+
+          - Report issues: https://github.com/${{ github.repository }}/issues
+          - Discussions: https://github.com/${{ github.repository }}/discussions
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+      - name: Summary
+        run: |
+          echo "## Release Created! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          ls -lh release-files/ >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

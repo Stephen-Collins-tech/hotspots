@@ -4,6 +4,32 @@ Static analysis tool for TypeScript, JavaScript, and React that computes a Local
 
 ## Quickstart
 
+### GitHub Action (Recommended for CI/CD)
+
+Add to `.github/workflows/faultline.yml`:
+
+```yaml
+name: Faultline
+
+on: [pull_request, push]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for delta analysis
+
+      - uses: yourorg/faultline@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [action/README.md](action/README.md) for full GitHub Action documentation.
+
+### CLI Usage
+
 ```bash
 # Build the project
 cargo build --release
@@ -40,12 +66,119 @@ Each metric is transformed to a risk component (R_cc, R_nd, R_fo, R_ns) and weig
 
 See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
+## Features
+
+### CI/CD Integration
+
+- **GitHub Action**: Zero-config integration for pull requests and CI pipelines ([docs](action/README.md))
+  - Automatic PR/push detection and delta analysis
+  - PR comments with results and violations
+  - HTML report artifacts
+  - Job summaries in workflow runs
+- **Policy Engine**: Automated quality gates for complexity regressions
+  - Block critical function introductions
+  - Detect excessive risk regressions (+1.0 LRS threshold)
+  - Proactive warnings for functions entering high-risk zones
+- **Git History Tracking**: Snapshot and delta modes for commit-to-commit comparison
+- **HTML Reports**: Interactive, sortable, filterable reports
+- **Configuration Files**: Project-specific thresholds, weights, and file patterns
+
+### Policy Enforcement
+
+Faultline includes 7 built-in policies to enforce code quality:
+
+**Blocking (fail CI):**
+- Critical Introduction - Functions entering critical risk band
+- Excessive Risk Regression - LRS increases ≥1.0
+
+**Warnings:**
+- Watch Threshold - Functions approaching moderate complexity
+- Attention Threshold - Functions approaching critical complexity
+- Rapid Growth - Functions with >50% LRS increase
+- Suppression Missing Reason - Undocumented suppressions
+- Net Repo Regression - Overall repository complexity increase
+
+See [docs/USAGE.md#policy-engine](docs/USAGE.md#policy-engine) for details.
+
+### Suppression Comments
+
+Suppress policy violations for specific functions while keeping them in reports:
+
+```typescript
+// faultline-ignore: legacy code, refactor planned for Q2 2026
+function complexLegacyParser(input: string) {
+  // High complexity code...
+}
+```
+
+Functions with suppression comments:
+- Excluded from policy failures (Critical Introduction, Excessive Risk Regression, warnings)
+- Included in all reports with `suppression_reason` field
+- Included in repository-level metrics
+- Validated for missing reasons
+
+See [docs/USAGE.md#suppressing-policy-violations](docs/USAGE.md#suppressing-policy-violations) for details.
+
+### Configuration
+
+Customize behavior with `.faultlinerc.json`:
+
+```json
+{
+  "thresholds": {
+    "moderate": 3.0,
+    "high": 6.0,
+    "critical": 9.0
+  },
+  "warnings": {
+    "watch": { "min": 4.0, "max": 6.0 },
+    "attention": { "min": 6.0, "max": 9.0 },
+    "rapid_growth_percent": 50.0
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.test.ts"]
+}
+```
+
+See [docs/USAGE.md#configuration](docs/USAGE.md#configuration) for details.
+
 ## Requirements
 
 - Rust 1.75 or later
 - Cargo
 
 ## Installation
+
+### GitHub Action (Recommended)
+
+Add Faultline to your GitHub Actions workflow:
+
+```yaml
+- uses: yourorg/faultline@v1
+```
+
+See [action/README.md](action/README.md) for configuration options.
+
+### Binary Releases
+
+Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/faultline/releases):
+
+```bash
+# Linux
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-linux-x64.tar.gz
+tar -xzf faultline-linux-x64.tar.gz
+sudo mv faultline /usr/local/bin/
+
+# macOS (Intel)
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-x64.tar.gz
+tar -xzf faultline-darwin-x64.tar.gz
+sudo mv faultline /usr/local/bin/
+
+# macOS (Apple Silicon)
+wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-arm64.tar.gz
+tar -xzf faultline-darwin-arm64.tar.gz
+sudo mv faultline /usr/local/bin/
+```
 
 ### Local Development (No Installation)
 
@@ -141,9 +274,19 @@ LRS     File              Line  Function
 
 ### Options
 
-- `--format text|json`: Output format (default: text)
+**Output:**
+- `--format text|json|html`: Output format (default: text)
 - `--top <N>`: Show only top N results by LRS
 - `--min-lrs <float>`: Filter results by minimum LRS threshold
+
+**Modes:**
+- `--mode snapshot|delta`: Create snapshot or compute delta vs parent commit
+- `--policies`: Enable policy evaluation (delta mode only)
+
+**Configuration:**
+- `--config <path>`: Path to configuration file
+
+See [docs/USAGE.md](docs/USAGE.md) for complete documentation.
 
 ## Risk Bands
 
@@ -216,11 +359,12 @@ make test-all
 ./scripts/run-tests.sh all
 ```
 
-The comprehensive test suite validates all four phases:
-- **Policy Engine**: Critical Introduction, Excessive Risk Regression, Net Repo Regression
-- **Trend Semantics**: Risk Velocity, Hotspot Stability, Refactor Effectiveness  
+The comprehensive test suite validates all phases:
+- **Policy Engine**: 7 built-in policies (blocking + warnings)
+- **Suppression Comments**: Comment extraction and policy filtering
+- **Trend Semantics**: Risk Velocity, Hotspot Stability, Refactor Effectiveness
 - **Aggregation Views**: File and Directory aggregates
-- **Output Formats**: JSON and Text formats
+- **Output Formats**: JSON, Text, and HTML formats
 
 ### Code Quality
 
@@ -231,6 +375,22 @@ cargo fmt
 # Lint code
 cargo clippy
 ```
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for future plans, including:
+- Multi-language support (Python, Rust, Go)
+- Enterprise features
+- IDE integrations
+- Ecosystem growth
+
+Quick reference: [ROADMAP_SUMMARY.md](ROADMAP_SUMMARY.md)
+
+## Contributing
+
+Contributions welcome! See open issues or propose new features.
+
+For major changes, please review the [ROADMAP.md](ROADMAP.md) first to ensure alignment with project direction.
 
 ## License
 

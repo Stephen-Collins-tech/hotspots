@@ -602,7 +602,7 @@ mod tests {
     fn build_cfg_for(source: &str) -> Cfg {
         let sm = Lrc::new(SourceMap::default());
         let module = parse_source(source, &sm, "test.ts").unwrap();
-        let functions = discover_functions(&module, 0);
+        let functions = discover_functions(&module, 0, source, &sm);
         assert!(!functions.is_empty(), "Expected at least one function");
         build_cfg(&functions[0])
     }

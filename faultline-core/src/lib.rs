@@ -18,6 +18,7 @@ pub mod config;
 pub mod delta;
 pub mod discover;
 pub mod git;
+pub mod html;
 pub mod metrics;
 pub mod parser;
 pub mod policy;
@@ -25,6 +26,7 @@ pub mod prune;
 pub mod report;
 pub mod risk;
 pub mod snapshot;
+pub mod suppression;
 pub mod trends;
 
 pub use config::ResolvedConfig;

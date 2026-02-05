@@ -7,8 +7,10 @@ This directory contains comprehensive documentation for the Faultline MVP projec
 ### For Users
 
 - **[README.md](../README.md)** - Quickstart guide and user-facing documentation
+- **[USAGE.md](./USAGE.md)** - Comprehensive usage guide with examples
 - **[lrs-spec.md](./lrs-spec.md)** - Detailed Local Risk Score specification with formulas and examples
-- **[ts-support.md](./ts-support.md)** - Supported TypeScript features and syntax
+- **[suppression.md](./suppression.md)** - Suppression comments guide (handling false positives)
+- **[language-support.md](./language-support.md)** - Supported languages and syntax
 - **[limitations.md](./limitations.md)** - Known limitations and future work
 
 ### For Developers
@@ -34,9 +36,11 @@ This directory contains comprehensive documentation for the Faultline MVP projec
 
 ### Using Faultline
 
-1. Read [README.md](../README.md) for installation and usage
-2. Consult [lrs-spec.md](./lrs-spec.md) for score interpretation
-3. Check [ts-support.md](./ts-support.md) for feature support
+1. Read [README.md](../README.md) for quickstart
+2. See [USAGE.md](./USAGE.md) for complete feature guide
+3. Consult [lrs-spec.md](./lrs-spec.md) for score interpretation
+4. Use [suppression.md](./suppression.md) for handling false positives
+5. Check [language-support.md](./language-support.md) for feature support
 
 ### Developing Features
 
@@ -46,14 +50,19 @@ This directory contains comprehensive documentation for the Faultline MVP projec
 
 ## Document Status
 
-All documentation is complete and up-to-date as of MVP completion:
+All documentation is complete and up-to-date (as of 2026-02-03):
 
 - ✅ Architecture documented
 - ✅ Implementation summary complete
 - ✅ Design decisions captured
 - ✅ Invariants documented
 - ✅ LRS specification complete
-- ✅ TypeScript support documented
+- ✅ Language support documented (TypeScript, JavaScript, JSX, TSX)
+- ✅ Usage guide with examples (snapshot, delta, policies, config)
+- ✅ Suppression comments documented
+- ✅ Policy engine documented (7 built-in policies)
+- ✅ Configuration files documented
+- ✅ HTML reports documented
 - ✅ Limitations documented
 
 ## Related Files

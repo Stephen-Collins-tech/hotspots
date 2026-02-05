@@ -24,6 +24,7 @@ pub struct FunctionNode {
     pub name: Option<String>,
     pub span: Span,
     pub body: BlockStmt,
+    pub suppression_reason: Option<String>,
 }
 
 impl FunctionNode {

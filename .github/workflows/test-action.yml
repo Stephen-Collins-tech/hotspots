@@ -1,0 +1,126 @@
+name: Test Faultline Action
+
+on:
+  pull_request:
+    paths:
+      - 'action/**'
+      - '.github/workflows/test-action.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'action/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test-action:
+    name: Test Action on Sample TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Build faultline binary
+        run: cargo build --release --bin faultline
+
+      - name: Create sample TypeScript project
+        run: |
+          mkdir -p test-ts-project
+          cat > test-ts-project/sample.ts << 'EOF'
+          // Simple function (should pass)
+          function simple(x: number): number {
+            return x + 1;
+          }
+
+          // Complex function (might trigger warnings)
+          function complex(data: any): any {
+            if (data.type === 'A') {
+              if (data.nested) {
+                if (data.nested.value > 10) {
+                  for (let i = 0; i < data.items.length; i++) {
+                    if (data.items[i].active) {
+                      return processItem(data.items[i]);
+                    }
+                  }
+                } else {
+                  return defaultValue();
+                }
+              }
+            } else if (data.type === 'B') {
+              return handleTypeB(data);
+            }
+            return null;
+          }
+
+          // Helper functions
+          function processItem(item: any): any {
+            return item;
+          }
+
+          function defaultValue(): any {
+            return {};
+          }
+
+          function handleTypeB(data: any): any {
+            return data;
+          }
+          EOF
+
+      - name: Run Faultline Action
+        uses: ./action
+        id: faultline
+        with:
+          path: test-ts-project
+          policy: critical-introduction
+          fail-on: never  # Don't fail the test workflow
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          post-comment: ${{ github.event_name == 'pull_request' }}
+
+      - name: Display Results
+        run: |
+          echo "Passed: ${{ steps.faultline.outputs.passed }}"
+          echo "Summary:"
+          echo "${{ steps.faultline.outputs.summary }}"
+          echo "Violations:"
+          echo "${{ steps.faultline.outputs.violations }}"
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: faultline-test-report
+          path: ${{ steps.faultline.outputs.report-path }}
+          retention-days: 7
+
+      - name: Verify Outputs
+        run: |
+          if [ -z "${{ steps.faultline.outputs.passed }}" ]; then
+            echo "::error::Output 'passed' is missing"
+            exit 1
+          fi
+          if [ -z "${{ steps.faultline.outputs.summary }}" ]; then
+            echo "::error::Output 'summary' is missing"
+            exit 1
+          fi
+          echo "✅ All outputs present"
+
+      - name: Check Report File Exists
+        run: |
+          REPORT_PATH="${{ steps.faultline.outputs.report-path }}"
+          if [ -n "$REPORT_PATH" ] && [ -f "$REPORT_PATH" ]; then
+            echo "✅ HTML report generated at $REPORT_PATH"
+            ls -lh "$REPORT_PATH"
+          else
+            echo "⚠️ HTML report not found"
+          fi

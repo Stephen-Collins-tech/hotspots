@@ -15,7 +15,7 @@ use faultline_core::snapshot::{self, Snapshot};
 use faultline_core::policy::PolicyResults;
 use faultline_core::delta::Delta;
 use faultline_core::trends::TrendsAnalysis;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "faultline")]
@@ -57,6 +57,10 @@ enum Commands {
         /// Path to config file (default: auto-discover)
         #[arg(long)]
         config: Option<PathBuf>,
+
+        /// Output file path (for HTML format, default: .faultline/report.html)
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -123,6 +127,7 @@ enum ConfigAction {
 enum OutputFormat {
     Text,
     Json,
+    Html,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -135,7 +140,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Analyze { path, format, mode, policy, top, min_lrs, config: config_path } => {
+        Commands::Analyze { path, format, mode, policy, top, min_lrs, config: config_path, output } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
                 std::env::current_dir()?.join(&path)
@@ -182,7 +187,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(output_mode) = mode {
                 return handle_mode_output(
                     &normalized_path, output_mode, format, policy,
-                    effective_top, effective_min_lrs, &resolved_config,
+                    effective_top, effective_min_lrs, &resolved_config, output,
                 );
             }
 
@@ -202,6 +207,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 OutputFormat::Json => {
                     println!("{}", render_json(&reports));
+                }
+                OutputFormat::Html => {
+                    anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
                 }
             }
         }
@@ -357,6 +365,9 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Text => {
                     print_trends_text_output(&trends)?;
                 }
+                OutputFormat::Html => {
+                    anyhow::bail!("HTML format is not supported for trends analysis");
+                }
             }
         }
     }
@@ -373,6 +384,7 @@ fn handle_mode_output(
     top: Option<usize>,
     min_lrs: Option<f64>,
     resolved_config: &faultline_core::ResolvedConfig,
+    output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
@@ -419,6 +431,19 @@ fn handle_mode_output(
                     // Text format not supported for snapshot initially
                     anyhow::bail!("text format is not supported for snapshot mode (use --format json)");
                 }
+                OutputFormat::Html => {
+                    // Compute aggregates for output
+                    let mut snapshot_with_aggregates = snapshot.clone();
+                    snapshot_with_aggregates.aggregates = Some(faultline_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
+
+                    // Render HTML
+                    let html = faultline_core::html::render_html_snapshot(&snapshot_with_aggregates);
+
+                    // Write to file
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    write_html_report(&output_path, &html)?;
+                    eprintln!("HTML report written to: {}", output_path.display());
+                }
             }
         }
         OutputMode::Delta => {
@@ -441,7 +466,7 @@ fn handle_mode_output(
             // Evaluate policies if requested
             let mut delta_with_extras = delta.clone();
             if policy {
-                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root)
+                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root, resolved_config)
                     .context("failed to evaluate policies")?;
                 
                 if let Some(results) = policy_results {
@@ -475,6 +500,15 @@ fn handle_mode_output(
                     } else {
                         anyhow::bail!("text format is not supported for delta mode without --policy (use --format json)");
                     }
+                }
+                OutputFormat::Html => {
+                    // Render HTML
+                    let html = faultline_core::html::render_html_delta(&delta_with_extras);
+
+                    // Write to file
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    write_html_report(&output_path, &html)?;
+                    eprintln!("HTML report written to: {}", output_path.display());
                 }
             }
             
@@ -582,11 +616,103 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
         }
     }
 
-    // Print warnings second (summary only, not in table)
+    // Print warnings second, grouped by level
     if !policy_results.warnings.is_empty() {
-        println!("\nPolicy warnings:");
-        for result in &policy_results.warnings {
-            println!("- {}: {}", result.id.as_str(), result.message);
+        // Group warnings by policy ID
+        let watch_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "watch-threshold")
+            .collect();
+        let attention_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "attention-threshold")
+            .collect();
+        let rapid_growth_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "rapid-growth")
+            .collect();
+        let repo_warnings: Vec<_> = policy_results.warnings.iter()
+            .filter(|r| r.id.as_str() == "net-repo-regression")
+            .collect();
+
+        // Print Watch level warnings
+        if !watch_warnings.is_empty() {
+            println!("\nWatch Level (approaching moderate threshold):");
+            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
+            println!("{}", "-".repeat(64));
+
+            for warning in watch_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    // Find the function in delta to get details
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("N/A");
+
+                        println!(
+                            "{:<40} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            after_band
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print Attention level warnings
+        if !attention_warnings.is_empty() {
+            println!("\nAttention Level (approaching high threshold):");
+            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
+            println!("{}", "-".repeat(64));
+
+            for warning in attention_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("N/A");
+
+                        println!(
+                            "{:<40} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            after_band
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print Rapid Growth warnings
+        if !rapid_growth_warnings.is_empty() {
+            println!("\nRapid Growth (significant LRS increase):");
+            println!("{:<40} {:<12} {:<12} {:<12}", "Function", "Current LRS", "Delta", "Growth");
+            println!("{}", "-".repeat(76));
+
+            for warning in rapid_growth_warnings {
+                if let Some(function_id) = &warning.function_id {
+                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                        let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let delta_lrs = entry.delta.as_ref().map(|d| format!("{:+.2}", d.lrs)).unwrap_or_else(|| "N/A".to_string());
+                        let growth_pct = warning.metadata.as_ref()
+                            .and_then(|m| m.growth_percent)
+                            .map(|g| format!("{:+.0}%", g))
+                            .unwrap_or_else(|| "N/A".to_string());
+
+                        println!(
+                            "{:<40} {:<12} {:<12} {:<12}",
+                            truncate_string(function_id, 40),
+                            after_lrs,
+                            delta_lrs,
+                            growth_pct
+                        );
+                    }
+                }
+            }
+        }
+
+        // Print repo-level warnings
+        if !repo_warnings.is_empty() {
+            println!("\nRepository-Level Warnings:");
+            for warning in repo_warnings {
+                println!("- {}", warning.message);
+            }
         }
     }
 
@@ -596,7 +722,25 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
     } else {
         println!("\nSummary:");
         println!("  Blocking failures: {}", policy_results.failed.len());
-        println!("  Warnings: {}", policy_results.warnings.len());
+
+        // Break down warnings by type
+        let watch_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "watch-threshold").count();
+        let attention_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "attention-threshold").count();
+        let rapid_growth_count = policy_results.warnings.iter().filter(|r| r.id.as_str() == "rapid-growth").count();
+        let other_warnings_count = policy_results.warnings.len() - watch_count - attention_count - rapid_growth_count;
+
+        if watch_count > 0 {
+            println!("  Watch warnings: {}", watch_count);
+        }
+        if attention_count > 0 {
+            println!("  Attention warnings: {}", attention_count);
+        }
+        if rapid_growth_count > 0 {
+            println!("  Rapid growth warnings: {}", rapid_growth_count);
+        }
+        if other_warnings_count > 0 {
+            println!("  Other warnings: {}", other_warnings_count);
+        }
     }
 
     Ok(())
@@ -692,6 +836,27 @@ fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
     println!("  Risk velocities: {}", trends.velocities.len());
     println!("  Hotspots analyzed: {}", trends.hotspots.len());
     println!("  Refactors detected: {}", trends.refactors.len());
+
+    Ok(())
+}
+
+/// Write HTML report to file with atomic write pattern
+fn write_html_report(path: &Path, html: &str) -> anyhow::Result<()> {
+    use std::fs;
+
+    // Create parent directories if needed
+    if let Some(parent) = path.parent() {
+        let parent_str = parent.display().to_string();
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent_str))?;
+    }
+
+    // Atomic write (temp + rename pattern)
+    let temp_path = path.with_extension("html.tmp");
+    std::fs::write(&temp_path, html)
+        .with_context(|| format!("Failed to write temporary file: {}", temp_path.display()))?;
+    std::fs::rename(&temp_path, path)
+        .with_context(|| format!("Failed to rename temporary file to: {}", path.display()))?;
 
     Ok(())
 }
