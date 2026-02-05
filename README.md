@@ -376,6 +376,22 @@ cargo fmt
 cargo clippy
 ```
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for future plans, including:
+- Multi-language support (Python, Rust, Go)
+- Enterprise features
+- IDE integrations
+- Ecosystem growth
+
+Quick reference: [ROADMAP_SUMMARY.md](ROADMAP_SUMMARY.md)
+
+## Contributing
+
+Contributions welcome! See open issues or propose new features.
+
+For major changes, please review the [ROADMAP.md](ROADMAP.md) first to ensure alignment with project direction.
+
 ## License
 
 MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
