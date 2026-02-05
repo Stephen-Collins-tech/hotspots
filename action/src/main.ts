@@ -118,21 +118,18 @@ async function runFaultline(
   // Determine mode based on context
   if (context === 'pr') {
     args.push('--mode', 'delta');
-
-    // Get merge base for PR
-    const baseSha = github.context.payload.pull_request?.base?.sha;
-    if (baseSha) {
-      args.push('--base', baseSha);
-    }
+    // Note: faultline automatically detects merge-base from git context in PR mode
   } else {
     args.push('--mode', 'snapshot');
   }
 
-  // Add path
-  args.push('--path', inputs.path);
-
-  // Add policy
-  args.push('--policy', inputs.policy);
+  // Add optional parameters before the path
+  if (inputs.policy) {
+    // Policy is only valid with delta mode
+    if (context === 'pr') {
+      args.push('--policy');
+    }
+  }
 
   // Add optional parameters
   if (inputs.minLrs) {
@@ -145,6 +142,9 @@ async function runFaultline(
 
   // Always generate JSON output for parsing
   args.push('--format', 'json');
+
+  // Add path as positional argument (must be last)
+  args.push(inputs.path);
 
   // Also generate HTML report
   const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'faultline-report.html');
