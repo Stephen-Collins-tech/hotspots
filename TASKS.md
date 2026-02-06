@@ -1028,9 +1028,17 @@ function legacyParser(input: string) {
 
 **Priority:** P0 (Direct AI integration)
 
-**Status:** ⏳ **IN PROGRESS**
+**Status:** ✅ **COMPLETED** (2026-02-06) - Core functionality working
 
 **Problem:** Claude Desktop/Code users can't run Hotspots during conversations. Need Model Context Protocol (MCP) server for direct integration.
+
+**Completed (2026-02-06):**
+- ✅ Created @hotspots/mcp-server npm package with TypeScript
+- ✅ Implemented `hotspots_analyze` tool with full parameter support
+- ✅ Generates human-readable summaries with risk breakdowns
+- ✅ Supports HOTSPOTS_PATH environment variable for custom binary location
+- ✅ Comprehensive README with Claude Desktop/Code setup instructions
+- ✅ Tested and working with real analysis
 
 **Tasks:**
 
