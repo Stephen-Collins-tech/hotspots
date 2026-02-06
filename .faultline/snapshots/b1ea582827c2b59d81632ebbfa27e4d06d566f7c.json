@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "commit": {
+    "sha": "b1ea582827c2b59d81632ebbfa27e4d06d566f7c",
+    "parents": [
+      "24a7811433ee3ebe513d2e59d76e6e480265c4af"
+    ],
+    "timestamp": 1768919888,
+    "branch": "main"
+  },
+  "analysis": {
+    "scope": "full",
+    "tool_version": "0.1.0"
+  },
+  "functions": [
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./test-repo-comprehensive/src/main.ts::moderateFunction",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./test-repo-comprehensive/src/main.ts",
+      "line": 7,
+      "metrics": {
+        "cc": 5,
+        "nd": 1,
+        "fo": 0,
+        "ns": 2
+      },
+      "lrs": 4.784962500721155,
+      "band": "moderate"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./test-repo-comprehensive/src/main.ts::simpleFunction",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./test-repo-comprehensive/src/main.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 1,
+        "nd": 0,
+        "fo": 0,
+        "ns": 0
+      },
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/loop-breaks.ts::loopWithBreaks",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/loop-breaks.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 8,
+        "nd": 2,
+        "fo": 0,
+        "ns": 2
+      },
+      "lrs": 6.169925001442312,
+      "band": "high"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/nested-branching.ts::nested",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/nested-branching.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 8,
+        "nd": 2,
+        "fo": 0,
+        "ns": 4
+      },
+      "lrs": 7.569925001442312,
+      "band": "high"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/pathological.ts::pathological",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/pathological.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 23,
+        "nd": 6,
+        "fo": 0,
+        "ns": 3
+      },
+      "lrs": 11.484962500721156,
+      "band": "critical"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/simple.ts::simple",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/simple.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 1,
+        "nd": 0,
+        "fo": 0,
+        "ns": 0
+      },
+      "lrs": 1.0,
+      "band": "low"
+    },
+    {
+      "function_id": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/try-catch-finally.ts::tryCatchFinally",
+      "file": "/Users/stephencollins/projects/stephencollins.tech-repos/faultline/./tests/fixtures/try-catch-finally.ts",
+      "line": 2,
+      "metrics": {
+        "cc": 10,
+        "nd": 2,
+        "fo": 0,
+        "ns": 1
+      },
+      "lrs": 5.759431618637298,
+      "band": "moderate"
+    }
+  ]
+}

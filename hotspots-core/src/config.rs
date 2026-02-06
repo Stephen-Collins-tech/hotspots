@@ -1,4 +1,4 @@
-//! Configuration file support for Faultline
+//! Configuration file support for Hotspots
 //!
 //! Loads project-specific configuration from JSON files.
 //!
@@ -32,10 +32,10 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/build/**",
 ];
 
-/// Faultline configuration loaded from a JSON config file
+/// Hotspots configuration loaded from a JSON config file
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct FaultlineConfig {
+pub struct HotspotsConfig {
     /// Glob patterns for files to include (default: all supported extensions)
     #[serde(default)]
     pub include: Vec<String>,
@@ -136,7 +136,7 @@ pub struct ResolvedConfig {
     pub config_path: Option<PathBuf>,
 }
 
-impl FaultlineConfig {
+impl HotspotsConfig {
     /// Validate the configuration for logical errors
     pub fn validate(&self) -> Result<()> {
         // Validate thresholds are positive and ordered
@@ -353,7 +353,7 @@ impl ResolvedConfig {
 
     /// Build a ResolvedConfig with all defaults (no config file)
     pub fn defaults() -> Result<Self> {
-        FaultlineConfig::default().resolve()
+        HotspotsConfig::default().resolve()
     }
 }
 
@@ -365,7 +365,7 @@ impl ResolvedConfig {
 /// 3. `"faultline"` key in `package.json`
 ///
 /// Returns `None` if no config file is found (use defaults).
-pub fn discover_config(project_root: &Path) -> Result<Option<(FaultlineConfig, PathBuf)>> {
+pub fn discover_config(project_root: &Path) -> Result<Option<(HotspotsConfig, PathBuf)>> {
     // 1. .faultlinerc.json
     let rc_path = project_root.join(".faultlinerc.json");
     if rc_path.exists() {
@@ -392,11 +392,11 @@ pub fn discover_config(project_root: &Path) -> Result<Option<(FaultlineConfig, P
 }
 
 /// Load config from an explicit file path
-pub fn load_config_file(path: &Path) -> Result<FaultlineConfig> {
+pub fn load_config_file(path: &Path) -> Result<HotspotsConfig> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read config file: {}", path.display()))?;
 
-    let config: FaultlineConfig = serde_json::from_str(&content)
+    let config: HotspotsConfig = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse config file: {}", path.display()))?;
 
     config.validate()
@@ -406,7 +406,7 @@ pub fn load_config_file(path: &Path) -> Result<FaultlineConfig> {
 }
 
 /// Load faultline config from the "faultline" key in package.json
-fn load_from_package_json(path: &Path) -> Result<Option<FaultlineConfig>> {
+fn load_from_package_json(path: &Path) -> Result<Option<HotspotsConfig>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
@@ -415,7 +415,7 @@ fn load_from_package_json(path: &Path) -> Result<Option<FaultlineConfig>> {
 
     match pkg.get("faultline") {
         Some(faultline_value) => {
-            let config: FaultlineConfig = serde_json::from_value(faultline_value.clone())
+            let config: HotspotsConfig = serde_json::from_value(faultline_value.clone())
                 .with_context(|| {
                     format!("invalid faultline config in {}", path.display())
                 })?;
@@ -439,7 +439,7 @@ pub fn load_and_resolve(project_root: &Path, config_path: Option<&Path>) -> Resu
     } else {
         match discover_config(project_root)? {
             Some((config, path)) => (config, Some(path)),
-            None => (FaultlineConfig::default(), None),
+            None => (HotspotsConfig::default(), None),
         }
     };
 
@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_default_config_is_valid() {
-        let config = FaultlineConfig::default();
+        let config = HotspotsConfig::default();
         config.validate().expect("default config should be valid");
         let resolved = config.resolve().expect("default config should resolve");
         assert!(resolved.include.is_none());
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn test_parse_minimal_config() {
         let json = r#"{}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
     }
 
@@ -494,7 +494,7 @@ mod tests {
             "min_lrs": 2.0,
             "top": 20
         }"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
         let resolved = config.resolve().unwrap();
         assert!(resolved.include.is_some());
@@ -509,42 +509,42 @@ mod tests {
     #[test]
     fn test_reject_unknown_fields() {
         let json = r#"{"unknown_field": true}"#;
-        let result: Result<FaultlineConfig, _> = serde_json::from_str(json);
+        let result: Result<HotspotsConfig, _> = serde_json::from_str(json);
         assert!(result.is_err(), "unknown fields should be rejected");
     }
 
     #[test]
     fn test_reject_negative_weight() {
         let json = r#"{"weights": {"cc": -1.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_weight_over_10() {
         let json = r#"{"weights": {"cc": 11.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_negative_threshold() {
         let json = r#"{"thresholds": {"moderate": -1.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_unordered_thresholds() {
         let json = r#"{"thresholds": {"moderate": 6.0, "high": 3.0, "critical": 9.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_invalid_glob_pattern() {
         let json = r#"{"include": ["[invalid"]}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_should_include_custom_patterns() {
-        let config: FaultlineConfig = serde_json::from_str(r#"{
+        let config: HotspotsConfig = serde_json::from_str(r#"{
             "include": ["src/**/*.ts"],
             "exclude": ["src/generated/**"]
         }"#).unwrap();
@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn test_partial_weights_use_defaults_for_rest() {
         let json = r#"{"weights": {"cc": 2.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.weight_cc, 2.0);
         assert_eq!(resolved.weight_nd, 0.8); // default
@@ -678,7 +678,7 @@ mod tests {
     #[test]
     fn test_partial_thresholds_use_defaults_for_rest() {
         let json = r#"{"thresholds": {"critical": 12.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.moderate_threshold, 3.0); // default
         assert_eq!(resolved.high_threshold, 6.0);     // default
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn test_default_warning_thresholds() {
-        let config = FaultlineConfig::default();
+        let config = HotspotsConfig::default();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.watch_min, 2.5);
         assert_eq!(resolved.watch_max, 3.0);
@@ -707,7 +707,7 @@ mod tests {
                 "rapid_growth_percent": 75.0
             }
         }"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.watch_min, 2.0);
@@ -720,7 +720,7 @@ mod tests {
     #[test]
     fn test_partial_warning_thresholds_use_defaults() {
         let json = r#"{"warning_thresholds": {"rapid_growth_percent": 100.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.watch_min, 2.5); // default
         assert_eq!(resolved.watch_max, 3.0); // default
@@ -732,28 +732,28 @@ mod tests {
     #[test]
     fn test_reject_negative_watch_min() {
         let json = r#"{"warning_thresholds": {"watch_min": -1.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_negative_rapid_growth() {
         let json = r#"{"warning_thresholds": {"rapid_growth_percent": -10.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_unordered_watch_thresholds() {
         let json = r#"{"warning_thresholds": {"watch_min": 3.0, "watch_max": 2.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn test_reject_unordered_attention_thresholds() {
         let json = r#"{"warning_thresholds": {"attention_min": 7.0, "attention_max": 5.0}}"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
     }
 
@@ -773,7 +773,7 @@ mod tests {
                 "rapid_growth_percent": 50.0
             }
         }"#;
-        let config: FaultlineConfig = serde_json::from_str(json).unwrap();
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.watch_min, 2.5);

@@ -1,13 +1,13 @@
 # Implementation Summary
 
-This document summarizes what has been implemented in the Faultline MVP across all development phases.
+This document summarizes what has been implemented in the Hotspots MVP across all development phases.
 
 ## Phase 0: Workspace and Foundation ✅
 
 ### Workspace Creation
 - **Status:** Complete
 - **Deliverables:**
-  - Rust workspace with two crates: `faultline-core` (library) and `faultline-cli` (binary)
+  - Rust workspace with two crates: `hotspots-core` (library) and `hotspots-cli` (binary)
   - Rust 2021 Edition, MSRV 1.75
   - Clippy and rustfmt configuration
   - Warnings as errors enabled
@@ -194,7 +194,7 @@ See [`lrs-spec.md`](./lrs-spec.md) for detailed specification.
     - `try-catch-finally.ts` - Exception handling
     - `pathological.ts` - Maximum complexity example
   - 5 golden JSON files with expected outputs
-  - Golden test suite (`faultline-core/tests/golden_tests.rs`)
+  - Golden test suite (`hotspots-core/tests/golden_tests.rs`)
   - All 6 golden tests passing (5 fixtures + determinism test)
 
 ### Invariance Tests
@@ -258,12 +258,12 @@ See [`lrs-spec.md`](./lrs-spec.md) for detailed specification.
 - ✅ All tests passing
 - ✅ Deterministic output verified
 - ✅ No kernel dependency
-- ✅ Standalone binary (`faultline-cli`)
+- ✅ Standalone binary (`hotspots-cli`)
 
 ## File Structure
 
 ```
-faultline/
+hotspots/
 ├── Cargo.toml                 # Workspace configuration
 ├── Cargo.lock                 # Dependency lock file (committed)
 ├── .gitignore                 # Standard Rust ignores
@@ -279,7 +279,7 @@ faultline/
 │   ├── lrs-spec.md            # LRS detailed specification
 │   ├── ts-support.md          # TypeScript feature support
 │   └── limitations.md         # Known limitations
-├── faultline-core/
+├── hotspots-core/
 │   ├── Cargo.toml
 │   ├── src/
 │   │   ├── lib.rs             # Main library entry point
@@ -297,7 +297,7 @@ faultline/
 │   └── tests/
 │       ├── integration_tests.rs  # End-to-end tests
 │       └── golden_tests.rs       # Golden file tests
-├── faultline-cli/
+├── hotspots-cli/
 │   ├── Cargo.toml
 │   └── src/
 │       └── main.rs            # CLI application
@@ -328,4 +328,4 @@ All exit criteria met:
 
 ## Summary
 
-The Faultline MVP is **complete and functional**. All 7 phases have been implemented with comprehensive testing, documentation, and verification. The tool analyzes TypeScript functions, computes Local Risk Scores, and produces deterministic, reproducible output in both text and JSON formats.
+The Hotspots MVP is **complete and functional**. All 7 phases have been implemented with comprehensive testing, documentation, and verification. The tool analyzes TypeScript functions, computes Local Risk Scores, and produces deterministic, reproducible output in both text and JSON formats.

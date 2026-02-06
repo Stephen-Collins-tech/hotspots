@@ -7,11 +7,11 @@
 
 ## Overview
 
-Added full React/JSX support to Faultline, enabling analysis of React components written in JSX (JavaScript) and TSX (TypeScript). JSX elements don't inflate complexity metrics, but control flow within JSX expressions is properly counted.
+Added full React/JSX support to Hotspots, enabling analysis of React components written in JSX (JavaScript) and TSX (TypeScript). JSX elements don't inflate complexity metrics, but control flow within JSX expressions is properly counted.
 
 ## Changes Made
 
-### 1. Parser Updates (`faultline-core/src/parser.rs`)
+### 1. Parser Updates (`hotspots-core/src/parser.rs`)
 
 **Extended `syntax_for_file()` function:**
 - Added detection for `.tsx`, `.mtsx`, `.ctsx` files → TypeScript with JSX enabled
@@ -38,7 +38,7 @@ Syntax::Es(EsSyntax {
 })
 ```
 
-### 2. File Collection Updates (`faultline-core/src/lib.rs`)
+### 2. File Collection Updates (`hotspots-core/src/lib.rs`)
 
 **Extended `is_supported_source_file()`:**
 - Added `.tsx`, `.mtsx`, `.ctsx` support
@@ -49,7 +49,7 @@ Syntax::Es(EsSyntax {
 - `collect_source_files()` now mentions JSX/TSX
 - Clear listing of all supported extensions
 
-### 3. CLI Updates (`faultline-cli/src/main.rs`)
+### 3. CLI Updates (`hotspots-cli/src/main.rs`)
 
 - Updated tool description: "Static analysis tool for TypeScript, JavaScript, and React"
 - Updated command descriptions to mention JSX/TSX files
@@ -119,7 +119,7 @@ function ComplexComponent(props) {
 // - onClick callback: CC=1, LRS=1.6
 ```
 
-### 5. New Tests (`faultline-core/tests/jsx_parity_tests.rs`)
+### 5. New Tests (`hotspots-core/tests/jsx_parity_tests.rs`)
 
 Added 4 comprehensive test cases:
 
@@ -141,7 +141,7 @@ Added 4 comprehensive test cases:
    - Map/filter callbacks analyzed independently
    - Each function gets its own complexity report
 
-### 6. Parser Test Updates (`faultline-core/src/parser/tests.rs`)
+### 6. Parser Test Updates (`hotspots-core/src/parser/tests.rs`)
 
 Added 2 new tests:
 - **`test_parse_accepts_jsx_in_tsx_files`**: Verifies JSX parses in `.tsx`
@@ -196,7 +196,7 @@ Updated existing tests:
 
 ✅ **JSX/TSX files parse successfully**
 ```bash
-$ faultline analyze Component.tsx --format json
+$ hotspots analyze Component.tsx --format json
 # Returns: Full analysis with metrics for all functions
 ```
 
@@ -293,7 +293,7 @@ function ComplexComponent(props) {
 ### Mixed Project Analysis
 
 ```bash
-$ faultline analyze tests/fixtures/ --format text
+$ hotspots analyze tests/fixtures/ --format text
 
 LRS   File                   Line  Function
 11.48 pathological.ts        2     pathological

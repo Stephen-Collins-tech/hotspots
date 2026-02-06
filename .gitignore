@@ -39,7 +39,7 @@
 .env.local
 
 # Faultline history data (derived state, not source)
-.faultline/
+.hotspots/
 
 repomix-output.xml
 

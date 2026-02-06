@@ -1,19 +1,19 @@
 # Quick Start: Analyzing React Projects
 
-Faultline now fully supports React projects in both TypeScript and JavaScript!
+Hotspots now fully supports React projects in both TypeScript and JavaScript!
 
 ## Analyze React Components
 
 ```bash
 # Single React component
-faultline analyze src/components/Button.tsx
-faultline analyze src/components/Modal.jsx
+hotspots analyze src/components/Button.tsx
+hotspots analyze src/components/Modal.jsx
 
 # Entire React project
-faultline analyze src/
+hotspots analyze src/
 
 # Get JSON output for CI
-faultline analyze src/ --format json
+hotspots analyze src/ --format json
 ```
 
 ## What Gets Analyzed
@@ -178,18 +178,18 @@ function DataTable({ data, sortBy, filters }) {
 ```yaml
 - name: Analyze complexity
   run: |
-    cargo install faultline
-    faultline analyze src/ --format json > complexity.json
+    cargo install hotspots
+    hotspots analyze src/ --format json > complexity.json
 
     # Check for critical complexity
-    faultline analyze src/ --min-lrs 9.0
+    hotspots analyze src/ --min-lrs 9.0
 ```
 
 **Pre-commit Hook:**
 ```bash
 #!/bin/bash
 # .git/hooks/pre-commit
-faultline analyze src/ --min-lrs 9.0 || {
+hotspots analyze src/ --min-lrs 9.0 || {
   echo "❌ Critical complexity detected!"
   exit 1
 }
@@ -205,7 +205,7 @@ faultline analyze src/ --min-lrs 9.0 || {
 
 ## Next Steps
 
-- Run `faultline analyze src/ --top 10` to see your most complex functions
+- Run `hotspots analyze src/ --top 10` to see your most complex functions
 - Set up CI integration to track complexity over time
 - Use `--format json` for programmatic analysis
 - Check out `docs/language-support.md` for more details

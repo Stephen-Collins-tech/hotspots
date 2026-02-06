@@ -9,12 +9,12 @@ For future roadmap, see `roadmap.md`.
 
 ---
 
-# TASKS.md - Faultline MVP (Fully Expanded)
+# TASKS.md - Hotspots MVP (Fully Expanded)
 
 ## Status
 
 ```text
-project: faultline
+project: hotspots
 implementation: Rust
 analyzes: TypeScript
 scope: static, per-function analysis
@@ -32,8 +32,8 @@ These decisions are **final and binding**. The Coding Agent must implement exact
 
 **Workspace structure:**
 * Single Rust workspace with **two crates only**:
-  * `faultline-core` (library)
-  * `faultline-cli` (binary)
+  * `hotspots-core` (library)
+  * `hotspots-cli` (binary)
 * No additional crates in MVP
 
 **Rust edition and MSRV:**
@@ -50,7 +50,7 @@ These decisions are **final and binding**. The Coding Agent must implement exact
   * Logging frameworks
   * Async runtimes
   * Heavy utility crates
-* Errors should be typed in `faultline-core` and wrapped at the CLI boundary
+* Errors should be typed in `hotspots-core` and wrapped at the CLI boundary
 
 ### Parser and AST
 
@@ -258,11 +258,11 @@ No phase may be partially skipped or interleaved.
 
 ### 0.1 Workspace creation
 
-* [x] Create Rust workspace `faultline`
+* [x] Create Rust workspace `hotspots`
 * [x] Add crates:
 
-  * `faultline-core` (library)
-  * `faultline-cli` (binary)
+  * `hotspots-core` (library)
+  * `hotspots-cli` (binary)
 * [x] Lock Rust edition and MSRV
 * [x] Configure clippy and rustfmt
 * [x] Enable warnings as errors
@@ -610,7 +610,7 @@ Create TS files for:
 
 **Location:**
 - Golden JSON files: `tests/golden/*.json` (5 files)
-- Golden test code: `faultline-core/tests/golden_tests.rs`
+- Golden test code: `hotspots-core/tests/golden_tests.rs`
 
 **Acceptance:** All 6 golden tests pass, verifying byte-for-byte identical output. ✅
 
@@ -639,7 +639,7 @@ Create TS files for:
 
 ## Exit criteria
 
-Faultline MVP is complete when:
+Hotspots MVP is complete when:
 
 * All phases complete
 * All tests deterministic

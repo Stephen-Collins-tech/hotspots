@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://faultline.dev/schemas/function-report.schema.json",
+  "$id": "https://hotspots.dev/schemas/function-report.schema.json",
   "title": "Function Analysis Report",
   "description": "Complexity analysis result for a single function",
   "type": "object",
@@ -46,7 +46,7 @@
     },
     "suppression_reason": {
       "type": "string",
-      "description": "Reason provided via // faultline-ignore comment, if this function is suppressed from policy checks",
+      "description": "Reason provided via // hotspots-ignore comment, if this function is suppressed from policy checks",
       "examples": [
         "legacy code, refactor planned for Q2",
         "complex algorithm, well-tested"

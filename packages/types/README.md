@@ -1,21 +1,21 @@
-# @faultline/types
+# @hotspots/types
 
-TypeScript types and JSON Schema definitions for Faultline complexity analysis output.
+TypeScript types and JSON Schema definitions for Hotspots complexity analysis output.
 
 ## Installation
 
 ```bash
-npm install @faultline/types
+npm install @hotspots/types
 ```
 
 ## Usage
 
 ```typescript
-import type { FaultlineOutput, FunctionReport, PolicyResult } from '@faultline/types';
-import { filterByRiskBand, getHighestRiskFunctions } from '@faultline/types';
+import type { HotspotsOutput, FunctionReport, PolicyResult } from '@hotspots/types';
+import { filterByRiskBand, getHighestRiskFunctions } from '@hotspots/types';
 
-// Parse Faultline JSON output
-const output: FaultlineOutput = JSON.parse(faultlineJsonOutput);
+// Parse Hotspots JSON output
+const output: HotspotsOutput = JSON.parse(hotspotsJsonOutput);
 
 // Filter functions by risk level
 const highRiskFunctions = filterByRiskBand(output.functions, 'high');
@@ -34,7 +34,7 @@ if (output.policy_results && !policyPassed(output.policy_results)) {
 
 ### Core Types
 
-- **`FaultlineOutput`**: Complete analysis output from Faultline
+- **`HotspotsOutput`**: Complete analysis output from Hotspots
 - **`FunctionReport`**: Complexity analysis for a single function
 - **`Metrics`**: Raw complexity metrics (CC, ND, FO, NS)
 - **`PolicyResult`**: A single policy violation or warning
@@ -56,7 +56,7 @@ if (output.policy_results && !policyPassed(output.policy_results)) {
 
 ### Type Guards
 
-- **`isFaultlineOutput(obj)`**: Check if object is valid FaultlineOutput
+- **`isHotspotsOutput(obj)`**: Check if object is valid HotspotsOutput
 - **`isFunctionReport(obj)`**: Check if object is valid FunctionReport
 - **`isPolicyResult(obj)`**: Check if object is valid PolicyResult
 
@@ -86,9 +86,9 @@ Composite metric combining all raw metrics with logarithmic scaling. Higher scor
 
 ## JSON Schema
 
-JSON Schema definitions are available in the main Faultline repository at `/schemas/`:
+JSON Schema definitions are available in the main Hotspots repository at `/schemas/`:
 
-- `faultline-output.schema.json`: Complete output schema
+- `hotspots-output.schema.json`: Complete output schema
 - `function-report.schema.json`: Function analysis schema
 - `metrics.schema.json`: Metrics schema
 - `policy-result.schema.json`: Policy result schema

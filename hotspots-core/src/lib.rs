@@ -1,4 +1,4 @@
-//! Faultline core library - static analysis of TypeScript functions
+//! Hotspots core library - static analysis of TypeScript functions
 
 #![deny(warnings)]
 

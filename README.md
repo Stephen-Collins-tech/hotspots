@@ -1,4 +1,4 @@
-# Faultline
+# Hotspots
 
 Static analysis tool for TypeScript, JavaScript, and React that computes a Local Risk Score (LRS) based on control flow complexity metrics.
 
@@ -6,10 +6,10 @@ Static analysis tool for TypeScript, JavaScript, and React that computes a Local
 
 ### GitHub Action (Recommended for CI/CD)
 
-Add to `.github/workflows/faultline.yml`:
+Add to `.github/workflows/hotspots.yml`:
 
 ```yaml
-name: Faultline
+name: Hotspots
 
 on: [pull_request, push]
 
@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for delta analysis
 
-      - uses: yourorg/faultline@v1
+      - uses: yourorg/hotspots@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -35,22 +35,22 @@ See [action/README.md](action/README.md) for full GitHub Action documentation.
 cargo build --release
 
 # Analyze TypeScript, JavaScript, or React files
-./target/release/faultline analyze src/main.ts
-./target/release/faultline analyze src/app.js
-./target/release/faultline analyze src/Component.tsx
-./target/release/faultline analyze src/Button.jsx
+./target/release/hotspots analyze src/main.ts
+./target/release/hotspots analyze src/app.js
+./target/release/hotspots analyze src/Component.tsx
+./target/release/hotspots analyze src/Button.jsx
 
 # Analyze a directory (all .ts, .js, .tsx, .jsx files)
-./target/release/faultline analyze src/
+./target/release/hotspots analyze src/
 
 # Output as JSON
-./target/release/faultline analyze src/main.ts --format json
+./target/release/hotspots analyze src/main.ts --format json
 
 # Show only top 10 results
-./target/release/faultline analyze src/ --top 10
+./target/release/hotspots analyze src/ --top 10
 
 # Filter by minimum LRS
-./target/release/faultline analyze src/ --min-lrs 5.0
+./target/release/hotspots analyze src/ --min-lrs 5.0
 ```
 
 ## What is LRS?
@@ -85,7 +85,7 @@ See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ### Policy Enforcement
 
-Faultline includes 7 built-in policies to enforce code quality:
+Hotspots includes 7 built-in policies to enforce code quality:
 
 **Blocking (fail CI):**
 - Critical Introduction - Functions entering critical risk band
@@ -105,7 +105,7 @@ See [docs/USAGE.md#policy-engine](docs/USAGE.md#policy-engine) for details.
 Suppress policy violations for specific functions while keeping them in reports:
 
 ```typescript
-// faultline-ignore: legacy code, refactor planned for Q2 2026
+// hotspots-ignore: legacy code, refactor planned for Q2 2026
 function complexLegacyParser(input: string) {
   // High complexity code...
 }
@@ -121,7 +121,7 @@ See [docs/USAGE.md#suppressing-policy-violations](docs/USAGE.md#suppressing-poli
 
 ### Configuration
 
-Customize behavior with `.faultlinerc.json`:
+Customize behavior with `.hotspotsrc.json`:
 
 ```json
 {
@@ -151,33 +151,33 @@ See [docs/USAGE.md#configuration](docs/USAGE.md#configuration) for details.
 
 ### GitHub Action (Recommended)
 
-Add Faultline to your GitHub Actions workflow:
+Add Hotspots to your GitHub Actions workflow:
 
 ```yaml
-- uses: yourorg/faultline@v1
+- uses: yourorg/hotspots@v1
 ```
 
 See [action/README.md](action/README.md) for configuration options.
 
 ### Binary Releases
 
-Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/faultline/releases):
+Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/hotspots/releases):
 
 ```bash
 # Linux
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-linux-x64.tar.gz
-tar -xzf faultline-linux-x64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-linux-x64.tar.gz
+tar -xzf hotspots-linux-x64.tar.gz
+sudo mv hotspots /usr/local/bin/
 
 # macOS (Intel)
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-x64.tar.gz
-tar -xzf faultline-darwin-x64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-x64.tar.gz
+tar -xzf hotspots-darwin-x64.tar.gz
+sudo mv hotspots /usr/local/bin/
 
 # macOS (Apple Silicon)
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-arm64.tar.gz
-tar -xzf faultline-darwin-arm64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-arm64.tar.gz
+tar -xzf hotspots-darwin-arm64.tar.gz
+sudo mv hotspots /usr/local/bin/
 ```
 
 ### Local Development (No Installation)
@@ -200,8 +200,8 @@ This runs the tool directly without installing it globally. Useful for:
 Install to your local bin directory (`~/.local/bin`):
 
 ```bash
-git clone https://github.com/Stephen-Collins-tech/faultline
-cd faultline
+git clone https://github.com/Stephen-Collins-tech/hotspots
+cd hotspots
 ./install-dev.sh
 # or
 make install
@@ -209,7 +209,7 @@ make install
 
 This will:
 - Build the release binary
-- Install it to `~/.local/bin/faultline`
+- Install it to `~/.local/bin/hotspots`
 - Make it available globally (if `~/.local/bin` is in your PATH)
 
 **Note:** If `~/.local/bin` is not in your PATH, add this to your shell config:
@@ -220,10 +220,10 @@ export PATH="${HOME}/.local/bin:${PATH}"
 ### Manual Build
 
 ```bash
-git clone https://github.com/Stephen-Collins-tech/faultline
-cd faultline
+git clone https://github.com/Stephen-Collins-tech/hotspots
+cd hotspots
 cargo build --release
-# Binary will be at ./target/release/faultline
+# Binary will be at ./target/release/hotspots
 ```
 
 ## Usage
@@ -231,7 +231,7 @@ cargo build --release
 ### Basic Analysis
 
 ```bash
-./target/release/faultline analyze path/to/file.ts
+./target/release/hotspots analyze path/to/file.ts
 ```
 
 ### Output Formats
@@ -245,7 +245,7 @@ LRS     File              Line  Function
 
 **JSON format:**
 ```bash
-./target/release/faultline analyze path/to/file.ts --format json
+./target/release/hotspots analyze path/to/file.ts --format json
 ```
 
 ```json
@@ -324,14 +324,14 @@ See [docs/limitations.md](docs/limitations.md) for full details.
 
 ## Determinism
 
-Faultline produces **byte-for-byte identical output** for identical input:
+Hotspots produces **byte-for-byte identical output** for identical input:
 
 - Function order is deterministic (sorted by span start)
 - File order is deterministic (sorted by path)
 - Output format is stable (JSON key order, float precision)
 - Whitespace and comments do not affect results
 
-This makes faultline suitable for CI/CD integration and regression testing.
+This makes hotspots suitable for CI/CD integration and regression testing.
 
 ## Development
 

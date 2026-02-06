@@ -1,13 +1,13 @@
-# Faultline Roadmap - CI/CD First
+# Hotspots Roadmap - CI/CD First
 
 ## Vision
 
-Faultline will be **the** go-to CI/CD tool for blocking complexity regressions in TypeScript/JavaScript projects. Success means being added to every new project's GitHub Actions workflow by default.
+Hotspots will be **the** go-to CI/CD tool for blocking complexity regressions in TypeScript/JavaScript projects. Success means being added to every new project's GitHub Actions workflow by default.
 
 ## Strategy
 
 **Phase 1: CI/CD Adoption** (Next 6 months)
-- Make Faultline indispensable for PR checks
+- Make Hotspots indispensable for PR checks
 - Focus on fast, reliable, actionable feedback
 - GitHub-first integration
 
@@ -34,7 +34,7 @@ Faultline will be **the** go-to CI/CD tool for blocking complexity regressions i
 #### P0: JavaScript Support
 **Status:** Critical blocker for adoption
 
-Most projects mix TypeScript and JavaScript. Without JS support, Faultline can't analyze a significant portion of most codebases.
+Most projects mix TypeScript and JavaScript. Without JS support, Hotspots can't analyze a significant portion of most codebases.
 
 **Scope:**
 - Plain JavaScript (ES2015+)
@@ -72,7 +72,7 @@ React is ubiquitous. JSX/TSX support is essential for frontend adoption.
 **Status:** Critical for adoption
 
 **Scope:**
-- Official `faultline-action` repository
+- Official `hotspots-action` repository
 - Inputs:
   - `path` (default: `.`)
   - `policy` (default: `critical-introduction`)
@@ -84,11 +84,11 @@ React is ubiquitous. JSX/TSX support is essential for frontend adoption.
   - Job summary with top violations
   - Pass/fail based on policy
 - Handles PR context automatically (merge-base comparison)
-- Fast: caches faultline binary, runs only on changed files
+- Fast: caches hotspots binary, runs only on changed files
 
 **Acceptance:**
 ```yaml
-- uses: faultline-action@v1
+- uses: hotspots-action@v1
   with:
     policy: critical-introduction
 ```
@@ -130,7 +130,7 @@ React is ubiquitous. JSX/TSX support is essential for frontend adoption.
 **Status:** Critical for project-specific policies
 
 **Scope:**
-- `.faultlinerc.json` or `faultline.config.json`
+- `.hotspotsrc.json` or `hotspots.config.json`
 - Schema:
   ```json
   {
@@ -170,14 +170,14 @@ React is ubiquitous. JSX/TSX support is essential for frontend adoption.
 **Status:** Needed for false positives
 
 **Scope:**
-- `// faultline-ignore` above function disables analysis
-- `// faultline-ignore-next-line` for inline suppression
+- `// hotspots-ignore` above function disables analysis
+- `// hotspots-ignore-next-line` for inline suppression
 - Suppressed functions appear in report as "ignored" (not counted in policies)
-- Reason required: `// faultline-ignore: legacy code, scheduled for refactor`
+- Reason required: `// hotspots-ignore: legacy code, scheduled for refactor`
 
 **Example:**
 ```typescript
-// faultline-ignore: complex algorithm, well-tested
+// hotspots-ignore: complex algorithm, well-tested
 function legacyParser(input: string) {
   // 500 lines of spaghetti
 }
@@ -208,7 +208,7 @@ function legacyParser(input: string) {
 **Status:** Critical for CI/CD UX
 
 **Scope:**
-- Generate `faultline-report.html` artifact
+- Generate `hotspots-report.html` artifact
 - Upload to GitHub Actions artifacts
 - Link in PR comment
 - Interactive table:
@@ -254,7 +254,7 @@ function legacyParser(input: string) {
 **Scope:**
 - Colored output (risk bands: green/yellow/orange/red)
 - Progress bar for large repos
-- Interactive mode: `faultline analyze --watch`
+- Interactive mode: `hotspots analyze --watch`
 - Better error messages with suggestions
 
 **Estimated effort:** Medium
@@ -314,7 +314,7 @@ function legacyParser(input: string) {
 **Status:** Editor-agnostic integration
 
 **Scope:**
-- Standalone LSP server (`faultline lsp`)
+- Standalone LSP server (`hotspots lsp`)
 - Works in any LSP-compatible editor (Neovim, Emacs, Sublime, etc.)
 - Provides diagnostics and code actions
 
@@ -456,7 +456,7 @@ function legacyParser(input: string) {
 ## Success Metrics
 
 **Adoption Milestones:**
-- [ ] 100 GitHub repos using faultline-action
+- [ ] 100 GitHub repos using hotspots-action
 - [ ] 1,000 stars on GitHub
 - [ ] Featured in Awesome TypeScript
 - [ ] Mentioned in major dev blogs (dev.to, Smashing Magazine)

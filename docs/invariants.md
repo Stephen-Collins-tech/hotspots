@@ -75,4 +75,4 @@ If any invariant is violated:
 2. Tests must catch the violation
 3. The violation must be fixed immediately
 
-These invariants ensure that faultline produces trusted, reproducible results suitable for static analysis workflows.
+These invariants ensure that hotspots produces trusted, reproducible results suitable for static analysis workflows.

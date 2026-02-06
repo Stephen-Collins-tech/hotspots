@@ -1,5 +1,5 @@
 [workspace]
-members = ["faultline-core", "faultline-cli"]
+members = ["hotspots-core", "hotspots-cli"]
 resolver = "2"
 
 [workspace.package]
@@ -8,8 +8,8 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["Stephen Collins"]
 license = "MIT"
-repository = "https://github.com/Stephen-Collins-tech/faultline"
-homepage = "https://github.com/Stephen-Collins-tech/faultline"
+repository = "https://github.com/Stephen-Collins-tech/hotspots"
+homepage = "https://hotspots.dev"
 keywords = ["typescript", "static-analysis", "complexity", "code-quality"]
 categories = ["development-tools"]
 

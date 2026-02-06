@@ -1,4 +1,4 @@
-# Faultline Visualizations
+# Hotspots Visualizations
 
 Interactive charts showing code risk metrics over time using Vega-Lite.
 
@@ -17,7 +17,7 @@ Open `index.html` in a browser (or serve this folder with a simple HTTP server).
 
 ## Generating Data
 
-To generate `data.json` from Faultline snapshots:
+To generate `data.json` from Hotspots snapshots:
 
 ```bash
 # From repository root
@@ -38,7 +38,7 @@ cargo run --example export_visualization -- --output-dir ./custom-output
 ```
 
 This script:
-- Reads snapshots from the specified repo's `.faultline/snapshots/` directory
+- Reads snapshots from the specified repo's `.hotspots/snapshots/` directory
 - **Auto-detects target function** (highest LRS in latest snapshot) if not specified
 - Extracts hotspot function timeline data
 - Extracts deltas between commits
@@ -47,7 +47,7 @@ This script:
 - Updates `data.json` (creates from scratch if it doesn't exist)
 
 **Prerequisites:**
-- Snapshots must exist in the repo (created via `faultline analyze --mode snapshot`)
+- Snapshots must exist in the repo (created via `hotspots analyze --mode snapshot`)
 - If `data.json` doesn't exist, the script will:
   - Auto-detect the function with highest LRS as the target
   - Extract repo name from the directory name

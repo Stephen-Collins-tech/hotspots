@@ -1,10 +1,10 @@
 # Language Support
 
-This document describes the TypeScript, JavaScript, and JSX/TSX syntax features supported by faultline's parser.
+This document describes the TypeScript, JavaScript, and JSX/TSX syntax features supported by hotspots's parser.
 
 ## Supported Languages
 
-Faultline analyzes **TypeScript**, **JavaScript**, and **React (JSX/TSX)** files with full feature parity. Analysis metrics (CC, ND, FO, NS, LRS) are computed identically across all languages.
+Hotspots analyzes **TypeScript**, **JavaScript**, and **React (JSX/TSX)** files with full feature parity. Analysis metrics (CC, ND, FO, NS, LRS) are computed identically across all languages.
 
 ### Supported File Extensions
 
@@ -31,7 +31,7 @@ Faultline analyzes **TypeScript**, **JavaScript**, and **React (JSX/TSX)** files
 
 ## Parser Configuration
 
-faultline uses `swc_ecma_parser` version 33.0.0 with automatic language detection:
+hotspots uses `swc_ecma_parser` version 33.0.0 with automatic language detection:
 
 - **TypeScript files (.ts, .mts, .cts)**: Parsed with TypeScript syntax support (no JSX)
 - **TSX files (.tsx, .mtsx, .ctsx)**: Parsed with TypeScript + JSX syntax support
@@ -100,7 +100,7 @@ The following constructs are parsed but **ignored** in analysis (not counted as 
 
 ### How JSX is Analyzed
 
-Faultline analyzes React components intelligently:
+Hotspots analyzes React components intelligently:
 
 **JSX Elements do NOT inflate complexity:**
 - Simple JSX markup (`<div>`, `<h1>`, etc.) does not increase complexity metrics
@@ -215,7 +215,7 @@ General parse errors are reported with:
 
 ## Implementation Details
 
-The parser automatically detects the file type based on extension and selects the appropriate syntax configuration (defined in `faultline-core/src/parser.rs`):
+The parser automatically detects the file type based on extension and selects the appropriate syntax configuration (defined in `hotspots-core/src/parser.rs`):
 
 **TypeScript files (.ts, .mts, .cts):**
 ```rust

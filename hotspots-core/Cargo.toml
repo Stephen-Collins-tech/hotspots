@@ -1,5 +1,5 @@
 [package]
-name = "faultline-core"
+name = "hotspots-core"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -11,7 +11,7 @@ categories = { workspace = true }
 description = "Core library for TypeScript static analysis and Local Risk Score (LRS) computation"
 
 [lib]
-name = "faultline_core"
+name = "hotspots_core"
 path = "src/lib.rs"
 doctest = false
 

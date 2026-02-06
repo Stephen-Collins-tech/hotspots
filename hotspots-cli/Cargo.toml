@@ -1,5 +1,5 @@
 [package]
-name = "faultline-cli"
+name = "hotspots-cli"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -12,11 +12,11 @@ description = "Static analysis CLI for TypeScript that computes Local Risk Score
 readme = "../README.md"
 
 [[bin]]
-name = "faultline"
+name = "hotspots"
 path = "src/main.rs"
 
 [dependencies]
-faultline-core = { path = "../faultline-core" }
+hotspots-core = { path = "../hotspots-core" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 

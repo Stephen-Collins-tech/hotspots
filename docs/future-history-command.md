@@ -4,7 +4,7 @@
 
 ## Current State
 
-Faultline currently has **no command to process all commits in a repository's history** when analyzing a repo for the first time. This is **intentional** for the current phase.
+Hotspots currently has **no command to process all commits in a repository's history** when analyzing a repo for the first time. This is **intentional** for the current phase.
 
 ### Why Manual Iteration Is Preferred (Step 1)
 
@@ -18,8 +18,8 @@ For the initial synthetic harness validation:
 Manual process:
 ```bash
 git checkout <sha>
-faultline analyze . --mode snapshot
-faultline analyze . --mode delta
+hotspots analyze . --mode snapshot
+hotspots analyze . --mode delta
 # Inspect outputs, then move to next commit
 ```
 
@@ -35,7 +35,7 @@ git log --reverse --format="%H" > commits.txt
 
 # For each commit:
 git checkout <sha>
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 git checkout main  # Return to main branch
 ```
 
@@ -49,22 +49,22 @@ This is tedious and error-prone for repos with many commits.
 
 ```bash
 # Process all commits in history
-faultline history --all
+hotspots history --all
 
 # Process commits since a date
-faultline history --since "2024-01-01"
+hotspots history --since "2024-01-01"
 
 # Process commits in a range
-faultline history --range <sha1>..<sha2>
+hotspots history --range <sha1>..<sha2>
 
 # Process commits from a specific ref
-faultline history --from <ref>
+hotspots history --from <ref>
 
 # Skip commits that already have snapshots (idempotent)
-faultline history --all --skip-existing
+hotspots history --all --skip-existing
 
 # Dry-run: show what would be processed
-faultline history --all --dry-run
+hotspots history --all --dry-run
 ```
 
 ### Implementation Approach
@@ -72,7 +72,7 @@ faultline history --all --dry-run
 **Option 1: Simple Sequential Processing**
 
 ```rust
-// In faultline-cli/src/main.rs
+// In hotspots-cli/src/main.rs
 Commands::History {
     /// Process all commits
     #[arg(long)]
@@ -123,7 +123,7 @@ Commands::History {
 Leverage `prune.rs`'s `git_at()` and `compute_reachable_commits()` functions:
 
 ```rust
-// In faultline-core/src/history.rs (new module)
+// In hotspots-core/src/history.rs (new module)
 pub fn process_history(
     repo_path: &Path,
     options: HistoryOptions
@@ -269,7 +269,7 @@ if !status.is_empty() {
 
 ```bash
 # Process all commits in history
-faultline history --all
+hotspots history --all
 
 # Output:
 # Processing 150 commits...
@@ -282,27 +282,27 @@ faultline history --all
 
 ```bash
 # Process only new commits (skip existing)
-faultline history --all --skip-existing
+hotspots history --all --skip-existing
 
 # Process commits since last month
-faultline history --since "2024-01-01" --skip-existing
+hotspots history --since "2024-01-01" --skip-existing
 ```
 
 ### Specific Range
 
 ```bash
 # Process commits in a feature branch
-faultline history --from feature-branch
+hotspots history --from feature-branch
 
 # Process commits between two SHAs
-faultline history --range abc123..def456
+hotspots history --range abc123..def456
 ```
 
 ### Dry-Run
 
 ```bash
 # See what would be processed
-faultline history --all --dry-run
+hotspots history --all --dry-run
 
 # Output:
 # Would process: abc123 (2024-01-01)
@@ -318,7 +318,7 @@ Until the command is implemented, a simple shell script can fill the gap:
 
 ```bash
 #!/bin/bash
-# faultline-history.sh
+# hotspots-history.sh
 
 set -e
 
@@ -340,7 +340,7 @@ SKIPPED=0
 for SHA in $COMMITS; do
     # Check if snapshot exists
     if [ "$SKIP_EXISTING" = "true" ]; then
-        if [ -f ".faultline/snapshots/${SHA}.json" ]; then
+        if [ -f ".hotspots/snapshots/${SHA}.json" ]; then
             echo "Skipping ${SHA} (snapshot exists)"
             SKIPPED=$((SKIPPED + 1))
             continue
@@ -353,7 +353,7 @@ for SHA in $COMMITS; do
     git checkout "$SHA" > /dev/null 2>&1
     
     # Create snapshot
-    if faultline analyze . --mode snapshot --format json > /dev/null 2>&1; then
+    if hotspots analyze . --mode snapshot --format json > /dev/null 2>&1; then
         PROCESSED=$((PROCESSED + 1))
     else
         echo "Error processing ${SHA}"
@@ -373,8 +373,8 @@ echo "Skipped: $SKIPPED"
 
 **Usage:**
 ```bash
-chmod +x faultline-history.sh
-./faultline-history.sh . true  # Skip existing snapshots
+chmod +x hotspots-history.sh
+./hotspots-history.sh . true  # Skip existing snapshots
 ```
 
 ---
@@ -422,7 +422,7 @@ Once this is implemented, it enables:
 When ready to implement:
 
 1. **Add `history` subcommand** to CLI
-2. **Create `history.rs` module** in `faultline-core` (or add to existing module)
+2. **Create `history.rs` module** in `hotspots-core` (or add to existing module)
 3. **Add tests** for batch processing
 4. **Update documentation** with usage examples
 5. **Consider adding progress bar** for long-running operations

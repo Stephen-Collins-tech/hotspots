@@ -1,4 +1,4 @@
-//! Faultline CLI - command-line interface for TypeScript/JavaScript/React analysis
+//! Hotspots CLI - command-line interface for TypeScript/JavaScript/React analysis
 
 #![deny(warnings)]
 
@@ -8,13 +8,13 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use faultline_core::{analyze_with_config, render_json, render_text, AnalysisOptions};
-use faultline_core::config;
-use faultline_core::{delta, git, prune};
-use faultline_core::snapshot::{self, Snapshot};
-use faultline_core::policy::PolicyResults;
-use faultline_core::delta::Delta;
-use faultline_core::trends::TrendsAnalysis;
+use hotspots_core::{analyze_with_config, render_json, render_text, AnalysisOptions};
+use hotspots_core::config;
+use hotspots_core::{delta, git, prune};
+use hotspots_core::snapshot::{self, Snapshot};
+use hotspots_core::policy::PolicyResults;
+use hotspots_core::delta::Delta;
+use hotspots_core::trends::TrendsAnalysis;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -352,7 +352,7 @@ fn main() -> anyhow::Result<()> {
             let repo_root = find_repo_root(&normalized_path)?;
             
             // Analyze trends
-            let trends = faultline_core::trends::analyze_trends(&repo_root, window, top)
+            let trends = hotspots_core::trends::analyze_trends(&repo_root, window, top)
                 .context("failed to analyze trends")?;
             
             // Output results
@@ -384,7 +384,7 @@ fn handle_mode_output(
     policy: bool,
     top: Option<usize>,
     min_lrs: Option<f64>,
-    resolved_config: &faultline_core::ResolvedConfig,
+    resolved_config: &hotspots_core::ResolvedConfig,
     output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Find repository root (search up from current path)
@@ -424,7 +424,7 @@ fn handle_mode_output(
                 OutputFormat::Json => {
                     // Compute aggregates for output (not persisted)
                     let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates = Some(faultline_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
+                    snapshot_with_aggregates.aggregates = Some(hotspots_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
                     let json = snapshot_with_aggregates.to_json()?;
                     println!("{}", json);
                 }
@@ -435,10 +435,10 @@ fn handle_mode_output(
                 OutputFormat::Html => {
                     // Compute aggregates for output
                     let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates = Some(faultline_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
+                    snapshot_with_aggregates.aggregates = Some(hotspots_core::aggregates::compute_snapshot_aggregates(&snapshot, &repo_root));
 
                     // Render HTML
-                    let html = faultline_core::html::render_html_snapshot(&snapshot_with_aggregates);
+                    let html = hotspots_core::html::render_html_snapshot(&snapshot_with_aggregates);
 
                     // Write to file
                     let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
@@ -467,7 +467,7 @@ fn handle_mode_output(
             // Evaluate policies if requested
             let mut delta_with_extras = delta.clone();
             if policy {
-                let policy_results = faultline_core::policy::evaluate_policies(&delta, &snapshot, &repo_root, resolved_config)
+                let policy_results = hotspots_core::policy::evaluate_policies(&delta, &snapshot, &repo_root, resolved_config)
                     .context("failed to evaluate policies")?;
                 
                 if let Some(results) = policy_results {
@@ -476,7 +476,7 @@ fn handle_mode_output(
             }
             
             // Compute aggregates for output (not stored in delta computation)
-            delta_with_extras.aggregates = Some(faultline_core::aggregates::compute_delta_aggregates(&delta));
+            delta_with_extras.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(&delta));
             
             // Emit delta output
             let has_blocking_failures = delta_with_extras.policy.as_ref().map(|p| p.has_blocking_failures()).unwrap_or(false);
@@ -504,7 +504,7 @@ fn handle_mode_output(
                 }
                 OutputFormat::Html => {
                     // Render HTML
-                    let html = faultline_core::html::render_html_delta(&delta_with_extras);
+                    let html = hotspots_core::html::render_html_delta(&delta_with_extras);
 
                     // Write to file
                     let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
@@ -769,9 +769,9 @@ fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
         
         for velocity in &trends.velocities {
             let direction_str = match velocity.direction {
-                faultline_core::trends::VelocityDirection::Positive => "positive",
-                faultline_core::trends::VelocityDirection::Negative => "negative",
-                faultline_core::trends::VelocityDirection::Flat => "flat",
+                hotspots_core::trends::VelocityDirection::Positive => "positive",
+                hotspots_core::trends::VelocityDirection::Negative => "negative",
+                hotspots_core::trends::VelocityDirection::Flat => "flat",
             };
             
             println!(
@@ -793,9 +793,9 @@ fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
         
         for hotspot in &trends.hotspots {
             let stability_str = match hotspot.stability {
-                faultline_core::trends::HotspotStability::Stable => "stable",
-                faultline_core::trends::HotspotStability::Emerging => "emerging",
-                faultline_core::trends::HotspotStability::Volatile => "volatile",
+                hotspots_core::trends::HotspotStability::Stable => "stable",
+                hotspots_core::trends::HotspotStability::Emerging => "emerging",
+                hotspots_core::trends::HotspotStability::Volatile => "volatile",
             };
             
             println!(
@@ -817,9 +817,9 @@ fn print_trends_text_output(trends: &TrendsAnalysis) -> anyhow::Result<()> {
         
         for refactor in &trends.refactors {
             let outcome_str = match refactor.outcome {
-                faultline_core::trends::RefactorOutcome::Successful => "successful",
-                faultline_core::trends::RefactorOutcome::Partial => "partial",
-                faultline_core::trends::RefactorOutcome::Cosmetic => "cosmetic",
+                hotspots_core::trends::RefactorOutcome::Successful => "successful",
+                hotspots_core::trends::RefactorOutcome::Partial => "partial",
+                hotspots_core::trends::RefactorOutcome::Cosmetic => "cosmetic",
             };
             
             println!(

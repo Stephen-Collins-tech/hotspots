@@ -1,16 +1,16 @@
-# Faultline Architecture
+# Hotspots Architecture
 
 ## Overview
 
-Faultline is a static analysis tool that computes **Local Risk Scores (LRS)** for TypeScript functions. It analyzes individual functions in isolation, extracting four key metrics and transforming them into a unified risk assessment.
+Hotspots is a static analysis tool that computes **Local Risk Scores (LRS)** for TypeScript functions. It analyzes individual functions in isolation, extracting four key metrics and transforming them into a unified risk assessment.
 
 ## System Architecture
 
 ### Workspace Structure
 
-Faultline is implemented as a Rust workspace with two crates:
+Hotspots is implemented as a Rust workspace with two crates:
 
-1. **`faultline-core`** - Library crate containing all analysis logic
+1. **`hotspots-core`** - Library crate containing all analysis logic
    - TypeScript parsing and AST traversal
    - Function discovery
    - Control Flow Graph (CFG) construction
@@ -18,7 +18,7 @@ Faultline is implemented as a Rust workspace with two crates:
    - Risk score calculation
    - Report generation
 
-2. **`faultline-cli`** - Binary crate providing command-line interface
+2. **`hotspots-cli`** - Binary crate providing command-line interface
    - Argument parsing
    - File collection and traversal
    - Output formatting (text/JSON)

@@ -1,6 +1,6 @@
-# TASKS.md - Faultline CI/CD Adoption
+# TASKS.md - Hotspots CI/CD Adoption
 
-**Goal:** Make Faultline the go-to CI/CD tool for blocking complexity regressions in TypeScript/JavaScript projects.
+**Goal:** Make Hotspots the go-to CI/CD tool for blocking complexity regressions in TypeScript/JavaScript projects.
 
 **Strategy:** CI/CD first. Analytics later.
 
@@ -76,7 +76,7 @@ Phase 6: Polish & Documentation
 
 **Status:** ✅ **COMPLETED** (2026-01-28)
 
-**Problem:** Most projects mix TypeScript and JavaScript. Without JS support, Faultline is incomplete.
+**Problem:** Most projects mix TypeScript and JavaScript. Without JS support, Hotspots is incomplete.
 
 **Tasks:**
 
@@ -218,7 +218,7 @@ Phase 6: Polish & Documentation
   - Pass/fail status
 
 **Acceptance:**
-- ✅ Action can be used with `uses: ./action` or `yourorg/faultline@v1`
+- ✅ Action can be used with `uses: ./action` or `yourorg/hotspots@v1`
 - ✅ Automatically detects PR vs mainline
 - ✅ Posts results to PR comments
 - ✅ Job summary shows violations
@@ -273,7 +273,7 @@ Phase 6: Polish & Documentation
   - Reason (approaching threshold, rapid growth, etc.)
   - Recommendation (refactor now, schedule refactor, etc.)
 - [ ] Add warning suppression
-  - `// faultline-watch-ok: reason` comment
+  - `// hotspots-watch-ok: reason` comment
   - Suppress watch/attention warnings for specific functions
   - Action Required cannot be suppressed (by design)
 - [ ] Update GitHub Action to show warnings
@@ -337,8 +337,8 @@ Phase 6: Polish & Documentation
   - Expandable function bodies
   - Use highlight.js or similar
   - Show surrounding context (5 lines before/after)
-- [ ] Generate `faultline-report.html` artifact
-  - Write HTML to `.faultline/report.html` or `faultline-report.html`
+- [ ] Generate `hotspots-report.html` artifact
+  - Write HTML to `.hotspots/report.html` or `hotspots-report.html`
   - Include inline CSS/JS (no external dependencies)
   - Self-contained (can be opened offline)
 - [ ] Update GitHub Action to upload artifact
@@ -350,8 +350,8 @@ Phase 6: Polish & Documentation
   - Use lightweight charting library (Chart.js)
 
 **Acceptance:**
-- ✅ Running `faultline analyze --mode snapshot --format html` generates HTML report
-- ✅ Running `faultline analyze --mode delta --format html` generates delta report
+- ✅ Running `hotspots analyze --mode snapshot --format html` generates HTML report
+- ✅ Running `hotspots analyze --mode delta --format html` generates delta report
 - ✅ Report is interactive (sorting and filtering with vanilla JavaScript)
 - ✅ Report is self-contained (embedded CSS/JS, works offline)
 - ✅ Report is responsive (mobile-friendly with dark mode support)
@@ -360,7 +360,7 @@ Phase 6: Polish & Documentation
 - ✅ All 131 tests pass
 
 **Implementation details:**
-- Created `faultline-core/src/html.rs` module with render functions
+- Created `hotspots-core/src/html.rs` module with render functions
 - Added `Html` variant to `OutputFormat` enum
 - Added `--output` flag for custom HTML output path
 - Implemented `write_html_report()` with atomic write pattern
@@ -394,7 +394,7 @@ Phase 6: Polish & Documentation
   - Show "X more violations" if >10
 - [ ] Add suggestion for top violations
   - Use GitHub's suggestion syntax
-  - Suggest adding `// faultline-ignore` comment
+  - Suggest adding `// hotspots-ignore` comment
   - Or link to refactoring guide
 
 **Acceptance:**
@@ -420,7 +420,7 @@ Phase 6: Polish & Documentation
   - JSON format with `serde(deny_unknown_fields)` for strict validation
   - Fields: include, exclude, thresholds, weights, min_lrs, top
 - [x] Implement config file loading
-  - Search order: CLI `--config` flag, `.faultlinerc.json`, `faultline.config.json`, `package.json:faultline`
+  - Search order: CLI `--config` flag, `.hotspotsrc.json`, `hotspots.config.json`, `package.json:hotspots`
   - `load_and_resolve()` main entry point
   - CLI flags (`--min-lrs`, `--top`) override config file values
 - [x] Add config validation
@@ -438,10 +438,10 @@ Phase 6: Polish & Documentation
   - `WeightConfig` with cc, nd, fo, ns fields
   - `LrsWeights` and `RiskThresholds` structs in risk.rs
   - `analyze_risk_with_config()` accepts custom weights/thresholds
-- [x] Add `faultline config validate` subcommand
+- [x] Add `hotspots config validate` subcommand
   - Validates config file without running analysis
   - Exit code 1 on failure with clear error messages
-- [x] Add `faultline config show` subcommand
+- [x] Add `hotspots config show` subcommand
   - Prints resolved config as JSON for debugging
 
 **Acceptance:**
@@ -453,12 +453,12 @@ Phase 6: Polish & Documentation
 - ✅ All 112 tests pass (80 unit + 32 integration)
 
 **Implementation details:**
-- `faultline-core/src/config.rs`: Full config module (discovery, parsing, validation, resolution)
-- `faultline-core/src/risk.rs`: Added `LrsWeights`, `RiskThresholds`, `_with_config` variants
-- `faultline-core/src/analysis.rs`: Added `analyze_file_with_config()`
-- `faultline-core/src/lib.rs`: Added `analyze_with_config()` with include/exclude filtering
-- `faultline-cli/src/main.rs`: Added `--config` flag and `Config` subcommand
-- `faultline-core/Cargo.toml`: Added `globset = "0.4"` dependency
+- `hotspots-core/src/config.rs`: Full config module (discovery, parsing, validation, resolution)
+- `hotspots-core/src/risk.rs`: Added `LrsWeights`, `RiskThresholds`, `_with_config` variants
+- `hotspots-core/src/analysis.rs`: Added `analyze_file_with_config()`
+- `hotspots-core/src/lib.rs`: Added `analyze_with_config()` with include/exclude filtering
+- `hotspots-cli/src/main.rs`: Added `--config` flag and `Config` subcommand
+- `hotspots-core/Cargo.toml`: Added `globset = "0.4"` dependency
 
 ---
 
@@ -471,7 +471,7 @@ Phase 6: Polish & Documentation
 **Tasks:**
 
 - [x] Parse suppression comments from source
-  - `// faultline-ignore: reason` above function (immediately before)
+  - `// hotspots-ignore: reason` above function (immediately before)
   - Extract reason from comment or detect missing reason
 - [x] Update function discovery to mark suppressed functions
   - Add `suppression_reason: Option<String>` field to FunctionNode
@@ -490,7 +490,7 @@ Phase 6: Polish & Documentation
 
 **Example:**
 ```typescript
-// faultline-ignore: complex algorithm, well-tested, refactor planned for Q2
+// hotspots-ignore: complex algorithm, well-tested, refactor planned for Q2
 function legacyParser(input: string) {
   // 500 lines of spaghetti
 }
@@ -504,14 +504,14 @@ function legacyParser(input: string) {
 - ✅ Byte-for-byte determinism preserved
 
 **Implementation details:**
-- `faultline-core/src/suppression.rs`: Comment extraction module (pure function)
-- `faultline-core/src/ast.rs`: Added suppression_reason to FunctionNode
-- `faultline-core/src/report.rs`: Added suppression_reason to FunctionRiskReport
-- `faultline-core/src/snapshot.rs`: Added suppression_reason to FunctionSnapshot
-- `faultline-core/src/delta.rs`: Added suppression_reason to FunctionDeltaEntry
-- `faultline-core/src/discover.rs`: Updated to call extract_suppression()
-- `faultline-core/src/policy.rs`: Added suppression filtering and SuppressionMissingReason policy
-- `faultline-core/tests/suppression_tests.rs`: Integration tests for end-to-end flow
+- `hotspots-core/src/suppression.rs`: Comment extraction module (pure function)
+- `hotspots-core/src/ast.rs`: Added suppression_reason to FunctionNode
+- `hotspots-core/src/report.rs`: Added suppression_reason to FunctionRiskReport
+- `hotspots-core/src/snapshot.rs`: Added suppression_reason to FunctionSnapshot
+- `hotspots-core/src/delta.rs`: Added suppression_reason to FunctionDeltaEntry
+- `hotspots-core/src/discover.rs`: Updated to call extract_suppression()
+- `hotspots-core/src/policy.rs`: Added suppression filtering and SuppressionMissingReason policy
+- `hotspots-core/tests/suppression_tests.rs`: Integration tests for end-to-end flow
 
 **Actual effort:** ~4 hours (within estimated 2-3 day range)
 
@@ -556,7 +556,7 @@ function legacyParser(input: string) {
 
 **PRIORITY: P0 - Required for v1.0.0 Release**
 
-**Context:** Developers are using AI coding assistants (Claude, Cursor, Copilot) heavily NOW. Faultline should be AI-first from day one, not a future phase. AI agents need:
+**Context:** Developers are using AI coding assistants (Claude, Cursor, Copilot) heavily NOW. Hotspots should be AI-first from day one, not a future phase. AI agents need:
 - Structured, deterministic, machine-readable output
 - Clear APIs and patterns for integration
 - Direct tool access (MCP servers, SDKs)
@@ -578,7 +578,7 @@ function legacyParser(input: string) {
 **Tasks:**
 
 - [x] **Fix config.rs (Line 110) - Use #[derive(Default)]**
-  - [x] Read faultline-core/src/config.rs
+  - [x] Read hotspots-core/src/config.rs
     - [x] Identify the struct with manual Default impl (line ~110)
     - [x] Verify struct fields are all Default-able
     - [x] Note the struct name and location
@@ -587,91 +587,91 @@ function legacyParser(input: string) {
     - [x] Add `#[derive(Default)]` to struct definition (line ~38)
     - [x] Ensure derive appears alongside other derives
   - [x] Verify the fix
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm config.rs line 110 error is gone
-    - [x] Run unit tests: `cargo test --package faultline-core config::`
+    - [x] Run unit tests: `cargo test --package hotspots-core config::`
     - [x] Verify all 21 config tests pass
 
 - [x] **Fix delta.rs - String and Option improvements**
-  - [x] Read faultline-core/src/delta.rs
+  - [x] Read hotspots-core/src/delta.rs
     - [x] Locate line 136 with `unwrap_or_else(|| "".to_string())`
     - [x] Locate lines 134-135 with `.map(|s| s.clone())`
     - [x] Understand the context of each usage
   - [x] Fix line 136 - unwrap_or_default()
     - [x] Replace `unwrap_or_else(|| "".to_string())` with `unwrap_or_default()`
     - [x] Save file
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 136 warning is gone
   - [x] Fix lines 134-135 - cloned()
     - [x] Replace `.map(|s| s.clone())` with `.cloned()`
     - [x] Save file
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm lines 134-135 warnings are gone
   - [x] Verify delta tests
-    - [x] Run `cargo test --package faultline-core delta::`
+    - [x] Run `cargo test --package hotspots-core delta::`
     - [x] Ensure all delta tests pass
     - [x] Check that delta output is still deterministic
 
 - [x] **Fix discover.rs (Lines 78, 103, 183, 214) - Remove useless clone map**
-  - [x] Read faultline-core/src/discover.rs
+  - [x] Read hotspots-core/src/discover.rs
     - [x] Find line 78 with `.as_ref().map(|b| b.clone())`
     - [x] Find line 103 with `.as_ref().map(|b| b.clone())`
     - [x] Find line 183 with `.as_ref().map(|b| b.clone())`
     - [x] Note what's being cloned (likely BlockStmt)
   - [x] Fix line 78
     - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 78 warning is gone
   - [x] Fix line 103
     - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 103 warning is gone
   - [x] Fix line 183
     - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 183 warning is gone
   - [x] Verify discovery tests
-    - [x] Run `cargo test --package faultline-core discover::`
+    - [x] Run `cargo test --package hotspots-core discover::`
     - [x] Ensure all discovery tests pass (function discovery still works)
-    - [x] Run integration tests: `cargo test --package faultline-core --test '*'`
+    - [x] Run integration tests: `cargo test --package hotspots-core --test '*'`
 
 - [x] **Fix trends.rs (Lines 172, 344) - Use or_default()**
-  - [x] Read faultline-core/src/trends.rs
+  - [x] Read hotspots-core/src/trends.rs
     - [x] Locate line 172 with `.or_insert_with(Vec::new)`
     - [x] Locate line 344 with `.or_insert_with(Vec::new)`
     - [x] Understand the HashMap/BTreeMap context
   - [x] Fix line 172
     - [x] Replace `.or_insert_with(Vec::new)` with `.or_default()`
     - [x] Save file
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 172 warning is gone
   - [x] Fix line 344
     - [x] Replace `.or_insert_with(Vec::new)` with `.or_default()`
     - [x] Save file
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm line 344 warning is gone
   - [x] Verify trends tests
-    - [x] Run `cargo test --package faultline-core trends::`
+    - [x] Run `cargo test --package hotspots-core trends::`
     - [x] Ensure trend calculation still works
     - [x] Verify snapshot history tracking works
 
 - [x] **Fix test modules - Avoid module_inception**
   - [x] Fix discover/tests.rs module structure
-    - [x] Read faultline-core/src/discover/tests.rs
+    - [x] Read hotspots-core/src/discover/tests.rs
     - [x] Find inner `mod tests { ... }` at line 4
     - [x] Rename to `mod discover_tests { ... }` or similar
     - [x] Update any `use super::*` if needed
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm module_inception warning is gone
-    - [x] Run `cargo test --package faultline-core discover::`
+    - [x] Run `cargo test --package hotspots-core discover::`
   - [x] Fix parser/tests.rs module structure
-    - [x] Read faultline-core/src/parser/tests.rs
+    - [x] Read hotspots-core/src/parser/tests.rs
     - [x] Find inner `mod tests { ... }` at line 4
     - [x] Rename to `mod parser_tests { ... }` or similar
     - [x] Update any `use super::*` if needed
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
     - [x] Confirm module_inception warning is gone
-    - [x] Run `cargo test --package faultline-core parser::`
+    - [x] Run `cargo test --package hotspots-core parser::`
   - [x] Verify all unit tests still pass
     - [x] Run full test suite: `cargo test --workspace`
     - [x] Confirm 145+ tests pass
@@ -683,10 +683,10 @@ function legacyParser(input: string) {
     - [x] Locate lines 52-53 with string manipulation
   - [x] Fix line 29 - Remove unnecessary reference
     - [x] Remove `&` from array argument
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
   - [x] Fix lines 52-53 - Use strip_suffix
     - [x] Replace manual string slicing with `.strip_suffix("-dirty")`
-    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Run `cargo clippy --package hotspots-core -- -D warnings`
   - [x] Verify build script works
     - [x] Run `cargo clean`
     - [x] Run `cargo build`
@@ -707,9 +707,9 @@ function legacyParser(input: string) {
     - [x] Execute `cargo build --release`
     - [x] Verify build completes successfully
     - [x] Check binary size is reasonable
-    - [x] Test binary: `./target/release/faultline --version`
+    - [x] Test binary: `./target/release/hotspots --version`
   - [x] Run integration tests
-    - [x] Execute `cargo test --package faultline-core --test '*'`
+    - [x] Execute `cargo test --package hotspots-core --test '*'`
     - [x] Verify all integration tests pass
     - [x] Check golden test fixtures still match
   - [x] Document the fixes
@@ -737,8 +737,8 @@ function legacyParser(input: string) {
 **Problem:** JSON output exists but schema is undocumented. AI agents can't reliably consume output without TypeScript types and JSON Schema validation.
 
 **Completed (2026-02-06):**
-- ✅ Created 4 JSON Schema files (faultline-output, function-report, metrics, policy-result)
-- ✅ Created @faultline/types npm package with TypeScript definitions
+- ✅ Created 4 JSON Schema files (hotspots-output, function-report, metrics, policy-result)
+- ✅ Created @hotspots/types npm package with TypeScript definitions
 - ✅ Added type guards and helper functions (filterByRiskBand, getHighestRiskFunctions, etc.)
 - ✅ Created comprehensive docs/json-schema.md with integration examples (TypeScript, Python, Go, Rust)
 - ✅ Updated action/README.md with JSON output documentation
@@ -748,19 +748,19 @@ function legacyParser(input: string) {
 
 - [x] **Create schemas/ directory structure** ✅
   - [x] Created `schemas/` directory with 4 JSON Schema files
-    - [x] faultline-output.schema.json (main schema)
+    - [x] hotspots-output.schema.json (main schema)
     - [x] function-report.schema.json
     - [x] metrics.schema.json
     - [x] policy-result.schema.json
     - [x] All schemas validated with ajv-cli
-    - [ ] Run faultline in snapshot mode to get sample JSON output
-      - [ ] Execute `faultline analyze --mode snapshot --format json tests/fixtures/ > samples/snapshot.json`
+    - [ ] Run hotspots in snapshot mode to get sample JSON output
+      - [ ] Execute `hotspots analyze --mode snapshot --format json tests/fixtures/ > samples/snapshot.json`
       - [ ] Review output structure
-    - [ ] Run faultline in delta mode to get sample JSON output
-      - [ ] Execute `faultline analyze --mode delta --format json tests/fixtures/ > samples/delta.json`
+    - [ ] Run hotspots in delta mode to get sample JSON output
+      - [ ] Execute `hotspots analyze --mode delta --format json tests/fixtures/ > samples/delta.json`
       - [ ] Review output structure, note differences from snapshot
-    - [ ] List all unique types needed: FaultlineOutput, FunctionReport, Violation, Summary, PolicyResult, etc.
-  - [ ] Create faultline-output.schema.json
+    - [ ] List all unique types needed: HotspotsOutput, FunctionReport, Violation, Summary, PolicyResult, etc.
+  - [ ] Create hotspots-output.schema.json
     - [ ] Define root schema with $schema, $id, title, description
     - [ ] Add mode field (enum: "snapshot" | "delta")
     - [ ] Add functions array (array of FunctionReport)
@@ -804,19 +804,19 @@ function legacyParser(input: string) {
     - [ ] Validate against sample summary
 
 - [x] **Generate TypeScript types package** ✅
-  - [x] Set up @faultline/types npm package
+  - [x] Set up @hotspots/types npm package
     - [x] Created `packages/types/` directory with full package structure
     - [x] Manually created TypeScript types matching JSON schemas
-    - [x] Added type guards: isFaultlineOutput(), isFunctionReport(), isPolicyResult()
+    - [x] Added type guards: isHotspotsOutput(), isFunctionReport(), isPolicyResult()
     - [x] Added helper functions: filterByRiskBand(), filterBySeverity(), getHighestRiskFunctions(), etc.
     - [x] Added comprehensive JSDoc comments with examples
     - [x] Created README.md with usage examples
     - [x] Package builds successfully with TypeScript
     - [ ] **PENDING:** Publish to npm (requires npm login)
-    - [ ] Initialize package: `npm init --scope=@faultline`
-    - [ ] Set package name to "@faultline/types"
+    - [ ] Initialize package: `npm init --scope=@hotspots`
+    - [ ] Set package name to "@hotspots/types"
     - [ ] Set version to "1.0.0"
-    - [ ] Add keywords: "faultline", "types", "typescript", "complexity", "analysis"
+    - [ ] Add keywords: "hotspots", "types", "typescript", "complexity", "analysis"
     - [ ] Set repository URL
     - [ ] Configure TypeScript: `tsc --init`
     - [ ] Set tsconfig.json options
@@ -829,14 +829,14 @@ function legacyParser(input: string) {
   - [ ] Generate types from JSON Schema
     - [ ] Install json-schema-to-typescript: `npm install -D json-schema-to-typescript`
     - [ ] Create generation script `scripts/generate-types.ts`
-    - [ ] Generate FaultlineOutput interface from faultline-output.schema.json
+    - [ ] Generate HotspotsOutput interface from hotspots-output.schema.json
     - [ ] Generate Violation interface from violation.schema.json
     - [ ] Generate FunctionReport interface from function-report.schema.json
     - [ ] Generate Summary interface from summary.schema.json
     - [ ] Output to `src/index.ts`
   - [ ] Add JSDoc comments to generated types
     - [ ] Add package-level documentation to src/index.ts
-    - [ ] Add JSDoc to FaultlineOutput interface
+    - [ ] Add JSDoc to HotspotsOutput interface
       - [ ] Document mode field
       - [ ] Document functions array
       - [ ] Document violations array
@@ -855,7 +855,7 @@ function legacyParser(input: string) {
     - [ ] Create RiskBand type alias ("low" | "moderate" | "high" | "critical")
     - [ ] Create Severity type alias ("error" | "warning" | "info")
     - [ ] Create Mode type alias ("snapshot" | "delta")
-    - [ ] Add type guards: `isFaultlineOutput()`, `isViolation()`, etc.
+    - [ ] Add type guards: `isHotspotsOutput()`, `isViolation()`, etc.
     - [ ] Add helper functions
       - [ ] `filterByRiskBand(functions, band): FunctionReport[]`
       - [ ] `filterBySeverity(violations, severity): Violation[]`
@@ -883,8 +883,8 @@ function legacyParser(input: string) {
     - [ ] Dry run: `npm publish --dry-run`
     - [ ] Review what will be published
     - [ ] Publish: `npm publish --access public`
-    - [ ] Verify on npmjs.com/@faultline/types
-    - [ ] Test installation: `npm install @faultline/types` in fresh project
+    - [ ] Verify on npmjs.com/@hotspots/types
+    - [ ] Test installation: `npm install @hotspots/types` in fresh project
 
 - [x] **Document output format** ✅
   - [x] Created comprehensive docs/json-schema.md
@@ -899,13 +899,13 @@ function legacyParser(input: string) {
     - [x] Added JSON output documentation
     - [x] Added schema references
     - [x] Added example output structure
-    - [x] Added link to @faultline/types package
+    - [x] Added link to @hotspots/types package
       - [ ] Explain purpose of JSON output
       - [ ] Link to schemas/ directory
-      - [ ] Link to @faultline/types npm package
+      - [ ] Link to @hotspots/types npm package
     - [ ] Document snapshot mode output
       - [ ] Show complete example of snapshot JSON
-      - [ ] Document FaultlineOutput structure
+      - [ ] Document HotspotsOutput structure
       - [ ] Document each field with type and description
       - [ ] Show example with 3+ functions in different risk bands
       - [ ] Document empty violations case (passing policy)
@@ -945,11 +945,11 @@ function legacyParser(input: string) {
 - [ ] **Add schema validation examples**
   - [ ] Create TypeScript validation example
     - [ ] Create examples/validation/typescript/ directory
-    - [ ] Add package.json with @faultline/types dependency
+    - [ ] Add package.json with @hotspots/types dependency
     - [ ] Create validate.ts
-      - [ ] Import types from @faultline/types
+      - [ ] Import types from @hotspots/types
       - [ ] Load JSON file
-      - [ ] Parse and type-check with FaultlineOutput type
+      - [ ] Parse and type-check with HotspotsOutput type
       - [ ] Use type guards to validate structure
       - [ ] Handle parsing errors gracefully
       - [ ] Show how to iterate through functions
@@ -961,7 +961,7 @@ function legacyParser(input: string) {
     - [ ] Add requirements.txt with jsonschema dependency
     - [ ] Create validate.py
       - [ ] Import jsonschema library
-      - [ ] Load faultline-output.schema.json
+      - [ ] Load hotspots-output.schema.json
       - [ ] Load sample JSON output
       - [ ] Validate JSON against schema
       - [ ] Handle validation errors with clear messages
@@ -991,7 +991,7 @@ function legacyParser(input: string) {
 - [x] **Update GitHub Action README** ✅
   - [x] Document outputs with schema reference
     - [x] Added "JSON Output Format" section to action/README.md
-    - [x] Documented schema files and @faultline/types package
+    - [x] Documented schema files and @hotspots/types package
     - [x] Added example output structure
     - [x] Added link to docs/json-schema.md
     - [ ] Add detailed documentation for each output
@@ -1000,7 +1000,7 @@ function legacyParser(input: string) {
       - [ ] `summary` - JSON summary object (string, parse as JSON)
       - [ ] `report-path` - Path to HTML report (string)
     - [ ] Link to schemas/ directory
-    - [ ] Link to @faultline/types package
+    - [ ] Link to @hotspots/types package
     - [ ] Link to docs/json-schema.md
   - [ ] Add example of parsing action outputs
     - [ ] Create example workflow showing output usage
@@ -1010,12 +1010,12 @@ function legacyParser(input: string) {
     - [ ] Show how to upload HTML report from `report-path`
   - [ ] Add TypeScript example for custom action
     - [ ] Show how to parse outputs in another action step
-    - [ ] Use @faultline/types for type safety
+    - [ ] Use @hotspots/types for type safety
     - [ ] Show error handling
 
 **Acceptance:**
 - ✅ JSON Schema published to `schemas/` directory
-- ⏳ `@faultline/types` built (not yet published to npm)
+- ⏳ `@hotspots/types` built (not yet published to npm)
 - ✅ Types are accurate (validated against real output)
 - ✅ Documentation includes examples in 4 languages (TypeScript, Python, Go, Rust)
 
@@ -1030,18 +1030,18 @@ function legacyParser(input: string) {
 
 **Status:** ⏳ **IN PROGRESS**
 
-**Problem:** Claude Desktop/Code users can't run Faultline during conversations. Need Model Context Protocol (MCP) server for direct integration.
+**Problem:** Claude Desktop/Code users can't run Hotspots during conversations. Need Model Context Protocol (MCP) server for direct integration.
 
 **Tasks:**
 
-- [ ] **Create faultline-mcp-server/ package structure**
+- [ ] **Create hotspots-mcp-server/ package structure**
   - [ ] Initialize TypeScript package
     - [ ] Create `packages/mcp-server/` directory
-    - [ ] Initialize: `npm init --scope=@faultline`
-    - [ ] Set package name to "@faultline/mcp-server"
+    - [ ] Initialize: `npm init --scope=@hotspots`
+    - [ ] Set package name to "@hotspots/mcp-server"
     - [ ] Set version to "1.0.0"
-    - [ ] Add description: "Model Context Protocol server for Faultline complexity analysis"
-    - [ ] Add keywords: "mcp", "faultline", "claude", "complexity"
+    - [ ] Add description: "Model Context Protocol server for Hotspots complexity analysis"
+    - [ ] Add keywords: "mcp", "hotspots", "claude", "complexity"
     - [ ] Set "bin" field to point to compiled server
   - [ ] Set up TypeScript configuration
     - [ ] Run `tsc --init`
@@ -1057,7 +1057,7 @@ function legacyParser(input: string) {
   - [ ] Install dependencies
     - [ ] Install MCP SDK: `npm install @modelcontextprotocol/sdk`
     - [ ] Install exec utilities: `npm install --save execa`
-    - [ ] Install @faultline/types: `npm install @faultline/types`
+    - [ ] Install @hotspots/types: `npm install @hotspots/types`
     - [ ] Install dev dependencies: `npm install -D @types/node typescript`
   - [ ] Create project structure
     - [ ] Create src/index.ts (main entry point)
@@ -1066,7 +1066,7 @@ function legacyParser(input: string) {
     - [ ] Create src/config.ts (configuration loading)
     - [ ] Create src/utils.ts (helper functions)
 
-- [ ] **Implement faultline_analyze tool**
+- [ ] **Implement hotspots_analyze tool**
   - [ ] Define tool schema in src/tools/analyze.ts
     - [ ] Create AnalyzeInput interface
       - [ ] path: string (required) - file or directory to analyze
@@ -1074,7 +1074,7 @@ function legacyParser(input: string) {
       - [ ] minLrs: number (optional) - minimum LRS threshold
       - [ ] config: string (optional) - path to config file
     - [ ] Define JSON Schema for MCP tool registration
-      - [ ] Add tool name: "faultline_analyze"
+      - [ ] Add tool name: "hotspots_analyze"
       - [ ] Add description: "Analyze JavaScript/TypeScript files for complexity"
       - [ ] Define input schema with all parameters
       - [ ] Mark required fields
@@ -1084,9 +1084,9 @@ function legacyParser(input: string) {
       - [ ] Check path exists using fs.existsSync()
       - [ ] Validate mode is "snapshot" or "delta"
       - [ ] Validate minLrs is positive number if provided
-    - [ ] Find faultline binary
+    - [ ] Find hotspots binary
       - [ ] Check config for custom binary path
-      - [ ] Fall back to `which faultline` on PATH
+      - [ ] Fall back to `which hotspots` on PATH
       - [ ] Throw helpful error if not found
     - [ ] Build CLI arguments
       - [ ] Start with ["analyze"]
@@ -1095,22 +1095,22 @@ function legacyParser(input: string) {
       - [ ] Add `--config ${config}` if provided
       - [ ] Add `--format json`
       - [ ] Add path as positional argument
-    - [ ] Execute faultline using execa
+    - [ ] Execute hotspots using execa
       - [ ] Run with arguments
       - [ ] Capture stdout and stderr
       - [ ] Set reasonable timeout (30 seconds)
       - [ ] Handle execution errors
     - [ ] Parse JSON output
       - [ ] Parse stdout as JSON
-      - [ ] Validate against FaultlineOutput type
+      - [ ] Validate against HotspotsOutput type
       - [ ] Handle parse errors gracefully
     - [ ] Format response for Claude
-      - [ ] Return structured FaultlineOutput
+      - [ ] Return structured HotspotsOutput
       - [ ] Add summary text for easy reading
       - [ ] Include violation count prominently
       - [ ] List high-risk functions in summary
   - [ ] Add error handling
-    - [ ] Handle "faultline not found" error
+    - [ ] Handle "hotspots not found" error
     - [ ] Handle invalid path error
     - [ ] Handle JSON parse error
     - [ ] Handle timeout error
@@ -1124,7 +1124,7 @@ function legacyParser(input: string) {
     - [ ] Test with minLrs filter
     - [ ] Test error cases
 
-- [ ] **Implement faultline_explain tool**
+- [ ] **Implement hotspots_explain tool**
   - [ ] Define tool schema in src/tools/explain.ts
     - [ ] Create ExplainInput interface
       - [ ] file: string (required)
@@ -1132,7 +1132,7 @@ function legacyParser(input: string) {
       - [ ] lrs: number (required)
       - [ ] metrics: object (optional) - cc, nd, fo, ns
     - [ ] Define JSON Schema for MCP tool registration
-      - [ ] Add tool name: "faultline_explain"
+      - [ ] Add tool name: "hotspots_explain"
       - [ ] Add description: "Explain why a function has high complexity"
       - [ ] Define input schema
   - [ ] Implement explain() function
@@ -1172,7 +1172,7 @@ function legacyParser(input: string) {
     - [ ] Test with missing metrics (still works)
     - [ ] Verify explanation quality
 
-- [ ] **Implement faultline_refactor_suggestions tool**
+- [ ] **Implement hotspots_refactor_suggestions tool**
   - [ ] Define tool schema in src/tools/refactor.ts
     - [ ] Create RefactorInput interface
       - [ ] file: string (required)
@@ -1180,7 +1180,7 @@ function legacyParser(input: string) {
       - [ ] code: string (optional) - function source code
       - [ ] metrics: object (optional) - current metrics
     - [ ] Define JSON Schema for MCP tool registration
-      - [ ] Add tool name: "faultline_refactor_suggestions"
+      - [ ] Add tool name: "hotspots_refactor_suggestions"
       - [ ] Add description: "Get specific refactoring suggestions"
       - [ ] Define input schema
   - [ ] Implement refactor_suggestions() function
@@ -1219,12 +1219,12 @@ function legacyParser(input: string) {
 - [ ] **Add configuration system**
   - [ ] Create src/config.ts
     - [ ] Define Config interface
-      - [ ] faultlinePath: string | null - custom binary path
+      - [ ] hotspotsPath: string | null - custom binary path
       - [ ] defaultConfigFile: string | null - default config file
       - [ ] timeout: number - execution timeout in ms
       - [ ] workingDirectory: string - base directory for analysis
     - [ ] Implement loadConfig() function
-      - [ ] Check for faultline-mcp-config.json in cwd
+      - [ ] Check for hotspots-mcp-config.json in cwd
       - [ ] Check for config in user home directory
       - [ ] Parse JSON config
       - [ ] Validate config structure
@@ -1232,11 +1232,11 @@ function legacyParser(input: string) {
       - [ ] Return Config object
     - [ ] Implement getDefaultConfig() function
       - [ ] Return sensible defaults
-        - [ ] faultlinePath: null (use PATH)
-        - [ ] defaultConfigFile: null (let faultline discover)
+        - [ ] hotspotsPath: null (use PATH)
+        - [ ] defaultConfigFile: null (let hotspots discover)
         - [ ] timeout: 30000 (30 seconds)
         - [ ] workingDirectory: process.cwd()
-  - [ ] Create example faultline-mcp-config.json
+  - [ ] Create example hotspots-mcp-config.json
     - [ ] Document all config options with comments (in README)
     - [ ] Show example with custom binary path
     - [ ] Show example with default config file
@@ -1252,16 +1252,16 @@ function legacyParser(input: string) {
     - [ ] Import all tools (analyze, explain, refactor)
     - [ ] Create Server instance
     - [ ] Register all tools
-      - [ ] Register faultline_analyze with schema
-      - [ ] Register faultline_explain with schema
-      - [ ] Register faultline_refactor_suggestions with schema
+      - [ ] Register hotspots_analyze with schema
+      - [ ] Register hotspots_explain with schema
+      - [ ] Register hotspots_refactor_suggestions with schema
     - [ ] Implement tool handlers
-      - [ ] Route faultline_analyze calls to analyze()
-      - [ ] Route faultline_explain calls to explain()
-      - [ ] Route faultline_refactor_suggestions calls to refactor_suggestions()
+      - [ ] Route hotspots_analyze calls to analyze()
+      - [ ] Route hotspots_explain calls to explain()
+      - [ ] Route hotspots_refactor_suggestions calls to refactor_suggestions()
       - [ ] Wrap each handler with error handling
     - [ ] Add server metadata
-      - [ ] Name: "Faultline MCP Server"
+      - [ ] Name: "Hotspots MCP Server"
       - [ ] Version: from package.json
       - [ ] Description
     - [ ] Start server
@@ -1289,20 +1289,20 @@ function legacyParser(input: string) {
       - [ ] Why use it with Claude
     - [ ] Add prerequisites section
       - [ ] Node.js 18+ required
-      - [ ] Faultline CLI must be installed
+      - [ ] Hotspots CLI must be installed
       - [ ] Claude Desktop or compatible MCP client
     - [ ] Add installation section
-      - [ ] Global install: `npm install -g @faultline/mcp-server`
+      - [ ] Global install: `npm install -g @hotspots/mcp-server`
       - [ ] Local install in project
-      - [ ] Verify installation: `faultline-mcp-server --version`
+      - [ ] Verify installation: `hotspots-mcp-server --version`
     - [ ] Add Claude Desktop configuration
       - [ ] Show how to edit claude_desktop_config.json
       - [ ] Provide example configuration
         ```json
         {
           "mcpServers": {
-            "faultline": {
-              "command": "faultline-mcp-server",
+            "hotspots": {
+              "command": "hotspots-mcp-server",
               "args": []
             }
           }
@@ -1316,17 +1316,17 @@ function legacyParser(input: string) {
       - [ ] Example conversation 3: Get refactoring suggestions
       - [ ] Example conversation 4: Iterative refactoring loop
     - [ ] Add API documentation
-      - [ ] Document faultline_analyze tool with all parameters
-      - [ ] Document faultline_explain tool with all parameters
-      - [ ] Document faultline_refactor_suggestions tool with all parameters
+      - [ ] Document hotspots_analyze tool with all parameters
+      - [ ] Document hotspots_explain tool with all parameters
+      - [ ] Document hotspots_refactor_suggestions tool with all parameters
       - [ ] Show example inputs and outputs for each
     - [ ] Add troubleshooting section
       - [ ] "Server not appearing in Claude" → Check config path
-      - [ ] "Faultline not found" → Install faultline CLI
+      - [ ] "Hotspots not found" → Install hotspots CLI
       - [ ] "Permission denied" → Check binary permissions
       - [ ] "Timeout errors" → Increase timeout in config
     - [ ] Add configuration reference
-      - [ ] Document faultline-mcp-config.json
+      - [ ] Document hotspots-mcp-config.json
       - [ ] List all options with types and defaults
   - [ ] Create examples/ directory
     - [ ] Add example-conversation-1.md (basic analysis)
@@ -1341,22 +1341,22 @@ function legacyParser(input: string) {
     - [ ] Point to local build for testing
   - [ ] Test tool discovery
     - [ ] Start Claude Desktop
-    - [ ] Verify Faultline tools appear in available tools
+    - [ ] Verify Hotspots tools appear in available tools
     - [ ] Check tool descriptions are clear
     - [ ] Verify tool parameters are documented
-  - [ ] Test faultline_analyze tool
+  - [ ] Test hotspots_analyze tool
     - [ ] Ask Claude to analyze a test project
     - [ ] Verify tool is called correctly
     - [ ] Verify JSON output is parsed
     - [ ] Verify Claude presents results clearly
     - [ ] Test with different modes (snapshot, delta)
     - [ ] Test with minLrs filtering
-  - [ ] Test faultline_explain tool
+  - [ ] Test hotspots_explain tool
     - [ ] Ask Claude to explain a high-complexity function
     - [ ] Verify explanation is generated
     - [ ] Verify suggestions are helpful
     - [ ] Test with different LRS values
-  - [ ] Test faultline_refactor_suggestions tool
+  - [ ] Test hotspots_refactor_suggestions tool
     - [ ] Ask Claude for refactoring suggestions
     - [ ] Verify suggestions are specific and actionable
     - [ ] Verify suggestions are ranked
@@ -1369,7 +1369,7 @@ function legacyParser(input: string) {
     - [ ] Complete full loop successfully
   - [ ] Test error handling
     - [ ] Try analyzing non-existent path
-    - [ ] Try with faultline not installed (temporarily)
+    - [ ] Try with hotspots not installed (temporarily)
     - [ ] Try with invalid parameters
     - [ ] Verify error messages are clear and actionable
   - [ ] Document test results
@@ -1398,25 +1398,25 @@ function legacyParser(input: string) {
     - [ ] Run `npm pack`
     - [ ] Extract tarball
     - [ ] Verify contents are correct
-    - [ ] Install locally: `npm install -g ./faultline-mcp-server-1.0.0.tgz`
-    - [ ] Test running: `faultline-mcp-server --version`
+    - [ ] Install locally: `npm install -g ./hotspots-mcp-server-1.0.0.tgz`
+    - [ ] Test running: `hotspots-mcp-server --version`
     - [ ] Test in Claude Desktop with local install
   - [ ] Publish to npm registry
     - [ ] Login to npm: `npm login`
     - [ ] Dry run: `npm publish --dry-run --access public`
     - [ ] Review what will be published
     - [ ] Publish: `npm publish --access public`
-    - [ ] Verify on npmjs.com/@faultline/mcp-server
+    - [ ] Verify on npmjs.com/@hotspots/mcp-server
   - [ ] Test published package
     - [ ] Uninstall local version
-    - [ ] Install from npm: `npm install -g @faultline/mcp-server`
+    - [ ] Install from npm: `npm install -g @hotspots/mcp-server`
     - [ ] Verify installation
     - [ ] Test in Claude Desktop
     - [ ] Verify all tools work
   - [ ] Add to MCP server registry
     - [ ] Visit MCP server registry submission page
     - [ ] Fill out submission form
-      - [ ] Package name: @faultline/mcp-server
+      - [ ] Package name: @hotspots/mcp-server
       - [ ] Description
       - [ ] Category: Development Tools
       - [ ] npm URL
@@ -1427,16 +1427,16 @@ function legacyParser(input: string) {
 **Example Usage:**
 ```
 User: "Analyze the complexity of src/"
-Claude: [calls faultline_analyze]
+Claude: [calls hotspots_analyze]
         "I found 3 high-risk functions..."
 
 User: "How can I reduce complexity in handleRequest?"
-Claude: [calls faultline_refactor_suggestions]
+Claude: [calls hotspots_refactor_suggestions]
         "Here are 3 ways to refactor..."
 ```
 
 **Acceptance:**
-- ✅ Claude Desktop can call Faultline as a tool
+- ✅ Claude Desktop can call Hotspots as a tool
 - ✅ All 3 tools work correctly (analyze, explain, refactor_suggestions)
 - ✅ Error messages are helpful
 - ✅ Published to npm and MCP registry
@@ -1451,7 +1451,7 @@ Claude: [calls faultline_refactor_suggestions]
 
 **Status:** ⏳ **IN PROGRESS**
 
-**Problem:** No guidance on how AI agents should use Faultline. Need patterns, examples, and best practices.
+**Problem:** No guidance on how AI agents should use Hotspots. Need patterns, examples, and best practices.
 
 **Tasks:**
 
@@ -1462,13 +1462,13 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Add table of contents with links
     - [ ] Add last updated date
   - [ ] Write Overview section
-    - [ ] Explain "Why Faultline is AI-First"
+    - [ ] Explain "Why Hotspots is AI-First"
       - [ ] Deterministic output (same input → same output)
       - [ ] Machine-readable JSON format
       - [ ] Clear, structured schema
       - [ ] No side effects or state
       - [ ] Fast execution (suitable for tight loops)
-    - [ ] Explain use cases for AI + Faultline
+    - [ ] Explain use cases for AI + Hotspots
       - [ ] Automated code review
       - [ ] Iterative refactoring
       - [ ] Complexity-aware code generation
@@ -1481,7 +1481,7 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] TypeScript SDK (programmatic)
   - [ ] Create Quick Start section
     - [ ] Show simplest possible example
-    - [ ] 5-line code snippet for running Faultline
+    - [ ] 5-line code snippet for running Hotspots
     - [ ] Parse JSON output
     - [ ] Access key fields
     - [ ] Link to full workflows below
@@ -1516,7 +1516,7 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] Write "Code Review" workflow
     - [ ] Overview: AI reviews PR for complexity issues
     - [ ] Step-by-step process
-      - [ ] 1. Run faultline in delta mode on PR
+      - [ ] 1. Run hotspots in delta mode on PR
       - [ ] 2. Parse JSON output
       - [ ] 3. Filter for added/modified high-risk functions
       - [ ] 4. For each violation, generate review comment
@@ -1527,10 +1527,10 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] Write "Refactoring Loop" workflow
     - [ ] Overview: AI iteratively refactors until LRS < threshold
     - [ ] Step-by-step process
-      - [ ] 1. Run faultline, identify high-risk function
+      - [ ] 1. Run hotspots, identify high-risk function
       - [ ] 2. AI generates refactoring suggestions
       - [ ] 3. Apply suggestions (AI or human)
-      - [ ] 4. Re-run faultline to verify improvement
+      - [ ] 4. Re-run hotspots to verify improvement
       - [ ] 5. Repeat until LRS < threshold or max iterations
       - [ ] 6. Validate tests still pass
     - [ ] Code example showing loop structure
@@ -1542,7 +1542,7 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Step-by-step process
       - [ ] 1. AI generates initial implementation
       - [ ] 2. Write to temp file
-      - [ ] 3. Run faultline on temp file
+      - [ ] 3. Run hotspots on temp file
       - [ ] 4. If LRS > threshold, regenerate with "simpler" constraint
       - [ ] 5. Repeat until satisfactory or give up
     - [ ] Code example showing generate-check-regenerate loop
@@ -1553,7 +1553,7 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Step-by-step process
       - [ ] 1. Git hook triggers on pre-commit
       - [ ] 2. Get list of staged files
-      - [ ] 3. Run faultline in delta mode
+      - [ ] 3. Run hotspots in delta mode
       - [ ] 4. If violations, AI suggests fixes
       - [ ] 5. User can accept, modify, or skip commit
     - [ ] Code example for git hook
@@ -1562,7 +1562,7 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] Write "Automated Refactoring" workflow
     - [ ] Overview: AI proposes and applies complexity fixes
     - [ ] Step-by-step process
-      - [ ] 1. Run faultline snapshot mode
+      - [ ] 1. Run hotspots snapshot mode
       - [ ] 2. Sort functions by LRS descending
       - [ ] 3. For top N functions, AI generates refactor
       - [ ] 4. Apply refactor, run tests
@@ -1581,10 +1581,10 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Verify tools are loaded
     - [ ] Example conversation flow
       - [ ] User: "Analyze src/ for complexity"
-      - [ ] Claude calls faultline_analyze tool
+      - [ ] Claude calls hotspots_analyze tool
       - [ ] Claude presents results
       - [ ] User: "Suggest refactoring for handleRequest"
-      - [ ] Claude calls faultline_refactor_suggestions
+      - [ ] Claude calls hotspots_refactor_suggestions
       - [ ] Claude provides specific suggestions
     - [ ] Best practices for prompts
       - [ ] Be specific about paths
@@ -1594,13 +1594,13 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] Document GPT-4 integration (via API + CLI)
     - [ ] Overview: Use CLI + JSON parsing
     - [ ] Code example in Python
-      - [ ] Run faultline via subprocess
+      - [ ] Run hotspots via subprocess
       - [ ] Parse JSON output
       - [ ] Send to GPT-4 with context
       - [ ] GPT-4 analyzes and suggests improvements
     - [ ] Code example in TypeScript/Node
-      - [ ] Use execa to run faultline
-      - [ ] Parse JSON with @faultline/types
+      - [ ] Use execa to run hotspots
+      - [ ] Parse JSON with @hotspots/types
       - [ ] Call OpenAI API
       - [ ] Format response
     - [ ] Prompt engineering tips
@@ -1608,25 +1608,25 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Provide example outputs
       - [ ] Ask for structured responses
   - [ ] Document Cursor integration
-    - [ ] Overview: In-editor AI + Faultline CLI
+    - [ ] Overview: In-editor AI + Hotspots CLI
     - [ ] Setup approach
-      - [ ] Configure Cursor to use faultline
+      - [ ] Configure Cursor to use hotspots
       - [ ] Add keyboard shortcut for analysis
     - [ ] Usage pattern
       - [ ] Select function in editor
-      - [ ] Trigger Cursor + Faultline
+      - [ ] Trigger Cursor + Hotspots
       - [ ] Get inline refactoring suggestions
     - [ ] Example .cursorrules or config
     - [ ] Note: May require custom extension/script
   - [ ] Document GitHub Copilot Workspace integration
     - [ ] Overview: PR analysis in Copilot Workspace
     - [ ] Setup using GitHub Action
-      - [ ] Add Faultline action to workflow
+      - [ ] Add Hotspots action to workflow
       - [ ] Post results as PR comment
       - [ ] Copilot can read and act on comments
     - [ ] Workflow example
       - [ ] PR opened
-      - [ ] Faultline analyzes in delta mode
+      - [ ] Hotspots analyzes in delta mode
       - [ ] Results posted as comment
       - [ ] Copilot sees violations
       - [ ] Copilot suggests fixes in review
@@ -1634,7 +1634,7 @@ Claude: [calls faultline_refactor_suggestions]
 
 - [ ] **Document best practices**
   - [ ] Write "Determinism" section
-    - [ ] Explain why Faultline is reliable for AI
+    - [ ] Explain why Hotspots is reliable for AI
       - [ ] No randomness in analysis
       - [ ] Same code → same LRS (byte-for-byte)
       - [ ] No timestamps or env vars in output
@@ -1655,7 +1655,7 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Use GitHub Actions cache for CI
     - [ ] Invalidation strategy
       - [ ] Invalidate on file change
-      - [ ] Invalidate on faultline version change
+      - [ ] Invalidate on hotspots version change
       - [ ] Invalidate on config change
     - [ ] Code example: Simple file-based cache
   - [ ] Write "Rate Limiting" section
@@ -1686,7 +1686,7 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Tests must pass after refactoring
     - [ ] Validation steps
       - [ ] 1. Run tests after AI changes
-      - [ ] 2. Re-run faultline to verify LRS decreased
+      - [ ] 2. Re-run hotspots to verify LRS decreased
       - [ ] 3. Check for new violations
       - [ ] 4. Ensure overall complexity didn't shift elsewhere
     - [ ] Code example: Validation loop
@@ -1698,8 +1698,8 @@ Claude: [calls faultline_refactor_suggestions]
 - [ ] **Add troubleshooting section**
   - [ ] "AI can't parse JSON"
     - [ ] Cause: Unexpected JSON format
-    - [ ] Solution 1: Check faultline version
-    - [ ] Solution 2: Use @faultline/types for validation
+    - [ ] Solution 1: Check hotspots version
+    - [ ] Solution 2: Use @hotspots/types for validation
     - [ ] Solution 3: Show AI the schema first
     - [ ] Code example: Robust JSON parsing with error handling
   - [ ] "Analysis is slow"
@@ -1714,7 +1714,7 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] "False positives"
     - [ ] Cause: Function is complex but well-tested/intentional
     - [ ] Solution 1: Use suppression comments
-      - [ ] `// faultline-ignore: reason`
+      - [ ] `// hotspots-ignore: reason`
     - [ ] Solution 2: Adjust thresholds in config
       - [ ] Raise critical threshold if too strict
     - [ ] Solution 3: Use custom policy
@@ -1731,7 +1731,7 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] "Violations don't make sense"
     - [ ] Cause: Misunderstanding of metrics
     - [ ] Solution: Read docs/metrics-rationale.md
-    - [ ] Solution: Use faultline_explain tool (MCP)
+    - [ ] Solution: Use hotspots_explain tool (MCP)
     - [ ] Solution: Check individual metrics (CC, ND, FO, NS)
 
 - [ ] **Update main README.md**
@@ -1741,7 +1741,7 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Write AI-First subsection
       - [ ] Title: "🤖 Built for AI Coding Assistants"
       - [ ] 2-3 sentence pitch
-        - [ ] "Faultline is designed from day one for AI-assisted development"
+        - [ ] "Hotspots is designed from day one for AI-assisted development"
         - [ ] "Deterministic, machine-readable output"
         - [ ] "Direct integration with Claude, GPT-4, Cursor"
       - [ ] Bullet points
@@ -1753,12 +1753,12 @@ Claude: [calls faultline_refactor_suggestions]
   - [ ] Add MCP server example
     - [ ] Create "Quick Start with Claude" subsection
     - [ ] Show installation command
-      - [ ] `npm install -g @faultline/mcp-server`
+      - [ ] `npm install -g @hotspots/mcp-server`
     - [ ] Show configuration snippet
       - [ ] claude_desktop_config.json example
     - [ ] Show example conversation
       - [ ] User asks Claude to analyze code
-      - [ ] Claude calls faultline_analyze
+      - [ ] Claude calls hotspots_analyze
       - [ ] Claude presents results
     - [ ] Link to MCP server docs
   - [ ] Highlight deterministic output in Features
@@ -1767,7 +1767,7 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] "🎯 Deterministic - Same code always produces same results"
       - [ ] Mention "Perfect for AI-driven workflows"
   - [ ] Update badges section (if exists)
-    - [ ] Add npm badge for @faultline/mcp-server
+    - [ ] Add npm badge for @hotspots/mcp-server
     - [ ] Add "AI-First" badge (custom badge?)
   - [ ] Add AI workflows to Use Cases
     - [ ] Find or create "Use Cases" section
@@ -1792,7 +1792,7 @@ Claude: [calls faultline_refactor_suggestions]
 
 **Status:** ⏳ **IN PROGRESS**
 
-**Problem:** Developers learn best from working code. Need reference implementations showing AI+Faultline patterns.
+**Problem:** Developers learn best from working code. Need reference implementations showing AI+Hotspots patterns.
 
 **Tasks:**
 
@@ -1812,11 +1812,11 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Enable strict mode
       - [ ] Set rootDir and outDir
     - [ ] Create `examples/ai-agents/package.json`
-      - [ ] Set name: "faultline-ai-examples"
+      - [ ] Set name: "hotspots-ai-examples"
       - [ ] Add scripts: build, test, clean
       - [ ] Add dependencies
-        - [ ] @faultline/types
-        - [ ] execa (for running faultline)
+        - [ ] @hotspots/types
+        - [ ] execa (for running hotspots)
         - [ ] openai (for GPT examples)
         - [ ] @anthropic-ai/sdk (for Claude examples)
       - [ ] Add devDependencies
@@ -1824,9 +1824,9 @@ Claude: [calls faultline_refactor_suggestions]
         - [ ] @types/node
         - [ ] tsx (for running TS directly)
   - [ ] Create main README.md
-    - [ ] Title: "Faultline AI Agent Examples"
+    - [ ] Title: "Hotspots AI Agent Examples"
     - [ ] Overview paragraph
-    - [ ] Prerequisites section (Node.js, faultline, API keys)
+    - [ ] Prerequisites section (Node.js, hotspots, API keys)
     - [ ] Directory structure explanation
     - [ ] List all examples with short descriptions
     - [ ] Installation instructions: `npm install`
@@ -1834,27 +1834,27 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Note about API keys (set via env vars)
 
 - [ ] **Create shared utilities**
-  - [ ] Implement faultline-client.ts
-    - [ ] Import execa and @faultline/types
-    - [ ] Create FaultlineClient class
+  - [ ] Implement hotspots-client.ts
+    - [ ] Import execa and @hotspots/types
+    - [ ] Create HotspotsClient class
       - [ ] Constructor accepts binary path (optional)
       - [ ] async analyze(options) method
         - [ ] Accept path, mode, minLrs, config
         - [ ] Build CLI arguments array
-        - [ ] Run faultline with execa
+        - [ ] Run hotspots with execa
         - [ ] Capture stdout and stderr
         - [ ] Handle errors (binary not found, parse error)
         - [ ] Parse JSON output
-        - [ ] Validate with @faultline/types
-        - [ ] Return typed FaultlineOutput
+        - [ ] Validate with @hotspots/types
+        - [ ] Return typed HotspotsOutput
       - [ ] async analyzeFile(filePath, mode) method (convenience)
       - [ ] async analyzeDirectory(dirPath, mode) method (convenience)
     - [ ] Add error handling
-      - [ ] FaultlineNotFoundError class
-      - [ ] FaultlineParseError class
-      - [ ] FaultlineExecutionError class
+      - [ ] HotspotsNotFoundError class
+      - [ ] HotspotsParseError class
+      - [ ] HotspotsExecutionError class
     - [ ] Add JSDoc comments
-    - [ ] Export FaultlineClient and error classes
+    - [ ] Export HotspotsClient and error classes
   - [ ] Implement ai-prompts.ts
     - [ ] Create prompt templates as constants
     - [ ] ANALYZE_PROMPT: Template for asking AI to analyze complexity
@@ -1876,9 +1876,9 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] createExplainPrompt(functionName, lrs, metrics) helper
     - [ ] Export all templates and helpers
   - [ ] Implement result-parser.ts
-    - [ ] Import @faultline/types
+    - [ ] Import @hotspots/types
     - [ ] Create parsing utilities
-      - [ ] parseFaultlineOutput(json: string): FaultlineOutput
+      - [ ] parseHotspotsOutput(json: string): HotspotsOutput
         - [ ] Try to parse JSON
         - [ ] Validate structure
         - [ ] Return typed object or throw
@@ -1904,16 +1904,16 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Create `examples/ai-agents/refactor-loop/README.md`
     - [ ] Create `examples/ai-agents/refactor-loop/test-input/complex-function.ts`
   - [ ] Write refactor-loop.ts
-    - [ ] Import dependencies (FaultlineClient, AI SDK, prompts, parsers)
+    - [ ] Import dependencies (HotspotsClient, AI SDK, prompts, parsers)
     - [ ] Define configuration interface
       - [ ] targetLrs: number
       - [ ] maxIterations: number
       - [ ] testCommand: string (command to run tests)
     - [ ] Implement main refactorLoop function
       - [ ] Accept filePath, functionName, config
-      - [ ] Initialize FaultlineClient
+      - [ ] Initialize HotspotsClient
       - [ ] Step 1: Initial analysis
-        - [ ] Run faultline on file
+        - [ ] Run hotspots on file
         - [ ] Find target function by name
         - [ ] Log initial LRS
         - [ ] If LRS < targetLrs, exit early (already good)
@@ -1929,7 +1929,7 @@ Claude: [calls faultline_refactor_suggestions]
             - [ ] Log failure
             - [ ] Revert code
             - [ ] Continue to next iteration
-          - [ ] Re-run faultline analysis
+          - [ ] Re-run hotspots analysis
           - [ ] Get new LRS
           - [ ] Log improvement
           - [ ] If new LRS < targetLrs:
@@ -1978,10 +1978,10 @@ Claude: [calls faultline_refactor_suggestions]
         - [ ] Run `git diff --cached --name-only --diff-filter=ACM`
         - [ ] Parse output to get list of files
         - [ ] Filter for .ts, .tsx, .js, .jsx files
-      - [ ] Step 2: Run faultline in delta mode
-        - [ ] Use FaultlineClient
+      - [ ] Step 2: Run hotspots in delta mode
+        - [ ] Use HotspotsClient
         - [ ] Analyze staged changes only
-        - [ ] Get FaultlineOutput
+        - [ ] Get HotspotsOutput
       - [ ] Step 3: Check for violations
         - [ ] Use getViolations() parser
         - [ ] If no violations, exit 0 (allow commit)
@@ -2009,7 +2009,7 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Print success message
   - [ ] Write comprehensive README.md
     - [ ] Purpose: Review staged changes before commit
-    - [ ] Prerequisites (faultline, Node.js, API key)
+    - [ ] Prerequisites (hotspots, Node.js, API key)
     - [ ] Installation
       - [ ] Run `npm install` in examples/ai-agents
       - [ ] Run `./install-hook.sh` to set up git hook
@@ -2046,7 +2046,7 @@ Claude: [calls faultline_refactor_suggestions]
         - [ ] Extract generated code from response
       - [ ] Step 2: Validate complexity
         - [ ] Write code to temporary file
-        - [ ] Run faultline on temp file
+        - [ ] Run hotspots on temp file
         - [ ] Parse output, get LRS of generated function
         - [ ] Log LRS
       - [ ] Step 3: Retry if too complex
@@ -2089,7 +2089,7 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Create `examples/ai-agents/pr-reviewer/pr-reviewer.ts`
     - [ ] Create `examples/ai-agents/pr-reviewer/README.md`
   - [ ] Write pr-reviewer.ts
-    - [ ] Import dependencies (Octokit, FaultlineClient, AI SDK)
+    - [ ] Import dependencies (Octokit, HotspotsClient, AI SDK)
     - [ ] Define configuration interface
       - [ ] githubToken: string
       - [ ] repoOwner: string
@@ -2100,8 +2100,8 @@ Claude: [calls faultline_refactor_suggestions]
       - [ ] Step 1: Checkout PR
         - [ ] Use git or GitHub API to get PR diff
         - [ ] Identify changed files
-      - [ ] Step 2: Run faultline in delta mode
-        - [ ] Use FaultlineClient
+      - [ ] Step 2: Run hotspots in delta mode
+        - [ ] Use HotspotsClient
         - [ ] Analyze PR changes
         - [ ] Get violations
       - [ ] Step 3: Generate AI review comments
@@ -2184,8 +2184,8 @@ Claude: [calls faultline_refactor_suggestions]
     - [ ] Test comment generation
     - [ ] Test with mock AI
   - [ ] Test shared utilities
-    - [ ] Test FaultlineClient
-      - [ ] Test analyze() with real faultline
+    - [ ] Test HotspotsClient
+      - [ ] Test analyze() with real hotspots
       - [ ] Test error handling (binary not found)
       - [ ] Test JSON parsing
     - [ ] Test result-parser
@@ -2254,7 +2254,7 @@ examples/ai-agents/
 │   ├── pr-reviewer.ts
 │   └── README.md
 ├── shared/
-│   ├── faultline-client.ts
+│   ├── hotspots-client.ts
 │   ├── ai-prompts.ts
 │   └── result-parser.ts
 └── tests/
@@ -2268,7 +2268,7 @@ examples/ai-agents/
 **Acceptance:**
 - ✅ 4+ working reference implementations
 - ✅ Each example has clear README
-- ✅ Examples use `@faultline/types` for type safety
+- ✅ Examples use `@hotspots/types` for type safety
 - ✅ Code is production-quality (error handling, logging)
 - ✅ Tests prove examples work
 
@@ -2284,7 +2284,7 @@ examples/ai-agents/
 
 **Day 2:**
 - JSON Schema & Types (full day)
-- Publish `@faultline/types` to npm
+- Publish `@hotspots/types` to npm
 
 **Day 3-4:**
 - Claude MCP Server (2 days)
@@ -2323,7 +2323,7 @@ examples/ai-agents/
 - ✅ README.md highlights AI-first design
 
 **Adoption (post-release):**
-- [ ] 10+ repos using Faultline with AI agents
+- [ ] 10+ repos using Hotspots with AI agents
 - [ ] MCP server listed in official MCP registry
 - [ ] Featured in AI coding assistant communities
 - [ ] Blog posts from AI users showing workflows
@@ -2378,7 +2378,7 @@ examples/ai-agents/
 - [ ] Design cache key strategy
   - Key: `(file_path, content_hash)`
   - Content hash: SHA256 of file contents
-  - Cache location: `.faultline/cache/` (gitignored)
+  - Cache location: `.hotspots/cache/` (gitignored)
 - [ ] Implement cache storage
   - Store `FunctionRiskReport[]` per file as JSON
   - Indexed by content hash
@@ -2393,12 +2393,12 @@ examples/ai-agents/
   - Reuse cached results for unchanged files from parent snapshot
   - Benchmark: 1000-file repo, 10-file PR → <5s analysis
 - [ ] Add cache invalidation
-  - Clear cache on faultline version upgrade
+  - Clear cache on hotspots version upgrade
   - Clear cache if config changes (thresholds, weights)
-  - `faultline cache clear` subcommand
+  - `hotspots cache clear` subcommand
 - [ ] Add cache statistics
   - Show cache hit/miss rate
-  - `faultline cache stats` subcommand
+  - `hotspots cache stats` subcommand
   - "Cache: 932/1000 hits (93%)" in output
 
 **Acceptance:**
@@ -2448,7 +2448,7 @@ examples/ai-agents/
 
 **Tasks:**
 
-- [ ] Create `vscode-faultline` repository
+- [ ] Create `vscode-hotspots` repository
   - TypeScript extension project
   - Use VS Code Extension API
 - [ ] Implement CodeLens
@@ -2465,8 +2465,8 @@ examples/ai-agents/
   - "View historical trend" (if snapshots exist)
 - [ ] Add status bar item
   - Show file-level LRS summary
-  - Click to open Faultline panel
-- [ ] Implement Faultline panel
+  - Click to open Hotspots panel
+- [ ] Implement Hotspots panel
   - Tree view of functions by risk band
   - Sort by LRS
   - Click to jump to function
@@ -2539,7 +2539,7 @@ examples/ai-agents/
   - High: "warning"
   - Critical: "error"
 - [ ] Add SARIF metadata
-  - Tool name: "faultline"
+  - Tool name: "hotspots"
   - Tool version
   - Rule definitions (one per risk band)
 - [ ] Add `--format sarif` CLI flag
@@ -2551,7 +2551,7 @@ examples/ai-agents/
   - Verify annotations appear in PR Files Changed
 
 **Acceptance:**
-- `faultline analyze --format sarif` produces valid SARIF
+- `hotspots analyze --format sarif` produces valid SARIF
 - SARIF uploads to GitHub Security successfully
 - High-risk functions appear as warnings in PR
 
@@ -2644,9 +2644,9 @@ examples/ai-agents/
   - Why logarithmic transforms?
   - Why these specific weights?
 - [ ] Add comparison to other tools
-  - Faultline vs Lizard
-  - Faultline vs SonarQube
-  - Faultline vs CodeClimate
+  - Hotspots vs Lizard
+  - Hotspots vs SonarQube
+  - Hotspots vs CodeClimate
   - Table of metrics supported
 - [ ] Add validation studies
   - Internal validation (tested on real projects)
@@ -2672,7 +2672,7 @@ examples/ai-agents/
 
 **Tasks:**
 
-- [ ] Register domain (e.g., faultline.dev)
+- [ ] Register domain (e.g., hotspots.dev)
 - [ ] Create static site
   - Use Hugo, Next.js, or similar
   - Homepage with value proposition
@@ -2726,7 +2726,7 @@ examples/ai-agents/
 
 **Overall Adoption:**
 - [ ] 1,000 GitHub stars
-- [ ] 100 projects using faultline in CI
+- [ ] 100 projects using hotspots in CI
 - [ ] Featured in Awesome TypeScript
 - [ ] Mentioned in major dev publications
 

@@ -1,4 +1,4 @@
-# Faultline Roadmap
+# Hotspots Roadmap
 
 **Last Updated:** 2026-02-04
 **Current Version:** Pre-release (approaching v1.0.0)
@@ -72,7 +72,7 @@
 
 **"Make complexity regressions impossible in CI/CD pipelines"**
 
-Faultline should be the standard tool that prevents code complexity from growing unchecked, just like linters prevent formatting issues and type checkers prevent type errors.
+Hotspots should be the standard tool that prevents code complexity from growing unchecked, just like linters prevent formatting issues and type checkers prevent type errors.
 
 ### Core Principles
 
@@ -201,7 +201,7 @@ Faultline should be the standard tool that prevents code complexity from growing
 #### Experiment 1: Go Prototype (4 weeks)
 
 **Hypothesis:**
-- Users will adopt Faultline for Go if it provides value comparable to TS
+- Users will adopt Hotspots for Go if it provides value comparable to TS
 - Go's simpler control flow makes it a good validation case
 - Go support expands addressable market by 30%+
 
@@ -221,7 +221,7 @@ Faultline should be the standard tool that prevents code complexity from growing
 - **Validation:** Analyze 3 popular Go repos, compare to manual review
 
 **Deliverables:**
-- `faultline analyze --lang go main.go` works
+- `hotspots analyze --lang go main.go` works
 - LRS calculation for basic Go code
 - 20+ unit tests
 - Analysis of 3 real Go repos
@@ -243,7 +243,7 @@ Faultline should be the standard tool that prevents code complexity from growing
 
 **Questions:**
 1. Does Go LRS align with your intuition about complex functions?
-2. Would you use Faultline for Go in CI?
+2. Would you use Hotspots for Go in CI?
 3. What Go features are missing/broken?
 4. Is Go support worth it vs. TS-only?
 
@@ -696,7 +696,7 @@ For each language candidate:
 
 **Engagement:**
 - 20 issues/PRs from community
-- 5 blog posts/articles about Faultline
+- 5 blog posts/articles about Hotspots
 - 10 user interviews completed
 
 **Quality:**
@@ -775,7 +775,7 @@ For each language candidate:
 
 ### Product Direction
 
-1. **Is Faultline a CLI tool or a service?**
+1. **Is Hotspots a CLI tool or a service?**
    - CLI-first: Self-hosted, open source, community-driven
    - Service-first: Hosted analysis, dashboard, enterprise features
 
@@ -855,7 +855,7 @@ For each language candidate:
 - Hosted + self-hosted
 - Enterprise focus
 
-### Faultline Differentiation
+### Hotspots Differentiation
 
 **vs SonarQube:**
 - ✅ Fast (seconds vs minutes)

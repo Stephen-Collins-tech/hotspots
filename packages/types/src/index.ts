@@ -1,5 +1,5 @@
 /**
- * @faultline/types
+ * @hotspots/types
  *
  * TypeScript types for Faultline complexity analysis output.
  * These types match the JSON Schema definitions in ../../schemas/
@@ -148,7 +148,7 @@ export interface FunctionReport {
   band: RiskBand;
 
   /**
-   * Reason provided via // faultline-ignore comment, if this function is suppressed
+   * Reason provided via // hotspots-ignore comment, if this function is suppressed
    * from policy checks
    */
   suppression_reason?: string;
@@ -268,7 +268,7 @@ export interface PolicyResults {
  *
  * @example
  * ```typescript
- * const output: FaultlineOutput = {
+ * const output: HotspotsOutput = {
  *   schema_version: 1,
  *   commit: {
  *     sha: "abc123...",
@@ -293,7 +293,7 @@ export interface PolicyResults {
  * };
  * ```
  */
-export interface FaultlineOutput {
+export interface HotspotsOutput {
   /**
    * Schema version number for compatibility tracking
    */
@@ -330,9 +330,9 @@ export interface FaultlineOutput {
 //
 
 /**
- * Type guard to check if an object is a valid FaultlineOutput
+ * Type guard to check if an object is a valid HotspotsOutput
  */
-export function isFaultlineOutput(obj: unknown): obj is FaultlineOutput {
+export function isHotspotsOutput(obj: unknown): obj is HotspotsOutput {
   if (typeof obj !== "object" || obj === null) return false;
   const o = obj as any;
   return (

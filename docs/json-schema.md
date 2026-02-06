@@ -1,13 +1,13 @@
 # JSON Schema & Output Format
 
-Faultline outputs structured JSON that can be consumed by CI/CD pipelines, analysis tools, and AI assistants. This document describes the output format and provides integration examples.
+Hotspots outputs structured JSON that can be consumed by CI/CD pipelines, analysis tools, and AI assistants. This document describes the output format and provides integration examples.
 
 ## Overview
 
-Faultline produces JSON output in two modes:
+Hotspots produces JSON output in two modes:
 
-- **Snapshot Mode** (`faultline analyze --json`): Complete analysis of all functions in the codebase
-- **Delta Mode** (`faultline analyze --delta --json`): Analysis of changed functions since the last commit
+- **Snapshot Mode** (`hotspots analyze --json`): Complete analysis of all functions in the codebase
+- **Delta Mode** (`hotspots analyze --delta --json`): Analysis of changed functions since the last commit
 
 Both modes use the same JSON schema with consistent structure.
 
@@ -15,7 +15,7 @@ Both modes use the same JSON schema with consistent structure.
 
 JSON Schema definitions are available in the `schemas/` directory:
 
-- **`faultline-output.schema.json`**: Complete output schema (main entry point)
+- **`hotspots-output.schema.json`**: Complete output schema (main entry point)
 - **`function-report.schema.json`**: Individual function analysis
 - **`metrics.schema.json`**: Raw complexity metrics (CC, ND, FO, NS)
 - **`policy-result.schema.json`**: Policy violation/warning format
@@ -35,7 +35,7 @@ All schemas follow JSON Schema Draft 07 specification.
   },
   analysis: {
     scope: "full" | "delta",    // Analysis mode
-    tool_version: "1.0.0"       // Faultline version
+    tool_version: "1.0.0"       // Hotspots version
   },
   functions: [
     {
@@ -150,23 +150,23 @@ Functions are classified into risk bands based on LRS:
 
 ## TypeScript Integration
 
-### Using @faultline/types Package
+### Using @hotspots/types Package
 
 ```bash
-npm install @faultline/types
+npm install @hotspots/types
 ```
 
 ```typescript
-import type { FaultlineOutput, FunctionReport } from '@faultline/types';
+import type { HotspotsOutput, FunctionReport } from '@hotspots/types';
 import {
   filterByRiskBand,
   getHighestRiskFunctions,
   policyPassed
-} from '@faultline/types';
+} from '@hotspots/types';
 
-// Parse Faultline output
-const output: FaultlineOutput = JSON.parse(
-  await fs.readFile('faultline-output.json', 'utf-8')
+// Parse Hotspots output
+const output: HotspotsOutput = JSON.parse(
+  await fs.readFile('hotspots-output.json', 'utf-8')
 );
 
 // Get high-risk functions
@@ -208,18 +208,18 @@ addFormats(ajv);
 
 // Load schema
 const schema = JSON.parse(
-  fs.readFileSync('schemas/faultline-output.schema.json', 'utf-8')
+  fs.readFileSync('schemas/hotspots-output.schema.json', 'utf-8')
 );
 
 const validate = ajv.compile(schema);
 
 // Validate output
 const output = JSON.parse(
-  fs.readFileSync('faultline-output.json', 'utf-8')
+  fs.readFileSync('hotspots-output.json', 'utf-8')
 );
 
 if (!validate(output)) {
-  console.error('Invalid Faultline output:', validate.errors);
+  console.error('Invalid Hotspots output:', validate.errors);
   process.exit(1);
 }
 
@@ -239,11 +239,11 @@ import json
 from jsonschema import validate, ValidationError
 
 # Load schema
-with open('schemas/faultline-output.schema.json') as f:
+with open('schemas/hotspots-output.schema.json') as f:
     schema = json.load(f)
 
 # Load and validate output
-with open('faultline-output.json') as f:
+with open('hotspots-output.json') as f:
     output = json.load(f)
 
 try:
@@ -301,7 +301,7 @@ import (
     "github.com/xeipuuv/gojsonschema"
 )
 
-type FaultlineOutput struct {
+type HotspotsOutput struct {
     SchemaVersion int              `json:"schema_version"`
     Commit        CommitInfo       `json:"commit"`
     Analysis      AnalysisInfo     `json:"analysis"`
@@ -350,8 +350,8 @@ type PolicyResult struct {
 
 func main() {
     // Validate against schema
-    schemaLoader := gojsonschema.NewReferenceLoader("file://schemas/faultline-output.schema.json")
-    documentLoader := gojsonschema.NewReferenceLoader("file://faultline-output.json")
+    schemaLoader := gojsonschema.NewReferenceLoader("file://schemas/hotspots-output.schema.json")
+    documentLoader := gojsonschema.NewReferenceLoader("file://hotspots-output.json")
 
     result, err := gojsonschema.Validate(schemaLoader, documentLoader)
     if err != nil {
@@ -367,8 +367,8 @@ func main() {
     }
 
     // Parse output
-    data, _ := ioutil.ReadFile("faultline-output.json")
-    var output FaultlineOutput
+    data, _ := ioutil.ReadFile("hotspots-output.json")
+    var output HotspotsOutput
     json.Unmarshal(data, &output)
 
     // Get high-risk functions
@@ -419,7 +419,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Deserialize, Serialize)]
-struct FaultlineOutput {
+struct HotspotsOutput {
     schema_version: u32,
     commit: CommitInfo,
     analysis: AnalysisInfo,
@@ -476,12 +476,12 @@ struct PolicyResult {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load and validate schema
-    let schema_json = fs::read_to_string("schemas/faultline-output.schema.json")?;
+    let schema_json = fs::read_to_string("schemas/hotspots-output.schema.json")?;
     let schema = serde_json::from_str(&schema_json)?;
     let compiled = jsonschema::JSONSchema::compile(&schema)?;
 
     // Load output
-    let output_json = fs::read_to_string("faultline-output.json")?;
+    let output_json = fs::read_to_string("hotspots-output.json")?;
     let output_value: serde_json::Value = serde_json::from_str(&output_json)?;
 
     // Validate
@@ -494,7 +494,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Parse into struct
-    let output: FaultlineOutput = serde_json::from_str(&output_json)?;
+    let output: HotspotsOutput = serde_json::from_str(&output_json)?;
 
     // Get high-risk functions
     let high_risk: Vec<_> = output.functions
@@ -533,18 +533,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### GitHub Actions
 
 ```yaml
-- name: Run Faultline Analysis
-  run: faultline analyze --json > faultline-output.json
+- name: Run Hotspots Analysis
+  run: hotspots analyze --json > hotspots-output.json
 
 - name: Validate Output
   run: |
     npm install -g ajv-cli
-    ajv validate -s schemas/faultline-output.schema.json -d faultline-output.json
+    ajv validate -s schemas/hotspots-output.schema.json -d hotspots-output.json
 
 - name: Check for High-Risk Functions
   run: |
     node -e "
-    const output = require('./faultline-output.json');
+    const output = require('./hotspots-output.json');
     const highRisk = output.functions.filter(f =>
       f.band === 'high' || f.band === 'critical'
     );
@@ -558,18 +558,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### GitLab CI
 
 ```yaml
-faultline:
+hotspots:
   script:
-    - faultline analyze --json > faultline-output.json
+    - hotspots analyze --json > hotspots-output.json
     - python3 scripts/validate_output.py
   artifacts:
     reports:
-      codequality: faultline-output.json
+      codequality: hotspots-output.json
 ```
 
 ## AI Assistant Integration
 
-AI assistants can use Faultline output to:
+AI assistants can use Hotspots output to:
 
 1. **Code Review**: Identify complex functions that need attention
 2. **Refactoring Suggestions**: Target high-LRS functions for simplification
@@ -583,7 +583,7 @@ AI assistants can use Faultline output to:
 tools: [
   {
     name: "analyze_complexity",
-    description: "Analyze code complexity using Faultline",
+    description: "Analyze code complexity using Hotspots",
     inputSchema: {
       type: "object",
       properties: {
@@ -591,7 +591,7 @@ tools: [
       }
     },
     async handler({ path }) {
-      const output = await runFaultline(path);
+      const output = await runHotspots(path);
       const highRisk = output.functions.filter(f =>
         f.band === 'high' || f.band === 'critical'
       );
@@ -612,6 +612,6 @@ The `schema_version` field tracks schema compatibility:
 ## Additional Resources
 
 - [JSON Schema Specification](https://json-schema.org/)
-- [Faultline GitHub Repository](https://github.com/yourusername/faultline)
-- [@faultline/types npm package](https://www.npmjs.com/package/@faultline/types)
+- [Hotspots GitHub Repository](https://github.com/yourusername/hotspots)
+- [@hotspots/types npm package](https://www.npmjs.com/package/@hotspots/types)
 - [Complexity Metrics Research](docs/metrics-research.md)

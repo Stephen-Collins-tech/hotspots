@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://faultline.dev/schemas/policy-result.schema.json",
+  "$id": "https://hotspots.dev/schemas/policy-result.schema.json",
   "title": "Policy Violation or Warning",
   "description": "A single policy check result indicating a violation or warning",
   "type": "object",

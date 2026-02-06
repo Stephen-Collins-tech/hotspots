@@ -126,7 +126,7 @@ make test-comprehensive
 
 **Expected output:**
 ```
-=== Faultline Comprehensive Test Suite ===
+=== Hotspots Comprehensive Test Suite ===
 
 Test directory: /path/to/test-repo-comprehensive
 
@@ -189,10 +189,10 @@ Deltas tested: 2
 
 ```bash
 # Analyze a file and output snapshot with aggregates
-./dev.sh analyze --mode snapshot faultline-core/src/aggregates.rs --format json
+./dev.sh analyze --mode snapshot hotspots-core/src/aggregates.rs --format json
 
 # Extract just the aggregates section
-./dev.sh analyze --mode snapshot faultline-core/src/aggregates.rs --format json | jq '.aggregates'
+./dev.sh analyze --mode snapshot hotspots-core/src/aggregates.rs --format json | jq '.aggregates'
 ```
 
 **Expected output structure:**
@@ -201,7 +201,7 @@ Deltas tested: 2
   "aggregates": {
     "files": [
       {
-        "file": "faultline-core/src/aggregates.rs",
+        "file": "hotspots-core/src/aggregates.rs",
         "sum_lrs": 15.2,
         "max_lrs": 8.5,
         "high_plus_count": 2
@@ -209,13 +209,13 @@ Deltas tested: 2
     ],
     "directories": [
       {
-        "directory": "faultline-core/src",
+        "directory": "hotspots-core/src",
         "sum_lrs": 15.2,
         "max_lrs": 8.5,
         "high_plus_count": 2
       },
       {
-        "directory": "faultline-core",
+        "directory": "hotspots-core",
         "sum_lrs": 15.2,
         "max_lrs": 8.5,
         "high_plus_count": 2
@@ -229,7 +229,7 @@ Deltas tested: 2
 
 ```bash
 # Analyze entire directory with aggregates
-./dev.sh analyze --mode snapshot faultline-core/src/ --format json | jq '.aggregates.directories[] | select(.directory | contains("aggregates"))'
+./dev.sh analyze --mode snapshot hotspots-core/src/ --format json | jq '.aggregates.directories[] | select(.directory | contains("aggregates"))'
 ```
 
 **Verify recursive rollup:**
@@ -242,8 +242,8 @@ Deltas tested: 2
 
 ```bash
 # Create temporary test directory
-mkdir -p /tmp/faultline-test
-cd /tmp/faultline-test
+mkdir -p /tmp/hotspots-test
+cd /tmp/hotspots-test
 
 # Initialize git repo
 git init
@@ -261,7 +261,7 @@ git add src/main.ts
 git commit -m "Initial commit"
 
 # Run first snapshot
-/path/to/faultline analyze --mode snapshot src/ --format json > snapshot1.json
+/path/to/hotspots analyze --mode snapshot src/ --format json > snapshot1.json
 
 # Modify file to add complexity
 cat > src/main.ts << 'EOF'
@@ -285,7 +285,7 @@ git add src/main.ts
 git commit -m "Add complex function"
 
 # Run delta analysis
-/path/to/faultline analyze --mode delta --format json > delta1.json
+/path/to/hotspots analyze --mode delta --format json > delta1.json
 
 # Check delta aggregates
 cat delta1.json | jq '.aggregates'
@@ -605,7 +605,7 @@ cargo build --release && echo "✓ Build successful"
 python3 test_comprehensive.py && echo "✓ Comprehensive tests passed"
 
 # 5. Snapshot aggregates
-./dev.sh analyze --mode snapshot faultline-core/src/aggregates.rs --format json | jq -e '.aggregates.files | length > 0' && echo "✓ Snapshot aggregates working"
+./dev.sh analyze --mode snapshot hotspots-core/src/aggregates.rs --format json | jq -e '.aggregates.files | length > 0' && echo "✓ Snapshot aggregates working"
 
 # 6. Delta aggregates (requires git repo)
 cd /tmp && mkdir -p delta-test && cd delta-test
@@ -614,7 +614,7 @@ echo "function test() { return 1; }" > test.ts
 git add test.ts && git commit -m "Initial"
 echo "function test() { if(true) { if(true) { return 1; } } }" > test.ts
 git add test.ts && git commit -m "Complex"
-/path/to/faultline analyze --mode delta --format json | jq -e '.aggregates.files | length > 0' && echo "✓ Delta aggregates working"
+/path/to/hotspots analyze --mode delta --format json | jq -e '.aggregates.files | length > 0' && echo "✓ Delta aggregates working"
 ```
 
 ---

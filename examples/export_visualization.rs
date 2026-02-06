@@ -1,4 +1,4 @@
-//! Export visualization data from Faultline snapshots
+//! Export visualization data from Hotspots snapshots
 //!
 //! Reads snapshots from a repository's .faultline/ directory and generates
 //! data.json for use with the Vega-Lite visualizations in visualizations/
@@ -134,7 +134,7 @@ struct IndexEntry {
 
 #[derive(Parser)]
 #[command(name = "export-visualization")]
-#[command(about = "Export visualization data from Faultline snapshots")]
+#[command(about = "Export visualization data from Hotspots snapshots")]
 struct Args {
     /// Path to repository with .faultline snapshots
     #[arg(long, default_value = ".")]

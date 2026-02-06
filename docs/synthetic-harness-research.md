@@ -2,45 +2,45 @@
 
 ## Executive Summary
 
-This document analyzes Faultline's current architecture to determine exactly what's needed to build a synthetic codebase harness that exercises the snapshot and delta system without requiring any changes to Faultline itself.
+This document analyzes Hotspots's current architecture to determine exactly what's needed to build a synthetic codebase harness that exercises the snapshot and delta system without requiring any changes to Hotspots itself.
 
-**Key Finding:** The harness can be built entirely as external tooling that creates git repos and runs Faultline CLI commands. No code changes needed.
+**Key Finding:** The harness can be built entirely as external tooling that creates git repos and runs Hotspots CLI commands. No code changes needed.
 
 ---
 
 ## 1. Current State Constraints
 
-### What Faultline Already Does
+### What Hotspots Already Does
 
-**Snapshot System (`faultline-core/src/snapshot.rs`):**
+**Snapshot System (`hotspots-core/src/snapshot.rs`):**
 - Creates immutable snapshots from `GitContext` + `Vec<FunctionRiskReport>`
-- Persists to `.faultline/snapshots/<commit_sha>.json`
-- Updates `.faultline/index.json` atomically
+- Persists to `.hotspots/snapshots/<commit_sha>.json`
+- Updates `.hotspots/index.json` atomically
 - Function ID format: `<relative_file_path>::<symbol>` (e.g., `src/module_01.ts::f_01`)
 - Deterministic serialization (byte-for-byte identical)
 - Never overwrites existing snapshots (idempotent if identical)
 
-**Delta System (`faultline-core/src/delta.rs`):**
+**Delta System (`hotspots-core/src/delta.rs`):**
 - Computes parent-relative deltas using `parents[0]` only
 - Matches functions by `function_id` (file moves = delete + add)
 - Handles baseline case (no parent = all functions marked `new`)
 - Computes numeric deltas (cc, nd, fo, ns, lrs) and band transitions
 - Status: `New`, `Deleted`, `Modified`, `Unchanged`
 
-**Git Integration (`faultline-core/src/git.rs`):**
+**Git Integration (`hotspots-core/src/git.rs`):**
 - Extracts git context: SHA, parents, timestamp, branch
 - Uses `git_at(repo_path, args)` for path-aware git commands
 - Handles detached HEAD, shallow clones, multiple parents
 - Thread-safe for parallel execution
 
-**CLI (`faultline-cli/src/main.rs`):**
-- `faultline analyze <path> --mode snapshot --format json` - Creates and persists snapshot
-- `faultline analyze <path> --mode delta --format json` - Computes and emits delta
+**CLI (`hotspots-cli/src/main.rs`):**
+- `hotspots analyze <path> --mode snapshot --format json` - Creates and persists snapshot
+- `hotspots analyze <path> --mode delta --format json` - Computes and emits delta
 - Automatically finds repo root (searches up directory tree)
 - Mainline mode: persists snapshots
 - PR mode: computes delta vs merge-base, doesn't persist
 
-**Analysis (`faultline-core/src/lib.rs`):**
+**Analysis (`hotspots-core/src/lib.rs`):**
 - `analyze(path, options)` - Analyzes TypeScript files, returns `Vec<FunctionRiskReport>`
 - Collects `.ts` files recursively (excludes `.d.ts`)
 - Deterministic file ordering
@@ -62,7 +62,7 @@ This document analyzes Faultline's current architecture to determine exactly wha
 
 ```
 synthetic-repo/
-  .gitignore          # Must include .faultline/
+  .gitignore          # Must include .hotspots/
   package.json        # Optional, for TypeScript config
   tsconfig.json       # Optional, for TypeScript config
   src/
@@ -99,7 +99,7 @@ From `git_history_tests.rs`, we need:
 
 2. **Create `.gitignore`:**
    ```
-   .faultline/
+   .hotspots/
    ```
 
 3. **Commit pattern:**
@@ -319,11 +319,11 @@ Real git commits with:
 - Sequential commits (no merges initially)
 - Real SHAs (not fixed, but predictable from content)
 
-### B. Faultline Outputs
+### B. Hotspots Outputs
 
 **Snapshots:**
 ```
-.faultline/
+.hotspots/
   snapshots/
     <sha_v0>.json
     <sha_v1>.json
@@ -376,11 +376,11 @@ out/
 }
 ```
 
-**Purpose:** For validation, not used by Faultline.
+**Purpose:** For validation, not used by Hotspots.
 
 ---
 
-## 5. How to Run Faultline on Synthetic Repo
+## 5. How to Run Hotspots on Synthetic Repo
 
 **Note:** Manual iteration is preferred for Step 1. This forces explicit inspection of each snapshot/delta and catches surprises early.
 
@@ -396,17 +396,17 @@ out/
 
 2. **Create snapshot:**
    ```bash
-   faultline analyze src/ --mode snapshot --format json > out/v<num>.snapshot.json
+   hotspots analyze src/ --mode snapshot --format json > out/v<num>.snapshot.json
    ```
-   - This persists to `.faultline/snapshots/<sha>.json`
-   - Updates `.faultline/index.json`
+   - This persists to `.hotspots/snapshots/<sha>.json`
+   - Updates `.hotspots/index.json`
    - **Inspect the snapshot** to verify metrics are as expected
 
 3. **Compute delta:**
    ```bash
-   faultline analyze src/ --mode delta --format json > out/v<num>.delta.json
+   hotspots analyze src/ --mode delta --format json > out/v<num>.delta.json
    ```
-   - This loads parent snapshot from `.faultline/snapshots/<parent_sha>.json`
+   - This loads parent snapshot from `.hotspots/snapshots/<parent_sha>.json`
    - Computes delta and emits JSON
    - **Inspect the delta** to verify changes match expectations
 
@@ -434,10 +434,10 @@ for i in "${!COMMITS[@]}"; do
   git -C "$REPO_DIR" checkout "$SHA"
   
   # Create snapshot
-  faultline analyze "$REPO_DIR/src" --mode snapshot --format json > "$OUT_DIR/$VERSION.snapshot.json"
+  hotspots analyze "$REPO_DIR/src" --mode snapshot --format json > "$OUT_DIR/$VERSION.snapshot.json"
   
   # Compute delta
-  faultline analyze "$REPO_DIR/src" --mode delta --format json > "$OUT_DIR/$VERSION.delta.json"
+  hotspots analyze "$REPO_DIR/src" --mode delta --format json > "$OUT_DIR/$VERSION.delta.json"
 done
 ```
 
@@ -508,7 +508,7 @@ done
 3. Create baseline TypeScript files (3 modules, 10-20 functions each)
 4. Commit baseline (v0)
 5. Apply mutations one-by-one, committing after each
-6. Run Faultline on each commit manually
+6. Run Hotspots on each commit manually
 7. Validate outputs
 
 **Goal:** Prove the concept works end-to-end.
@@ -519,18 +519,18 @@ done
    - Generate baseline TypeScript files
    - Apply mutations programmatically
    - Run git commands
-   - Run Faultline CLI
+   - Run Hotspots CLI
    - Validate outputs
 
 **Goal:** Automate the process for regression testing.
 
 ### Phase 3: Test Integration
 
-1. Add to `faultline-core/tests/`:
+1. Add to `hotspots-core/tests/`:
    - `synthetic_harness_tests.rs`
    - Uses `create_temp_git_repo()` pattern from `git_history_tests.rs`
    - Generates synthetic repo in temp directory
-   - Runs Faultline on each commit
+   - Runs Hotspots on each commit
    - Validates invariants
 
 **Goal:** CI integration for continuous validation.
@@ -568,13 +568,13 @@ done
 
 ### Snapshot Persistence
 
-**Location:** `.faultline/snapshots/<sha>.json`
+**Location:** `.hotspots/snapshots/<sha>.json`
 
 **Atomic writes:** Uses temp file + rename pattern (from `snapshot::atomic_write`)
 
 **Idempotency:** If snapshot already exists and is identical, operation succeeds silently.
 
-**Implication:** Harness can safely re-run Faultline on same commit.
+**Implication:** Harness can safely re-run Hotspots on same commit.
 
 ### Delta Computation
 
@@ -607,14 +607,14 @@ done
 3. Initialize git repo
 4. Commit baseline
 5. Apply 6-8 mutations (one per commit)
-6. Run Faultline on each commit
+6. Run Hotspots on each commit
 7. Validate outputs manually
 
 ### Short-term (Scripted)
 
 1. Write script to generate baseline files
 2. Write script to apply mutations
-3. Write script to run Faultline and collect outputs
+3. Write script to run Hotspots and collect outputs
 4. Write validation script
 
 ### Long-term (Test Integration)
@@ -715,9 +715,9 @@ v12: Refactor repo-wide (extract helpers)
 The synthetic harness can be built entirely as external tooling that:
 1. Creates git repos with TypeScript files
 2. Applies mutations via git commits
-3. Runs Faultline CLI commands
+3. Runs Hotspots CLI commands
 4. Validates outputs
 
-**No changes to Faultline core are required.** The harness exercises the existing snapshot and delta system through the public CLI interface.
+**No changes to Hotspots core are required.** The harness exercises the existing snapshot and delta system through the public CLI interface.
 
 The recommended approach is to start manually, then script it, then integrate into tests.

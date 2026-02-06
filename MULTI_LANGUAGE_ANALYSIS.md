@@ -1,7 +1,7 @@
 # Multi-Language Support Analysis
 
 **Date:** 2026-02-04
-**Scope:** Adding Python, Rust, and Go support to Faultline
+**Scope:** Adding Python, Rust, and Go support to Hotspots
 
 ---
 
@@ -9,7 +9,7 @@
 
 ### Language Coupling
 
-Faultline is **tightly coupled** to TypeScript/JavaScript via SWC:
+Hotspots is **tightly coupled** to TypeScript/JavaScript via SWC:
 
 ```rust
 // Heavy dependency on swc_ecma_ast types
@@ -39,7 +39,7 @@ pub struct FunctionNode {
 Create separate parsers/CFG builders for each language:
 
 ```
-faultline-core/src/
+hotspots-core/src/
 ├── languages/
 │   ├── typescript/  (existing, refactored)
 │   │   ├── parser.rs
@@ -537,7 +537,7 @@ Based on your usage patterns (537 sessions, 167 commits, polyglot codebase):
 - Skip generators initially
 
 **Priority 3: Rust subset** (8 weeks)
-- Your Faultline codebase is Rust
+- Your Hotspots codebase is Rust
 - "Dogfooding" - analyze your own tool
 - Skip async initially
 
@@ -567,7 +567,7 @@ Based on your usage patterns (537 sessions, 167 commits, polyglot codebase):
 
 **YES, if:**
 - You need to analyze polyglot repos holistically
-- You want Faultline to be a universal complexity tool
+- You want Hotspots to be a universal complexity tool
 - You have 3-6 months for focused development
 
 **NO (or DEFER), if:**

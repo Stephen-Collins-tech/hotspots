@@ -18,7 +18,7 @@ inputs:
     description: 'Minimum LRS threshold (overrides policy)'
     required: false
   config:
-    description: 'Path to faultline config file'
+    description: 'Path to hotspots config file'
     required: false
   fail-on:
     description: 'When to fail the build (error, warn, never)'

@@ -1,4 +1,4 @@
-# Faultline GitHub Action
+# Hotspots GitHub Action
 
 Analyze TypeScript/JavaScript complexity and block regressions in your CI pipeline.
 
@@ -13,10 +13,10 @@ Analyze TypeScript/JavaScript complexity and block regressions in your CI pipeli
 
 ## Quick Start
 
-Add to your `.github/workflows/faultline.yml`:
+Add to your `.github/workflows/hotspots.yml`:
 
 ```yaml
-name: Faultline
+name: Hotspots
 
 on:
   pull_request:
@@ -31,7 +31,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for delta analysis
 
-      - uses: ./action  # or yourorg/faultline@v1
+      - uses: ./action  # or yourorg/hotspots@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -43,9 +43,9 @@ jobs:
 | `path` | Path to analyze | `.` (repository root) |
 | `policy` | Policy to enforce | `critical-introduction` |
 | `min-lrs` | Minimum LRS threshold (overrides policy) | - |
-| `config` | Path to faultline config file | - |
+| `config` | Path to hotspots config file | - |
 | `fail-on` | When to fail (`error`, `warn`, `never`) | `error` |
-| `version` | Faultline version to use | `latest` |
+| `version` | Hotspots version to use | `latest` |
 | `github-token` | GitHub token for posting comments | `${{ github.token }}` |
 | `post-comment` | Post results as PR comment | `true` |
 
@@ -61,7 +61,7 @@ jobs:
 
 ### JSON Output Format
 
-Faultline produces structured JSON output following a versioned schema. This enables:
+Hotspots produces structured JSON output following a versioned schema. This enables:
 - **AI Assistant Integration**: LLMs can parse and reason about complexity
 - **Custom Tooling**: Build dashboards, reports, or analysis tools
 - **CI/CD Integration**: Validate output and enforce custom policies
@@ -69,21 +69,21 @@ Faultline produces structured JSON output following a versioned schema. This ena
 #### Schema & Types
 
 JSON Schema definitions are available in `schemas/`:
-- `faultline-output.schema.json` - Complete output format (JSON Schema Draft 07)
+- `hotspots-output.schema.json` - Complete output format (JSON Schema Draft 07)
 - `function-report.schema.json` - Individual function analysis
 - `metrics.schema.json` - Raw complexity metrics
 - `policy-result.schema.json` - Policy violations/warnings
 
 TypeScript types are available via npm:
 ```bash
-npm install @faultline/types
+npm install @hotspots/types
 ```
 
 ```typescript
-import type { FaultlineOutput, FunctionReport } from '@faultline/types';
-import { filterByRiskBand, getHighestRiskFunctions } from '@faultline/types';
+import type { HotspotsOutput, FunctionReport } from '@hotspots/types';
+import { filterByRiskBand, getHighestRiskFunctions } from '@hotspots/types';
 
-const output: FaultlineOutput = JSON.parse(jsonOutput);
+const output: HotspotsOutput = JSON.parse(jsonOutput);
 const highRisk = filterByRiskBand(output.functions, 'high');
 ```
 
@@ -148,7 +148,7 @@ See [docs/json-schema.md](../docs/json-schema.md) for complete documentation and
 ```yaml
 - uses: ./action
   with:
-    config: .faultlinerc.json
+    config: .hotspotsrc.json
 ```
 
 ### Monorepo Setup
@@ -163,13 +163,13 @@ See [docs/json-schema.md](../docs/json-schema.md) for complete documentation and
 
 ```yaml
 - uses: ./action
-  id: faultline
+  id: hotspots
 
 - uses: actions/upload-artifact@v4
   if: always()
   with:
-    name: faultline-report
-    path: ${{ steps.faultline.outputs.report-path }}
+    name: hotspots-report
+    path: ${{ steps.hotspots.outputs.report-path }}
 ```
 
 ### Don't Fail Build (Warning Only)
@@ -204,7 +204,7 @@ When run on main branch:
 ### PR Comment
 
 ```markdown
-# Faultline Analysis Results
+# Hotspots Analysis Results
 
 **Mode:** Delta (PR analysis)
 
@@ -234,7 +234,7 @@ The action automatically posts results to the GitHub Actions job summary, visibl
 
 ## Configuration
 
-You can customize behavior with a `.faultlinerc.json` file:
+You can customize behavior with a `.hotspotsrc.json` file:
 
 ```json
 {
@@ -328,7 +328,7 @@ git commit -m "chore: rebuild action"
 
 ## Related
 
-- [Faultline CLI Documentation](../README.md)
+- [Hotspots CLI Documentation](../README.md)
 - [Configuration Guide](../docs/configuration.md)
 - [Metrics Rationale](../docs/metrics-rationale.md)
 

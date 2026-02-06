@@ -1,4 +1,4 @@
-name: Test Faultline Action
+name: Test Hotspots Action
 
 on:
   pull_request:
@@ -31,8 +31,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Build faultline binary
-        run: cargo build --release --bin faultline
+      - name: Build hotspots binary
+        run: cargo build --release --bin hotspots
 
       - name: Create sample TypeScript project
         run: |
@@ -77,9 +77,9 @@ jobs:
           }
           EOF
 
-      - name: Run Faultline Action
+      - name: Run Hotspots Action
         uses: ./action
-        id: faultline
+        id: hotspots
         with:
           path: test-ts-project
           policy: critical-introduction
@@ -89,27 +89,27 @@ jobs:
 
       - name: Display Results
         run: |
-          echo "Passed: ${{ steps.faultline.outputs.passed }}"
+          echo "Passed: ${{ steps.hotspots.outputs.passed }}"
           echo "Summary:"
-          echo "${{ steps.faultline.outputs.summary }}"
+          echo "${{ steps.hotspots.outputs.summary }}"
           echo "Violations:"
-          echo "${{ steps.faultline.outputs.violations }}"
+          echo "${{ steps.hotspots.outputs.violations }}"
 
       - name: Upload HTML Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: faultline-test-report
-          path: ${{ steps.faultline.outputs.report-path }}
+          name: hotspots-test-report
+          path: ${{ steps.hotspots.outputs.report-path }}
           retention-days: 7
 
       - name: Verify Outputs
         run: |
-          if [ -z "${{ steps.faultline.outputs.passed }}" ]; then
+          if [ -z "${{ steps.hotspots.outputs.passed }}" ]; then
             echo "::error::Output 'passed' is missing"
             exit 1
           fi
-          if [ -z "${{ steps.faultline.outputs.summary }}" ]; then
+          if [ -z "${{ steps.hotspots.outputs.summary }}" ]; then
             echo "::error::Output 'summary' is missing"
             exit 1
           fi
@@ -117,7 +117,7 @@ jobs:
 
       - name: Check Report File Exists
         run: |
-          REPORT_PATH="${{ steps.faultline.outputs.report-path }}"
+          REPORT_PATH="${{ steps.hotspots.outputs.report-path }}"
           if [ -n "$REPORT_PATH" ] && [ -f "$REPORT_PATH" ]; then
             echo "✅ HTML report generated at $REPORT_PATH"
             ls -lh "$REPORT_PATH"

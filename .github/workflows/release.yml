@@ -52,17 +52,17 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --bin faultline
+        run: cargo build --release --target ${{ matrix.target }} --bin hotspots
 
       - name: Strip binary (Unix)
         if: runner.os != 'Windows'
-        run: strip target/${{ matrix.target }}/release/faultline
+        run: strip target/${{ matrix.target }}/release/hotspots
 
       - name: Create archive (Unix)
         if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ../../../faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }} faultline
+          tar -czf ../../../hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }} hotspots
           cd ../../..
 
       - name: Create archive (Windows)
@@ -70,14 +70,14 @@ jobs:
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
-          Compress-Archive -Path faultline.exe -DestinationPath ../../../faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
+          Compress-Archive -Path hotspots.exe -DestinationPath ../../../hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
           cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: faultline-${{ matrix.platform }}-${{ matrix.arch }}
-          path: faultline-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
+          name: hotspots-${{ matrix.platform }}-${{ matrix.arch }}
+          path: hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
           retention-days: 7
 
   create-release:
@@ -120,7 +120,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
 
           cat > release-notes.md << EOF
-          # Faultline $VERSION
+          # Hotspots $VERSION
 
           TypeScript/JavaScript complexity analysis tool for CI/CD pipelines.
 
@@ -140,27 +140,27 @@ jobs:
 
           **Linux:**
           \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-linux-x64.tar.gz
-          tar -xzf faultline-linux-x64.tar.gz
-          sudo mv faultline /usr/local/bin/
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-linux-x64.tar.gz
+          tar -xzf hotspots-linux-x64.tar.gz
+          sudo mv hotspots /usr/local/bin/
           \`\`\`
 
           **macOS (Intel):**
           \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-darwin-x64.tar.gz
-          tar -xzf faultline-darwin-x64.tar.gz
-          sudo mv faultline /usr/local/bin/
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-darwin-x64.tar.gz
+          tar -xzf hotspots-darwin-x64.tar.gz
+          sudo mv hotspots /usr/local/bin/
           \`\`\`
 
           **macOS (Apple Silicon):**
           \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/faultline-darwin-arm64.tar.gz
-          tar -xzf faultline-darwin-arm64.tar.gz
-          sudo mv faultline /usr/local/bin/
+          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-darwin-arm64.tar.gz
+          tar -xzf hotspots-darwin-arm64.tar.gz
+          sudo mv hotspots /usr/local/bin/
           \`\`\`
 
           **Windows:**
-          Download \`faultline-win32-x64.zip\` and extract to a directory in your PATH.
+          Download \`hotspots-win32-x64.zip\` and extract to a directory in your PATH.
 
           ### Cargo
 

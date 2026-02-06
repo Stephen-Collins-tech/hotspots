@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://faultline.dev/schemas/faultline-output.schema.json",
-  "title": "Faultline Analysis Output",
-  "description": "Complete output from Faultline complexity analysis in snapshot or delta mode",
+  "$id": "https://hotspots.dev/schemas/hotspots-output.schema.json",
+  "title": "Hotspots Analysis Output",
+  "description": "Complete output from Hotspots complexity analysis in snapshot or delta mode",
   "type": "object",
   "required": ["schema_version", "commit", "analysis", "functions"],
   "properties": {
@@ -74,7 +74,7 @@
         },
         "tool_version": {
           "type": "string",
-          "description": "Version of Faultline that produced this output",
+          "description": "Version of Hotspots that produced this output",
           "pattern": "^\\d+\\.\\d+\\.\\d+"
         }
       }
