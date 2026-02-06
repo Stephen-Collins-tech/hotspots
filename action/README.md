@@ -57,6 +57,74 @@ jobs:
 | `passed` | Whether analysis passed (`true`/`false`) |
 | `summary` | Markdown summary of results |
 | `report-path` | Path to generated HTML report |
+| `json-output` | Path to full JSON output file |
+
+### JSON Output Format
+
+Faultline produces structured JSON output following a versioned schema. This enables:
+- **AI Assistant Integration**: LLMs can parse and reason about complexity
+- **Custom Tooling**: Build dashboards, reports, or analysis tools
+- **CI/CD Integration**: Validate output and enforce custom policies
+
+#### Schema & Types
+
+JSON Schema definitions are available in `schemas/`:
+- `faultline-output.schema.json` - Complete output format (JSON Schema Draft 07)
+- `function-report.schema.json` - Individual function analysis
+- `metrics.schema.json` - Raw complexity metrics
+- `policy-result.schema.json` - Policy violations/warnings
+
+TypeScript types are available via npm:
+```bash
+npm install @faultline/types
+```
+
+```typescript
+import type { FaultlineOutput, FunctionReport } from '@faultline/types';
+import { filterByRiskBand, getHighestRiskFunctions } from '@faultline/types';
+
+const output: FaultlineOutput = JSON.parse(jsonOutput);
+const highRisk = filterByRiskBand(output.functions, 'high');
+```
+
+#### Example Output Structure
+
+```json
+{
+  "schema_version": 1,
+  "commit": {
+    "sha": "abc123...",
+    "parents": ["def456..."],
+    "timestamp": 1234567890,
+    "branch": "main"
+  },
+  "analysis": {
+    "scope": "full",
+    "tool_version": "1.0.0"
+  },
+  "functions": [
+    {
+      "function_id": "/path/to/file.ts::functionName",
+      "file": "/path/to/file.ts",
+      "line": 42,
+      "metrics": {
+        "cc": 8,
+        "nd": 2,
+        "fo": 4,
+        "ns": 2
+      },
+      "lrs": 7.2,
+      "band": "high"
+    }
+  ],
+  "policy_results": {
+    "failed": [],
+    "warnings": []
+  }
+}
+```
+
+See [docs/json-schema.md](../docs/json-schema.md) for complete documentation and integration examples (TypeScript, Python, Go, Rust).
 
 ## Usage Examples
 

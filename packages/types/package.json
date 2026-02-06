@@ -1,0 +1,41 @@
+{
+  "name": "@faultline/types",
+  "version": "1.0.0",
+  "description": "TypeScript types and JSON Schema for Faultline complexity analysis output",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "faultline",
+    "types",
+    "typescript",
+    "complexity",
+    "analysis",
+    "metrics",
+    "lrs",
+    "cyclomatic-complexity"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/faultline.git",
+    "directory": "packages/types"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/faultline/issues"
+  },
+  "homepage": "https://github.com/yourusername/faultline/tree/main/packages/types#readme",
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}
