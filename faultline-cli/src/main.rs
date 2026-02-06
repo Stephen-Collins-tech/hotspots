@@ -376,8 +376,9 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Handle snapshot or delta mode output
+#[allow(clippy::too_many_arguments)]
 fn handle_mode_output(
-    path: &PathBuf,
+    path: &Path,
     mode: OutputMode,
     format: OutputFormat,
     policy: bool,
@@ -862,13 +863,13 @@ fn write_html_report(path: &Path, html: &str) -> anyhow::Result<()> {
 }
 
 /// Find git repository root by searching up the directory tree
-fn find_repo_root(start_path: &PathBuf) -> anyhow::Result<PathBuf> {
+fn find_repo_root(start_path: &Path) -> anyhow::Result<PathBuf> {
     let mut current = if start_path.is_file() {
         start_path.parent()
             .ok_or_else(|| anyhow::anyhow!("invalid file path"))?
             .to_path_buf()
     } else {
-        start_path.clone()
+        start_path.to_path_buf()
     };
     
     loop {

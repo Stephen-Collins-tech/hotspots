@@ -1,7 +1,7 @@
 //! Tests for function discovery
 
 #[cfg(test)]
-mod tests {
+mod discover_tests {
     use crate::discover;
     use crate::parser;
     use swc_common::{sync::Lrc, SourceMap};

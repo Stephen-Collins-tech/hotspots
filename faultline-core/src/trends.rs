@@ -169,7 +169,7 @@ pub fn compute_risk_velocities(snapshots: &[Snapshot]) -> Vec<RiskVelocity> {
         for func in &snapshot.functions {
             function_lrs
                 .entry(func.function_id.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((snapshot_idx, func.lrs));
         }
     }
@@ -341,7 +341,7 @@ pub fn compute_refactor_effectiveness(snapshots: &[Snapshot]) -> Vec<RefactorAna
                 let delta = curr_func.lrs - prev_func.lrs;
                 function_deltas
                     .entry(function_id.to_string())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push((i, delta));
             }
         }

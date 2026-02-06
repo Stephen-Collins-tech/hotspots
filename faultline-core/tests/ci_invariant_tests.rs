@@ -44,7 +44,7 @@ fn test_snapshot_immutability() {
     // Initialize git repo
     std::process::Command::new("git")
         .current_dir(repo_path)
-        .args(&["init"])
+        .args(["init"])
         .output()
         .expect("failed to run git init");
     
@@ -103,7 +103,7 @@ fn test_snapshot_filename_equals_commit_sha() {
     // Initialize git repo
     std::process::Command::new("git")
         .current_dir(repo_path)
-        .args(&["init"])
+        .args(["init"])
         .output()
         .expect("failed to run git init");
     

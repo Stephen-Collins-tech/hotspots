@@ -33,7 +33,7 @@ const DEFAULT_EXCLUDES: &[&str] = &[
 ];
 
 /// Faultline configuration loaded from a JSON config file
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaultlineConfig {
     /// Glob patterns for files to include (default: all supported extensions)
@@ -105,20 +105,6 @@ pub struct WarningThresholdConfig {
     pub attention_max: Option<f64>,
     /// Rapid growth threshold - percent increase (default: 50.0)
     pub rapid_growth_percent: Option<f64>,
-}
-
-impl Default for FaultlineConfig {
-    fn default() -> Self {
-        FaultlineConfig {
-            include: Vec::new(),
-            exclude: Vec::new(),
-            thresholds: None,
-            weights: None,
-            warning_thresholds: None,
-            min_lrs: None,
-            top: None,
-        }
-    }
 }
 
 /// Resolved configuration with compiled glob patterns

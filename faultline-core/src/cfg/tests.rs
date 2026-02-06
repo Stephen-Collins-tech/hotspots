@@ -1,7 +1,7 @@
 //! Tests for Control Flow Graph
 
 #[cfg(test)]
-mod tests {
+mod cfg_tests {
     use crate::cfg::{Cfg, NodeId, NodeKind};
 
     #[test]

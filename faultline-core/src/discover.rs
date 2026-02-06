@@ -73,9 +73,9 @@ impl Visit for FunctionCollector {
     fn visit_fn_decl(&mut self, decl: &FnDecl) {
         // Extract function name from declaration
         let name = Some(decl.ident.sym.to_string());
-        
+
         // Extract body
-        let body = decl.function.body.as_ref().map(|b| b.clone());
+        let body = decl.function.body.clone();
         
         if let Some(body) = body {
             self.functions.push(FunctionNode {
@@ -98,9 +98,9 @@ impl Visit for FunctionCollector {
     fn visit_fn_expr(&mut self, expr: &FnExpr) {
         // Extract function name (may be None for anonymous)
         let name = expr.ident.as_ref().map(|id| id.sym.to_string());
-        
+
         // Extract body
-        let body = expr.function.body.as_ref().map(|b| b.clone());
+        let body = expr.function.body.clone();
         
         if let Some(body) = body {
             self.functions.push(FunctionNode {
@@ -179,8 +179,8 @@ impl Visit for FunctionCollector {
             PropName::Num(num) => Some(num.to_string()),
             _ => None,
         };
-        
-        let body = method.function.body.as_ref().map(|b| b.clone());
+
+        let body = method.function.body.clone();
         
         if let Some(body) = body {
             self.functions.push(FunctionNode {
@@ -210,8 +210,8 @@ impl Visit for FunctionCollector {
             PropName::Num(num) => Some(num.to_string()),
             _ => None,
         };
-        
-        let body = method.function.body.as_ref().map(|b| b.clone());
+
+        let body = method.function.body.clone();
         
         if let Some(body) = body {
             self.functions.push(FunctionNode {

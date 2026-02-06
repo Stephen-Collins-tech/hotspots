@@ -26,7 +26,7 @@ fn get_git_version() -> Option<String> {
     // Try to get version from git describe (prefers tags)
     // This will return something like "v0.1.0" or "v0.1.0-5-gabc123" or "abc123-dirty"
     let output = Command::new("git")
-        .args(&["describe", "--tags", "--always", "--dirty"])
+        .args(["describe", "--tags", "--always", "--dirty"])
         .output()
         .ok()?;
     
@@ -49,8 +49,7 @@ fn get_git_version() -> Option<String> {
         } else {
             // Not a tagged version, use CARGO_PKG_VERSION with git info
             let base_version = env!("CARGO_PKG_VERSION");
-            if version.ends_with("-dirty") {
-                let clean_version = &version[..version.len()-6];
+            if let Some(clean_version) = version.strip_suffix("-dirty") {
                 Some(format!("{}-{}-dirty", base_version, clean_version))
             } else {
                 Some(format!("{}-{}", base_version, version))

@@ -42,7 +42,7 @@ fn git_command(repo_path: &Path, args: &[&str]) -> String {
         .current_dir(repo_path)
         .args(args)
         .output()
-        .expect(&format!("failed to run git {:?}", args));
+        .unwrap_or_else(|_| panic!("failed to run git {:?}", args));
     
     if !output.status.success() {
         panic!(

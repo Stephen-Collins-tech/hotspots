@@ -278,7 +278,7 @@ fn expr_to_callee_string(expr: &Expr) -> String {
                 }
                 Expr::Member(member_obj) => {
                     // Nested member expression - recursively build the chain
-                    expr_to_callee_string(&*member_obj.obj)
+                    expr_to_callee_string(&member_obj.obj)
                 }
                 _ => "<computed>".to_string(),
             };

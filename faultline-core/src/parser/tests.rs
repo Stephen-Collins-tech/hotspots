@@ -1,7 +1,7 @@
 //! Tests for TypeScript and JavaScript parser
 
 #[cfg(test)]
-mod tests {
+mod parser_tests {
     use crate::parser;
     use swc_common::{sync::Lrc, SourceMap};
 

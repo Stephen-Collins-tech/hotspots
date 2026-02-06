@@ -132,8 +132,8 @@ impl Delta {
         
         // Get parent SHA (use parents[0] only for delta computation)
         let parent_sha = current.commit.parents.first()
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "".to_string());
+            .cloned()
+            .unwrap_or_default();
         
         let baseline = parent.is_none();
         

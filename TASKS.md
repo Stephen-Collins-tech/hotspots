@@ -23,9 +23,16 @@
 - ✅ Task 3.1: Configuration File (COMPLETED 2026-02-02)
 - ✅ Task 3.2: Suppression Comments (COMPLETED 2026-02-03)
 
-**Overall Progress:** 8/25 tasks completed (32%)
+**Phase 7: AI-First Integration** (PRIORITY - v1.0.0 Blocker)
+- ✅ Task 7.1: Fix Clippy Errors (COMPLETED 2026-02-06)
+- ⏳ Task 7.2: JSON Schema & Types
+- ⏳ Task 7.3: Claude MCP Server
+- ⏳ Task 7.4: AI Integration Documentation
+- ⏳ Task 7.5: Reference Implementation Examples
 
-**Latest Update:** 2026-02-04 - GitHub Action implementation (Task 2.1)
+**Overall Progress:** 9/30 tasks completed (30%)
+
+**Latest Update:** 2026-02-06 - Completed Task 7.1: Fixed all clippy warnings (17 errors resolved)
 
 ---
 
@@ -542,6 +549,1751 @@ function legacyParser(input: string) {
 - Policy violations are actionable and educational
 
 **Estimated effort:** High (1-2 weeks)
+
+---
+
+## Phase 7: AI-First Integration
+
+**PRIORITY: P0 - Required for v1.0.0 Release**
+
+**Context:** Developers are using AI coding assistants (Claude, Cursor, Copilot) heavily NOW. Faultline should be AI-first from day one, not a future phase. AI agents need:
+- Structured, deterministic, machine-readable output
+- Clear APIs and patterns for integration
+- Direct tool access (MCP servers, SDKs)
+
+**Timeline:** 1 week sprint before v1.0.0 release
+
+**Marketing Message:** "Complexity guardrails for AI-assisted development"
+
+---
+
+### 7.1 Fix Clippy Errors
+
+**Priority:** P0 (Blocks build)
+
+**Status:** ✅ **COMPLETED** (2026-02-06)
+
+**Problem:** 13 clippy errors prevent compilation with `#![deny(warnings)]`. Must fix before release.
+
+**Tasks:**
+
+- [x] **Fix config.rs (Line 110) - Use #[derive(Default)]**
+  - [x] Read faultline-core/src/config.rs
+    - [x] Identify the struct with manual Default impl (line ~110)
+    - [x] Verify struct fields are all Default-able
+    - [x] Note the struct name and location
+  - [x] Replace manual impl with derive
+    - [x] Remove manual `impl Default for StructName { ... }` block (lines 110-121)
+    - [x] Add `#[derive(Default)]` to struct definition (line ~38)
+    - [x] Ensure derive appears alongside other derives
+  - [x] Verify the fix
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm config.rs line 110 error is gone
+    - [x] Run unit tests: `cargo test --package faultline-core config::`
+    - [x] Verify all 21 config tests pass
+
+- [x] **Fix delta.rs - String and Option improvements**
+  - [x] Read faultline-core/src/delta.rs
+    - [x] Locate line 136 with `unwrap_or_else(|| "".to_string())`
+    - [x] Locate lines 134-135 with `.map(|s| s.clone())`
+    - [x] Understand the context of each usage
+  - [x] Fix line 136 - unwrap_or_default()
+    - [x] Replace `unwrap_or_else(|| "".to_string())` with `unwrap_or_default()`
+    - [x] Save file
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 136 warning is gone
+  - [x] Fix lines 134-135 - cloned()
+    - [x] Replace `.map(|s| s.clone())` with `.cloned()`
+    - [x] Save file
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm lines 134-135 warnings are gone
+  - [x] Verify delta tests
+    - [x] Run `cargo test --package faultline-core delta::`
+    - [x] Ensure all delta tests pass
+    - [x] Check that delta output is still deterministic
+
+- [x] **Fix discover.rs (Lines 78, 103, 183, 214) - Remove useless clone map**
+  - [x] Read faultline-core/src/discover.rs
+    - [x] Find line 78 with `.as_ref().map(|b| b.clone())`
+    - [x] Find line 103 with `.as_ref().map(|b| b.clone())`
+    - [x] Find line 183 with `.as_ref().map(|b| b.clone())`
+    - [x] Note what's being cloned (likely BlockStmt)
+  - [x] Fix line 78
+    - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 78 warning is gone
+  - [x] Fix line 103
+    - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 103 warning is gone
+  - [x] Fix line 183
+    - [x] Replace `.as_ref().map(|b| b.clone())` with `.clone()`
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 183 warning is gone
+  - [x] Verify discovery tests
+    - [x] Run `cargo test --package faultline-core discover::`
+    - [x] Ensure all discovery tests pass (function discovery still works)
+    - [x] Run integration tests: `cargo test --package faultline-core --test '*'`
+
+- [x] **Fix trends.rs (Lines 172, 344) - Use or_default()**
+  - [x] Read faultline-core/src/trends.rs
+    - [x] Locate line 172 with `.or_insert_with(Vec::new)`
+    - [x] Locate line 344 with `.or_insert_with(Vec::new)`
+    - [x] Understand the HashMap/BTreeMap context
+  - [x] Fix line 172
+    - [x] Replace `.or_insert_with(Vec::new)` with `.or_default()`
+    - [x] Save file
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 172 warning is gone
+  - [x] Fix line 344
+    - [x] Replace `.or_insert_with(Vec::new)` with `.or_default()`
+    - [x] Save file
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm line 344 warning is gone
+  - [x] Verify trends tests
+    - [x] Run `cargo test --package faultline-core trends::`
+    - [x] Ensure trend calculation still works
+    - [x] Verify snapshot history tracking works
+
+- [x] **Fix test modules - Avoid module_inception**
+  - [x] Fix discover/tests.rs module structure
+    - [x] Read faultline-core/src/discover/tests.rs
+    - [x] Find inner `mod tests { ... }` at line 4
+    - [x] Rename to `mod discover_tests { ... }` or similar
+    - [x] Update any `use super::*` if needed
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm module_inception warning is gone
+    - [x] Run `cargo test --package faultline-core discover::`
+  - [x] Fix parser/tests.rs module structure
+    - [x] Read faultline-core/src/parser/tests.rs
+    - [x] Find inner `mod tests { ... }` at line 4
+    - [x] Rename to `mod parser_tests { ... }` or similar
+    - [x] Update any `use super::*` if needed
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+    - [x] Confirm module_inception warning is gone
+    - [x] Run `cargo test --package faultline-core parser::`
+  - [x] Verify all unit tests still pass
+    - [x] Run full test suite: `cargo test --workspace`
+    - [x] Confirm 145+ tests pass
+    - [x] Check no test discovery issues
+
+- [x] **Fix build.rs warnings (optional, non-blocking)**
+  - [x] Read build.rs
+    - [x] Locate line 29 with `&` on array argument
+    - [x] Locate lines 52-53 with string manipulation
+  - [x] Fix line 29 - Remove unnecessary reference
+    - [x] Remove `&` from array argument
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+  - [x] Fix lines 52-53 - Use strip_suffix
+    - [x] Replace manual string slicing with `.strip_suffix("-dirty")`
+    - [x] Run `cargo clippy --package faultline-core -- -D warnings`
+  - [x] Verify build script works
+    - [x] Run `cargo clean`
+    - [x] Run `cargo build`
+    - [x] Verify version detection still works
+
+- [x] **Final verification - Clean build**
+  - [x] Run comprehensive clippy check
+    - [x] Execute `cargo clippy --all-targets --all-features -- -D warnings`
+    - [x] Verify exit code is 0
+    - [x] Confirm zero errors, zero warnings
+    - [x] Check output for "0 warnings emitted"
+  - [x] Run full test suite
+    - [x] Execute `cargo test --workspace`
+    - [x] Verify all 145+ tests pass
+    - [x] Check for no test failures or panics
+    - [x] Review test summary output
+  - [x] Run release build
+    - [x] Execute `cargo build --release`
+    - [x] Verify build completes successfully
+    - [x] Check binary size is reasonable
+    - [x] Test binary: `./target/release/faultline --version`
+  - [x] Run integration tests
+    - [x] Execute `cargo test --package faultline-core --test '*'`
+    - [x] Verify all integration tests pass
+    - [x] Check golden test fixtures still match
+  - [x] Document the fixes
+    - [x] Review all changed files
+    - [x] Prepare commit message: "fix: resolve all clippy warnings"
+    - [x] Ensure changes follow CLAUDE.md conventions
+
+**Acceptance:**
+- ✅ `cargo clippy` runs with zero errors
+- ✅ `cargo test --workspace` passes (145 tests)
+- ✅ `cargo build --release` completes successfully
+
+**Estimated effort:** 2-3 hours
+
+**Actual effort:** ~2 hours (17 clippy errors fixed across 14 files)
+
+---
+
+### 7.2 JSON Schema & Types
+
+**Priority:** P0 (AI needs machine-readable specs)
+
+**Status:** ⏳ **IN PROGRESS**
+
+**Problem:** JSON output exists but schema is undocumented. AI agents can't reliably consume output without TypeScript types and JSON Schema validation.
+
+**Tasks:**
+
+- [ ] **Create schemas/ directory structure**
+  - [ ] Set up directory and planning
+    - [ ] Create `schemas/` at project root
+    - [ ] Run faultline in snapshot mode to get sample JSON output
+      - [ ] Execute `faultline analyze --mode snapshot --format json tests/fixtures/ > samples/snapshot.json`
+      - [ ] Review output structure
+    - [ ] Run faultline in delta mode to get sample JSON output
+      - [ ] Execute `faultline analyze --mode delta --format json tests/fixtures/ > samples/delta.json`
+      - [ ] Review output structure, note differences from snapshot
+    - [ ] List all unique types needed: FaultlineOutput, FunctionReport, Violation, Summary, PolicyResult, etc.
+  - [ ] Create faultline-output.schema.json
+    - [ ] Define root schema with $schema, $id, title, description
+    - [ ] Add mode field (enum: "snapshot" | "delta")
+    - [ ] Add functions array (array of FunctionReport)
+    - [ ] Add violations array (array of Violation)
+    - [ ] Add summary object (reference to summary.schema.json)
+    - [ ] Add timestamp field (ISO 8601 string)
+    - [ ] Add version field (semver string)
+    - [ ] Mark required fields
+    - [ ] Validate against sample output with `ajv-cli`
+  - [ ] Create violation.schema.json
+    - [ ] Define violation object structure
+    - [ ] Add policy_id field (string)
+    - [ ] Add severity field (enum: "error" | "warning" | "info")
+    - [ ] Add message field (string)
+    - [ ] Add file field (string)
+    - [ ] Add function field (string, optional)
+    - [ ] Add line field (integer, optional)
+    - [ ] Add lrs field (number, optional)
+    - [ ] Add details object (additional context)
+    - [ ] Validate against sample violations
+  - [ ] Create function-report.schema.json
+    - [ ] Define function report structure
+    - [ ] Add id object (file_index, local_index)
+    - [ ] Add name field (string, nullable)
+    - [ ] Add file field (string)
+    - [ ] Add line field (integer)
+    - [ ] Add metrics object (cc, nd, fo, ns)
+    - [ ] Add lrs field (number)
+    - [ ] Add risk_band field (enum: "low" | "moderate" | "high" | "critical")
+    - [ ] Add suppression_reason field (string, nullable)
+    - [ ] Add delta_type field for delta mode (enum: "added" | "modified" | "removed" | "unchanged", optional)
+    - [ ] Add previous_lrs field for delta mode (number, optional)
+    - [ ] Validate against sample functions
+  - [ ] Create summary.schema.json
+    - [ ] Define summary structure
+    - [ ] Add total_functions field (integer)
+    - [ ] Add functions_by_risk object (low, moderate, high, critical counts)
+    - [ ] Add violations_by_severity object (error, warning, info counts)
+    - [ ] Add policy_passed field (boolean)
+    - [ ] Add analysis_time_ms field (integer, optional)
+    - [ ] Validate against sample summary
+
+- [ ] **Generate TypeScript types package**
+  - [ ] Set up @faultline/types npm package
+    - [ ] Create `packages/types/` directory
+    - [ ] Initialize package: `npm init --scope=@faultline`
+    - [ ] Set package name to "@faultline/types"
+    - [ ] Set version to "1.0.0"
+    - [ ] Add keywords: "faultline", "types", "typescript", "complexity", "analysis"
+    - [ ] Set repository URL
+    - [ ] Configure TypeScript: `tsc --init`
+    - [ ] Set tsconfig.json options
+      - [ ] `"declaration": true`
+      - [ ] `"declarationMap": true`
+      - [ ] `"outDir": "./dist"`
+      - [ ] `"rootDir": "./src"`
+    - [ ] Add build script: `"build": "tsc"`
+    - [ ] Add prepublish script: `"prepublishOnly": "npm run build"`
+  - [ ] Generate types from JSON Schema
+    - [ ] Install json-schema-to-typescript: `npm install -D json-schema-to-typescript`
+    - [ ] Create generation script `scripts/generate-types.ts`
+    - [ ] Generate FaultlineOutput interface from faultline-output.schema.json
+    - [ ] Generate Violation interface from violation.schema.json
+    - [ ] Generate FunctionReport interface from function-report.schema.json
+    - [ ] Generate Summary interface from summary.schema.json
+    - [ ] Output to `src/index.ts`
+  - [ ] Add JSDoc comments to generated types
+    - [ ] Add package-level documentation to src/index.ts
+    - [ ] Add JSDoc to FaultlineOutput interface
+      - [ ] Document mode field
+      - [ ] Document functions array
+      - [ ] Document violations array
+      - [ ] Add @example showing snapshot and delta usage
+    - [ ] Add JSDoc to Violation interface
+      - [ ] Document policy_id, severity, message
+      - [ ] Add @example showing violation structure
+    - [ ] Add JSDoc to FunctionReport interface
+      - [ ] Document all metrics (cc, nd, fo, ns, lrs)
+      - [ ] Explain risk_band values
+      - [ ] Add @example showing high-risk function
+    - [ ] Add JSDoc to Summary interface
+      - [ ] Document aggregation fields
+      - [ ] Add @example showing summary structure
+  - [ ] Add utility types and helpers
+    - [ ] Create RiskBand type alias ("low" | "moderate" | "high" | "critical")
+    - [ ] Create Severity type alias ("error" | "warning" | "info")
+    - [ ] Create Mode type alias ("snapshot" | "delta")
+    - [ ] Add type guards: `isFaultlineOutput()`, `isViolation()`, etc.
+    - [ ] Add helper functions
+      - [ ] `filterByRiskBand(functions, band): FunctionReport[]`
+      - [ ] `filterBySeverity(violations, severity): Violation[]`
+      - [ ] `getHighestRiskFunctions(functions, n): FunctionReport[]`
+  - [ ] Build and test the package
+    - [ ] Run `npm run build`
+    - [ ] Verify dist/ contains .d.ts files
+    - [ ] Create test file to import types
+    - [ ] Verify types work with sample JSON
+    - [ ] Test type guards with valid and invalid data
+  - [ ] Prepare for npm publishing
+    - [ ] Add .npmignore (exclude src/, scripts/, tests/)
+    - [ ] Add LICENSE file (MIT)
+    - [ ] Create comprehensive README.md
+      - [ ] Installation instructions
+      - [ ] Quick start example
+      - [ ] API documentation for all types
+      - [ ] Examples of using type guards and helpers
+    - [ ] Add repository field to package.json
+    - [ ] Add "types" field pointing to dist/index.d.ts
+    - [ ] Add "main" field pointing to dist/index.js
+    - [ ] Review package.json for completeness
+  - [ ] Publish to npm
+    - [ ] Login to npm: `npm login`
+    - [ ] Dry run: `npm publish --dry-run`
+    - [ ] Review what will be published
+    - [ ] Publish: `npm publish --access public`
+    - [ ] Verify on npmjs.com/@faultline/types
+    - [ ] Test installation: `npm install @faultline/types` in fresh project
+
+- [ ] **Document output format**
+  - [ ] Create docs/json-schema.md
+    - [ ] Add introduction section
+      - [ ] Explain purpose of JSON output
+      - [ ] Link to schemas/ directory
+      - [ ] Link to @faultline/types npm package
+    - [ ] Document snapshot mode output
+      - [ ] Show complete example of snapshot JSON
+      - [ ] Document FaultlineOutput structure
+      - [ ] Document each field with type and description
+      - [ ] Show example with 3+ functions in different risk bands
+      - [ ] Document empty violations case (passing policy)
+    - [ ] Document delta mode output
+      - [ ] Show complete example of delta JSON
+      - [ ] Explain differences from snapshot mode
+      - [ ] Document delta_type field (added, modified, removed, unchanged)
+      - [ ] Document previous_lrs field for modified functions
+      - [ ] Show example with function additions, modifications, removals
+    - [ ] Document policy violations format
+      - [ ] Show violation structure
+      - [ ] List all possible policy_id values
+      - [ ] Document severity levels (error, warning, info)
+      - [ ] Show examples of each violation type
+        - [ ] critical_threshold violation
+        - [ ] high_threshold violation
+        - [ ] rapid_growth violation
+        - [ ] suppression_missing_reason violation
+    - [ ] Document metrics in detail
+      - [ ] CC (Cyclomatic Complexity) - what it measures
+      - [ ] ND (Nesting Depth) - what it measures
+      - [ ] FO (Fan-Out) - what it measures
+      - [ ] NS (Number of Statements) - what it measures
+      - [ ] LRS (Logarithmic Risk Score) - formula and interpretation
+    - [ ] Add versioning section
+      - [ ] Explain schema versioning strategy
+      - [ ] Document breaking vs non-breaking changes
+      - [ ] List version history
+  - [ ] Add examples for each schema
+    - [ ] Create examples/json-output/ directory
+    - [ ] Add snapshot-simple.json (1 function, no violations)
+    - [ ] Add snapshot-violations.json (multiple functions, policy failures)
+    - [ ] Add delta-no-changes.json (all functions unchanged)
+    - [ ] Add delta-with-changes.json (additions, modifications, removals)
+    - [ ] Add all-risk-bands.json (examples of low, moderate, high, critical)
+
+- [ ] **Add schema validation examples**
+  - [ ] Create TypeScript validation example
+    - [ ] Create examples/validation/typescript/ directory
+    - [ ] Add package.json with @faultline/types dependency
+    - [ ] Create validate.ts
+      - [ ] Import types from @faultline/types
+      - [ ] Load JSON file
+      - [ ] Parse and type-check with FaultlineOutput type
+      - [ ] Use type guards to validate structure
+      - [ ] Handle parsing errors gracefully
+      - [ ] Show how to iterate through functions
+      - [ ] Show how to filter violations by severity
+    - [ ] Add README.md with setup and run instructions
+    - [ ] Test the example to ensure it works
+  - [ ] Create Python validation example
+    - [ ] Create examples/validation/python/ directory
+    - [ ] Add requirements.txt with jsonschema dependency
+    - [ ] Create validate.py
+      - [ ] Import jsonschema library
+      - [ ] Load faultline-output.schema.json
+      - [ ] Load sample JSON output
+      - [ ] Validate JSON against schema
+      - [ ] Handle validation errors with clear messages
+      - [ ] Show how to access specific fields
+      - [ ] Show how to filter functions by risk band
+    - [ ] Add README.md with setup and run instructions
+    - [ ] Test the example to ensure it works
+  - [ ] Create Go validation example
+    - [ ] Create examples/validation/go/ directory
+    - [ ] Create go.mod
+    - [ ] Create validate.go
+      - [ ] Define Go structs matching JSON schema
+      - [ ] Use json.Unmarshal to parse output
+      - [ ] Add validation logic
+      - [ ] Show error handling patterns
+    - [ ] Add README.md with setup and run instructions
+    - [ ] Test the example to ensure it works
+  - [ ] Create Rust validation example (bonus)
+    - [ ] Create examples/validation/rust/ directory
+    - [ ] Add Cargo.toml with serde, serde_json dependencies
+    - [ ] Create validate.rs
+      - [ ] Define Rust structs with serde(Deserialize)
+      - [ ] Parse JSON with serde_json
+      - [ ] Show type-safe access patterns
+    - [ ] Test the example
+
+- [ ] **Update GitHub Action README**
+  - [ ] Document outputs with schema reference
+    - [ ] Read action/README.md
+    - [ ] Find outputs section
+    - [ ] Add detailed documentation for each output
+      - [ ] `violations` - Number of policy violations (integer)
+      - [ ] `passed` - Whether policy passed (boolean)
+      - [ ] `summary` - JSON summary object (string, parse as JSON)
+      - [ ] `report-path` - Path to HTML report (string)
+    - [ ] Link to schemas/ directory
+    - [ ] Link to @faultline/types package
+    - [ ] Link to docs/json-schema.md
+  - [ ] Add example of parsing action outputs
+    - [ ] Create example workflow showing output usage
+    - [ ] Show how to parse `summary` JSON output
+    - [ ] Show how to access violations count
+    - [ ] Show how to conditionally run steps based on `passed`
+    - [ ] Show how to upload HTML report from `report-path`
+  - [ ] Add TypeScript example for custom action
+    - [ ] Show how to parse outputs in another action step
+    - [ ] Use @faultline/types for type safety
+    - [ ] Show error handling
+
+**Acceptance:**
+- ✅ JSON Schema published to `schemas/` directory
+- ✅ `@faultline/types` published to npm
+- ✅ Types are accurate (validated against real output)
+- ✅ Documentation includes examples in 3+ languages
+
+**Estimated effort:** 1 day
+
+---
+
+### 7.3 Claude MCP Server
+
+**Priority:** P0 (Direct AI integration)
+
+**Status:** ⏳ **IN PROGRESS**
+
+**Problem:** Claude Desktop/Code users can't run Faultline during conversations. Need Model Context Protocol (MCP) server for direct integration.
+
+**Tasks:**
+
+- [ ] **Create faultline-mcp-server/ package structure**
+  - [ ] Initialize TypeScript package
+    - [ ] Create `packages/mcp-server/` directory
+    - [ ] Initialize: `npm init --scope=@faultline`
+    - [ ] Set package name to "@faultline/mcp-server"
+    - [ ] Set version to "1.0.0"
+    - [ ] Add description: "Model Context Protocol server for Faultline complexity analysis"
+    - [ ] Add keywords: "mcp", "faultline", "claude", "complexity"
+    - [ ] Set "bin" field to point to compiled server
+  - [ ] Set up TypeScript configuration
+    - [ ] Run `tsc --init`
+    - [ ] Configure tsconfig.json
+      - [ ] Set `"target": "ES2022"`
+      - [ ] Set `"module": "commonjs"`
+      - [ ] Set `"outDir": "./dist"`
+      - [ ] Set `"rootDir": "./src"`
+      - [ ] Enable `"strict": true`
+      - [ ] Enable `"esModuleInterop": true`
+    - [ ] Add build script to package.json: `"build": "tsc"`
+    - [ ] Add dev script: `"dev": "tsc --watch"`
+  - [ ] Install dependencies
+    - [ ] Install MCP SDK: `npm install @modelcontextprotocol/sdk`
+    - [ ] Install exec utilities: `npm install --save execa`
+    - [ ] Install @faultline/types: `npm install @faultline/types`
+    - [ ] Install dev dependencies: `npm install -D @types/node typescript`
+  - [ ] Create project structure
+    - [ ] Create src/index.ts (main entry point)
+    - [ ] Create src/server.ts (MCP server implementation)
+    - [ ] Create src/tools/ directory
+    - [ ] Create src/config.ts (configuration loading)
+    - [ ] Create src/utils.ts (helper functions)
+
+- [ ] **Implement faultline_analyze tool**
+  - [ ] Define tool schema in src/tools/analyze.ts
+    - [ ] Create AnalyzeInput interface
+      - [ ] path: string (required) - file or directory to analyze
+      - [ ] mode: "snapshot" | "delta" (optional, default "snapshot")
+      - [ ] minLrs: number (optional) - minimum LRS threshold
+      - [ ] config: string (optional) - path to config file
+    - [ ] Define JSON Schema for MCP tool registration
+      - [ ] Add tool name: "faultline_analyze"
+      - [ ] Add description: "Analyze JavaScript/TypeScript files for complexity"
+      - [ ] Define input schema with all parameters
+      - [ ] Mark required fields
+  - [ ] Implement analyze() function
+    - [ ] Accept AnalyzeInput parameters
+    - [ ] Validate input parameters
+      - [ ] Check path exists using fs.existsSync()
+      - [ ] Validate mode is "snapshot" or "delta"
+      - [ ] Validate minLrs is positive number if provided
+    - [ ] Find faultline binary
+      - [ ] Check config for custom binary path
+      - [ ] Fall back to `which faultline` on PATH
+      - [ ] Throw helpful error if not found
+    - [ ] Build CLI arguments
+      - [ ] Start with ["analyze"]
+      - [ ] Add `--mode ${mode}`
+      - [ ] Add `--min-lrs ${minLrs}` if provided
+      - [ ] Add `--config ${config}` if provided
+      - [ ] Add `--format json`
+      - [ ] Add path as positional argument
+    - [ ] Execute faultline using execa
+      - [ ] Run with arguments
+      - [ ] Capture stdout and stderr
+      - [ ] Set reasonable timeout (30 seconds)
+      - [ ] Handle execution errors
+    - [ ] Parse JSON output
+      - [ ] Parse stdout as JSON
+      - [ ] Validate against FaultlineOutput type
+      - [ ] Handle parse errors gracefully
+    - [ ] Format response for Claude
+      - [ ] Return structured FaultlineOutput
+      - [ ] Add summary text for easy reading
+      - [ ] Include violation count prominently
+      - [ ] List high-risk functions in summary
+  - [ ] Add error handling
+    - [ ] Handle "faultline not found" error
+    - [ ] Handle invalid path error
+    - [ ] Handle JSON parse error
+    - [ ] Handle timeout error
+    - [ ] Return user-friendly error messages
+  - [ ] Test analyze tool
+    - [ ] Create test fixtures in tests/fixtures/
+    - [ ] Test with valid TypeScript file
+    - [ ] Test with directory
+    - [ ] Test with snapshot mode
+    - [ ] Test with delta mode
+    - [ ] Test with minLrs filter
+    - [ ] Test error cases
+
+- [ ] **Implement faultline_explain tool**
+  - [ ] Define tool schema in src/tools/explain.ts
+    - [ ] Create ExplainInput interface
+      - [ ] file: string (required)
+      - [ ] function: string (required)
+      - [ ] lrs: number (required)
+      - [ ] metrics: object (optional) - cc, nd, fo, ns
+    - [ ] Define JSON Schema for MCP tool registration
+      - [ ] Add tool name: "faultline_explain"
+      - [ ] Add description: "Explain why a function has high complexity"
+      - [ ] Define input schema
+  - [ ] Implement explain() function
+    - [ ] Accept ExplainInput parameters
+    - [ ] Validate inputs
+      - [ ] Check file path is provided
+      - [ ] Check function name is provided
+      - [ ] Validate LRS is a number
+    - [ ] Generate explanation text
+      - [ ] Interpret LRS value (low/moderate/high/critical)
+      - [ ] Explain what LRS means in practical terms
+      - [ ] If metrics provided, break down contribution
+        - [ ] Explain CC contribution ("5 decision points")
+        - [ ] Explain ND contribution ("3 levels of nesting")
+        - [ ] Explain FO contribution ("calls 4 other functions")
+        - [ ] Explain NS contribution ("120 statements")
+      - [ ] Add context about why complexity matters
+        - [ ] Testing difficulty
+        - [ ] Bug risk
+        - [ ] Maintenance burden
+    - [ ] Generate suggestions
+      - [ ] If high CC: "Extract conditional logic into separate functions"
+      - [ ] If high ND: "Flatten nested structures with early returns"
+      - [ ] If high FO: "Consider grouping related calls"
+      - [ ] If high NS: "Break function into smaller, focused functions"
+      - [ ] Provide 3-5 specific, actionable suggestions
+    - [ ] Format response
+      - [ ] Start with summary: "This function has high complexity (LRS 7.2)"
+      - [ ] Add explanation section
+      - [ ] Add suggestions section
+      - [ ] Add resources/links section
+    - [ ] Return formatted explanation
+  - [ ] Test explain tool
+    - [ ] Test with low complexity function
+    - [ ] Test with high complexity function
+    - [ ] Test with metrics breakdown
+    - [ ] Test with missing metrics (still works)
+    - [ ] Verify explanation quality
+
+- [ ] **Implement faultline_refactor_suggestions tool**
+  - [ ] Define tool schema in src/tools/refactor.ts
+    - [ ] Create RefactorInput interface
+      - [ ] file: string (required)
+      - [ ] function: string (required)
+      - [ ] code: string (optional) - function source code
+      - [ ] metrics: object (optional) - current metrics
+    - [ ] Define JSON Schema for MCP tool registration
+      - [ ] Add tool name: "faultline_refactor_suggestions"
+      - [ ] Add description: "Get specific refactoring suggestions"
+      - [ ] Define input schema
+  - [ ] Implement refactor_suggestions() function
+    - [ ] Accept RefactorInput parameters
+    - [ ] Validate inputs
+    - [ ] Read function code if not provided
+      - [ ] Parse file with SWC (or read from file)
+      - [ ] Extract function by name
+      - [ ] Handle not found error
+    - [ ] Analyze code structure (if code provided)
+      - [ ] Count if/else chains
+      - [ ] Count nested loops
+      - [ ] Identify long blocks
+      - [ ] Find repeated patterns
+    - [ ] Generate targeted suggestions
+      - [ ] For if/else chains: "Consider strategy pattern or lookup table"
+      - [ ] For nested loops: "Extract inner loop to separate function"
+      - [ ] For long blocks: "Extract logical sections into named functions"
+      - [ ] For repeated patterns: "Create reusable helper functions"
+      - [ ] For deep nesting: "Use early returns to reduce nesting"
+    - [ ] Rank suggestions by impact
+      - [ ] Estimate LRS reduction for each
+      - [ ] Order by biggest impact first
+    - [ ] Format response
+      - [ ] List suggestions with priorities
+      - [ ] Show estimated complexity reduction
+      - [ ] Provide code examples where helpful
+    - [ ] Return formatted suggestions
+  - [ ] Test refactor tool
+    - [ ] Test with if/else chain function
+    - [ ] Test with nested loop function
+    - [ ] Test with long function
+    - [ ] Verify suggestion quality
+    - [ ] Test with and without code parameter
+
+- [ ] **Add configuration system**
+  - [ ] Create src/config.ts
+    - [ ] Define Config interface
+      - [ ] faultlinePath: string | null - custom binary path
+      - [ ] defaultConfigFile: string | null - default config file
+      - [ ] timeout: number - execution timeout in ms
+      - [ ] workingDirectory: string - base directory for analysis
+    - [ ] Implement loadConfig() function
+      - [ ] Check for faultline-mcp-config.json in cwd
+      - [ ] Check for config in user home directory
+      - [ ] Parse JSON config
+      - [ ] Validate config structure
+      - [ ] Apply defaults for missing fields
+      - [ ] Return Config object
+    - [ ] Implement getDefaultConfig() function
+      - [ ] Return sensible defaults
+        - [ ] faultlinePath: null (use PATH)
+        - [ ] defaultConfigFile: null (let faultline discover)
+        - [ ] timeout: 30000 (30 seconds)
+        - [ ] workingDirectory: process.cwd()
+  - [ ] Create example faultline-mcp-config.json
+    - [ ] Document all config options with comments (in README)
+    - [ ] Show example with custom binary path
+    - [ ] Show example with default config file
+  - [ ] Test configuration loading
+    - [ ] Test with no config (uses defaults)
+    - [ ] Test with partial config (merges with defaults)
+    - [ ] Test with full config
+    - [ ] Test with invalid config (throws error)
+
+- [ ] **Implement MCP server**
+  - [ ] Create src/server.ts
+    - [ ] Import MCP SDK
+    - [ ] Import all tools (analyze, explain, refactor)
+    - [ ] Create Server instance
+    - [ ] Register all tools
+      - [ ] Register faultline_analyze with schema
+      - [ ] Register faultline_explain with schema
+      - [ ] Register faultline_refactor_suggestions with schema
+    - [ ] Implement tool handlers
+      - [ ] Route faultline_analyze calls to analyze()
+      - [ ] Route faultline_explain calls to explain()
+      - [ ] Route faultline_refactor_suggestions calls to refactor_suggestions()
+      - [ ] Wrap each handler with error handling
+    - [ ] Add server metadata
+      - [ ] Name: "Faultline MCP Server"
+      - [ ] Version: from package.json
+      - [ ] Description
+    - [ ] Start server
+      - [ ] Listen on stdio transport
+      - [ ] Log startup message to stderr
+      - [ ] Handle shutdown gracefully
+  - [ ] Create src/index.ts (entry point)
+    - [ ] Import server
+    - [ ] Load config
+    - [ ] Start server with config
+    - [ ] Handle top-level errors
+    - [ ] Add --version flag support
+    - [ ] Add --help flag support
+  - [ ] Build and test server
+    - [ ] Run `npm run build`
+    - [ ] Verify dist/index.js exists
+    - [ ] Test running server directly: `node dist/index.js`
+    - [ ] Verify server starts and waits for input
+
+- [ ] **Create setup documentation**
+  - [ ] Create comprehensive README.md
+    - [ ] Add overview section
+      - [ ] What is the MCP server
+      - [ ] What can it do
+      - [ ] Why use it with Claude
+    - [ ] Add prerequisites section
+      - [ ] Node.js 18+ required
+      - [ ] Faultline CLI must be installed
+      - [ ] Claude Desktop or compatible MCP client
+    - [ ] Add installation section
+      - [ ] Global install: `npm install -g @faultline/mcp-server`
+      - [ ] Local install in project
+      - [ ] Verify installation: `faultline-mcp-server --version`
+    - [ ] Add Claude Desktop configuration
+      - [ ] Show how to edit claude_desktop_config.json
+      - [ ] Provide example configuration
+        ```json
+        {
+          "mcpServers": {
+            "faultline": {
+              "command": "faultline-mcp-server",
+              "args": []
+            }
+          }
+        }
+        ```
+      - [ ] Show config with custom binary path
+      - [ ] Show config with working directory
+    - [ ] Add usage examples
+      - [ ] Example conversation 1: Analyze project
+      - [ ] Example conversation 2: Explain high complexity
+      - [ ] Example conversation 3: Get refactoring suggestions
+      - [ ] Example conversation 4: Iterative refactoring loop
+    - [ ] Add API documentation
+      - [ ] Document faultline_analyze tool with all parameters
+      - [ ] Document faultline_explain tool with all parameters
+      - [ ] Document faultline_refactor_suggestions tool with all parameters
+      - [ ] Show example inputs and outputs for each
+    - [ ] Add troubleshooting section
+      - [ ] "Server not appearing in Claude" → Check config path
+      - [ ] "Faultline not found" → Install faultline CLI
+      - [ ] "Permission denied" → Check binary permissions
+      - [ ] "Timeout errors" → Increase timeout in config
+    - [ ] Add configuration reference
+      - [ ] Document faultline-mcp-config.json
+      - [ ] List all options with types and defaults
+  - [ ] Create examples/ directory
+    - [ ] Add example-conversation-1.md (basic analysis)
+    - [ ] Add example-conversation-2.md (refactoring loop)
+    - [ ] Add example-config.json
+
+- [ ] **Test with Claude Desktop**
+  - [ ] Set up local testing environment
+    - [ ] Install Claude Desktop (if not already installed)
+    - [ ] Build MCP server: `npm run build`
+    - [ ] Create test config in claude_desktop_config.json
+    - [ ] Point to local build for testing
+  - [ ] Test tool discovery
+    - [ ] Start Claude Desktop
+    - [ ] Verify Faultline tools appear in available tools
+    - [ ] Check tool descriptions are clear
+    - [ ] Verify tool parameters are documented
+  - [ ] Test faultline_analyze tool
+    - [ ] Ask Claude to analyze a test project
+    - [ ] Verify tool is called correctly
+    - [ ] Verify JSON output is parsed
+    - [ ] Verify Claude presents results clearly
+    - [ ] Test with different modes (snapshot, delta)
+    - [ ] Test with minLrs filtering
+  - [ ] Test faultline_explain tool
+    - [ ] Ask Claude to explain a high-complexity function
+    - [ ] Verify explanation is generated
+    - [ ] Verify suggestions are helpful
+    - [ ] Test with different LRS values
+  - [ ] Test faultline_refactor_suggestions tool
+    - [ ] Ask Claude for refactoring suggestions
+    - [ ] Verify suggestions are specific and actionable
+    - [ ] Verify suggestions are ranked
+  - [ ] Test analyze → refactor → re-analyze loop
+    - [ ] Ask Claude to analyze code
+    - [ ] Ask for refactoring suggestions
+    - [ ] Apply suggestions (manually or with Claude)
+    - [ ] Ask Claude to re-analyze
+    - [ ] Verify LRS decreased
+    - [ ] Complete full loop successfully
+  - [ ] Test error handling
+    - [ ] Try analyzing non-existent path
+    - [ ] Try with faultline not installed (temporarily)
+    - [ ] Try with invalid parameters
+    - [ ] Verify error messages are clear and actionable
+  - [ ] Document test results
+    - [ ] Note any issues found
+    - [ ] Fix issues before publishing
+    - [ ] Get sample conversation transcripts for docs
+
+- [ ] **Publish to npm**
+  - [ ] Prepare package for publishing
+    - [ ] Add .npmignore
+      - [ ] Exclude src/ (ship only dist/)
+      - [ ] Exclude tests/
+      - [ ] Exclude tsconfig.json
+      - [ ] Include README.md, LICENSE, package.json
+    - [ ] Add LICENSE file (MIT)
+    - [ ] Ensure package.json is complete
+      - [ ] Verify "bin" field points to dist/index.js
+      - [ ] Verify "files" field includes dist/
+      - [ ] Add repository URL
+      - [ ] Add bugs URL
+      - [ ] Add homepage URL
+      - [ ] Add author field
+    - [ ] Add shebang to dist/index.js: `#!/usr/bin/env node`
+    - [ ] Make binary executable: `chmod +x dist/index.js`
+  - [ ] Test package locally
+    - [ ] Run `npm pack`
+    - [ ] Extract tarball
+    - [ ] Verify contents are correct
+    - [ ] Install locally: `npm install -g ./faultline-mcp-server-1.0.0.tgz`
+    - [ ] Test running: `faultline-mcp-server --version`
+    - [ ] Test in Claude Desktop with local install
+  - [ ] Publish to npm registry
+    - [ ] Login to npm: `npm login`
+    - [ ] Dry run: `npm publish --dry-run --access public`
+    - [ ] Review what will be published
+    - [ ] Publish: `npm publish --access public`
+    - [ ] Verify on npmjs.com/@faultline/mcp-server
+  - [ ] Test published package
+    - [ ] Uninstall local version
+    - [ ] Install from npm: `npm install -g @faultline/mcp-server`
+    - [ ] Verify installation
+    - [ ] Test in Claude Desktop
+    - [ ] Verify all tools work
+  - [ ] Add to MCP server registry
+    - [ ] Visit MCP server registry submission page
+    - [ ] Fill out submission form
+      - [ ] Package name: @faultline/mcp-server
+      - [ ] Description
+      - [ ] Category: Development Tools
+      - [ ] npm URL
+      - [ ] GitHub URL
+    - [ ] Submit for review
+    - [ ] Follow up if needed
+
+**Example Usage:**
+```
+User: "Analyze the complexity of src/"
+Claude: [calls faultline_analyze]
+        "I found 3 high-risk functions..."
+
+User: "How can I reduce complexity in handleRequest?"
+Claude: [calls faultline_refactor_suggestions]
+        "Here are 3 ways to refactor..."
+```
+
+**Acceptance:**
+- ✅ Claude Desktop can call Faultline as a tool
+- ✅ All 3 tools work correctly (analyze, explain, refactor_suggestions)
+- ✅ Error messages are helpful
+- ✅ Published to npm and MCP registry
+
+**Estimated effort:** 2 days
+
+---
+
+### 7.4 AI Integration Documentation
+
+**Priority:** P1 (Essential for adoption)
+
+**Status:** ⏳ **IN PROGRESS**
+
+**Problem:** No guidance on how AI agents should use Faultline. Need patterns, examples, and best practices.
+
+**Tasks:**
+
+- [ ] **Create docs/AI_INTEGRATION.md structure**
+  - [ ] Set up document outline
+    - [ ] Create docs/AI_INTEGRATION.md file
+    - [ ] Add title: "AI Integration Guide"
+    - [ ] Add table of contents with links
+    - [ ] Add last updated date
+  - [ ] Write Overview section
+    - [ ] Explain "Why Faultline is AI-First"
+      - [ ] Deterministic output (same input → same output)
+      - [ ] Machine-readable JSON format
+      - [ ] Clear, structured schema
+      - [ ] No side effects or state
+      - [ ] Fast execution (suitable for tight loops)
+    - [ ] Explain use cases for AI + Faultline
+      - [ ] Automated code review
+      - [ ] Iterative refactoring
+      - [ ] Complexity-aware code generation
+      - [ ] CI/CD integration
+      - [ ] Continuous quality improvement
+    - [ ] List available integration methods
+      - [ ] Claude MCP Server (direct tool access)
+      - [ ] CLI with JSON output (any AI)
+      - [ ] GitHub Action outputs (CI-based)
+      - [ ] TypeScript SDK (programmatic)
+  - [ ] Create Quick Start section
+    - [ ] Show simplest possible example
+    - [ ] 5-line code snippet for running Faultline
+    - [ ] Parse JSON output
+    - [ ] Access key fields
+    - [ ] Link to full workflows below
+
+- [ ] **Document JSON Output Reference**
+  - [ ] Link to docs/json-schema.md
+  - [ ] Provide quick reference for common fields
+    - [ ] Create table of top-level fields
+      - [ ] mode, functions, violations, summary
+      - [ ] Show types and descriptions
+    - [ ] Create table of FunctionReport fields
+      - [ ] file, name, line, lrs, risk_band, metrics
+      - [ ] Show types and descriptions
+    - [ ] Create table of Violation fields
+      - [ ] policy_id, severity, message, file, function
+      - [ ] Show types and descriptions
+  - [ ] Show JSON output examples inline
+    - [ ] Snapshot mode with clean code (no violations)
+    - [ ] Snapshot mode with violations
+    - [ ] Delta mode with changes
+  - [ ] Explain snapshot vs delta modes
+    - [ ] When to use snapshot (full codebase analysis)
+    - [ ] When to use delta (PR/commit analysis)
+    - [ ] How delta mode saves time
+  - [ ] Document output fields AI should focus on
+    - [ ] violations array (first thing to check)
+    - [ ] functions with risk_band "high" or "critical"
+    - [ ] summary.policy_passed boolean
+    - [ ] delta_type "added" or "modified" (in delta mode)
+
+- [ ] **Document AI workflows**
+  - [ ] Write "Code Review" workflow
+    - [ ] Overview: AI reviews PR for complexity issues
+    - [ ] Step-by-step process
+      - [ ] 1. Run faultline in delta mode on PR
+      - [ ] 2. Parse JSON output
+      - [ ] 3. Filter for added/modified high-risk functions
+      - [ ] 4. For each violation, generate review comment
+      - [ ] 5. Post comments to PR
+    - [ ] Code example (TypeScript pseudocode)
+    - [ ] Expected output format
+    - [ ] Link to reference implementation (Task 7.5)
+  - [ ] Write "Refactoring Loop" workflow
+    - [ ] Overview: AI iteratively refactors until LRS < threshold
+    - [ ] Step-by-step process
+      - [ ] 1. Run faultline, identify high-risk function
+      - [ ] 2. AI generates refactoring suggestions
+      - [ ] 3. Apply suggestions (AI or human)
+      - [ ] 4. Re-run faultline to verify improvement
+      - [ ] 5. Repeat until LRS < threshold or max iterations
+      - [ ] 6. Validate tests still pass
+    - [ ] Code example showing loop structure
+    - [ ] Termination conditions
+    - [ ] Safety measures (max iterations, test validation)
+    - [ ] Link to reference implementation
+  - [ ] Write "Complexity-Aware Generation" workflow
+    - [ ] Overview: AI generates code with LRS constraint
+    - [ ] Step-by-step process
+      - [ ] 1. AI generates initial implementation
+      - [ ] 2. Write to temp file
+      - [ ] 3. Run faultline on temp file
+      - [ ] 4. If LRS > threshold, regenerate with "simpler" constraint
+      - [ ] 5. Repeat until satisfactory or give up
+    - [ ] Code example showing generate-check-regenerate loop
+    - [ ] Prompt engineering tips (include LRS constraint)
+    - [ ] Link to reference implementation
+  - [ ] Write "Pre-Commit Checks" workflow
+    - [ ] Overview: AI validates staged changes before commit
+    - [ ] Step-by-step process
+      - [ ] 1. Git hook triggers on pre-commit
+      - [ ] 2. Get list of staged files
+      - [ ] 3. Run faultline in delta mode
+      - [ ] 4. If violations, AI suggests fixes
+      - [ ] 5. User can accept, modify, or skip commit
+    - [ ] Code example for git hook
+    - [ ] Integration with husky or simple-git-hooks
+    - [ ] Link to reference implementation
+  - [ ] Write "Automated Refactoring" workflow
+    - [ ] Overview: AI proposes and applies complexity fixes
+    - [ ] Step-by-step process
+      - [ ] 1. Run faultline snapshot mode
+      - [ ] 2. Sort functions by LRS descending
+      - [ ] 3. For top N functions, AI generates refactor
+      - [ ] 4. Apply refactor, run tests
+      - [ ] 5. If tests pass, keep changes; else revert
+      - [ ] 6. Create PR with changes
+    - [ ] Code example showing full automation
+    - [ ] Safety considerations (require test passage)
+    - [ ] Human review checkpoint
+    - [ ] Link to reference implementation
+
+- [ ] **Add AI assistant integration examples**
+  - [ ] Document Claude integration (via MCP server)
+    - [ ] Prerequisites: Claude Desktop + MCP server installed
+    - [ ] Configuration steps
+      - [ ] Show claude_desktop_config.json setup
+      - [ ] Verify tools are loaded
+    - [ ] Example conversation flow
+      - [ ] User: "Analyze src/ for complexity"
+      - [ ] Claude calls faultline_analyze tool
+      - [ ] Claude presents results
+      - [ ] User: "Suggest refactoring for handleRequest"
+      - [ ] Claude calls faultline_refactor_suggestions
+      - [ ] Claude provides specific suggestions
+    - [ ] Best practices for prompts
+      - [ ] Be specific about paths
+      - [ ] Ask for explanations of high LRS
+      - [ ] Request iterative refinement
+    - [ ] Link to MCP server docs
+  - [ ] Document GPT-4 integration (via API + CLI)
+    - [ ] Overview: Use CLI + JSON parsing
+    - [ ] Code example in Python
+      - [ ] Run faultline via subprocess
+      - [ ] Parse JSON output
+      - [ ] Send to GPT-4 with context
+      - [ ] GPT-4 analyzes and suggests improvements
+    - [ ] Code example in TypeScript/Node
+      - [ ] Use execa to run faultline
+      - [ ] Parse JSON with @faultline/types
+      - [ ] Call OpenAI API
+      - [ ] Format response
+    - [ ] Prompt engineering tips
+      - [ ] Include JSON schema in system prompt
+      - [ ] Provide example outputs
+      - [ ] Ask for structured responses
+  - [ ] Document Cursor integration
+    - [ ] Overview: In-editor AI + Faultline CLI
+    - [ ] Setup approach
+      - [ ] Configure Cursor to use faultline
+      - [ ] Add keyboard shortcut for analysis
+    - [ ] Usage pattern
+      - [ ] Select function in editor
+      - [ ] Trigger Cursor + Faultline
+      - [ ] Get inline refactoring suggestions
+    - [ ] Example .cursorrules or config
+    - [ ] Note: May require custom extension/script
+  - [ ] Document GitHub Copilot Workspace integration
+    - [ ] Overview: PR analysis in Copilot Workspace
+    - [ ] Setup using GitHub Action
+      - [ ] Add Faultline action to workflow
+      - [ ] Post results as PR comment
+      - [ ] Copilot can read and act on comments
+    - [ ] Workflow example
+      - [ ] PR opened
+      - [ ] Faultline analyzes in delta mode
+      - [ ] Results posted as comment
+      - [ ] Copilot sees violations
+      - [ ] Copilot suggests fixes in review
+    - [ ] Link to GitHub Action setup docs
+
+- [ ] **Document best practices**
+  - [ ] Write "Determinism" section
+    - [ ] Explain why Faultline is reliable for AI
+      - [ ] No randomness in analysis
+      - [ ] Same code → same LRS (byte-for-byte)
+      - [ ] No timestamps or env vars in output
+      - [ ] Git-deterministic in delta mode
+    - [ ] How AI can trust results
+      - [ ] No flaky failures
+      - [ ] Reproducible across runs
+      - [ ] Suitable for automated decision-making
+    - [ ] Testing tip: Run twice, compare output
+  - [ ] Write "Caching" section
+    - [ ] Why caching matters
+      - [ ] Avoid redundant analysis
+      - [ ] Speed up iterative workflows
+      - [ ] Reduce CI time
+    - [ ] Where to cache
+      - [ ] Cache JSON output by file hash
+      - [ ] Cache analysis results per commit
+      - [ ] Use GitHub Actions cache for CI
+    - [ ] Invalidation strategy
+      - [ ] Invalidate on file change
+      - [ ] Invalidate on faultline version change
+      - [ ] Invalidate on config change
+    - [ ] Code example: Simple file-based cache
+  - [ ] Write "Rate Limiting" section
+    - [ ] Why rate limiting matters
+      - [ ] Don't overwhelm CI runners
+      - [ ] Respect API limits (if using AI APIs)
+      - [ ] Avoid unnecessary cost
+    - [ ] Strategies
+      - [ ] Only analyze changed files in PR
+      - [ ] Use delta mode, not snapshot
+      - [ ] Batch multiple files in one run
+      - [ ] Add cooldown between refactor iterations
+    - [ ] Code example: Rate-limited analysis loop
+  - [ ] Write "Incremental Analysis" section
+    - [ ] Use delta mode for PRs
+      - [ ] Only analyzes git diff
+      - [ ] Much faster than full snapshot
+      - [ ] Focuses AI attention on changes
+    - [ ] Filter functions by delta_type
+      - [ ] Focus on "added" and "modified"
+      - [ ] Ignore "unchanged"
+      - [ ] Note "removed" for completeness
+    - [ ] Code example: Filter delta output
+  - [ ] Write "Feedback Loops" section
+    - [ ] Why validation is critical
+      - [ ] AI changes must be verified
+      - [ ] Complexity can shift, not always decrease
+      - [ ] Tests must pass after refactoring
+    - [ ] Validation steps
+      - [ ] 1. Run tests after AI changes
+      - [ ] 2. Re-run faultline to verify LRS decreased
+      - [ ] 3. Check for new violations
+      - [ ] 4. Ensure overall complexity didn't shift elsewhere
+    - [ ] Code example: Validation loop
+    - [ ] What to do if validation fails
+      - [ ] Revert changes
+      - [ ] Ask AI to try different approach
+      - [ ] Add constraints to prompt
+
+- [ ] **Add troubleshooting section**
+  - [ ] "AI can't parse JSON"
+    - [ ] Cause: Unexpected JSON format
+    - [ ] Solution 1: Check faultline version
+    - [ ] Solution 2: Use @faultline/types for validation
+    - [ ] Solution 3: Show AI the schema first
+    - [ ] Code example: Robust JSON parsing with error handling
+  - [ ] "Analysis is slow"
+    - [ ] Cause 1: Analyzing too many files
+      - [ ] Solution: Use delta mode for PRs
+      - [ ] Solution: Use include/exclude patterns in config
+    - [ ] Cause 2: Large codebase
+      - [ ] Solution: Analyze specific directories only
+      - [ ] Solution: Use parallel analysis (future feature)
+    - [ ] Cause 3: Running in loop without caching
+      - [ ] Solution: Implement caching (see best practices)
+  - [ ] "False positives"
+    - [ ] Cause: Function is complex but well-tested/intentional
+    - [ ] Solution 1: Use suppression comments
+      - [ ] `// faultline-ignore: reason`
+    - [ ] Solution 2: Adjust thresholds in config
+      - [ ] Raise critical threshold if too strict
+    - [ ] Solution 3: Use custom policy
+      - [ ] Different standards for different directories
+  - [ ] "AI suggests bad refactorings"
+    - [ ] Cause: AI doesn't understand full context
+    - [ ] Solution 1: Provide more context in prompt
+      - [ ] Include surrounding code
+      - [ ] Explain purpose of function
+    - [ ] Solution 2: Validate with tests
+      - [ ] Always run tests after AI changes
+    - [ ] Solution 3: Review AI suggestions before applying
+      - [ ] Don't blindly accept
+  - [ ] "Violations don't make sense"
+    - [ ] Cause: Misunderstanding of metrics
+    - [ ] Solution: Read docs/metrics-rationale.md
+    - [ ] Solution: Use faultline_explain tool (MCP)
+    - [ ] Solution: Check individual metrics (CC, ND, FO, NS)
+
+- [ ] **Update main README.md**
+  - [ ] Add "AI-First Design" section
+    - [ ] Read current README.md
+    - [ ] Find appropriate location (after "Features" section)
+    - [ ] Write AI-First subsection
+      - [ ] Title: "🤖 Built for AI Coding Assistants"
+      - [ ] 2-3 sentence pitch
+        - [ ] "Faultline is designed from day one for AI-assisted development"
+        - [ ] "Deterministic, machine-readable output"
+        - [ ] "Direct integration with Claude, GPT-4, Cursor"
+      - [ ] Bullet points
+        - [ ] ✅ Claude MCP Server for direct tool access
+        - [ ] ✅ Structured JSON output with TypeScript types
+        - [ ] ✅ Deterministic analysis (no flaky results)
+        - [ ] ✅ Fast execution for iterative workflows
+      - [ ] Link to docs/AI_INTEGRATION.md for details
+  - [ ] Add MCP server example
+    - [ ] Create "Quick Start with Claude" subsection
+    - [ ] Show installation command
+      - [ ] `npm install -g @faultline/mcp-server`
+    - [ ] Show configuration snippet
+      - [ ] claude_desktop_config.json example
+    - [ ] Show example conversation
+      - [ ] User asks Claude to analyze code
+      - [ ] Claude calls faultline_analyze
+      - [ ] Claude presents results
+    - [ ] Link to MCP server docs
+  - [ ] Highlight deterministic output in Features
+    - [ ] Find "Features" section
+    - [ ] Add/emphasize determinism bullet point
+      - [ ] "🎯 Deterministic - Same code always produces same results"
+      - [ ] Mention "Perfect for AI-driven workflows"
+  - [ ] Update badges section (if exists)
+    - [ ] Add npm badge for @faultline/mcp-server
+    - [ ] Add "AI-First" badge (custom badge?)
+  - [ ] Add AI workflows to Use Cases
+    - [ ] Find or create "Use Cases" section
+    - [ ] Add: "Automated code review with AI"
+    - [ ] Add: "AI-driven iterative refactoring"
+    - [ ] Add: "Complexity-aware code generation"
+    - [ ] Link to AI_INTEGRATION.md for each
+
+**Acceptance:**
+- ✅ AI_INTEGRATION.md covers all common workflows
+- ✅ Examples for 3+ AI assistants
+- ✅ Clear, copy-pasteable code examples
+- ✅ README.md prominently features AI integration
+
+**Estimated effort:** 1 day
+
+---
+
+### 7.5 Reference Implementation Examples
+
+**Priority:** P1 (Show, don't just tell)
+
+**Status:** ⏳ **IN PROGRESS**
+
+**Problem:** Developers learn best from working code. Need reference implementations showing AI+Faultline patterns.
+
+**Tasks:**
+
+- [ ] **Set up examples/ai-agents/ directory structure**
+  - [ ] Create directory structure
+    - [ ] Create `examples/ai-agents/` at project root
+    - [ ] Create `examples/ai-agents/shared/` for utilities
+    - [ ] Create subdirectory for each example
+      - [ ] `examples/ai-agents/refactor-loop/`
+      - [ ] `examples/ai-agents/pre-commit-review/`
+      - [ ] `examples/ai-agents/constrained-generation/`
+      - [ ] `examples/ai-agents/pr-reviewer/`
+  - [ ] Set up TypeScript configuration
+    - [ ] Create `examples/ai-agents/tsconfig.json`
+      - [ ] Set target: ES2022
+      - [ ] Set module: commonjs
+      - [ ] Enable strict mode
+      - [ ] Set rootDir and outDir
+    - [ ] Create `examples/ai-agents/package.json`
+      - [ ] Set name: "faultline-ai-examples"
+      - [ ] Add scripts: build, test, clean
+      - [ ] Add dependencies
+        - [ ] @faultline/types
+        - [ ] execa (for running faultline)
+        - [ ] openai (for GPT examples)
+        - [ ] @anthropic-ai/sdk (for Claude examples)
+      - [ ] Add devDependencies
+        - [ ] typescript
+        - [ ] @types/node
+        - [ ] tsx (for running TS directly)
+  - [ ] Create main README.md
+    - [ ] Title: "Faultline AI Agent Examples"
+    - [ ] Overview paragraph
+    - [ ] Prerequisites section (Node.js, faultline, API keys)
+    - [ ] Directory structure explanation
+    - [ ] List all examples with short descriptions
+    - [ ] Installation instructions: `npm install`
+    - [ ] How to run examples
+    - [ ] Note about API keys (set via env vars)
+
+- [ ] **Create shared utilities**
+  - [ ] Implement faultline-client.ts
+    - [ ] Import execa and @faultline/types
+    - [ ] Create FaultlineClient class
+      - [ ] Constructor accepts binary path (optional)
+      - [ ] async analyze(options) method
+        - [ ] Accept path, mode, minLrs, config
+        - [ ] Build CLI arguments array
+        - [ ] Run faultline with execa
+        - [ ] Capture stdout and stderr
+        - [ ] Handle errors (binary not found, parse error)
+        - [ ] Parse JSON output
+        - [ ] Validate with @faultline/types
+        - [ ] Return typed FaultlineOutput
+      - [ ] async analyzeFile(filePath, mode) method (convenience)
+      - [ ] async analyzeDirectory(dirPath, mode) method (convenience)
+    - [ ] Add error handling
+      - [ ] FaultlineNotFoundError class
+      - [ ] FaultlineParseError class
+      - [ ] FaultlineExecutionError class
+    - [ ] Add JSDoc comments
+    - [ ] Export FaultlineClient and error classes
+  - [ ] Implement ai-prompts.ts
+    - [ ] Create prompt templates as constants
+    - [ ] ANALYZE_PROMPT: Template for asking AI to analyze complexity
+      - [ ] Include JSON schema reference
+      - [ ] Ask for specific, actionable suggestions
+    - [ ] REFACTOR_PROMPT: Template for refactoring suggestions
+      - [ ] Include current LRS and target LRS
+      - [ ] Ask for code changes
+      - [ ] Emphasize test preservation
+    - [ ] EXPLAIN_PROMPT: Template for explaining complexity
+      - [ ] Include metrics breakdown
+      - [ ] Ask for plain English explanation
+    - [ ] GENERATE_WITH_CONSTRAINT_PROMPT: Template for constrained generation
+      - [ ] Include LRS target
+      - [ ] Ask to generate simple, maintainable code
+    - [ ] createRefactorPrompt(functionCode, lrs, targetLrs) helper
+      - [ ] Fill template with actual values
+      - [ ] Return formatted prompt string
+    - [ ] createExplainPrompt(functionName, lrs, metrics) helper
+    - [ ] Export all templates and helpers
+  - [ ] Implement result-parser.ts
+    - [ ] Import @faultline/types
+    - [ ] Create parsing utilities
+      - [ ] parseFaultlineOutput(json: string): FaultlineOutput
+        - [ ] Try to parse JSON
+        - [ ] Validate structure
+        - [ ] Return typed object or throw
+      - [ ] getHighRiskFunctions(output, minLrs): FunctionReport[]
+        - [ ] Filter functions by LRS threshold
+        - [ ] Sort by LRS descending
+        - [ ] Return array
+      - [ ] getViolations(output, severity?): Violation[]
+        - [ ] Filter violations by severity if provided
+        - [ ] Return array
+      - [ ] getChangedFunctions(output): FunctionReport[]
+        - [ ] Filter for delta_type = "added" or "modified"
+        - [ ] Return array
+      - [ ] formatFunctionSummary(fn: FunctionReport): string
+        - [ ] Return human-readable string
+        - [ ] Example: "handleRequest (src/api.ts:45) - LRS 7.2 (High)"
+    - [ ] Add error handling for invalid JSON
+    - [ ] Export all utilities
+
+- [ ] **Implement refactor-loop example**
+  - [ ] Create refactor-loop/ directory structure
+    - [ ] Create `examples/ai-agents/refactor-loop/refactor-loop.ts`
+    - [ ] Create `examples/ai-agents/refactor-loop/README.md`
+    - [ ] Create `examples/ai-agents/refactor-loop/test-input/complex-function.ts`
+  - [ ] Write refactor-loop.ts
+    - [ ] Import dependencies (FaultlineClient, AI SDK, prompts, parsers)
+    - [ ] Define configuration interface
+      - [ ] targetLrs: number
+      - [ ] maxIterations: number
+      - [ ] testCommand: string (command to run tests)
+    - [ ] Implement main refactorLoop function
+      - [ ] Accept filePath, functionName, config
+      - [ ] Initialize FaultlineClient
+      - [ ] Step 1: Initial analysis
+        - [ ] Run faultline on file
+        - [ ] Find target function by name
+        - [ ] Log initial LRS
+        - [ ] If LRS < targetLrs, exit early (already good)
+      - [ ] Step 2: Refactoring loop
+        - [ ] For iteration 1 to maxIterations:
+          - [ ] Read current function code from file
+          - [ ] Generate refactor prompt with current LRS
+          - [ ] Call AI API for refactoring suggestion
+          - [ ] Parse AI response (extract code)
+          - [ ] Write refactored code to file
+          - [ ] Run tests (execute testCommand)
+          - [ ] If tests fail:
+            - [ ] Log failure
+            - [ ] Revert code
+            - [ ] Continue to next iteration
+          - [ ] Re-run faultline analysis
+          - [ ] Get new LRS
+          - [ ] Log improvement
+          - [ ] If new LRS < targetLrs:
+            - [ ] Success! Exit loop
+          - [ ] If new LRS >= old LRS (no improvement):
+            - [ ] Log stagnation
+            - [ ] Try different approach or exit
+      - [ ] Step 3: Final report
+        - [ ] Log total iterations
+        - [ ] Log initial vs final LRS
+        - [ ] Log whether target was reached
+    - [ ] Add detailed logging throughout
+    - [ ] Add error handling for AI API failures
+    - [ ] Add command-line argument parsing
+      - [ ] Accept file path, function name, target LRS
+      - [ ] Use commander or minimist
+  - [ ] Create test input file
+    - [ ] Write complex-function.ts with intentionally high LRS
+    - [ ] Include multiple issues: nesting, long chains, high CC
+    - [ ] Add simple tests that can be run after refactoring
+  - [ ] Write comprehensive README.md
+    - [ ] Purpose: Iteratively refactor until complexity target met
+    - [ ] Prerequisites (API key setup)
+    - [ ] Installation: `npm install`
+    - [ ] Configuration: Set OPENAI_API_KEY or ANTHROPIC_API_KEY
+    - [ ] Usage: `npx tsx refactor-loop.ts test-input/complex-function.ts handleRequest 6.0`
+    - [ ] Expected output walkthrough
+    - [ ] Customization options
+    - [ ] Troubleshooting
+  - [ ] Test the example end-to-end
+    - [ ] Run with test input
+    - [ ] Verify loop executes
+    - [ ] Verify tests run after each iteration
+    - [ ] Verify LRS decreases
+    - [ ] Fix any bugs
+
+- [ ] **Implement pre-commit-review example**
+  - [ ] Create pre-commit-review/ directory structure
+    - [ ] Create `examples/ai-agents/pre-commit-review/pre-commit-review.ts`
+    - [ ] Create `examples/ai-agents/pre-commit-review/README.md`
+    - [ ] Create `examples/ai-agents/pre-commit-review/install-hook.sh`
+  - [ ] Write pre-commit-review.ts
+    - [ ] Import dependencies
+    - [ ] Implement main function
+      - [ ] Step 1: Get staged files
+        - [ ] Run `git diff --cached --name-only --diff-filter=ACM`
+        - [ ] Parse output to get list of files
+        - [ ] Filter for .ts, .tsx, .js, .jsx files
+      - [ ] Step 2: Run faultline in delta mode
+        - [ ] Use FaultlineClient
+        - [ ] Analyze staged changes only
+        - [ ] Get FaultlineOutput
+      - [ ] Step 3: Check for violations
+        - [ ] Use getViolations() parser
+        - [ ] If no violations, exit 0 (allow commit)
+      - [ ] Step 4: AI review if violations found
+        - [ ] For each violation:
+          - [ ] Get function context from file
+          - [ ] Generate AI prompt asking for assessment
+          - [ ] Call AI to explain violation
+          - [ ] Format AI response
+        - [ ] Log all AI explanations
+      - [ ] Step 5: User decision
+        - [ ] Print summary: "X violations found"
+        - [ ] Show AI explanations
+        - [ ] Ask: "Proceed with commit? (y/n)"
+        - [ ] Read user input from stdin
+        - [ ] Exit 0 if 'y', exit 1 if 'n' (block commit)
+    - [ ] Add colorized output (chalk or similar)
+    - [ ] Add progress indicators
+    - [ ] Handle errors gracefully (AI API down, git fails, etc.)
+  - [ ] Write install-hook.sh script
+    - [ ] Check if .git directory exists
+    - [ ] Copy pre-commit-review.ts to .git/hooks/pre-commit
+    - [ ] Make executable: `chmod +x`
+    - [ ] Add shebang: `#!/usr/bin/env npx tsx`
+    - [ ] Print success message
+  - [ ] Write comprehensive README.md
+    - [ ] Purpose: Review staged changes before commit
+    - [ ] Prerequisites (faultline, Node.js, API key)
+    - [ ] Installation
+      - [ ] Run `npm install` in examples/ai-agents
+      - [ ] Run `./install-hook.sh` to set up git hook
+      - [ ] Set OPENAI_API_KEY or ANTHROPIC_API_KEY
+    - [ ] Usage: Commit as normal, hook runs automatically
+    - [ ] Example output walkthrough
+    - [ ] How to bypass: `git commit --no-verify`
+    - [ ] Customization options
+  - [ ] Test the example
+    - [ ] Install hook in test repo
+    - [ ] Stage complex file
+    - [ ] Attempt commit
+    - [ ] Verify AI review runs
+    - [ ] Test blocking (choose 'n')
+    - [ ] Test allowing (choose 'y')
+
+- [ ] **Implement constrained-generation example**
+  - [ ] Create constrained-generation/ directory structure
+    - [ ] Create `examples/ai-agents/constrained-generation/constrained-generation.ts`
+    - [ ] Create `examples/ai-agents/constrained-generation/README.md`
+  - [ ] Write constrained-generation.ts
+    - [ ] Import dependencies
+    - [ ] Define configuration interface
+      - [ ] maxLrs: number (complexity target)
+      - [ ] maxAttempts: number
+      - [ ] outputFile: string (where to write generated code)
+    - [ ] Implement main generateWithConstraint function
+      - [ ] Accept prompt (what to generate), config
+      - [ ] Step 1: Generate initial code
+        - [ ] Create AI prompt with complexity constraint
+          - [ ] Include maxLrs target
+          - [ ] Ask for simple, maintainable implementation
+        - [ ] Call AI API
+        - [ ] Extract generated code from response
+      - [ ] Step 2: Validate complexity
+        - [ ] Write code to temporary file
+        - [ ] Run faultline on temp file
+        - [ ] Parse output, get LRS of generated function
+        - [ ] Log LRS
+      - [ ] Step 3: Retry if too complex
+        - [ ] If LRS > maxLrs and attempts < maxAttempts:
+          - [ ] Regenerate with stronger constraint
+          - [ ] Update prompt: "Previous attempt had LRS X, too complex. Simplify further."
+          - [ ] Repeat validation
+        - [ ] If LRS <= maxLrs:
+          - [ ] Success! Write to outputFile
+          - [ ] Return code
+        - [ ] If max attempts reached:
+          - [ ] Log failure
+          - [ ] Return best attempt
+      - [ ] Step 4: Report results
+        - [ ] Log how many attempts needed
+        - [ ] Log final LRS
+        - [ ] Show generated code path
+    - [ ] Add command-line argument parsing
+      - [ ] Accept prompt as argument
+      - [ ] Accept maxLrs, maxAttempts, outputFile as flags
+    - [ ] Add detailed logging
+  - [ ] Write comprehensive README.md
+    - [ ] Purpose: Generate code that meets complexity target
+    - [ ] Prerequisites (API key)
+    - [ ] Installation: `npm install`
+    - [ ] Usage: `npx tsx constrained-generation.ts "create a function to validate email" --max-lrs 3.0`
+    - [ ] Example output walkthrough
+    - [ ] Use cases
+      - [ ] Generating simple utility functions
+      - [ ] Creating boilerplate with constraints
+    - [ ] Limitations (AI might not always succeed)
+  - [ ] Test the example
+    - [ ] Try generating simple function
+    - [ ] Try generating complex function (should retry)
+    - [ ] Verify LRS checking works
+    - [ ] Verify retry logic works
+
+- [ ] **Implement pr-reviewer example**
+  - [ ] Create pr-reviewer/ directory structure
+    - [ ] Create `examples/ai-agents/pr-reviewer/pr-reviewer.ts`
+    - [ ] Create `examples/ai-agents/pr-reviewer/README.md`
+  - [ ] Write pr-reviewer.ts
+    - [ ] Import dependencies (Octokit, FaultlineClient, AI SDK)
+    - [ ] Define configuration interface
+      - [ ] githubToken: string
+      - [ ] repoOwner: string
+      - [ ] repoName: string
+      - [ ] prNumber: number
+    - [ ] Implement main reviewPR function
+      - [ ] Accept config
+      - [ ] Step 1: Checkout PR
+        - [ ] Use git or GitHub API to get PR diff
+        - [ ] Identify changed files
+      - [ ] Step 2: Run faultline in delta mode
+        - [ ] Use FaultlineClient
+        - [ ] Analyze PR changes
+        - [ ] Get violations
+      - [ ] Step 3: Generate AI review comments
+        - [ ] For each violation:
+          - [ ] Get function code and context
+          - [ ] Generate prompt for AI review
+          - [ ] Call AI to generate review comment
+          - [ ] Format comment with:
+            - [ ] File and line number
+            - [ ] LRS and risk band
+            - [ ] AI explanation
+            - [ ] Suggestions for improvement
+      - [ ] Step 4: Post comments to GitHub PR
+        - [ ] Use Octokit to create review
+        - [ ] Add inline comments for each violation
+        - [ ] Add summary comment with overview
+        - [ ] Set review state (REQUEST_CHANGES if critical, COMMENT otherwise)
+      - [ ] Step 5: Report results
+        - [ ] Log how many comments posted
+        - [ ] Log PR review URL
+    - [ ] Add command-line argument parsing
+      - [ ] Accept repo owner, name, PR number
+      - [ ] Read GitHub token from env var
+    - [ ] Add error handling (API failures, rate limits)
+  - [ ] Write comprehensive README.md
+    - [ ] Purpose: Automated AI-powered PR complexity review
+    - [ ] Prerequisites (GitHub token, API key)
+    - [ ] Installation: `npm install`
+    - [ ] Setup
+      - [ ] Create GitHub token with repo access
+      - [ ] Set GITHUB_TOKEN env var
+      - [ ] Set OPENAI_API_KEY or ANTHROPIC_API_KEY
+    - [ ] Usage: `npx tsx pr-reviewer.ts --owner myorg --repo myrepo --pr 123`
+    - [ ] Example output
+    - [ ] Integration with GitHub Actions
+      - [ ] Provide example workflow YAML
+      - [ ] Trigger on pull_request event
+    - [ ] Customization options
+  - [ ] Test the example
+    - [ ] Create test PR with complexity violations
+    - [ ] Run pr-reviewer against test PR
+    - [ ] Verify comments are posted
+    - [ ] Verify AI reviews are helpful
+    - [ ] Test with PR that passes (no comments)
+
+- [ ] **Add integration tests**
+  - [ ] Set up test infrastructure
+    - [ ] Create `examples/ai-agents/tests/` directory
+    - [ ] Install testing dependencies
+      - [ ] vitest or jest
+      - [ ] @types/jest
+    - [ ] Create test configuration
+      - [ ] Set up test timeout (longer for AI calls)
+      - [ ] Configure env var loading (.env.test)
+  - [ ] Test refactor-loop
+    - [ ] Create refactor-loop.test.ts
+    - [ ] Test with mock AI (no API key required)
+      - [ ] Mock AI responses
+      - [ ] Verify loop logic
+      - [ ] Verify termination conditions
+    - [ ] Test with real AI (if API key available)
+      - [ ] Skip if no API key: `test.skipIf(!process.env.OPENAI_API_KEY)`
+      - [ ] Run on test fixture
+      - [ ] Verify LRS decreases
+      - [ ] Verify determinism (same result on re-run)
+  - [ ] Test pre-commit-review
+    - [ ] Create pre-commit-review.test.ts
+    - [ ] Test git diff parsing
+    - [ ] Test violation detection
+    - [ ] Test user prompt (mock stdin)
+    - [ ] Test with mock AI
+  - [ ] Test constrained-generation
+    - [ ] Create constrained-generation.test.ts
+    - [ ] Test with mock AI
+    - [ ] Verify retry logic
+    - [ ] Verify constraint checking
+  - [ ] Test pr-reviewer
+    - [ ] Create pr-reviewer.test.ts
+    - [ ] Test with mock GitHub API
+    - [ ] Test comment generation
+    - [ ] Test with mock AI
+  - [ ] Test shared utilities
+    - [ ] Test FaultlineClient
+      - [ ] Test analyze() with real faultline
+      - [ ] Test error handling (binary not found)
+      - [ ] Test JSON parsing
+    - [ ] Test result-parser
+      - [ ] Test parsing valid JSON
+      - [ ] Test parsing invalid JSON (error)
+      - [ ] Test filter functions
+    - [ ] Test ai-prompts
+      - [ ] Test template filling
+      - [ ] Verify prompts contain necessary context
+  - [ ] Run all tests in CI
+    - [ ] Add test script to package.json
+    - [ ] Run tests without API keys (mock tests only)
+    - [ ] Optionally run real tests if secrets available
+
+- [ ] **Polish and finalize**
+  - [ ] Review all code for consistency
+    - [ ] Consistent error handling
+    - [ ] Consistent logging format
+    - [ ] Consistent naming conventions
+    - [ ] Add missing JSDoc comments
+  - [ ] Review all READMEs
+    - [ ] Check for typos
+    - [ ] Verify all commands work
+    - [ ] Ensure examples are copy-pasteable
+    - [ ] Add "Next Steps" section to each
+  - [ ] Create master examples README
+    - [ ] Update examples/ai-agents/README.md
+    - [ ] Add table of contents
+    - [ ] Add comparison table (which example for which use case)
+    - [ ] Add "Getting Started" quick guide
+  - [ ] Add LICENSE files
+    - [ ] Add MIT LICENSE to examples/ai-agents/
+    - [ ] Add copyright notice to each source file
+  - [ ] Test all examples end-to-end
+    - [ ] Fresh npm install
+    - [ ] Run each example
+    - [ ] Verify they all work
+    - [ ] Fix any issues
+  - [ ] Record demo videos (optional)
+    - [ ] Screen recording of each example
+    - [ ] Add to README or link to YouTube
+  - [ ] Link from main project docs
+    - [ ] Update docs/AI_INTEGRATION.md
+    - [ ] Link to each example with description
+    - [ ] Add "Try the examples" call-to-action
+
+**Example Structure:**
+```
+examples/ai-agents/
+├── README.md
+├── package.json
+├── tsconfig.json
+├── refactor-loop/
+│   ├── refactor-loop.ts
+│   ├── README.md
+│   └── test-input/
+│       └── complex-function.ts
+├── pre-commit-review/
+│   ├── pre-commit-review.ts
+│   ├── README.md
+│   └── install-hook.sh
+├── constrained-generation/
+│   ├── constrained-generation.ts
+│   └── README.md
+├── pr-reviewer/
+│   ├── pr-reviewer.ts
+│   └── README.md
+├── shared/
+│   ├── faultline-client.ts
+│   ├── ai-prompts.ts
+│   └── result-parser.ts
+└── tests/
+    ├── refactor-loop.test.ts
+    ├── pre-commit-review.test.ts
+    ├── constrained-generation.test.ts
+    ├── pr-reviewer.test.ts
+    └── shared.test.ts
+```
+
+**Acceptance:**
+- ✅ 4+ working reference implementations
+- ✅ Each example has clear README
+- ✅ Examples use `@faultline/types` for type safety
+- ✅ Code is production-quality (error handling, logging)
+- ✅ Tests prove examples work
+
+**Estimated effort:** 1 day
+
+---
+
+## Phase 7 Timeline
+
+**Day 1 (Today):**
+- ✅ Planning and requirements
+- Fix clippy errors (3 hours)
+
+**Day 2:**
+- JSON Schema & Types (full day)
+- Publish `@faultline/types` to npm
+
+**Day 3-4:**
+- Claude MCP Server (2 days)
+- Test with Claude Desktop
+- Publish to npm and MCP registry
+
+**Day 5:**
+- AI Integration Documentation
+- Update README.md
+- Write AI_INTEGRATION.md
+
+**Day 6:**
+- Reference Implementation Examples
+- Create 4+ working examples
+- Test and validate
+
+**Day 7:**
+- Polish and review
+- Update ROADMAP.md
+- Prepare v1.0.0 release
+
+---
+
+## Phase 7 Success Metrics
+
+**Technical:**
+- ✅ Zero clippy errors
+- ✅ JSON Schema validates all outputs
+- ✅ TypeScript types match runtime output
+- ✅ MCP server works in Claude Desktop
+- ✅ All 145+ tests pass
+
+**Documentation:**
+- ✅ AI_INTEGRATION.md covers 5+ workflows
+- ✅ 4+ reference implementations
+- ✅ README.md highlights AI-first design
+
+**Adoption (post-release):**
+- [ ] 10+ repos using Faultline with AI agents
+- [ ] MCP server listed in official MCP registry
+- [ ] Featured in AI coding assistant communities
+- [ ] Blog posts from AI users showing workflows
 
 ---
 
