@@ -25,14 +25,14 @@
 
 **Phase 7: AI-First Integration** (PRIORITY - v1.0.0 Blocker)
 - ✅ Task 7.1: Fix Clippy Errors (COMPLETED 2026-02-06)
-- ⏳ Task 7.2: JSON Schema & Types
-- ⏳ Task 7.3: Claude MCP Server
+- ✅ Task 7.2: JSON Schema & Types (COMPLETED 2026-02-06)
+- ✅ Task 7.3: Claude MCP Server (COMPLETED 2026-02-06)
 - ⏳ Task 7.4: AI Integration Documentation
 - ⏳ Task 7.5: Reference Implementation Examples
 
-**Overall Progress:** 9/30 tasks completed (30%)
+**Overall Progress:** 11/30 tasks completed (37%)
 
-**Latest Update:** 2026-02-06 - Completed Task 7.1: Fixed all clippy warnings (17 errors resolved)
+**Latest Update:** 2026-02-06 - Completed Phase 7 tasks 7.1-7.3: Clippy fixes, JSON schemas/types, MCP server. Renamed project from faultline to hotspots.
 
 ---
 
