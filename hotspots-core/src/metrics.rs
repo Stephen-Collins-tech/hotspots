@@ -34,9 +34,8 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             extract_go_metrics(function, cfg)
         }
         FunctionBody::Python { .. } => {
-            // TODO: Extract Python-specific metrics from tree-sitter AST (Task 9.2)
-            // For now, just use CFG-based calculation as a placeholder
-            unimplemented!("Python metrics extraction not yet implemented")
+            // Extract Python-specific metrics from tree-sitter AST
+            extract_python_metrics(function, cfg)
         }
         FunctionBody::Rust { .. } => {
             // Extract Rust-specific metrics from syn AST
@@ -604,6 +603,208 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
 }
 
 // Note: Go metrics tests are integrated with cfg_builder tests
+
+// ============================================================================
+// Python Metrics Implementation
+// ============================================================================
+
+/// Extract metrics for Python functions using tree-sitter
+fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_python();
+
+    // Re-parse the source to get the tree
+    use tree_sitter::Parser;
+    let mut parser = Parser::new();
+    let language = tree_sitter_python::LANGUAGE;
+    parser.set_language(&language.into()).expect("Failed to set Python language");
+
+    let tree = parser.parse(source, None).expect("Failed to re-parse Python source");
+    let root = tree.root_node();
+
+    // Find the function node in the tree
+    if let Some(func_node) = find_python_function_by_start(root, function.span.start) {
+        // Find the block (function body)
+        if let Some(body_node) = find_python_child_by_kind(func_node, "block") {
+            // Calculate base CC from CFG
+            let base_cc = calculate_cc_from_cfg(cfg);
+
+            // Count additional CC contributors (comprehensions, boolean operators, etc.)
+            let extra_cc = python_count_cc_extras(&body_node, source);
+
+            // Calculate other metrics from AST
+            let nd = python_nesting_depth(&body_node);
+            let fo = python_fan_out(&body_node, source);
+            let ns = python_non_structured_exits(&body_node);
+
+            return RawMetrics {
+                cc: base_cc + extra_cc,
+                nd,
+                fo,
+                ns,
+            };
+        }
+    }
+
+    // Fallback: return minimal metrics
+    RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+    }
+}
+
+/// Find a Python function node by its start byte position
+fn find_python_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Option<tree_sitter::Node> {
+    fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
+        if (node.kind() == "function_definition" || node.kind() == "async_function_definition")
+            && node.start_byte() == start
+        {
+            return Some(node);
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = search_recursive(child, start) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search_recursive(root, start_byte)
+}
+
+/// Find a child node by kind
+#[allow(clippy::manual_find)]
+fn find_python_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// Calculate nesting depth for Python function
+fn python_nesting_depth(body_node: &tree_sitter::Node) -> usize {
+    fn calculate_depth(node: tree_sitter::Node, current_depth: usize, max_depth: &mut usize) {
+        // Increment depth for control structures
+        let new_depth = if matches!(
+            node.kind(),
+            "if_statement" | "while_statement" | "for_statement" |
+            "try_statement" | "with_statement" | "match_statement"
+        ) {
+            let depth = current_depth + 1;
+            if depth > *max_depth {
+                *max_depth = depth;
+            }
+            depth
+        } else {
+            current_depth
+        };
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            calculate_depth(child, new_depth, max_depth);
+        }
+    }
+
+    let mut max_depth = 0;
+    calculate_depth(*body_node, 0, &mut max_depth);
+    max_depth
+}
+
+/// Count function calls (fan-out) in Python
+fn python_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
+    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut std::collections::HashSet<String>) {
+        // Python uses "call" node for function calls
+        if node.kind() == "call" {
+            // Try to extract the function name
+            let mut cursor = node.walk();
+            if let Some(func_node) = node.children(&mut cursor).next() {
+                let func_text = &source[func_node.start_byte()..func_node.end_byte()];
+                calls.insert(func_text.to_string());
+            };
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_calls(child, source, calls);
+        }
+    }
+
+    let mut calls = std::collections::HashSet::new();
+    count_calls(*body_node, source, &mut calls);
+    calls.len()
+}
+
+/// Count non-structured exits in Python (return, raise, break, continue)
+fn python_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
+    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
+        match node.kind() {
+            "return_statement" | "raise_statement" | "break_statement" | "continue_statement" => {
+                *count += 1;
+            }
+            _ => {}
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_exits(child, count);
+        }
+    }
+
+    let mut count = 0;
+    count_exits(*body_node, &mut count);
+    count
+}
+
+/// Count additional CC contributors in Python
+/// (comprehensions with if-filters, boolean operators, ternary expressions)
+fn python_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
+        match node.kind() {
+            // Boolean operators (and, or) add to CC
+            "boolean_operator" => {
+                *count += 1;
+            }
+            // Ternary expressions add to CC
+            "conditional_expression" => {
+                *count += 1;
+            }
+            // Comprehensions with if-filters add to CC
+            "list_comprehension" | "dictionary_comprehension" |
+            "set_comprehension" | "generator_expression" => {
+                // Check if it has an if_clause child
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "if_clause" {
+                        *count += 1;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_extras(child, count);
+        }
+    }
+
+    let mut count = 0;
+    count_extras(*body_node, &mut count);
+    count
+}
+
+// Note: Python metrics tests are integrated with cfg_builder tests
 
 // ========================================
 // Rust Metrics Extraction

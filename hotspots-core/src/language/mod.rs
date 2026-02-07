@@ -19,7 +19,7 @@ pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use parser::{LanguageParser, ParsedModule};
-pub use python::PythonParser;
+pub use python::{PythonCfgBuilder, PythonParser};
 pub use rust::{RustCfgBuilder, RustParser};
 pub use span::SourceSpan;
 
