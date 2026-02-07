@@ -135,7 +135,7 @@ fn test_typescript_javascript_parity() {
 #[test]
 fn test_javascript_module_extensions() {
     // Create temporary .mjs and .cjs files
-    let temp_dir = std::env::temp_dir().join("faultline_test_extensions");
+    let temp_dir = std::env::temp_dir().join("hotspots_test_extensions");
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let mjs_file = temp_dir.join("test.mjs");
@@ -172,7 +172,7 @@ fn test_javascript_module_extensions() {
 #[test]
 fn test_typescript_module_extensions() {
     // Create temporary .mts and .cts files
-    let temp_dir = std::env::temp_dir().join("faultline_test_ts_extensions");
+    let temp_dir = std::env::temp_dir().join("hotspots_test_ts_extensions");
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let mts_file = temp_dir.join("test.mts");

@@ -413,10 +413,10 @@ function optimizeQuery() {
 
 ### 4. Git Integration
 
-Snapshot system stores analysis results in `.faultline/snapshots/`:
+Snapshot system stores analysis results in `.hotspots/snapshots/`:
 
 ```
-.faultline/
+.hotspots/
 └── snapshots/
     ├── abc123.json   # Commit abc123 snapshot
     ├── def456.json   # Commit def456 snapshot
@@ -451,13 +451,13 @@ Risk Velocity: +2.06 per commit
 
 - **Text** - Human-readable table format (default)
 - **JSON** - Machine-readable for CI/CD and AI
-- **HTML** - Interactive report with charts (`.faultline/report.html`)
+- **HTML** - Interactive report with charts (`.hotspots/report.html`)
 
 ### 6. Configuration
 
 Auto-discovered config files:
-- `.faultlinerc`
-- `.faultline.json`
+- `.hotspotsrc`
+- `.hotspots.json`
 - `faultline.config.json`
 - `package.json` (under `"faultline"` key)
 

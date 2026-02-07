@@ -55,8 +55,7 @@ pub fn extract_suppression(source: &str, span: SourceSpan, _source_map: &SourceM
     let prev_line = lines[prev_line_num - 1].trim();
 
     // Check if the line contains the suppression comment
-    // Support both "hotspots-ignore" and "faultline-ignore" for backwards compatibility
-    if !prev_line.starts_with("// hotspots-ignore") && !prev_line.starts_with("// faultline-ignore") {
+    if !prev_line.starts_with("// hotspots-ignore") {
         return None;
     }
 
@@ -131,7 +130,7 @@ function foo() {
     #[test]
     fn test_suppression_with_reason() {
         let source = r#"
-// faultline-ignore: legacy code, will refactor later
+// hotspots-ignore: legacy code, will refactor later
 function foo() {
   return 42;
 }
@@ -145,7 +144,7 @@ function foo() {
     #[test]
     fn test_suppression_without_reason() {
         let source = r#"
-// faultline-ignore:
+// hotspots-ignore:
 function foo() {
   return 42;
 }
@@ -156,7 +155,7 @@ function foo() {
     #[test]
     fn test_suppression_no_colon() {
         let source = r#"
-// faultline-ignore
+// hotspots-ignore
 function foo() {
   return 42;
 }
@@ -167,7 +166,7 @@ function foo() {
     #[test]
     fn test_blank_line_between() {
         let source = r#"
-// faultline-ignore: should not be recognized
+// hotspots-ignore: should not be recognized
 
 function foo() {
   return 42;
@@ -185,7 +184,7 @@ function foo() {
     #[test]
     fn test_suppression_with_whitespace() {
         let source = r#"
-  // faultline-ignore:   whitespace test
+  // hotspots-ignore:   whitespace test
 function foo() {
   return 42;
 }

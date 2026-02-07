@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/faultline/tests/fixtures/loop-breaks.ts",
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/loop-breaks.ts",
     "function": "loopWithBreaks",
     "line": 2,
     "metrics": {

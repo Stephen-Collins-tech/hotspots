@@ -12,7 +12,7 @@ use swc_common::{sync::Lrc, SourceMap};
 #[test]
 fn test_suppression_comment_extraction() {
     let source = r#"
-// faultline-ignore: legacy code
+// hotspots-ignore: legacy code
 function suppressed() {
   if (true) {
     return 1;
@@ -43,7 +43,7 @@ function notSuppressed() {
 #[test]
 fn test_suppression_without_reason() {
     let source = r#"
-// faultline-ignore:
+// hotspots-ignore:
 function suppressed() {
   return 42;
 }
@@ -60,7 +60,7 @@ function suppressed() {
 #[test]
 fn test_suppression_blank_line_ignored() {
     let source = r#"
-// faultline-ignore: should not work
+// hotspots-ignore: should not work
 
 function notSuppressed() {
   return 42;

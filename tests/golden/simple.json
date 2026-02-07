@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/faultline/tests/fixtures/simple.ts",
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/simple.ts",
     "function": "simple",
     "line": 2,
     "metrics": {

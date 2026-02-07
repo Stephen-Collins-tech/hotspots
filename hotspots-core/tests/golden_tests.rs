@@ -33,7 +33,7 @@ fn read_golden(name: &str) -> String {
 }
 
 /// Normalize paths in JSON to use the actual project root for portability
-/// Extracts the path segment after "faultline/" and normalizes to use the current project root
+/// Extracts the path segment after "hotspots/" and normalizes to use the current project root
 fn normalize_paths(json: &mut serde_json::Value, project_root: &PathBuf) {
     match json {
         serde_json::Value::Array(arr) => {
@@ -43,17 +43,17 @@ fn normalize_paths(json: &mut serde_json::Value, project_root: &PathBuf) {
         }
         serde_json::Value::Object(obj) => {
             if let Some(serde_json::Value::String(path)) = obj.get_mut("file") {
-                // Extract path segment after "faultline/" - this is the relative path within the project
+                // Extract path segment after "hotspots/" - this is the relative path within the project
                 let path_str = path.as_str();
-                if let Some(idx) = path_str.find("faultline/") {
-                    let suffix = &path_str[idx + "faultline/".len()..];
+                if let Some(idx) = path_str.find("hotspots/") {
+                    let suffix = &path_str[idx + "hotspots/".len()..];
                     // Normalize to use the actual project root (no hardcoded paths)
                     *path = project_root.join(suffix).to_string_lossy().to_string();
-                } else if let Some(idx) = path_str.find("faultline") {
-                    // Handle case where "faultline" is not followed by "/"
-                    if let Some(next_char) = path_str.chars().nth(idx + "faultline".len()) {
+                } else if let Some(idx) = path_str.find("hotspots") {
+                    // Handle case where "hotspots" is not followed by "/"
+                    if let Some(next_char) = path_str.chars().nth(idx + "hotspots".len()) {
                         if next_char == '/' || next_char == '\\' {
-                            let suffix = &path_str[idx + "faultline".len() + 1..];
+                            let suffix = &path_str[idx + "hotspots".len() + 1..];
                             *path = project_root.join(suffix).to_string_lossy().to_string();
                         }
                     }

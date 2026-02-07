@@ -4,9 +4,9 @@
 //!
 //! Search order:
 //! 1. Explicit path (--config CLI flag)
-//! 2. `.faultlinerc.json` in project root
-//! 3. `faultline.config.json` in project root
-//! 4. `"faultline"` key in `package.json`
+//! 2. `.hotspotsrc.json` in project root
+//! 3. `hotspots.config.json` in project root
+//! 4. `"hotspots"` key in `package.json`
 //!
 //! All fields are optional. CLI flags take precedence over config file values.
 
@@ -360,27 +360,27 @@ impl ResolvedConfig {
 /// Discover and load a config file from the project root
 ///
 /// Search order:
-/// 1. `.faultlinerc.json`
-/// 2. `faultline.config.json`
-/// 3. `"faultline"` key in `package.json`
+/// 1. `.hotspotsrc.json`
+/// 2. `hotspots.config.json`
+/// 3. `"hotspots"` key in `package.json`
 ///
 /// Returns `None` if no config file is found (use defaults).
 pub fn discover_config(project_root: &Path) -> Result<Option<(HotspotsConfig, PathBuf)>> {
-    // 1. .faultlinerc.json
-    let rc_path = project_root.join(".faultlinerc.json");
+    // 1. .hotspotsrc.json
+    let rc_path = project_root.join(".hotspotsrc.json");
     if rc_path.exists() {
         let config = load_config_file(&rc_path)?;
         return Ok(Some((config, rc_path)));
     }
 
-    // 2. faultline.config.json
-    let config_path = project_root.join("faultline.config.json");
+    // 2. hotspots.config.json
+    let config_path = project_root.join("hotspots.config.json");
     if config_path.exists() {
         let config = load_config_file(&config_path)?;
         return Ok(Some((config, config_path)));
     }
 
-    // 3. package.json "faultline" key
+    // 3. package.json "hotspots" key
     let pkg_path = project_root.join("package.json");
     if pkg_path.exists() {
         if let Some(config) = load_from_package_json(&pkg_path)? {
@@ -405,7 +405,7 @@ pub fn load_config_file(path: &Path) -> Result<HotspotsConfig> {
     Ok(config)
 }
 
-/// Load faultline config from the "faultline" key in package.json
+/// Load hotspots config from the "hotspots" key in package.json
 fn load_from_package_json(path: &Path) -> Result<Option<HotspotsConfig>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
@@ -413,14 +413,14 @@ fn load_from_package_json(path: &Path) -> Result<Option<HotspotsConfig>> {
     let pkg: serde_json::Value = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
 
-    match pkg.get("faultline") {
-        Some(faultline_value) => {
-            let config: HotspotsConfig = serde_json::from_value(faultline_value.clone())
+    match pkg.get("hotspots") {
+        Some(hotspots_value) => {
+            let config: HotspotsConfig = serde_json::from_value(hotspots_value.clone())
                 .with_context(|| {
-                    format!("invalid faultline config in {}", path.display())
+                    format!("invalid hotspots config in {}", path.display())
                 })?;
             config.validate()
-                .with_context(|| format!("invalid faultline config in {}", path.display()))?;
+                .with_context(|| format!("invalid hotspots config in {}", path.display()))?;
             Ok(Some(config))
         }
         None => Ok(None),
@@ -571,9 +571,9 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_faultlinerc() {
+    fn test_discover_hotspotsrc() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join(".faultlinerc.json");
+        let config_path = dir.path().join(".hotspotsrc.json");
         fs::write(&config_path, r#"{"min_lrs": 5.0}"#).unwrap();
 
         let result = discover_config(dir.path()).unwrap();
@@ -584,9 +584,9 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_faultline_config_json() {
+    fn test_discover_hotspots_config_json() {
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("faultline.config.json");
+        let config_path = dir.path().join("hotspots.config.json");
         fs::write(&config_path, r#"{"top": 10}"#).unwrap();
 
         let result = discover_config(dir.path()).unwrap();
@@ -602,7 +602,7 @@ mod tests {
         fs::write(&pkg_path, r#"{
             "name": "my-project",
             "version": "1.0.0",
-            "faultline": {
+            "hotspots": {
                 "exclude": ["**/*.test.ts"],
                 "min_lrs": 3.0
             }
@@ -629,13 +629,13 @@ mod tests {
     fn test_discover_priority_order() {
         let dir = tempfile::tempdir().unwrap();
 
-        // Create both config files - .faultlinerc.json should win
-        fs::write(dir.path().join(".faultlinerc.json"), r#"{"min_lrs": 1.0}"#).unwrap();
-        fs::write(dir.path().join("faultline.config.json"), r#"{"min_lrs": 2.0}"#).unwrap();
+        // Create both config files - .hotspotsrc.json should win
+        fs::write(dir.path().join(".hotspotsrc.json"), r#"{"min_lrs": 1.0}"#).unwrap();
+        fs::write(dir.path().join("hotspots.config.json"), r#"{"min_lrs": 2.0}"#).unwrap();
 
         let result = discover_config(dir.path()).unwrap();
         let (config, _) = result.unwrap();
-        assert_eq!(config.min_lrs, Some(1.0), ".faultlinerc.json should take priority");
+        assert_eq!(config.min_lrs, Some(1.0), ".hotspotsrc.json should take priority");
     }
 
     #[test]

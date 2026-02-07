@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/faultline/tests/fixtures/try-catch-finally.ts",
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/try-catch-finally.ts",
     "function": "tryCatchFinally",
     "line": 2,
     "metrics": {

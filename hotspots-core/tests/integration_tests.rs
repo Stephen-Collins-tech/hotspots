@@ -1,4 +1,4 @@
-//! Integration tests for faultline analysis
+//! Integration tests for hotspots analysis
 
 use hotspots_core::{analyze, render_json, AnalysisOptions};
 use std::path::PathBuf;

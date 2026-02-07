@@ -27,10 +27,10 @@ fn create_temp_git_repo() -> tempfile::TempDir {
     // Disable commit signing (may be configured globally in some environments)
     git_command(repo_path, &["config", "commit.gpgsign", "false"]);
     
-    // Ensure .faultline/ is git-ignored (important for force-push tests)
+    // Ensure .hotspots/ is git-ignored (important for force-push tests)
     let gitignore_path = repo_path.join(".gitignore");
     if !gitignore_path.exists() {
-        std::fs::write(&gitignore_path, ".faultline/\n").expect("failed to write .gitignore");
+        std::fs::write(&gitignore_path, ".hotspots/\n").expect("failed to write .gitignore");
     }
     
     temp_dir
@@ -78,7 +78,7 @@ fn get_commit_sha(repo_path: &Path, ref_name: &str) -> String {
 
 /// Verify snapshot exists for a commit
 fn verify_snapshot_exists(repo_path: &Path, commit_sha: &str) -> bool {
-    let snapshot_path = repo_path.join(".faultline").join("snapshots").join(format!("{}.json", commit_sha));
+    let snapshot_path = repo_path.join(".hotspots").join("snapshots").join(format!("{}.json", commit_sha));
     snapshot_path.exists()
 }
 
@@ -369,7 +369,7 @@ fn test_force_push_does_not_corrupt_history() {
     );
     
     // Force-push to reset HEAD to commit1 (removes commit2 from git history, but not snapshots)
-    // git reset --hard does not affect .faultline/ directory (which is git-ignored)
+    // git reset --hard does not affect .hotspots/ directory (which is git-ignored)
     git_command(repo_path, &["reset", "--hard", &commit1]);
     
     // After reset, verify snapshot files still exist by reconstructing paths
@@ -377,11 +377,11 @@ fn test_force_push_does_not_corrupt_history() {
     let snapshot_path1_check = snapshot::snapshot_path(repo_path, &snapshot1_sha);
     let snapshot_path2_check = snapshot::snapshot_path(repo_path, &snapshot2_sha);
     
-    // Check if .faultline directory still exists
-    let faultline_dir = repo_path.join(".faultline");
+    // Check if .hotspots directory still exists
+    let faultline_dir = repo_path.join(".hotspots");
     assert!(
         faultline_dir.exists(),
-        ".faultline directory should still exist after reset: {}",
+        ".hotspots directory should still exist after reset: {}",
         faultline_dir.display()
     );
     

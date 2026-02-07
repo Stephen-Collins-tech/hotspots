@@ -40,7 +40,6 @@
 
 # Hotspots history data (derived state, not source)
 .hotspots/
-.faultline/
 
 repomix-output.xml
 

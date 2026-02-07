@@ -278,19 +278,19 @@ impl Default for Index {
     }
 }
 
-/// Get the path to the `.faultline` directory in the repository root
-pub fn faultline_dir(repo_root: &Path) -> PathBuf {
-    repo_root.join(".faultline")
+/// Get the path to the `.hotspots` directory in the repository root
+pub fn hotspots_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join(".hotspots")
 }
 
 /// Get the path to the snapshots directory
 pub fn snapshots_dir(repo_root: &Path) -> PathBuf {
-    faultline_dir(repo_root).join("snapshots")
+    hotspots_dir(repo_root).join("snapshots")
 }
 
 /// Get the path to the index file
 pub fn index_path(repo_root: &Path) -> PathBuf {
-    faultline_dir(repo_root).join("index.json")
+    hotspots_dir(repo_root).join("index.json")
 }
 
 /// Get the path to a snapshot file for a given commit SHA
@@ -399,7 +399,7 @@ pub fn append_to_index(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
 
 /// Rebuild index from snapshots directory
 ///
-/// Scans `.faultline/snapshots/` and rebuilds `index.json` with deterministic ordering.
+/// Scans `.hotspots/snapshots/` and rebuilds `index.json` with deterministic ordering.
 /// Useful for recovery if index is corrupted or missing.
 ///
 /// # Ordering

@@ -18,7 +18,7 @@ use hotspots_core::trends::TrendsAnalysis;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "faultline")]
+#[command(name = "hotspots")]
 #[command(about = "Static analysis tool for TypeScript, JavaScript, and React")]
 #[command(version = env!("FAULTLINE_VERSION"))]
 struct Cli {
@@ -58,7 +58,7 @@ enum Commands {
         #[arg(long)]
         config: Option<PathBuf>,
 
-        /// Output file path (for HTML format, default: .faultline/report.html)
+        /// Output file path (for HTML format, default: .hotspots/report.html)
         #[arg(long)]
         output: Option<PathBuf>,
     },
@@ -441,7 +441,7 @@ fn handle_mode_output(
                     let html = hotspots_core::html::render_html_snapshot(&snapshot_with_aggregates);
 
                     // Write to file
-                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
                     write_html_report(&output_path, &html)?;
                     eprintln!("HTML report written to: {}", output_path.display());
                 }
@@ -507,7 +507,7 @@ fn handle_mode_output(
                     let html = hotspots_core::html::render_html_delta(&delta_with_extras);
 
                     // Write to file
-                    let output_path = output.unwrap_or_else(|| PathBuf::from(".faultline/report.html"));
+                    let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
                     write_html_report(&output_path, &html)?;
                     eprintln!("HTML report written to: {}", output_path.display());
                 }
