@@ -6,6 +6,7 @@
 pub mod cfg_builder;
 pub mod ecmascript;
 pub mod function_body;
+pub mod go;
 pub mod parser;
 pub mod span;
 
@@ -14,6 +15,7 @@ use std::path::Path;
 pub use cfg_builder::{CfgBuilder, get_builder_for_function};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
+pub use go::{GoCfgBuilder, GoParser};
 pub use parser::{LanguageParser, ParsedModule};
 pub use span::SourceSpan;
 

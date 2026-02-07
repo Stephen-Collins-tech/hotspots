@@ -47,7 +47,7 @@ pub fn analyze_file_with_config(
             Box::new(language::ECMAScriptParser::new(source_map.clone()))
         }
         Language::Go => {
-            anyhow::bail!("Go support not yet implemented")
+            Box::new(language::GoParser::new().context("Failed to create Go parser")?)
         }
         Language::Rust => {
             anyhow::bail!("Rust support not yet implemented")

@@ -14,8 +14,18 @@ pub enum FunctionBody {
     /// method, arrow function, etc.
     ECMAScript(BlockStmt),
 
+    /// Go function body
+    ///
+    /// Contains the tree-sitter node ID for the block and the source code.
+    /// We store the source because tree-sitter nodes are tied to the tree lifetime.
+    Go {
+        /// The tree-sitter node ID for the function body block
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: String,
+    },
+
     // Future language support (currently unimplemented):
-    // Go(GoBlockStmt),
     // Rust(RustBlock),
 }
 
@@ -30,6 +40,11 @@ impl FunctionBody {
         matches!(self, FunctionBody::ECMAScript(_))
     }
 
+    /// Check if this is a Go function body
+    pub fn is_go(&self) -> bool {
+        matches!(self, FunctionBody::Go { .. })
+    }
+
     /// Get the ECMAScript body, if this is one
     ///
     /// # Panics
@@ -39,7 +54,6 @@ impl FunctionBody {
     pub fn as_ecmascript(&self) -> &BlockStmt {
         match self {
             FunctionBody::ECMAScript(block) => block,
-            #[allow(unreachable_patterns)]
             _ => panic!("FunctionBody is not ECMAScript"),
         }
     }
@@ -52,8 +66,19 @@ impl FunctionBody {
     pub fn as_ecmascript_mut(&mut self) -> &mut BlockStmt {
         match self {
             FunctionBody::ECMAScript(block) => block,
-            #[allow(unreachable_patterns)]
             _ => panic!("FunctionBody is not ECMAScript"),
+        }
+    }
+
+    /// Get the Go body node ID and source, if this is a Go function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a Go body. Use `is_go()` to check first.
+    pub fn as_go(&self) -> (usize, &str) {
+        match self {
+            FunctionBody::Go { body_node, source } => (*body_node, source.as_str()),
+            _ => panic!("FunctionBody is not Go"),
         }
     }
 }

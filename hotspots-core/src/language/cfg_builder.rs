@@ -22,17 +22,16 @@ pub trait CfgBuilder {
 
 /// Get the appropriate CFG builder for a function based on its language
 ///
-/// Currently only ECMAScript is supported. Future versions will dispatch
-/// to Go, Rust, etc. builders based on the function body variant.
-pub fn get_builder_for_function(_function: &FunctionNode) -> Box<dyn CfgBuilder> {
-    // For now, always return ECMAScript builder since that's all we support
-    // In the future, this will check function.body and dispatch accordingly:
-    // match &function.body {
-    //     FunctionBody::ECMAScript(_) => Box::new(ECMAScriptCfgBuilder),
-    //     FunctionBody::Go(_) => Box::new(GoCfgBuilder),
-    //     FunctionBody::Rust(_) => Box::new(RustCfgBuilder),
-    // }
-    Box::new(super::ecmascript::ECMAScriptCfgBuilder)
+/// Dispatches to the appropriate CFG builder based on the function body type.
+pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> {
+    use crate::language::FunctionBody;
+
+    match &function.body {
+        FunctionBody::ECMAScript(_) => Box::new(super::ecmascript::ECMAScriptCfgBuilder),
+        FunctionBody::Go { .. } => Box::new(super::go::GoCfgBuilder),
+        #[allow(unreachable_patterns)]
+        _ => panic!("Unsupported language for CFG building"),
+    }
 }
 
 #[cfg(test)]

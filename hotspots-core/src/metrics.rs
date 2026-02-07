@@ -20,14 +20,44 @@ pub struct RawMetrics {
 
 /// Extract all metrics for a function
 pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
-    // Extract ECMAScript body - only ECMAScript is currently supported
-    let body = function.body.as_ecmascript();
+    use crate::language::FunctionBody;
 
-    RawMetrics {
-        cc: cyclomatic_complexity(cfg, body),
-        nd: nesting_depth(body),
-        fo: fan_out(body),
-        ns: non_structured_exits(body),
+    match &function.body {
+        FunctionBody::ECMAScript(body) => RawMetrics {
+            cc: cyclomatic_complexity(cfg, body),
+            nd: nesting_depth(body),
+            fo: fan_out(body),
+            ns: non_structured_exits(body),
+        },
+        FunctionBody::Go { .. } => {
+            // TODO: Implement Go-specific metrics extraction
+            // For now, return simple metrics based on CFG structure
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg),
+                nd: 0, // TODO: calculate nesting depth from tree-sitter AST
+                fo: 0, // TODO: calculate fan-out from tree-sitter AST
+                ns: 0, // TODO: calculate non-structured exits from tree-sitter AST
+            }
+        }
+        #[allow(unreachable_patterns)]
+        _ => panic!("Unsupported language for metrics extraction"),
+    }
+}
+
+/// Calculate cyclomatic complexity from CFG alone
+/// Used for languages where we don't yet have full AST metrics
+fn calculate_cc_from_cfg(cfg: &Cfg) -> usize {
+    // Base formula: CC = E - N + 2
+    if cfg.edge_count() > 0 && cfg.node_count() > 2 {
+        let e = cfg.edge_count();
+        let n = cfg.node_count() - 2; // Exclude entry and exit
+        if n > 0 {
+            e.saturating_sub(n).saturating_add(2)
+        } else {
+            1
+        }
+    } else {
+        1
     }
 }
 
