@@ -68,6 +68,38 @@ See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ## Features
 
+### 🤖 Built for AI Coding Assistants
+
+Hotspots is designed from day one for AI-assisted development. Deterministic, machine-readable complexity analysis that AI agents can use to review code, guide refactoring, and generate better code.
+
+- ✅ **Claude MCP Server** - Direct tool access in Claude Desktop/Code
+- ✅ **Structured JSON** - Machine-readable output with TypeScript types
+- ✅ **Deterministic** - Same code always produces identical results
+- ✅ **Fast Execution** - Suitable for iterative AI workflows
+
+**Quick Start with Claude:**
+
+```bash
+npm install -g @hotspots/mcp-server
+```
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "hotspots": {
+      "command": "npx",
+      "args": ["@hotspots/mcp-server"]
+    }
+  }
+}
+```
+
+Then ask Claude: *"Analyze my codebase for complexity"*
+
+See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for complete AI integration guide with workflows for Claude, GPT-4, Cursor, and Copilot.
+
 ### CI/CD Integration
 
 - **GitHub Action**: Zero-config integration for pull requests and CI pipelines ([docs](action/README.md))
