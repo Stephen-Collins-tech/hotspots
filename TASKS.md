@@ -2887,7 +2887,7 @@ examples/ai-agents/
 
 **Priority:** P0 (High-value language for tool's target audience)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ⏳ **IN PROGRESS** (Starting implementation)
 
 **Problem:** Rust developers are sophisticated users who value tooling. Natural fit for Hotspots.
 
