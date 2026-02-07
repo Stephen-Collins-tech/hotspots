@@ -34,13 +34,13 @@
 
 **Phase 8: Multi-Language Support** (PRIORITY - v2.0.0 Feature)
 - ✅ Task 8.1: Architecture Refactoring (COMPLETED 2026-02-06)
-- ⏳ Task 8.2: Go Language Support
+- ⏳ Task 8.2: Go Language Support (IN PROGRESS - parser complete)
 - ⏳ Task 8.3: Rust Language Support
 - ⏳ Task 8.4: Integration & Polish
 
 **Overall Progress:** 14/34 tasks completed (41%)
 
-**Latest Update:** 2026-02-06 - Phase 8.1 (Architecture Refactoring) complete! Created language abstraction layer with trait-based parser and CFG builder interfaces. System now ready for Go and Rust language support.
+**Latest Update:** 2026-02-06 - Go parser implemented! Added tree-sitter-go, created Go parser with function/method discovery, integrated into analysis pipeline. Go files can now be analyzed. Working on full CFG builder next.
 
 ---
 
@@ -2779,41 +2779,39 @@ examples/ai-agents/
 
 **Priority:** P0 (First multi-language target)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ⏳ **IN PROGRESS** (Parser complete, CFG builder in progress)
 
 **Problem:** Go is widely used and has simple, well-defined control flow. Good first language to validate architecture.
 
 **Tasks:**
 
-- [ ] Add Go parser dependency
-  - [ ] Evaluate `tree-sitter-go` vs `go/parser` via FFI
-  - [ ] Add chosen dependency to Cargo.toml
+- [x] Add Go parser dependency
+  - [x] Evaluate `tree-sitter-go` vs `go/parser` via FFI (chose tree-sitter)
+  - [x] Add chosen dependency to Cargo.toml
   - [ ] Document decision in `docs/ARCHITECTURE.md`
-- [ ] Implement Go parser
-  - [ ] Create `src/language/go/parser.rs`
-  - [ ] Implement `LanguageParser` for Go
-  - [ ] Parse Go source to AST
-  - [ ] Extract source spans
-  - [ ] Handle parse errors gracefully
-- [ ] Implement Go function discovery
-  - [ ] Create `src/language/go/discover.rs`
-  - [ ] Implement `ParsedModule` for Go AST
-  - [ ] Discover function declarations
-  - [ ] Discover methods (receiver functions)
-  - [ ] Handle anonymous functions
-  - [ ] Extract function names and spans
-- [ ] Define Go AST types
-  - [ ] Create `src/language/go/ast.rs`
-  - [ ] Define `GoBlockStmt` and related types
-  - [ ] Map Go AST → Hotspots IR
+- [x] Implement Go parser
+  - [x] Create `src/language/go/parser.rs`
+  - [x] Implement `LanguageParser` for Go
+  - [x] Parse Go source to AST (using tree-sitter)
+  - [x] Extract source spans
+  - [x] Handle parse errors gracefully (tree-sitter is error-tolerant)
+- [x] Implement Go function discovery
+  - [x] Implement `ParsedModule` for Go AST (in parser.rs)
+  - [x] Discover function declarations
+  - [x] Discover methods (receiver functions)
+  - [ ] Handle anonymous functions (TODO)
+  - [x] Extract function names and spans
+- [x] Define Go AST types
+  - [x] Add `FunctionBody::Go` variant with node ID and source
+  - [x] Map Go AST → Hotspots IR (SourceSpan, FunctionNode)
   - [ ] Handle Go-specific constructs:
     - [ ] Defer statements (count as NS)
     - [ ] Go statements/goroutines (count as FO)
     - [ ] Select statements (count cases as CC)
     - [ ] Type switches (count cases as CC)
-- [ ] Implement Go CFG builder
-  - [ ] Create `src/language/go/cfg_builder.rs`
-  - [ ] Implement `CfgBuilder` for Go
+- [x] Implement Go CFG builder (placeholder)
+  - [x] Create `src/language/go/cfg_builder.rs`
+  - [x] Implement `CfgBuilder` for Go (basic structure)
   - [ ] Handle Go control flow:
     - [ ] If/else
     - [ ] For loops (various forms)
@@ -2822,16 +2820,16 @@ examples/ai-agents/
     - [ ] Go statements (concurrent, count as call)
     - [ ] Panic/recover
   - [ ] Calculate metrics:
-    - [ ] CC: if, for, case, &&, ||, etc.
+    - [x] CC: basic CFG calculation (placeholder)
     - [ ] ND: nesting depth
     - [ ] FO: function calls + go statements
     - [ ] NS: return, panic, defer
-- [ ] Add Go test suite
+- [x] Add Go test suite (basic)
+  - [x] 7 parser tests in parser.rs
   - [ ] Create test fixtures in `tests/fixtures/go/`
-  - [ ] Test simple functions
   - [ ] Test control flow (if, for, switch, select)
   - [ ] Test Go-specific features (defer, go, panic)
-  - [ ] Test methods vs functions
+  - [x] Test methods vs functions
   - [ ] Golden file tests for determinism
 - [ ] Update documentation
   - [ ] Add Go to supported languages list
