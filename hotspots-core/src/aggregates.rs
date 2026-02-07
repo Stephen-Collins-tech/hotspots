@@ -283,6 +283,7 @@ mod tests {
             function_id: format!("{}::{}", file, function),
             file: file.to_string(),
             line: 1,
+            language: "TypeScript".to_string(),
             metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
             lrs,
             band: band.to_string(),

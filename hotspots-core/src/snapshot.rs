@@ -51,6 +51,7 @@ pub struct FunctionSnapshot {
     pub function_id: String,
     pub file: String,
     pub line: u32,
+    pub language: String,
     pub metrics: MetricsReport,
     pub lrs: f64,
     pub band: String,
@@ -129,6 +130,7 @@ impl Snapshot {
                     function_id,
                     file: normalized_file,
                     line: report.line,
+                    language: report.language,
                     metrics: report.metrics,
                     lrs: report.lrs,
                     band: report.band,
@@ -470,6 +472,7 @@ mod tests {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
+            language: "TypeScript".to_string(),
             metrics: MetricsReport {
                 cc: 5,
                 nd: 2,

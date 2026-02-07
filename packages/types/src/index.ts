@@ -1,7 +1,7 @@
 /**
  * @hotspots/types
  *
- * TypeScript types for Faultline complexity analysis output.
+ * TypeScript types for Hotspots complexity analysis output.
  * These types match the JSON Schema definitions in ../../schemas/
  *
  * @packageDocumentation
@@ -96,7 +96,7 @@ export interface AnalysisInfo {
   /** Analysis scope (full or delta) */
   scope: AnalysisScope;
 
-  /** Version of Faultline that produced this output */
+  /** Version of Hotspots that produced this output */
   tool_version: string;
 }
 
@@ -109,6 +109,7 @@ export interface AnalysisInfo {
  *   function_id: "/src/api.ts::handleRequest",
  *   file: "/Users/dev/project/src/api.ts",
  *   line: 42,
+ *   language: "TypeScript",
  *   metrics: { cc: 8, nd: 2, fo: 4, ns: 2 },
  *   lrs: 7.2,
  *   band: "high"
@@ -130,6 +131,11 @@ export interface FunctionReport {
    * Line number where the function is defined
    */
   line: number;
+
+  /**
+   * Programming language of the source file (e.g., "TypeScript", "Go", "Rust")
+   */
+  language: string;
 
   /**
    * Raw complexity metrics (CC, ND, FO, NS)
@@ -264,7 +270,7 @@ export interface PolicyResults {
 }
 
 /**
- * Complete Faultline analysis output (snapshot or delta mode)
+ * Complete Hotspots analysis output (snapshot or delta mode)
  *
  * @example
  * ```typescript
@@ -285,6 +291,7 @@ export interface PolicyResults {
  *       function_id: "/src/api.ts::handleRequest",
  *       file: "/src/api.ts",
  *       line: 42,
+ *       language: "TypeScript",
  *       metrics: { cc: 8, nd: 2, fo: 4, ns: 2 },
  *       lrs: 7.2,
  *       band: "high"
@@ -353,6 +360,7 @@ export function isFunctionReport(obj: unknown): obj is FunctionReport {
     typeof o.function_id === "string" &&
     typeof o.file === "string" &&
     typeof o.line === "number" &&
+    typeof o.language === "string" &&
     typeof o.metrics === "object" &&
     typeof o.lrs === "number" &&
     typeof o.band === "string"

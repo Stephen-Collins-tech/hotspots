@@ -3,6 +3,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "nested_match",
     "line": 43,
+    "language": "Rust",
     "metrics": {
       "cc": 12,
       "nd": 2,
@@ -22,6 +23,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "match_with_guards",
     "line": 11,
+    "language": "Rust",
     "metrics": {
       "cc": 10,
       "nd": 1,
@@ -41,6 +43,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "match_with_ranges",
     "line": 20,
+    "language": "Rust",
     "metrics": {
       "cc": 10,
       "nd": 1,
@@ -60,6 +63,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "simple_match",
     "line": 3,
+    "language": "Rust",
     "metrics": {
       "cc": 8,
       "nd": 1,
@@ -79,6 +83,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "match_enum",
     "line": 35,
+    "language": "Rust",
     "metrics": {
       "cc": 8,
       "nd": 1,
@@ -98,6 +103,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "match_option",
     "line": 56,
+    "language": "Rust",
     "metrics": {
       "cc": 8,
       "nd": 1,
@@ -117,6 +123,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
     "function": "match_result",
     "line": 64,
+    "language": "Rust",
     "metrics": {
       "cc": 6,
       "nd": 1,

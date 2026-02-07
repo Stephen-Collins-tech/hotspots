@@ -437,6 +437,7 @@ mod tests {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
+            language: "TypeScript".to_string(),
             metrics: MetricsReport { cc, nd: 2, fo: 3, ns: 1 },
             risk: crate::report::RiskReport {
                 r_cc: 2.0,

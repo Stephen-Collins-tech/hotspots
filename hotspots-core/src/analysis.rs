@@ -88,6 +88,7 @@ pub fn analyze_file_with_config(
         let report = report::FunctionRiskReport::new(
             function,
             path.to_string_lossy().to_string(),
+            language.name().to_string(),
             raw_metrics,
             risk_components,
             lrs,

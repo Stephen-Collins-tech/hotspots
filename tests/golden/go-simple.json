@@ -3,6 +3,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
     "function": "MultipleReturns",
     "line": 39,
+    "language": "Go",
     "metrics": {
       "cc": 3,
       "nd": 1,
@@ -22,6 +23,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
     "function": "IfElse",
     "line": 20,
+    "language": "Go",
     "metrics": {
       "cc": 3,
       "nd": 1,
@@ -41,6 +43,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
     "function": "EarlyReturn",
     "line": 30,
+    "language": "Go",
     "metrics": {
       "cc": 3,
       "nd": 1,
@@ -60,6 +63,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
     "function": "SingleBranch",
     "line": 12,
+    "language": "Go",
     "metrics": {
       "cc": 3,
       "nd": 1,
@@ -79,6 +83,7 @@
     "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
     "function": "Simple",
     "line": 5,
+    "language": "Go",
     "metrics": {
       "cc": 3,
       "nd": 0,

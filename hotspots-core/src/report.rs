@@ -16,6 +16,7 @@ pub struct FunctionRiskReport {
     pub file: String,
     pub function: String,
     pub line: u32,
+    pub language: String,
     pub metrics: MetricsReport,
     pub risk: RiskReport,
     pub lrs: f64,
@@ -51,6 +52,7 @@ impl FunctionRiskReport {
     pub fn new(
         function: &FunctionNode,
         file: String,
+        language: String,
         metrics: RawMetrics,
         risk: RiskComponents,
         lrs: f64,
@@ -65,6 +67,7 @@ impl FunctionRiskReport {
             file,
             function: function_name,
             line: function.start_line(source_map),
+            language,
             metrics: MetricsReport {
                 cc: metrics.cc,
                 nd: metrics.nd,
