@@ -3117,46 +3117,46 @@ examples/ai-agents/
 
 **Priority:** P0 (Foundation for Python support)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ✅ **COMPLETED (2026-02-07)**
 
 **Problem:** Need AST parsing for Python source files to discover functions and extract control flow.
 
 **Tasks:**
 
-- [ ] Add Python parser dependency
-  - [ ] Evaluate `tree-sitter-python` vs `rustpython-parser`
-  - [ ] Choose tree-sitter-python for consistency with Go
-  - [ ] Add dependency to Cargo.toml
-  - [ ] Document decision in `docs/ARCHITECTURE.md`
-- [ ] Implement Python parser
-  - [ ] Create `src/language/python/parser.rs`
-  - [ ] Implement `LanguageParser` trait for Python
-  - [ ] Parse Python source to AST using tree-sitter
-  - [ ] Extract source spans
-  - [ ] Handle parse errors gracefully
-- [ ] Implement Python function discovery
-  - [ ] Implement `ParsedModule` for Python AST
-  - [ ] Discover function definitions (`def` statements)
-  - [ ] Discover async function definitions (`async def`)
-  - [ ] Discover methods in classes
-  - [ ] Discover nested functions (closures)
-  - [ ] Discover lambda expressions (optional - may skip)
-  - [ ] Extract function names and spans
-- [ ] Define Python AST types
-  - [ ] Add `FunctionBody::Python` variant with node ID and source
-  - [ ] Map Python AST → Hotspots IR (SourceSpan, FunctionNode)
-  - [ ] Handle Python-specific constructs overview:
-    - [ ] with statements (context managers)
-    - [ ] try/except/finally
-    - [ ] list comprehensions (skip or count?)
-    - [ ] decorators (skip)
-    - [ ] async/await
-- [ ] Add Python parser tests
-  - [ ] Test simple function discovery
-  - [ ] Test class method discovery
-  - [ ] Test async function discovery
-  - [ ] Test nested function discovery
-  - [ ] Test error handling for invalid Python
+- [x] Add Python parser dependency
+  - [x] Evaluate `tree-sitter-python` vs `rustpython-parser`
+  - [x] Choose tree-sitter-python for consistency with Go
+  - [x] Add dependency to Cargo.toml
+  - [x] Document decision in `docs/ARCHITECTURE.md`
+- [x] Implement Python parser
+  - [x] Create `src/language/python/parser.rs`
+  - [x] Implement `LanguageParser` trait for Python
+  - [x] Parse Python source to AST using tree-sitter
+  - [x] Extract source spans
+  - [x] Handle parse errors gracefully
+- [x] Implement Python function discovery
+  - [x] Implement `ParsedModule` for Python AST
+  - [x] Discover function definitions (`def` statements)
+  - [x] Discover async function definitions (`async def`)
+  - [x] Discover methods in classes
+  - [x] Discover nested functions (closures)
+  - [x] Discover lambda expressions (optional - may skip)
+  - [x] Extract function names and spans
+- [x] Define Python AST types
+  - [x] Add `FunctionBody::Python` variant with node ID and source
+  - [x] Map Python AST → Hotspots IR (SourceSpan, FunctionNode)
+  - [x] Handle Python-specific constructs overview:
+    - [x] with statements (context managers)
+    - [x] try/except/finally
+    - [x] list comprehensions (skip or count?)
+    - [x] decorators (skip)
+    - [x] async/await
+- [x] Add Python parser tests
+  - [x] Test simple function discovery
+  - [x] Test class method discovery
+  - [x] Test async function discovery
+  - [x] Test nested function discovery
+  - [x] Test error handling for invalid Python
 
 **Acceptance:**
 - Python files can be parsed
@@ -3172,46 +3172,46 @@ examples/ai-agents/
 
 **Priority:** P0 (Core complexity analysis)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ✅ **COMPLETED (2026-02-07)**
 
 **Problem:** Need to build control flow graphs from Python AST to calculate complexity metrics.
 
 **Tasks:**
 
-- [ ] Implement Python CFG builder
-  - [ ] Create `src/language/python/cfg_builder.rs`
-  - [ ] Implement `CfgBuilder` trait for Python
-  - [ ] Handle Python control flow:
-    - [ ] if/elif/else statements
-    - [ ] while loops
-    - [ ] for loops (including async for)
-    - [ ] try/except/else/finally
-    - [ ] with statements (context managers)
-    - [ ] break/continue
-    - [ ] return statements
-    - [ ] raise statements (exceptions)
-    - [ ] assert statements
-- [ ] Handle Python-specific complexity:
-  - [ ] Boolean operators: `and`, `or`, `not`
-  - [ ] Ternary expressions: `x if condition else y`
-  - [ ] List/dict/set comprehensions (decision: count or skip?)
-  - [ ] Generator expressions (decision: count or skip?)
-  - [ ] Match statements (Python 3.10+, count cases)
-  - [ ] Walrus operator `:=` (count as assignment, not decision)
-- [ ] Calculate Python metrics:
-  - [ ] CC: Count decision points (if, elif, while, for, except, case, and, or)
-  - [ ] ND: Track nesting depth from tree-sitter AST
-  - [ ] FO: Count function calls (including methods)
-  - [ ] NS: Count return, raise, break, continue
-- [ ] Add Python CFG tests
-  - [ ] Test if/elif/else chains
-  - [ ] Test loop structures
-  - [ ] Test exception handling
-  - [ ] Test context managers
-  - [ ] Test nested structures
-  - [ ] Test async functions
-  - [ ] Test comprehensions (if included in CC)
-  - [ ] Verify CC calculation accuracy
+- [x] Implement Python CFG builder
+  - [x] Create `src/language/python/cfg_builder.rs`
+  - [x] Implement `CfgBuilder` trait for Python
+  - [x] Handle Python control flow:
+    - [x] if/elif/else statements
+    - [x] while loops
+    - [x] for loops (including async for)
+    - [x] try/except/else/finally
+    - [x] with statements (context managers)
+    - [x] break/continue
+    - [x] return statements
+    - [x] raise statements (exceptions)
+    - [x] assert statements
+- [x] Handle Python-specific complexity:
+  - [x] Boolean operators: `and`, `or`, `not`
+  - [x] Ternary expressions: `x if condition else y`
+  - [x] List/dict/set comprehensions (decision: count or skip?)
+  - [x] Generator expressions (decision: count or skip?)
+  - [x] Match statements (Python 3.10+, count cases)
+  - [x] Walrus operator `:=` (count as assignment, not decision)
+- [x] Calculate Python metrics:
+  - [x] CC: Count decision points (if, elif, while, for, except, case, and, or)
+  - [x] ND: Track nesting depth from tree-sitter AST
+  - [x] FO: Count function calls (including methods)
+  - [x] NS: Count return, raise, break, continue
+- [x] Add Python CFG tests
+  - [x] Test if/elif/else chains
+  - [x] Test loop structures
+  - [x] Test exception handling
+  - [x] Test context managers
+  - [x] Test nested structures
+  - [x] Test async functions
+  - [x] Test comprehensions (if included in CC)
+  - [x] Verify CC calculation accuracy
 
 **Design Decisions:**
 
@@ -3245,44 +3245,44 @@ examples/ai-agents/
 
 **Priority:** P0 (Validation and quality)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ✅ **COMPLETED (2026-02-07)**
 
 **Problem:** Need comprehensive tests to validate Python analysis accuracy.
 
 **Tasks:**
 
-- [ ] Create Python test fixtures
-  - [ ] Create `tests/fixtures/python/` directory
-  - [ ] **simple.py** - Basic functions with early returns
-  - [ ] **loops.py** - for/while loops, break/continue, nested loops
-  - [ ] **exceptions.py** - try/except/finally, multiple except clauses
-  - [ ] **python_specific.py** - with, comprehensions, match (3.10+), async/await
-  - [ ] **classes.py** - Methods vs functions, class methods, static methods
-  - [ ] **comprehensions.py** - List/dict/set comprehensions with conditions
-  - [ ] **boolean_ops.py** - Complex boolean expressions, ternary operators
-- [ ] Add Python golden file tests
-  - [ ] Generate golden outputs for each fixture
-  - [ ] **python-simple.json**
-  - [ ] **python-loops.json**
-  - [ ] **python-exceptions.json**
-  - [ ] **python-python_specific.json**
-  - [ ] Add determinism test (run twice, compare outputs)
-- [ ] Implement Python metrics extraction
-  - [ ] Implement full metrics calculation in `src/metrics.rs`
-  - [ ] Extract ND via recursive AST walking
-  - [ ] Extract FO by counting unique function calls
-  - [ ] Extract NS by counting return/raise/break/continue
-  - [ ] Calculate CC extras for boolean operators and comprehensions
-- [ ] Validate against real Python projects
-  - [ ] Analyze Flask/Django sample applications
-  - [ ] Analyze popular Python libraries (requests, pandas snippets)
-  - [ ] Verify metrics are sensible
-  - [ ] Compare with similar tools (radon, mccabe)
-- [ ] Update documentation
-  - [ ] Add Python to `docs/language-support.md`
-  - [ ] Document Python-specific metric calculations
-  - [ ] Add Python examples to `docs/USAGE.md`
-  - [ ] Update README.md to list Python support
+- [x] Create Python test fixtures
+  - [x] Create `tests/fixtures/python/` directory
+  - [x] **simple.py** - Basic functions with early returns
+  - [x] **loops.py** - for/while loops, break/continue, nested loops
+  - [x] **exceptions.py** - try/except/finally, multiple except clauses
+  - [x] **python_specific.py** - with, comprehensions, match (3.10+), async/await
+  - [x] **classes.py** - Methods vs functions, class methods, static methods
+  - [x] **comprehensions.py** - List/dict/set comprehensions with conditions
+  - [x] **boolean_ops.py** - Complex boolean expressions, ternary operators
+- [x] Add Python golden file tests
+  - [x] Generate golden outputs for each fixture
+  - [x] **python-simple.json**
+  - [x] **python-loops.json**
+  - [x] **python-exceptions.json**
+  - [x] **python-python_specific.json**
+  - [x] Add determinism test (run twice, compare outputs)
+- [x] Implement Python metrics extraction
+  - [x] Implement full metrics calculation in `src/metrics.rs`
+  - [x] Extract ND via recursive AST walking
+  - [x] Extract FO by counting unique function calls
+  - [x] Extract NS by counting return/raise/break/continue
+  - [x] Calculate CC extras for boolean operators and comprehensions
+- [x] Validate against real Python projects
+  - [x] Analyze Flask/Django sample applications
+  - [x] Analyze popular Python libraries (requests, pandas snippets)
+  - [x] Verify metrics are sensible
+  - [x] Compare with similar tools (radon, mccabe)
+- [x] Update documentation
+  - [x] Add Python to `docs/language-support.md`
+  - [x] Document Python-specific metric calculations
+  - [x] Add Python examples to `docs/USAGE.md`
+  - [x] Update README.md to list Python support
 
 **Acceptance:**
 - 6+ Python test fixtures covering all language features
@@ -3299,32 +3299,32 @@ examples/ai-agents/
 
 **Priority:** P1 (User adoption)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ✅ **COMPLETED (2026-02-07)**
 
 **Problem:** Python users need to understand how Hotspots analyzes their code.
 
 **Tasks:**
 
-- [ ] Update language support documentation
-  - [ ] Add comprehensive Python section to `docs/language-support.md`
-  - [ ] Document supported Python versions (3.8+)
-  - [ ] Document Python-specific metrics behavior
-  - [ ] Explain comprehension handling
-  - [ ] Explain exception handling metrics
-  - [ ] Document async/await support
-- [ ] Add Python examples
-  - [ ] Add Python examples to `docs/USAGE.md`
-  - [ ] Show analyzing a Flask app
-  - [ ] Show analyzing a Django project
-  - [ ] Show interpreting Python results
-- [ ] Update AI examples for Python
-  - [ ] Update `examples/ai-agents/README.md` with Python examples
-  - [ ] Test AI examples with Python code
-  - [ ] Add Python-specific refactoring prompts
-- [ ] Update README.md
-  - [ ] Add Python to supported languages list
-  - [ ] Add Python code snippet example
-  - [ ] Update feature matrix
+- [x] Update language support documentation
+  - [x] Add comprehensive Python section to `docs/language-support.md`
+  - [x] Document supported Python versions (3.8+)
+  - [x] Document Python-specific metrics behavior
+  - [x] Explain comprehension handling
+  - [x] Explain exception handling metrics
+  - [x] Document async/await support
+- [x] Add Python examples
+  - [x] Add Python examples to `docs/USAGE.md`
+  - [x] Show analyzing a Flask app
+  - [x] Show analyzing a Django project
+  - [x] Show interpreting Python results
+- [x] Update AI examples for Python
+  - [x] Update `examples/ai-agents/README.md` with Python examples
+  - [x] Test AI examples with Python code
+  - [x] Add Python-specific refactoring prompts
+- [x] Update README.md
+  - [x] Add Python to supported languages list
+  - [x] Add Python code snippet example
+  - [x] Update feature matrix
 
 **Acceptance:**
 - Python fully documented in language-support.md
@@ -3353,15 +3353,15 @@ examples/ai-agents/
 
 ## Phase 9 Success Metrics
 
-- [ ] Python files (.py) can be analyzed
-- [ ] Accurate metrics for Python functions
-- [ ] Exception handlers counted correctly in CC
-- [ ] Comprehensions with conditions counted correctly
-- [ ] Context managers don't inflate CC
-- [ ] Async functions supported
-- [ ] Comprehensive test coverage (>80%)
-- [ ] Performance <30ms for typical Python files
-- [ ] Documentation complete
+- [x] Python files (.py) can be analyzed
+- [x] Accurate metrics for Python functions
+- [x] Exception handlers counted correctly in CC
+- [x] Comprehensions with conditions counted correctly
+- [x] Context managers don't inflate CC
+- [x] Async functions supported
+- [x] Comprehensive test coverage (>80%)
+- [x] Performance <30ms for typical Python files
+- [x] Documentation complete
 
 **Adoption targets:**
 - [ ] 100 Python projects using Hotspots
