@@ -33,6 +33,11 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             // Extract Go-specific metrics from tree-sitter AST
             extract_go_metrics(function, cfg)
         }
+        FunctionBody::Python { .. } => {
+            // TODO: Extract Python-specific metrics from tree-sitter AST (Task 9.2)
+            // For now, just use CFG-based calculation as a placeholder
+            unimplemented!("Python metrics extraction not yet implemented")
+        }
         FunctionBody::Rust { .. } => {
             // Extract Rust-specific metrics from syn AST
             extract_rust_metrics(function, cfg)

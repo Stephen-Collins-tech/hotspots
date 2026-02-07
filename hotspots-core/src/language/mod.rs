@@ -8,6 +8,7 @@ pub mod ecmascript;
 pub mod function_body;
 pub mod go;
 pub mod parser;
+pub mod python;
 pub mod rust;
 pub mod span;
 
@@ -18,6 +19,7 @@ pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use parser::{LanguageParser, ParsedModule};
+pub use python::PythonParser;
 pub use rust::{RustCfgBuilder, RustParser};
 pub use span::SourceSpan;
 
@@ -34,6 +36,8 @@ pub enum Language {
     JavaScriptReact,
     /// Go (.go)
     Go,
+    /// Python (.py, .pyw)
+    Python,
     /// Rust (.rs)
     Rust,
 }
@@ -50,8 +54,8 @@ impl Language {
     ///
     /// assert_eq!(Language::from_extension("ts"), Some(Language::TypeScript));
     /// assert_eq!(Language::from_extension("go"), Some(Language::Go));
+    /// assert_eq!(Language::from_extension("py"), Some(Language::Python));
     /// assert_eq!(Language::from_extension("rs"), Some(Language::Rust));
-    /// assert_eq!(Language::from_extension("py"), None);
     /// ```
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext {
@@ -63,6 +67,8 @@ impl Language {
             "jsx" | "mjsx" | "cjsx" => Some(Language::JavaScriptReact),
             // Go
             "go" => Some(Language::Go),
+            // Python
+            "py" | "pyw" => Some(Language::Python),
             // Rust
             "rs" => Some(Language::Rust),
             // Unknown
@@ -108,6 +114,7 @@ impl Language {
     ///
     /// assert_eq!(Language::TypeScript.name(), "TypeScript");
     /// assert_eq!(Language::Go.name(), "Go");
+    /// assert_eq!(Language::Python.name(), "Python");
     /// assert_eq!(Language::Rust.name(), "Rust");
     /// ```
     pub fn name(&self) -> &'static str {
@@ -117,6 +124,7 @@ impl Language {
             Language::JavaScript => "JavaScript",
             Language::JavaScriptReact => "JavaScript React",
             Language::Go => "Go",
+            Language::Python => "Python",
             Language::Rust => "Rust",
         }
     }
@@ -146,6 +154,7 @@ impl Language {
             Language::JavaScript => &["js", "mjs", "cjs"],
             Language::JavaScriptReact => &["jsx", "mjsx", "cjsx"],
             Language::Go => &["go"],
+            Language::Python => &["py", "pyw"],
             Language::Rust => &["rs"],
         }
     }
@@ -189,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_from_extension_unknown() {
-        assert_eq!(Language::from_extension("py"), None);
+        assert_eq!(Language::from_extension("cpp"), None);
         assert_eq!(Language::from_extension("java"), None);
         assert_eq!(Language::from_extension(""), None);
     }

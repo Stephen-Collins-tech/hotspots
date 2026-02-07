@@ -29,6 +29,10 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
     match &function.body {
         FunctionBody::ECMAScript(_) => Box::new(super::ecmascript::ECMAScriptCfgBuilder),
         FunctionBody::Go { .. } => Box::new(super::go::GoCfgBuilder),
+        FunctionBody::Python { .. } => {
+            // TODO: Implement PythonCfgBuilder (Task 9.2)
+            unimplemented!("Python CFG builder not yet implemented")
+        }
         FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
     }
 }

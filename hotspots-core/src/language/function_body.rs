@@ -25,6 +25,17 @@ pub enum FunctionBody {
         source: String,
     },
 
+    /// Python function body
+    ///
+    /// Contains the tree-sitter node ID for the block and the source code.
+    /// We store the source because tree-sitter nodes are tied to the tree lifetime.
+    Python {
+        /// The tree-sitter node ID for the function body block
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: String,
+    },
+
     /// Rust function body
     ///
     /// Contains the source code for the function body.
@@ -49,6 +60,11 @@ impl FunctionBody {
     /// Check if this is a Go function body
     pub fn is_go(&self) -> bool {
         matches!(self, FunctionBody::Go { .. })
+    }
+
+    /// Check if this is a Python function body
+    pub fn is_python(&self) -> bool {
+        matches!(self, FunctionBody::Python { .. })
     }
 
     /// Check if this is a Rust function body
@@ -90,6 +106,18 @@ impl FunctionBody {
         match self {
             FunctionBody::Go { body_node, source } => (*body_node, source.as_str()),
             _ => panic!("FunctionBody is not Go"),
+        }
+    }
+
+    /// Get the Python body node ID and source, if this is a Python function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a Python body. Use `is_python()` to check first.
+    pub fn as_python(&self) -> (usize, &str) {
+        match self {
+            FunctionBody::Python { body_node, source } => (*body_node, source.as_str()),
+            _ => panic!("FunctionBody is not Python"),
         }
     }
 

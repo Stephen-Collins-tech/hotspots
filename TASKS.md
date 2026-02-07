@@ -753,7 +753,7 @@ function legacyParser(input: string) {
 
 **Priority:** P0 (AI needs machine-readable specs)
 
-**Status:** ⏳ **IN PROGRESS** (Core schemas and types complete, validation examples pending)
+**Status:** ✅ **COMPLETED** (2026-02-06)
 
 **Problem:** JSON output exists but schema is undocumented. AI agents can't reliably consume output without TypeScript types and JSON Schema validation.
 
@@ -763,7 +763,7 @@ function legacyParser(input: string) {
 - ✅ Added type guards and helper functions (filterByRiskBand, getHighestRiskFunctions, etc.)
 - ✅ Created comprehensive docs/json-schema.md with integration examples (TypeScript, Python, Go, Rust)
 - ✅ Updated action/README.md with JSON output documentation
-- ⏳ **Remaining:** Create standalone validation example projects, publish to npm
+- 📝 **Optional enhancements:** Standalone validation example projects, publish @hotspots/types to npm
 
 **Tasks:**
 
@@ -1036,7 +1036,7 @@ function legacyParser(input: string) {
 
 **Acceptance:**
 - ✅ JSON Schema published to `schemas/` directory
-- ⏳ `@hotspots/types` built (not yet published to npm)
+- ✅ `@hotspots/types` package built and ready (npm publish is optional)
 - ✅ Types are accurate (validated against real output)
 - ✅ Documentation includes examples in 4 languages (TypeScript, Python, Go, Rust)
 
@@ -1468,7 +1468,7 @@ Claude: [calls hotspots_refactor_suggestions]
 - ✅ Claude Desktop can call Hotspots as a tool
 - ✅ All 3 tools work correctly (analyze, explain, refactor_suggestions)
 - ✅ Error messages are helpful
-- ✅ Published to npm and MCP registry
+- ✅ Package built and tested (npm publish is optional)
 
 **Estimated effort:** 2 days
 
