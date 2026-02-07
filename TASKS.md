@@ -34,13 +34,13 @@
 
 **Phase 8: Multi-Language Support** (PRIORITY - v2.0.0 Feature)
 - ✅ Task 8.1: Architecture Refactoring (COMPLETED 2026-02-06)
-- ⏳ Task 8.2: Go Language Support (IN PROGRESS - parser complete)
-- ⏳ Task 8.3: Rust Language Support
+- ✅ Task 8.2: Go Language Support (COMPLETED 2026-02-07)
+- ✅ Task 8.3: Rust Language Support (COMPLETED 2026-02-07)
 - ⏳ Task 8.4: Integration & Polish
 
-**Overall Progress:** 14/34 tasks completed (41%)
+**Overall Progress:** 16/34 tasks completed (47%)
 
-**Latest Update:** 2026-02-06 - Go parser implemented! Added tree-sitter-go, created Go parser with function/method discovery, integrated into analysis pipeline. Go files can now be analyzed. Working on full CFG builder next.
+**Latest Update:** 2026-02-07 - Phase 8.2 (Go) and Phase 8.3 (Rust) complete! Full multi-language support for TypeScript/JavaScript, Go, and Rust. All 209 tests passing. Naming standardization (faultline → hotspots) complete.
 
 ---
 
@@ -2887,78 +2887,78 @@ examples/ai-agents/
 
 **Priority:** P0 (High-value language for tool's target audience)
 
-**Status:** ⏳ **IN PROGRESS** (Starting implementation)
+**Status:** ✅ **COMPLETE**
 
 **Problem:** Rust developers are sophisticated users who value tooling. Natural fit for Hotspots.
 
 **Tasks:**
 
-- [ ] Add Rust parser dependency
-  - [ ] Add `syn` crate (same parser rustc uses)
-  - [ ] Add `quote` for AST manipulation (if needed)
-  - [ ] Configure for full parsing (not just derive macros)
-- [ ] Implement Rust parser
-  - [ ] Create `src/language/rust/parser.rs`
-  - [ ] Implement `LanguageParser` for Rust
-  - [ ] Parse Rust source to `syn::File`
-  - [ ] Extract source spans
-  - [ ] Handle parse errors gracefully
-- [ ] Implement Rust function discovery
-  - [ ] Create `src/language/rust/discover.rs`
-  - [ ] Implement `ParsedModule` for Rust
-  - [ ] Discover:
-    - [ ] Free functions
-    - [ ] Methods in impl blocks
-    - [ ] Associated functions
-    - [ ] Closures (as separate functions)
-    - [ ] Async functions
-  - [ ] Extract function names and spans
-- [ ] Define Rust AST types
-  - [ ] Create `src/language/rust/ast.rs`
-  - [ ] Define `RustBlock` and related types
-  - [ ] Map Rust AST → Hotspots IR
-  - [ ] Handle Rust-specific constructs:
-    - [ ] Match expressions
-    - [ ] If let / while let
-    - [ ] Loop / while / for
-    - [ ] Result/Option unwrapping (?, unwrap())
-    - [ ] Closures
-    - [ ] Async/await
-- [ ] Implement Rust CFG builder
-  - [ ] Create `src/language/rust/cfg_builder.rs`
-  - [ ] Implement `CfgBuilder` for Rust
-  - [ ] Handle Rust control flow:
-    - [ ] If/else/if let
-    - [ ] Match expressions (each arm is decision point)
-    - [ ] Loop/while/for/while let
-    - [ ] Return, break, continue
-    - [ ] Panic, unwrap, expect
-    - [ ] ? operator (early return)
-  - [ ] Calculate metrics:
-    - [ ] CC: if, match arms, loop, &&, ||, ?, etc.
-    - [ ] ND: nesting depth (match counts as 1 level)
-    - [ ] FO: function/method calls (exclude macros?)
-    - [ ] NS: return, ?, panic, unwrap, expect, break, continue
-- [ ] Handle Rust-specific challenges
-  - [ ] Macros: Count invocations as calls, don't expand
-  - [ ] Closures: Treat as separate functions
-  - [ ] Async: .await is not a decision point
-  - [ ] Pattern matching: Each match arm is decision point
-  - [ ] Document all decisions
-- [ ] Add Rust test suite
-  - [ ] Create test fixtures in `tests/fixtures/rust/`
-  - [ ] Test simple functions
-  - [ ] Test control flow (if, match, loop)
-  - [ ] Test Rust-specific features (?, unwrap, if let)
-  - [ ] Test methods vs functions vs closures
-  - [ ] Test async functions
-  - [ ] Golden file tests for determinism
-- [ ] Update documentation
-  - [ ] Add Rust to supported languages list
-  - [ ] Document Rust-specific metric calculations
-  - [ ] Add Rust examples to docs/USAGE.md
-  - [ ] Document macro handling approach
-  - [ ] Document closure treatment
+- [x] Add Rust parser dependency
+  - [x] Add `syn` crate (same parser rustc uses)
+  - [x] Add `quote` for AST manipulation (if needed)
+  - [x] Configure for full parsing (not just derive macros)
+- [x] Implement Rust parser
+  - [x] Create `src/language/rust/parser.rs`
+  - [x] Implement `LanguageParser` for Rust
+  - [x] Parse Rust source to `syn::File`
+  - [x] Extract source spans
+  - [x] Handle parse errors gracefully
+- [x] Implement Rust function discovery
+  - [x] Function discovery integrated into parser.rs
+  - [x] Implement `ParsedModule` for Rust
+  - [x] Discover:
+    - [x] Free functions
+    - [x] Methods in impl blocks
+    - [x] Associated functions
+    - [x] Closures (as separate functions)
+    - [x] Async functions
+  - [x] Extract function names and spans
+- [x] Define Rust AST types
+  - [x] AST types integrated into parser.rs and cfg_builder.rs
+  - [x] Define Rust-specific node handling
+  - [x] Map Rust AST → Hotspots IR
+  - [x] Handle Rust-specific constructs:
+    - [x] Match expressions
+    - [x] If let / while let
+    - [x] Loop / while / for
+    - [x] Result/Option unwrapping (?, unwrap())
+    - [x] Closures
+    - [x] Async/await
+- [x] Implement Rust CFG builder
+  - [x] Create `src/language/rust/cfg_builder.rs`
+  - [x] Implement `CfgBuilder` for Rust
+  - [x] Handle Rust control flow:
+    - [x] If/else/if let
+    - [x] Match expressions (each arm is decision point)
+    - [x] Loop/while/for/while let
+    - [x] Return, break, continue
+    - [x] Panic, unwrap, expect
+    - [x] ? operator (early return)
+  - [x] Calculate metrics:
+    - [x] CC: if, match arms, loop, &&, ||, ?, etc.
+    - [x] ND: nesting depth (match counts as 1 level)
+    - [x] FO: function/method calls (excluding macros)
+    - [x] NS: return, ?, panic, unwrap, expect, break, continue
+- [x] Handle Rust-specific challenges
+  - [x] Macros: Count invocations as calls, don't expand
+  - [x] Closures: Treat as separate functions
+  - [x] Async: .await is not a decision point
+  - [x] Pattern matching: Each match arm is decision point
+  - [x] Document all decisions
+- [x] Add Rust test suite
+  - [x] Create test fixtures in `tests/fixtures/rust/`
+  - [x] Test simple functions (simple.rs)
+  - [x] Test control flow (if, match, loop) (loops.rs, match.rs)
+  - [x] Test Rust-specific features (?, unwrap, if let) (rust_specific.rs)
+  - [x] Test methods vs functions vs closures (methods.rs)
+  - [x] Test async functions (rust_specific.rs)
+  - [x] Golden file tests for determinism (4 tests)
+- [x] Update documentation
+  - [x] Add Rust to supported languages list (README.md)
+  - [x] Document Rust-specific metric calculations (docs/language-support.md)
+  - [x] Add Rust examples to docs/USAGE.md
+  - [x] Document macro handling approach
+  - [x] Document closure treatment
 
 **Acceptance:**
 - ✅ Rust files can be analyzed
@@ -2967,6 +2967,17 @@ examples/ai-agents/
 - ✅ ? operator counted as non-structured exit
 - ✅ Closures analyzed as separate functions
 - ✅ Comprehensive test coverage
+
+**Recent Progress:**
+- 2026-02-07: ✅ Completed full Rust language support
+  - Implemented Rust parser using `syn` crate
+  - Created comprehensive CFG builder with control flow analysis
+  - Added support for Rust-specific constructs: match, if let, ?, unwrap, closures, async
+  - Created 5 test fixture files covering all Rust features
+  - Added 4 golden file tests for determinism verification
+  - Updated all documentation (README.md, language-support.md, USAGE.md)
+  - All 209 tests passing
+  - **Phase 8.3 (Rust Language Support) is now COMPLETE**
 
 **Estimated effort:** 6-8 days
 
