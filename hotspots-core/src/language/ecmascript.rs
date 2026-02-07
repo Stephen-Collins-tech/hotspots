@@ -1,7 +1,9 @@
-//! ECMAScript (TypeScript/JavaScript) parser implementation
+//! ECMAScript (TypeScript/JavaScript) parser and CFG builder implementation
 
+use super::cfg_builder::CfgBuilder;
 use super::parser::{LanguageParser, ParsedModule};
 use crate::ast::FunctionNode;
+use crate::cfg::Cfg;
 use anyhow::Result;
 use swc_common::{sync::Lrc, SourceMap};
 use swc_ecma_ast::Module;
@@ -40,6 +42,19 @@ struct ECMAScriptModule {
 impl ParsedModule for ECMAScriptModule {
     fn discover_functions(&self, file_index: usize, source: &str) -> Vec<FunctionNode> {
         crate::discover::discover_functions(&self.module, file_index, source, &self.source_map)
+    }
+}
+
+/// ECMAScript CFG builder
+///
+/// Builds control flow graphs from ECMAScript (TypeScript/JavaScript) function bodies.
+pub struct ECMAScriptCfgBuilder;
+
+impl CfgBuilder for ECMAScriptCfgBuilder {
+    fn build(&self, function: &FunctionNode) -> Cfg {
+        // Delegate to the existing cfg::builder::build_cfg function
+        // which already knows how to build CFGs from ECMAScript functions
+        crate::cfg::builder::build_cfg(function)
     }
 }
 

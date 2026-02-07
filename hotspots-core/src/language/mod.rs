@@ -3,6 +3,7 @@
 //! This module provides language-agnostic interfaces for parsing and analyzing
 //! source code across multiple programming languages.
 
+pub mod cfg_builder;
 pub mod ecmascript;
 pub mod function_body;
 pub mod parser;
@@ -10,7 +11,8 @@ pub mod span;
 
 use std::path::Path;
 
-pub use ecmascript::ECMAScriptParser;
+pub use cfg_builder::{CfgBuilder, get_builder_for_function};
+pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use parser::{LanguageParser, ParsedModule};
 pub use span::SourceSpan;
