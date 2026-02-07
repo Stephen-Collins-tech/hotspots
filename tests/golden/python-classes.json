@@ -1,0 +1,122 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "async_method",
+    "line": 39,
+    "language": "Python",
+    "metrics": {
+      "cc": 4,
+      "nd": 2,
+      "fo": 3,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 2.0,
+      "r_fo": 2.0,
+      "r_ns": 2.0
+    },
+    "lrs": 6.521928094887363,
+    "band": "high"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "method_with_exception_handling",
+    "line": 30,
+    "language": "Python",
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 1,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 3.0
+    },
+    "lrs": 6.084962500721156,
+    "band": "high"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "static_method",
+    "line": 22,
+    "language": "Python",
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "class_method",
+    "line": 15,
+    "language": "Python",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 1,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "instance_method",
+    "line": 8,
+    "language": "Python",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 4.521928094887363,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "function": "__init__",
+    "line": 4,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  }
+]

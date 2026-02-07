@@ -93,9 +93,9 @@ impl PythonCfgBuilderState {
         match node.kind() {
             "if_statement" => self.visit_if(node, source),
             "while_statement" => self.visit_while(node, source),
-            "for_statement" => self.visit_for(node, source),
+            "for_statement" | "async_for_statement" => self.visit_for(node, source),
             "try_statement" => self.visit_try(node, source),
-            "with_statement" => self.visit_with(node, source),
+            "with_statement" | "async_with_statement" => self.visit_with(node, source),
             "match_statement" => self.visit_match(node, source),
             "return_statement" => self.visit_return(),
             "raise_statement" => self.visit_raise(),
@@ -283,8 +283,6 @@ impl PythonCfgBuilderState {
         }
         let try_end = self.current_node.unwrap_or(try_start);
 
-        // Join node (after all handlers)
-        let join_node = self.cfg.add_node(NodeKind::Join);
         let mut branch_ends = vec![try_end];
 
         // Process except clauses
@@ -295,13 +293,15 @@ impl PythonCfgBuilderState {
                 let except_condition = self.cfg.add_node(NodeKind::Condition);
                 self.cfg.add_edge(from_node, except_condition);
 
+                let except_start = self.cfg.add_node(NodeKind::Statement);
+                self.cfg.add_edge(except_condition, except_start);
+                self.current_node = Some(except_start);
+
                 if let Some(except_body) = find_child_by_kind(child, "block") {
-                    let except_start = self.cfg.add_node(NodeKind::Statement);
-                    self.cfg.add_edge(except_condition, except_start);
-                    self.current_node = Some(except_start);
                     self.build_from_block(&except_body, source);
-                    branch_ends.push(self.current_node.unwrap_or(except_start));
                 }
+
+                branch_ends.push(self.current_node.unwrap_or(except_start));
             } else if child.kind() == "else_clause" {
                 // Else clause runs if no exception was raised
                 if let Some(else_body) = find_child_by_kind(child, "block") {
@@ -332,14 +332,21 @@ impl PythonCfgBuilderState {
             }
         }
 
-        // Connect all branch ends to join
-        for end in branch_ends {
-            if end != self.cfg.exit {
+        // Connect all branch ends to join node (only create if needed)
+        let non_exit_branches: Vec<_> = branch_ends.into_iter()
+            .filter(|&end| end != self.cfg.exit)
+            .collect();
+
+        if !non_exit_branches.is_empty() {
+            let join_node = self.cfg.add_node(NodeKind::Join);
+            for end in non_exit_branches {
                 self.cfg.add_edge(end, join_node);
             }
+            self.current_node = Some(join_node);
+        } else {
+            // All branches exit - current node is exit
+            self.current_node = Some(self.cfg.exit);
         }
-
-        self.current_node = Some(join_node);
     }
 
     fn visit_with(&mut self, node: &Node, source: &str) {
@@ -352,40 +359,17 @@ impl PythonCfgBuilderState {
         }
     }
 
-    fn visit_match(&mut self, node: &Node, source: &str) {
+    fn visit_match(&mut self, _node: &Node, _source: &str) {
+        // For now, simplify match statements - just treat as a single conditional
+        // The CC contribution comes from metrics.rs counting case clauses
+        // TODO: Model match statement CFG more precisely
+
         let from_node = self.current_node.expect("Current node should exist");
 
-        // Match expression evaluation
-        let match_node = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(from_node, match_node);
+        let stmt_node = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(from_node, stmt_node);
 
-        // Join node (after all cases)
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
-        // Process case clauses
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "case_clause" {
-                // Each case is a separate execution path (adds to CC)
-                let case_condition = self.cfg.add_node(NodeKind::Condition);
-                self.cfg.add_edge(match_node, case_condition);
-
-                if let Some(case_body) = find_child_by_kind(child, "block") {
-                    let case_start = self.cfg.add_node(NodeKind::Statement);
-                    self.cfg.add_edge(case_condition, case_start);
-                    self.current_node = Some(case_start);
-                    self.build_from_block(&case_body, source);
-
-                    if let Some(case_end) = self.current_node {
-                        if case_end != self.cfg.exit {
-                            self.cfg.add_edge(case_end, join_node);
-                        }
-                    }
-                }
-            }
-        }
-
-        self.current_node = Some(join_node);
+        self.current_node = Some(stmt_node);
     }
 
     fn visit_return(&mut self) {
