@@ -8,6 +8,7 @@ Hotspots supports multi-language analysis with consistent metrics across all lan
 
 - **ECMAScript** - TypeScript, JavaScript, and React (JSX/TSX) with full feature parity
 - **Go** - Full Go language support including goroutines, defer, select, and channels
+- **Python** - Full Python language support including async/await, comprehensions, context managers, and match statements
 - **Rust** - Full Rust language support including match expressions, ? operator, unwrap/expect, and panic
 
 Analysis metrics (CC, ND, FO, NS, LRS) are computed consistently across all supported languages.
@@ -716,6 +717,287 @@ Parse errors in Rust files are handled gracefully:
 - Analysis continues with remaining valid functions
 - Error messages include line numbers and context
 
+---
+
+## Python Language Support
+
+### Supported File Extensions
+
+**Python:**
+- `.py` - Python source files
+- `.pyw` - Python GUI scripts (Windows)
+
+### Parser
+
+Hotspots uses `tree-sitter-python` version 0.23 for parsing Python source files. Tree-sitter provides:
+- Error-tolerant parsing
+- Precise syntax tree representation
+- Fast incremental parsing
+
+### Supported Features
+
+#### Function Forms
+All Python function forms are analyzed:
+- Function declarations (`def name():`)
+- Async functions (`async def name():`)
+- Methods (instance, class, static)
+- Nested functions
+
+**Note:** Lambda expressions and closures are not yet supported.
+
+#### Control Flow
+
+All Python control flow constructs are fully supported:
+
+**Conditionals:**
+- `if` statements
+- `if`/`elif`/`else` chains
+- Ternary expressions (`x if condition else y`)
+
+**Loops:**
+- `for` loops (including async for)
+- `while` loops
+- List/dict/set comprehensions
+- Generator expressions
+- `break` and `continue` statements
+
+**Exception Handling:**
+- `try`/`except`/`finally` blocks
+- Multiple except clauses
+- `try`/`except`/`else`/`finally`
+
+**Match Statements (Python 3.10+):**
+- Match expressions (`match value: case ...`)
+- Pattern matching
+- Guard clauses
+
+#### Python-Specific Constructs
+
+**Context Managers (with statements):**
+- `with` statements are tracked for **nesting depth (ND)** only
+- Context managers do NOT contribute to **cyclomatic complexity (CC)**
+- Rationale: Resource management is not branching logic
+- Example: `with open(file) as f:` increases ND but not CC
+
+**Comprehensions:**
+- List/dict/set comprehensions with **if filters** contribute to **CC**
+- Comprehensions without filters do NOT contribute to CC
+- Example: `[x for x in items if x > 0]` increases CC by 1
+- Example: `[x * 2 for x in items]` does NOT increase CC
+
+**Async/Await:**
+- Async functions are analyzed like regular functions
+- `async for` and `async with` are supported
+- Awaits contribute to **fan-out (FO)**
+
+**Boolean Operators:**
+- `and` and `or` operators each contribute +1 to **CC**
+- Example: `if a and b or c:` increases CC by 2
+
+**Decorators:**
+- Decorators are parsed but do NOT affect complexity metrics
+- Example: `@property`, `@staticmethod`, `@classmethod`
+
+### Metric Calculation
+
+Python metrics are calculated using the same principles as other languages, with Python-specific adaptations:
+
+#### Cyclomatic Complexity (CC)
+
+Base formula: `CC = E - N + 2` (from Control Flow Graph)
+
+Additional contributions:
+- Each `elif` clause: +1
+- Each `except` clause: +1
+- Each match `case`: +1
+- Each boolean operator (`and`, `or`): +1
+- Each ternary expression: +1
+- Each comprehension with `if` filter: +1
+
+**Important:** Context managers (`with` statements) do NOT contribute to CC.
+
+**Example:**
+```python
+def process(x, y):
+    if x > 0 and y > 0:  # CC: +1 (if) +1 (and) = +2
+        with open(file) as f:  # CC: +0 (context manager)
+            data = f.read()
+
+        try:
+            result = parse(data)
+        except ValueError:   # CC: +1
+            return None
+        except KeyError:     # CC: +1
+            return {}
+
+    return result
+# Total CC = 1 (base) + 1 (if) + 1 (and) + 2 (except clauses) = 5
+```
+
+#### Nesting Depth (ND)
+
+Maximum depth of nested control structures:
+- `if` statements
+- `for` / `while` loops
+- `try` / `except` blocks
+- `with` statements
+- `match` statements
+
+**Example:**
+```python
+def nested():
+    if x > 0:                # Depth 1
+        for item in items:   # Depth 2
+            with open(f):    # Depth 3
+                if cond:     # Depth 4
+                    match v: # Depth 5
+                        case 0:
+                            pass
+# ND = 5
+```
+
+#### Fan-Out (FO)
+
+Count of unique function calls:
+- Regular function calls
+- Method calls
+- Built-in function calls
+
+**Example:**
+```python
+def fan_out():
+    do_work()       # FO: +1
+    do_work()       # FO: +0 (duplicate)
+    do_other()      # FO: +1
+    obj.method()    # FO: +1
+# Total FO = 3
+```
+
+#### Non-Structured Exits (NS)
+
+Count of exits that don't follow normal control flow:
+- `return` statements (excluding final tail return)
+- `raise` statements
+- `break` statements
+- `continue` statements
+
+**Example:**
+```python
+def exits(items):
+    for item in items:
+        if item < 0:
+            continue     # NS: +1
+        if item == 0:
+            raise ValueError  # NS: +1
+        if item > 100:
+            return None  # NS: +1
+        process(item)
+    return True         # NS: +0 (final tail return)
+# Total NS = 3
+```
+
+### Python-Specific Examples
+
+#### Comprehensions with Filters
+```python
+def filter_data(items):
+    # With filter - adds to CC
+    positive = [x for x in items if x > 0]  # CC: +1
+
+    # Without filter - does NOT add to CC
+    doubled = [x * 2 for x in items]  # CC: +0
+# Total CC = 1 (base) + 1 (filtered comprehension) = 2
+```
+
+#### Context Managers
+```python
+def read_files(file1, file2):
+    with open(file1) as f1:      # ND: +1, CC: +0
+        with open(file2) as f2:  # ND: +2, CC: +0
+            data = f1.read() + f2.read()
+    return data
+# CC=1 (base), ND=2, FO=2 (open calls), NS=0
+```
+
+#### Exception Handling
+```python
+def parse_data(text):
+    try:
+        value = int(text)
+    except ValueError:   # CC: +1
+        return 0
+    except TypeError:    # CC: +1
+        return -1
+    else:
+        return value
+    finally:
+        cleanup()        # FO: +1 (cleanup call)
+# CC=3 (base + 2 except), ND=1, FO=2 (int, cleanup), NS=2 (returns)
+```
+
+#### Match Statements (Python 3.10+)
+```python
+def handle_code(status):
+    match status:
+        case 200:        # CC: +1
+            return "OK"
+        case 404:        # CC: +1
+            return "Not Found"
+        case _:          # CC: +1
+            return "Error"
+# CC=4 (base + 3 cases), ND=1, FO=0, NS=3 (all returns)
+```
+
+#### Boolean Operators
+```python
+def check_conditions(a, b, c):
+    if a and b or c:  # CC: +1 (if) +1 (and) +1 (or) = +3
+        return True
+    return False
+# CC=4, ND=1, FO=0, NS=1 (early return)
+```
+
+### Implementation Details
+
+The Python parser is implemented in `hotspots-core/src/language/python/`:
+- `parser.rs` - Tree-sitter-based parser
+- `cfg_builder.rs` - Control Flow Graph builder
+- Metrics extracted in `hotspots-core/src/metrics.rs` (`extract_python_metrics()`)
+
+### Design Decisions
+
+**Why context managers don't add to CC:**
+Context managers (`with` statements) are resource management constructs, not branching logic. They don't represent decision points or alternate execution paths. Including them in CC would artificially inflate complexity scores for resource-safe code.
+
+**Why comprehensions with filters add to CC:**
+A comprehension with an `if` filter represents a conditional decision for each element. This is functionally equivalent to:
+```python
+result = []
+for x in items:
+    if condition:  # This is a decision point
+        result.append(x)
+```
+
+**Why each except clause adds to CC:**
+Each except clause represents a separate execution path based on the exception type. This is analogous to switch/match cases in other languages.
+
+### Unsupported Features
+
+The following Python features are **not yet supported**:
+- **Lambda expressions** - Anonymous functions
+- **Nested function definitions** - Functions defined inside functions
+- **Walrus operator** in complex contexts - Assignment expressions
+
+These features will be added in future releases.
+
+### Error Handling
+
+Parse errors in Python files are handled gracefully:
+- Tree-sitter provides error-tolerant parsing
+- Functions with parse errors are skipped
+- Analysis continues with remaining valid functions
+- Error messages indicate the failure point
+
 ## Testing
 
 Language support is validated with comprehensive test fixtures:
@@ -742,14 +1024,24 @@ Language support is validated with comprehensive test fixtures:
 - `tests/fixtures/rust/methods.rs` - Methods, impl blocks, trait implementations
 - `tests/fixtures/rust/boolean_ops.rs` - Boolean operators and complex conditions
 
+**Python:**
+- `tests/fixtures/python/simple.py` - Basic functions and early returns
+- `tests/fixtures/python/loops.py` - Loop variants (for, while, async for) and nesting
+- `tests/fixtures/python/exceptions.py` - Exception handling with multiple except clauses
+- `tests/fixtures/python/python_specific.py` - Context managers, comprehensions, async, match
+- `tests/fixtures/python/classes.py` - Methods, decorators, async methods
+- `tests/fixtures/python/comprehensions.py` - List/dict/set comprehensions with filters
+- `tests/fixtures/python/boolean_ops.py` - Boolean operators and ternary expressions
+
 **Golden File Tests:**
 All languages have golden file tests that verify deterministic output:
 - ECMAScript: 6 golden tests
 - Go: 5 golden tests (go-simple, go-loops, go-switch, go-specific, determinism)
+- Python: 7 golden tests (python-simple, python-loops, python-exceptions, python-python_specific, python-classes, python-comprehensions, python-boolean_ops)
 - Rust: 5 golden tests (rust-simple, rust-loops, rust-match, rust-specific, determinism)
 
 **Test Coverage:**
-- **209 total tests** across all languages
+- **221 total tests** across all languages
 - 100% pass rate
 - Determinism verified across multiple runs
 
@@ -758,10 +1050,10 @@ All languages have golden file tests that verify deterministic output:
 ### Planned Languages
 
 **Priority:** P1 (Popular languages)
-- **Python** - Using tree-sitter-python
 - **Java** - Using tree-sitter-java
 - **C/C++** - Using tree-sitter-c/cpp
 - **Ruby** - Using tree-sitter-ruby
+- **C#** - Using tree-sitter-c-sharp
 
 ### Planned Features
 

@@ -135,6 +135,69 @@ $ hotspots analyze server.go --format json
 - **NS=2:** 1 early return + 1 defer statement
 - **LRS=9.24:** Composite risk score → **critical** band
 
+### Python
+
+```bash
+# Analyze single Python file
+hotspots analyze app.py
+
+# Analyze Python package
+hotspots analyze src/handlers/
+
+# Analyze entire Python project
+hotspots analyze . --format json
+```
+
+**Python-specific metrics:**
+- **Comprehensions with filters** count toward Cyclomatic Complexity (CC)
+- **Context managers** (`with` statements) count toward Nesting Depth (ND) but NOT CC
+- **Exception handlers** - each `except` clause counts toward CC
+- **Match statements** (Python 3.10+) - each `case` counts toward CC
+- **Boolean operators** (`and`, `or`) each count toward CC
+
+**Example Python analysis:**
+
+```bash
+$ hotspots analyze api.py --format json
+```
+
+```json
+[
+  {
+    "file": "api.py",
+    "function": "process_request",
+    "line": 12,
+    "language": "Python",
+    "metrics": {
+      "cc": 7,
+      "nd": 3,
+      "fo": 5,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 3.01,
+      "r_nd": 3.0,
+      "r_fo": 2.58,
+      "r_ns": 2.58
+    },
+    "lrs": 8.64,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Python metrics in this example:**
+- **CC=7:** Base complexity + if statements + boolean operators + except clauses + comprehension filters
+- **ND=3:** Three levels of nesting (e.g., `if` → `with` → `try`)
+- **FO=5:** 5 unique function calls
+- **NS=3:** 2 early returns + 1 raise statement
+- **LRS=8.64:** Composite risk score → **critical** band
+
+**Python design decisions:**
+- **Context managers don't inflate CC:** `with open(file) as f:` is resource management, not branching
+- **Filtered comprehensions count:** `[x for x in items if x > 0]` has a conditional decision (the `if`)
+- **Each except is a branch:** `try/except ValueError/except KeyError` has 2 decision points
+
 ---
 
 ## Git History Tracking

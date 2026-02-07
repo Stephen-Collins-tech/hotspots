@@ -1,6 +1,6 @@
 # Hotspots
 
-Static analysis tool for TypeScript, JavaScript, React, Go, and Rust that computes a Local Risk Score (LRS) based on control flow complexity metrics.
+Static analysis tool for TypeScript, JavaScript, React, Go, Python, and Rust that computes a Local Risk Score (LRS) based on control flow complexity metrics.
 
 ## Quickstart
 
@@ -34,10 +34,11 @@ See [action/README.md](action/README.md) for full GitHub Action documentation.
 # Build the project
 cargo build --release
 
-# Analyze TypeScript, JavaScript, React, Go, or Rust files
+# Analyze TypeScript, JavaScript, React, Go, Python, or Rust files
 ./target/release/hotspots analyze src/main.ts
 ./target/release/hotspots analyze src/app.js
 ./target/release/hotspots analyze main.go
+./target/release/hotspots analyze src/lib.py
 ./target/release/hotspots analyze src/lib.rs
 ./target/release/hotspots analyze src/Component.tsx
 ./target/release/hotspots analyze src/Button.jsx
