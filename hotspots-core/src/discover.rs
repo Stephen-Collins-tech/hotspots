@@ -18,6 +18,7 @@
 //! - Ambient declarations
 
 use crate::ast::{FunctionId, FunctionNode};
+use crate::language::span::span_with_location;
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitWith};
 
@@ -34,12 +35,13 @@ pub fn discover_functions(
         file_index,
         functions: Vec::new(),
         local_index: 0,
+        source_map,
     };
 
     module.visit_with(&mut collector);
 
     // Sort by span start for deterministic ordering
-    collector.functions.sort_by_key(|f| f.span.lo);
+    collector.functions.sort_by_key(|f| f.span.start);
 
     // Assign IDs and extract suppressions based on sorted order
     collector
@@ -63,20 +65,21 @@ pub fn discover_functions(
 }
 
 /// Visitor to collect function nodes from the AST
-struct FunctionCollector {
+struct FunctionCollector<'a> {
     file_index: usize,
     functions: Vec<FunctionNode>,
     local_index: usize,
+    source_map: &'a swc_common::SourceMap,
 }
 
-impl Visit for FunctionCollector {
+impl<'a> Visit for FunctionCollector<'a> {
     fn visit_fn_decl(&mut self, decl: &FnDecl) {
         // Extract function name from declaration
         let name = Some(decl.ident.sym.to_string());
 
         // Extract body
         let body = decl.function.body.clone();
-        
+
         if let Some(body) = body {
             self.functions.push(FunctionNode {
                 id: FunctionId {
@@ -84,13 +87,13 @@ impl Visit for FunctionCollector {
                     local_index: self.local_index,
                 },
                 name,
-                span: decl.function.span,
+                span: span_with_location(decl.function.span, self.source_map),
                 body,
                 suppression_reason: None,
             });
             self.local_index += 1;
         }
-        
+
         // Continue visiting children
         decl.visit_children_with(self);
     }
@@ -101,7 +104,7 @@ impl Visit for FunctionCollector {
 
         // Extract body
         let body = expr.function.body.clone();
-        
+
         if let Some(body) = body {
             self.functions.push(FunctionNode {
                 id: FunctionId {
@@ -109,13 +112,13 @@ impl Visit for FunctionCollector {
                     local_index: self.local_index,
                 },
                 name,
-                span: expr.function.span,
+                span: span_with_location(expr.function.span, self.source_map),
                 body,
                 suppression_reason: None,
             });
             self.local_index += 1;
         }
-        
+
         // Continue visiting children
         expr.visit_children_with(self);
     }
@@ -123,7 +126,7 @@ impl Visit for FunctionCollector {
     fn visit_arrow_expr(&mut self, arrow: &ArrowExpr) {
         // Generate synthetic name for anonymous arrow function
         let name = None; // Will be set to <anonymous>@file:line in the name extraction
-        
+
         match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(ref body) => {
                 self.functions.push(FunctionNode {
@@ -132,7 +135,7 @@ impl Visit for FunctionCollector {
                         local_index: self.local_index,
                     },
                     name,
-                    span: arrow.span,
+                    span: span_with_location(arrow.span, self.source_map),
                     body: body.clone(),
                     suppression_reason: None,
                 });
@@ -150,21 +153,21 @@ impl Visit for FunctionCollector {
                     ctxt: arrow.ctxt,
                     stmts: vec![return_stmt],
                 };
-                
+
                 self.functions.push(FunctionNode {
                     id: FunctionId {
                         file_index: self.file_index,
                         local_index: self.local_index,
                     },
                     name,
-                    span: arrow.span,
+                    span: span_with_location(arrow.span, self.source_map),
                     body,
                     suppression_reason: None,
                 });
                 self.local_index += 1;
             }
         }
-        
+
         // Continue visiting children
         arrow.visit_children_with(self);
     }
@@ -181,7 +184,7 @@ impl Visit for FunctionCollector {
         };
 
         let body = method.function.body.clone();
-        
+
         if let Some(body) = body {
             self.functions.push(FunctionNode {
                 id: FunctionId {
@@ -189,13 +192,13 @@ impl Visit for FunctionCollector {
                     local_index: self.local_index,
                 },
                 name,
-                span: method.span,
+                span: span_with_location(method.span, self.source_map),
                 body,
                 suppression_reason: None,
             });
             self.local_index += 1;
         }
-        
+
         // Continue visiting children
         method.visit_children_with(self);
     }
@@ -212,7 +215,7 @@ impl Visit for FunctionCollector {
         };
 
         let body = method.function.body.clone();
-        
+
         if let Some(body) = body {
             self.functions.push(FunctionNode {
                 id: FunctionId {
@@ -220,13 +223,13 @@ impl Visit for FunctionCollector {
                     local_index: self.local_index,
                 },
                 name,
-                span: method.function.span,
+                span: span_with_location(method.function.span, self.source_map),
                 body,
                 suppression_reason: None,
             });
             self.local_index += 1;
         }
-        
+
         // Continue visiting children
         method.visit_children_with(self);
     }

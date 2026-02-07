@@ -63,7 +63,7 @@ mod discover_tests {
         // Functions should be in same order (sorted by span.start)
         assert_eq!(functions1.len(), functions2.len());
         for (f1, f2) in functions1.iter().zip(functions2.iter()) {
-            assert_eq!(f1.span.lo, f2.span.lo, "Function order should be deterministic");
+            assert_eq!(f1.span.start, f2.span.start, "Function order should be deterministic");
         }
     }
 

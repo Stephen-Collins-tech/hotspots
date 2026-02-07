@@ -4,7 +4,7 @@
 //! - Deterministic traversal order by (file, span.start)
 //! - Formatting, comments, and whitespace must not affect results
 
-use swc_common::Span;
+use crate::language::SourceSpan;
 use swc_ecma_ast::*;
 
 /// Function identifier: (file_index, local_index)
@@ -22,15 +22,22 @@ pub struct FunctionId {
 pub struct FunctionNode {
     pub id: FunctionId,
     pub name: Option<String>,
-    pub span: Span,
+    pub span: SourceSpan,
     pub body: BlockStmt,
     pub suppression_reason: Option<String>,
 }
 
 impl FunctionNode {
     /// Extract the start line number from the span
-    pub fn start_line(&self, source_map: &swc_common::SourceMap) -> u32 {
-        let loc = source_map.lookup_char_pos(self.span.lo);
-        loc.line as u32
+    ///
+    /// Note: For backwards compatibility, this method still exists but now
+    /// simply returns the line number from the SourceSpan.
+    pub fn start_line(&self, _source_map: &swc_common::SourceMap) -> u32 {
+        self.span.start_line
+    }
+
+    /// Get the start line number directly from the span
+    pub fn line(&self) -> u32 {
+        self.span.start_line
     }
 }

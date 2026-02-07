@@ -3,7 +3,11 @@
 //! This module provides language-agnostic interfaces for parsing and analyzing
 //! source code across multiple programming languages.
 
+pub mod span;
+
 use std::path::Path;
+
+pub use span::SourceSpan;
 
 /// Supported programming languages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

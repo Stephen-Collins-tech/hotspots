@@ -1,13 +1,14 @@
 //! Suppression comment extraction
 //!
-//! Parses `// faultline-ignore: reason` comments from source code.
+//! Parses `// hotspots-ignore: reason` comments from source code.
 //!
 //! Global invariants enforced:
-//! - Deterministic extraction (pure function of source, span, source_map)
+//! - Deterministic extraction (pure function of source, span)
 //! - Comment must be on the line immediately before the function
 //! - Returns None (no suppression), Some("") (no reason), or Some("reason")
 
-use swc_common::{SourceMap, Span};
+use crate::language::SourceSpan;
+use swc_common::SourceMap;
 
 /// Extract suppression comment for a function
 ///
@@ -19,22 +20,21 @@ use swc_common::{SourceMap, Span};
 /// # Arguments
 ///
 /// * `source` - The complete source code
-/// * `span` - The function's span
-/// * `source_map` - SWC source map for position lookups
+/// * `span` - The function's source span
+/// * `_source_map` - (Unused, kept for backwards compatibility)
 ///
 /// # Comment Format
 ///
 /// The suppression comment must be on the line immediately before the function:
 /// ```typescript
-/// // faultline-ignore: reason for suppression
+/// // hotspots-ignore: reason for suppression
 /// function foo() { ... }
 /// ```
 ///
 /// Blank lines between the comment and function will cause the comment to be ignored.
-pub fn extract_suppression(source: &str, span: Span, source_map: &SourceMap) -> Option<String> {
-    // Get the line number of the function start
-    let func_pos = source_map.lookup_char_pos(span.lo);
-    let func_line = func_pos.line;
+pub fn extract_suppression(source: &str, span: SourceSpan, _source_map: &SourceMap) -> Option<String> {
+    // Get the line number of the function start (1-indexed)
+    let func_line = span.start_line;
 
     // Edge case: function is on first line, no previous line exists
     if func_line <= 1 {
@@ -42,7 +42,7 @@ pub fn extract_suppression(source: &str, span: Span, source_map: &SourceMap) -> 
     }
 
     // Get the previous line (line numbers are 1-indexed)
-    let prev_line_num = func_line - 1;
+    let prev_line_num = (func_line - 1) as usize;
 
     // Split source into lines and get the previous line
     let lines: Vec<&str> = source.lines().collect();
@@ -55,7 +55,8 @@ pub fn extract_suppression(source: &str, span: Span, source_map: &SourceMap) -> 
     let prev_line = lines[prev_line_num - 1].trim();
 
     // Check if the line contains the suppression comment
-    if !prev_line.starts_with("// faultline-ignore") {
+    // Support both "hotspots-ignore" and "faultline-ignore" for backwards compatibility
+    if !prev_line.starts_with("// hotspots-ignore") && !prev_line.starts_with("// faultline-ignore") {
         return None;
     }
 
@@ -113,7 +114,8 @@ mod tests {
             })
             .expect("no function found");
 
-        extract_suppression(source, function_span, &source_map)
+        let source_span = crate::language::span::span_with_location(function_span, &source_map);
+        extract_suppression(source, source_span, &source_map)
     }
 
     #[test]
