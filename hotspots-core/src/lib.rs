@@ -159,15 +159,32 @@ fn collect_source_files_recursive(dir: &std::path::Path, files: &mut Vec<std::pa
         let entry: std::fs::DirEntry = entry_result?;
         let path = entry.path();
 
-        if path.is_dir() {
-            // Skip node_modules and other common non-source directories
+        // Use symlink_metadata to detect symlinks without following them
+        let metadata = std::fs::symlink_metadata(&path)
+            .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
+
+        // Skip symlinks to prevent infinite loops
+        if metadata.is_symlink() {
+            continue;
+        }
+
+        if metadata.is_dir() {
+            // Skip common non-source directories
             if let Some(name) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
-                if name == "node_modules" || name.starts_with('.') {
+                // Skip hidden directories, node_modules, and build artifacts
+                if name.starts_with('.')
+                    || name == "node_modules"
+                    || name == "dist"
+                    || name == "build"
+                    || name == "out"
+                    || name == "coverage"
+                    || name == "target"
+                {
                     continue;
                 }
             }
             collect_source_files_recursive(&path, files)?;
-        } else if path.is_file() {
+        } else if metadata.is_file() {
             if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
                 if is_supported_source_file(filename) {
                     files.push(path);

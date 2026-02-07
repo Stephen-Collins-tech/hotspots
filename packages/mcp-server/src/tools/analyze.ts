@@ -26,8 +26,10 @@ async function findHotspotsBinary(): Promise<string> {
   }
 
   try {
-    const { stdout } = await execa('which', ['hotspots']);
-    return stdout.trim();
+    // Use 'where' on Windows, 'which' on Unix/Mac
+    const command = process.platform === 'win32' ? 'where' : 'which';
+    const { stdout } = await execa(command, ['hotspots']);
+    return stdout.trim().split('\n')[0]; // Windows 'where' may return multiple paths
   } catch {
     throw new Error(
       'hotspots binary not found in PATH. Please install hotspots or add it to your PATH.'
@@ -78,18 +80,20 @@ export async function analyze(input: AnalyzeInput): Promise<AnalyzeResult> {
     args.push(targetPath);
 
     // Execute hotspots
-    const { stdout, stderr } = await execa(hotspotsPath, args, {
+    const result = await execa(hotspotsPath, args, {
       timeout: 30000,
       reject: false,
     });
 
-    // Check for errors in stderr
-    if (stderr && stderr.includes('error')) {
+    // Check exit code for errors (more reliable than parsing stderr)
+    if (result.exitCode !== 0) {
       return {
         success: false,
-        error: stderr,
+        error: result.stderr || result.stdout || 'Analysis failed with non-zero exit code',
       };
     }
+
+    const { stdout } = result;
 
     // Parse JSON output
     let output;
@@ -126,28 +130,32 @@ function generateSummary(output: any): string {
 
   lines.push('# Hotspots Analysis Results\n');
 
-  // Commit info
-  if (output.commit) {
+  // Handle both snapshot/delta mode (object) and plain array output
+  const isStructuredOutput = output && typeof output === 'object' && !Array.isArray(output);
+  const functions = isStructuredOutput ? output.functions : output;
+
+  // Commit info (only in structured output)
+  if (isStructuredOutput && output.commit) {
     lines.push(`**Commit:** ${output.commit.sha.substring(0, 8)}`);
     if (output.commit.branch) {
       lines.push(`**Branch:** ${output.commit.branch}`);
     }
   }
 
-  // Analysis scope
-  if (output.analysis) {
+  // Analysis scope (only in structured output)
+  if (isStructuredOutput && output.analysis) {
     lines.push(`**Scope:** ${output.analysis.scope}`);
     lines.push(`**Tool Version:** ${output.analysis.tool_version}\n`);
   }
 
   // Function count and risk breakdown
-  if (output.functions && Array.isArray(output.functions)) {
-    const total = output.functions.length;
+  if (functions && Array.isArray(functions)) {
+    const total = functions.length;
     const byBand = {
-      critical: output.functions.filter((f: any) => f.band === 'critical').length,
-      high: output.functions.filter((f: any) => f.band === 'high').length,
-      moderate: output.functions.filter((f: any) => f.band === 'moderate').length,
-      low: output.functions.filter((f: any) => f.band === 'low').length,
+      critical: functions.filter((f: any) => f.band === 'critical').length,
+      high: functions.filter((f: any) => f.band === 'high').length,
+      moderate: functions.filter((f: any) => f.band === 'moderate').length,
+      low: functions.filter((f: any) => f.band === 'low').length,
     };
 
     lines.push(`**Total Functions:** ${total}`);
@@ -158,7 +166,7 @@ function generateSummary(output: any): string {
     lines.push(`  - Low: ${byBand.low}\n`);
 
     // List critical and high-risk functions
-    const highRisk = output.functions.filter(
+    const highRisk = functions.filter(
       (f: any) => f.band === 'critical' || f.band === 'high'
     );
 
@@ -166,7 +174,7 @@ function generateSummary(output: any): string {
       lines.push(`## High-Risk Functions (${highRisk.length})\n`);
       highRisk.slice(0, 10).forEach((func: any) => {
         const file = path.basename(func.file);
-        const id = func.function_id.split('::')[1] || func.function_id;
+        const id = func.function_id?.split('::')[1] || func.function_id || func.function || 'anonymous';
         lines.push(`- **${id}** in ${file}:${func.line} - LRS: ${func.lrs.toFixed(2)} (${func.band})`);
       });
 
@@ -176,8 +184,8 @@ function generateSummary(output: any): string {
     }
   }
 
-  // Policy results
-  if (output.policy_results) {
+  // Policy results (only in structured output)
+  if (isStructuredOutput && output.policy_results) {
     const failed = output.policy_results.failed || [];
     const warnings = output.policy_results.warnings || [];
 
