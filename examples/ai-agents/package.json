@@ -1,0 +1,26 @@
+{
+  "name": "hotspots-ai-examples",
+  "version": "1.0.0",
+  "description": "Reference implementations of AI workflows with Hotspots",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "refactor-loop": "tsx refactor-loop/refactor-loop.ts",
+    "pre-commit": "tsx pre-commit-review/pre-commit-review.ts",
+    "constrained-gen": "tsx constrained-generation/constrained-generation.ts",
+    "pr-reviewer": "tsx pr-reviewer/pr-reviewer.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "@hotspots/types": "file:../../packages/types",
+    "execa": "^8.0.1",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
