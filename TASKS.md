@@ -1,10 +1,12 @@
-# TASKS.md - Hotspots CI/CD Adoption
+# TASKS.md - Hotspots Development Roadmap
 
-**Goal:** Make Hotspots the go-to CI/CD tool for blocking complexity regressions in TypeScript/JavaScript projects.
+**Goal:** Make Hotspots the go-to CI/CD tool for blocking complexity regressions across TypeScript/JavaScript, Go, and Rust projects.
 
-**Strategy:** CI/CD first. Analytics later.
+**Strategy:**
+- **v1.0:** CI/CD-first for TypeScript/JavaScript with AI integration
+- **v2.0:** Multi-language support (Go, Rust) for broader adoption
 
-**Status:** Post-MVP - building toward v1.0 CI/CD-ready release
+**Status:** Phase 7 complete, planning v1.0.0 release and Phase 8 (Multi-Language)
 
 ## Progress Summary
 
@@ -23,16 +25,22 @@
 - ✅ Task 3.1: Configuration File (COMPLETED 2026-02-02)
 - ✅ Task 3.2: Suppression Comments (COMPLETED 2026-02-03)
 
-**Phase 7: AI-First Integration** (PRIORITY - v1.0.0 Blocker)
+**Phase 7: AI-First Integration** ✅ COMPLETE
 - ✅ Task 7.1: Fix Clippy Errors (COMPLETED 2026-02-06)
 - ✅ Task 7.2: JSON Schema & Types (COMPLETED 2026-02-06)
 - ✅ Task 7.3: Claude MCP Server (COMPLETED 2026-02-06)
 - ✅ Task 7.4: AI Integration Documentation (COMPLETED 2026-02-06)
 - ✅ Task 7.5: Reference Implementation Examples (COMPLETED 2026-02-06)
 
-**Overall Progress:** 13/30 tasks completed (43%)
+**Phase 8: Multi-Language Support** (PRIORITY - v2.0.0 Feature)
+- ⏳ Task 8.1: Architecture Refactoring
+- ⏳ Task 8.2: Go Language Support
+- ⏳ Task 8.3: Rust Language Support
+- ⏳ Task 8.4: Integration & Polish
 
-**Latest Update:** 2026-02-06 - Completed Phase 7 Task 7.5: Reference implementation examples. Created 4 working examples (refactor-loop, pre-commit-review, constrained-generation, pr-reviewer) with shared utilities. Phase 7 (AI-First Integration) now complete!
+**Overall Progress:** 13/34 tasks completed (38%)
+
+**Latest Update:** 2026-02-06 - Phase 7 (AI-First Integration) complete! Added Phase 8 (Multi-Language Support) to support Go and Rust in addition to TypeScript/JavaScript. See MULTI_LANGUAGE_PLAN.md for implementation details.
 
 ---
 
@@ -2703,6 +2711,328 @@ examples/ai-agents/
 - Branding is consistent
 
 **Estimated effort:** High (1-2 weeks, depending on design)
+
+---
+
+## Phase 8: Multi-Language Support
+
+**Goal:** Extend Hotspots to analyze Go and Rust codebases in addition to TypeScript/JavaScript
+
+**Priority:** P0 (Strategic - enables broader adoption)
+
+**Status:** ⏳ **PLANNED**
+
+**Overview:** Complete architectural refactoring to support multiple programming languages. This is a major version 2.0 feature that will significantly expand Hotspots' addressable market.
+
+**See:** `MULTI_LANGUAGE_PLAN.md` for complete implementation plan and technical details.
+
+### 8.1 Architecture Refactoring
+
+**Priority:** P0 (Foundation for all language support)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Current codebase is tightly coupled to SWC (TypeScript/JavaScript) AST types. Need abstraction layer to support multiple languages.
+
+**Tasks:**
+
+- [ ] Create language module
+  - [ ] Define `Language` enum (TypeScript, JavaScript, Go, Rust)
+  - [ ] Implement `from_extension()` and `from_file()` methods
+  - [ ] Add language detection tests
+- [ ] Abstract SourceSpan
+  - [ ] Create language-agnostic `SourceSpan` struct
+  - [ ] Convert all `swc_common::Span` → `SourceSpan`
+  - [ ] Update `FunctionNode` to use `SourceSpan`
+  - [ ] Update metrics extraction to work with `SourceSpan`
+- [ ] Abstract FunctionBody
+  - [ ] Create `FunctionBody` enum with language variants
+  - [ ] Update `FunctionNode` to use `FunctionBody`
+  - [ ] Wrap existing `BlockStmt` in `FunctionBody::TypeScript`
+- [ ] Create parser trait
+  - [ ] Define `LanguageParser` trait
+  - [ ] Define `ParsedModule` trait
+  - [ ] Implement for TypeScript/JavaScript (wraps SWC)
+  - [ ] Update `analyze_file()` to use trait
+- [ ] Create CFG builder trait
+  - [ ] Define `CfgBuilder` trait
+  - [ ] Extract current logic to `TypeScriptCfgBuilder`
+  - [ ] Update `build_cfg()` to dispatch by language
+- [ ] Update analysis pipeline
+  - [ ] Modify `analyze_file()` to detect language
+  - [ ] Select appropriate parser based on language
+  - [ ] Select appropriate CFG builder based on language
+  - [ ] Ensure all existing tests pass
+
+**Acceptance:**
+- ✅ Language detection from file extensions
+- ✅ Trait-based parser abstraction
+- ✅ Trait-based CFG builder abstraction
+- ✅ All TypeScript/JavaScript tests passing
+- ✅ No functional regressions
+
+**Estimated effort:** 3-4 days
+
+---
+
+### 8.2 Go Language Support
+
+**Priority:** P0 (First multi-language target)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Go is widely used and has simple, well-defined control flow. Good first language to validate architecture.
+
+**Tasks:**
+
+- [ ] Add Go parser dependency
+  - [ ] Evaluate `tree-sitter-go` vs `go/parser` via FFI
+  - [ ] Add chosen dependency to Cargo.toml
+  - [ ] Document decision in `docs/ARCHITECTURE.md`
+- [ ] Implement Go parser
+  - [ ] Create `src/language/go/parser.rs`
+  - [ ] Implement `LanguageParser` for Go
+  - [ ] Parse Go source to AST
+  - [ ] Extract source spans
+  - [ ] Handle parse errors gracefully
+- [ ] Implement Go function discovery
+  - [ ] Create `src/language/go/discover.rs`
+  - [ ] Implement `ParsedModule` for Go AST
+  - [ ] Discover function declarations
+  - [ ] Discover methods (receiver functions)
+  - [ ] Handle anonymous functions
+  - [ ] Extract function names and spans
+- [ ] Define Go AST types
+  - [ ] Create `src/language/go/ast.rs`
+  - [ ] Define `GoBlockStmt` and related types
+  - [ ] Map Go AST → Hotspots IR
+  - [ ] Handle Go-specific constructs:
+    - [ ] Defer statements (count as NS)
+    - [ ] Go statements/goroutines (count as FO)
+    - [ ] Select statements (count cases as CC)
+    - [ ] Type switches (count cases as CC)
+- [ ] Implement Go CFG builder
+  - [ ] Create `src/language/go/cfg_builder.rs`
+  - [ ] Implement `CfgBuilder` for Go
+  - [ ] Handle Go control flow:
+    - [ ] If/else
+    - [ ] For loops (various forms)
+    - [ ] Switch/select
+    - [ ] Defer (track as non-structured exit)
+    - [ ] Go statements (concurrent, count as call)
+    - [ ] Panic/recover
+  - [ ] Calculate metrics:
+    - [ ] CC: if, for, case, &&, ||, etc.
+    - [ ] ND: nesting depth
+    - [ ] FO: function calls + go statements
+    - [ ] NS: return, panic, defer
+- [ ] Add Go test suite
+  - [ ] Create test fixtures in `tests/fixtures/go/`
+  - [ ] Test simple functions
+  - [ ] Test control flow (if, for, switch, select)
+  - [ ] Test Go-specific features (defer, go, panic)
+  - [ ] Test methods vs functions
+  - [ ] Golden file tests for determinism
+- [ ] Update documentation
+  - [ ] Add Go to supported languages list
+  - [ ] Document Go-specific metric calculations
+  - [ ] Add Go examples to docs/USAGE.md
+  - [ ] Update README.md language support section
+
+**Acceptance:**
+- ✅ Go files can be analyzed
+- ✅ Accurate metrics for Go functions
+- ✅ Defer counted as non-structured exit
+- ✅ Go statements counted in fan-out
+- ✅ Select/switch cases counted in CC
+- ✅ Comprehensive test coverage
+
+**Estimated effort:** 5-7 days
+
+---
+
+### 8.3 Rust Language Support
+
+**Priority:** P0 (High-value language for tool's target audience)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Rust developers are sophisticated users who value tooling. Natural fit for Hotspots.
+
+**Tasks:**
+
+- [ ] Add Rust parser dependency
+  - [ ] Add `syn` crate (same parser rustc uses)
+  - [ ] Add `quote` for AST manipulation (if needed)
+  - [ ] Configure for full parsing (not just derive macros)
+- [ ] Implement Rust parser
+  - [ ] Create `src/language/rust/parser.rs`
+  - [ ] Implement `LanguageParser` for Rust
+  - [ ] Parse Rust source to `syn::File`
+  - [ ] Extract source spans
+  - [ ] Handle parse errors gracefully
+- [ ] Implement Rust function discovery
+  - [ ] Create `src/language/rust/discover.rs`
+  - [ ] Implement `ParsedModule` for Rust
+  - [ ] Discover:
+    - [ ] Free functions
+    - [ ] Methods in impl blocks
+    - [ ] Associated functions
+    - [ ] Closures (as separate functions)
+    - [ ] Async functions
+  - [ ] Extract function names and spans
+- [ ] Define Rust AST types
+  - [ ] Create `src/language/rust/ast.rs`
+  - [ ] Define `RustBlock` and related types
+  - [ ] Map Rust AST → Hotspots IR
+  - [ ] Handle Rust-specific constructs:
+    - [ ] Match expressions
+    - [ ] If let / while let
+    - [ ] Loop / while / for
+    - [ ] Result/Option unwrapping (?, unwrap())
+    - [ ] Closures
+    - [ ] Async/await
+- [ ] Implement Rust CFG builder
+  - [ ] Create `src/language/rust/cfg_builder.rs`
+  - [ ] Implement `CfgBuilder` for Rust
+  - [ ] Handle Rust control flow:
+    - [ ] If/else/if let
+    - [ ] Match expressions (each arm is decision point)
+    - [ ] Loop/while/for/while let
+    - [ ] Return, break, continue
+    - [ ] Panic, unwrap, expect
+    - [ ] ? operator (early return)
+  - [ ] Calculate metrics:
+    - [ ] CC: if, match arms, loop, &&, ||, ?, etc.
+    - [ ] ND: nesting depth (match counts as 1 level)
+    - [ ] FO: function/method calls (exclude macros?)
+    - [ ] NS: return, ?, panic, unwrap, expect, break, continue
+- [ ] Handle Rust-specific challenges
+  - [ ] Macros: Count invocations as calls, don't expand
+  - [ ] Closures: Treat as separate functions
+  - [ ] Async: .await is not a decision point
+  - [ ] Pattern matching: Each match arm is decision point
+  - [ ] Document all decisions
+- [ ] Add Rust test suite
+  - [ ] Create test fixtures in `tests/fixtures/rust/`
+  - [ ] Test simple functions
+  - [ ] Test control flow (if, match, loop)
+  - [ ] Test Rust-specific features (?, unwrap, if let)
+  - [ ] Test methods vs functions vs closures
+  - [ ] Test async functions
+  - [ ] Golden file tests for determinism
+- [ ] Update documentation
+  - [ ] Add Rust to supported languages list
+  - [ ] Document Rust-specific metric calculations
+  - [ ] Add Rust examples to docs/USAGE.md
+  - [ ] Document macro handling approach
+  - [ ] Document closure treatment
+
+**Acceptance:**
+- ✅ Rust files can be analyzed
+- ✅ Accurate metrics for Rust functions
+- ✅ Match arms counted in CC
+- ✅ ? operator counted as non-structured exit
+- ✅ Closures analyzed as separate functions
+- ✅ Comprehensive test coverage
+
+**Estimated effort:** 6-8 days
+
+---
+
+### 8.4 Integration & Polish
+
+**Priority:** P0 (Complete the multi-language feature)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Multi-language support needs to work across all Hotspots integrations.
+
+**Tasks:**
+
+- [ ] Multi-language file discovery
+  - [ ] Update file discovery to handle multiple extensions
+  - [ ] Detect language from extension
+  - [ ] Skip unsupported files gracefully
+  - [ ] Add `--language` CLI flag to force language
+- [ ] Mixed-language repository support
+  - [ ] Analyze multi-language repos (e.g., Go + JS)
+  - [ ] Aggregate metrics across languages
+  - [ ] Language breakdown in HTML reports
+  - [ ] Per-language filtering
+- [ ] Update GitHub Action
+  - [ ] Support all languages in CI
+  - [ ] Auto-detect languages in repo
+  - [ ] Update action README with language support
+  - [ ] Add language-specific examples
+- [ ] Update MCP Server
+  - [ ] Support all languages in `hotspots_analyze` tool
+  - [ ] Add language parameter to tool schema
+  - [ ] Update tool description
+- [ ] Update TypeScript types
+  - [ ] Add `language` field to `FunctionReport`
+  - [ ] Update `@hotspots/types` package
+  - [ ] Publish new version
+- [ ] Update AI examples
+  - [ ] Update examples to handle multi-language
+  - [ ] Add Go and Rust examples to `examples/ai-agents/`
+  - [ ] Update AI prompts for language-specific advice
+- [ ] Documentation updates
+  - [ ] Update main README with all supported languages
+  - [ ] Update docs/USAGE.md with language sections
+  - [ ] Create docs/LANGUAGE_SUPPORT.md with details
+  - [ ] Update AI integration guide
+  - [ ] Update JSON schema docs
+- [ ] Performance testing
+  - [ ] Benchmark analysis speed for each language
+  - [ ] Ensure no regressions in TS/JS performance
+  - [ ] Document performance characteristics
+
+**Acceptance:**
+- ✅ All languages work in all contexts (CLI, Action, MCP)
+- ✅ Documentation is comprehensive and accurate
+- ✅ Performance is acceptable for all languages
+- ✅ Examples cover all languages
+
+**Estimated effort:** 3-4 days
+
+---
+
+## Phase 8 Timeline
+
+**Total estimated effort:** 17-23 days (3-4 weeks)
+
+- **Week 1:** Architecture refactoring (Task 8.1)
+- **Week 2:** Go language support (Task 8.2)
+- **Week 3:** Rust language support (Task 8.3)
+- **Week 4:** Integration and polish (Task 8.4)
+
+**Blockers:**
+- None (can start after v1.0.0 release)
+
+**Dependencies:**
+- Phase 7 (AI-First Integration) - Complete ✅
+- v1.0.0 release recommended before starting
+
+---
+
+## Phase 8 Success Metrics
+
+- ✅ All three languages (TS/JS, Go, Rust) fully supported
+- ✅ Accurate complexity metrics for each language
+- ✅ No regressions in existing TS/JS functionality
+- ✅ Comprehensive test coverage (>80%)
+- ✅ Performance within 2x of current TS/JS speed
+- ✅ Documentation covers all languages
+- ✅ All integrations updated (CLI, Action, MCP, examples)
+- ✅ v2.0.0 released with migration guide
+
+**Adoption targets:**
+- [ ] 100 Go projects using Hotspots
+- [ ] 100 Rust projects using Hotspots
+- [ ] Featured in Awesome Go
+- [ ] Featured in Awesome Rust
+- [ ] 5,000 GitHub stars (up from 1,000)
 
 ---
 
