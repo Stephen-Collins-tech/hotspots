@@ -1,12 +1,13 @@
 # TASKS.md - Hotspots Development Roadmap
 
-**Goal:** Make Hotspots the go-to CI/CD tool for blocking complexity regressions across TypeScript/JavaScript, Go, and Rust projects.
+**Goal:** Make Hotspots the go-to CI/CD tool for blocking complexity regressions across all major programming languages.
 
 **Strategy:**
 - **v1.0:** CI/CD-first for TypeScript/JavaScript with AI integration
-- **v2.0:** Multi-language support (Go, Rust) for broader adoption
+- **v2.0:** Multi-language support (Go, Rust, Python, Java) for broader adoption
+- **v3.0:** Enterprise features (teams, reporting, trends)
 
-**Status:** Phase 7 complete, planning v1.0.0 release and Phase 8 (Multi-Language)
+**Status:** Phase 8 complete (TS/JS/Go/Rust), planning Python and Java support (Phase 9-10)
 
 ## Progress Summary
 
@@ -38,7 +39,19 @@
 - ✅ Task 8.3: Rust Language Support (COMPLETED 2026-02-07)
 - ✅ Task 8.4: Integration & Polish (COMPLETED 2026-02-07)
 
-**Overall Progress:** 17/34 tasks completed (50%)
+**Phase 9: Python Language Support** (PRIORITY - v2.1.0 Feature)
+- ⏳ Task 9.1: Python Parser Integration
+- ⏳ Task 9.2: Python CFG Builder
+- ⏳ Task 9.3: Python Metrics & Testing
+- ⏳ Task 9.4: Python Documentation
+
+**Phase 10: Java Language Support** (PRIORITY - v2.2.0 Feature)
+- ⏳ Task 10.1: Java Parser Integration
+- ⏳ Task 10.2: Java CFG Builder
+- ⏳ Task 10.3: Java Metrics & Testing
+- ⏳ Task 10.4: Java Documentation
+
+**Overall Progress:** 17/42 tasks completed (40%)
 
 **Latest Update:** 2026-02-07 - Phase 8 (Multi-Language Support) COMPLETE! Added language field to outputs, updated GitHub Action and TypeScript types, validated AI examples, and benchmarked performance. All integrations support TypeScript, JavaScript, Go, and Rust. All 209 tests passing.
 
@@ -3089,6 +3102,558 @@ examples/ai-agents/
 - [ ] Featured in Awesome Go
 - [ ] Featured in Awesome Rust
 - [ ] 5,000 GitHub stars (up from 1,000)
+
+---
+
+## Phase 9: Python Language Support
+
+**Priority:** P1 (High-value language, massive user base)
+
+**Timeline:** v2.1.0 release (2-3 weeks after v2.0.0)
+
+**Rationale:** Python is the most popular language for data science, machine learning, and backend services. Adding Python support dramatically expands Hotspots' addressable market. Python's dynamic nature and emphasis on readability makes complexity analysis particularly valuable.
+
+### 9.1 Python Parser Integration
+
+**Priority:** P0 (Foundation for Python support)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need AST parsing for Python source files to discover functions and extract control flow.
+
+**Tasks:**
+
+- [ ] Add Python parser dependency
+  - [ ] Evaluate `tree-sitter-python` vs `rustpython-parser`
+  - [ ] Choose tree-sitter-python for consistency with Go
+  - [ ] Add dependency to Cargo.toml
+  - [ ] Document decision in `docs/ARCHITECTURE.md`
+- [ ] Implement Python parser
+  - [ ] Create `src/language/python/parser.rs`
+  - [ ] Implement `LanguageParser` trait for Python
+  - [ ] Parse Python source to AST using tree-sitter
+  - [ ] Extract source spans
+  - [ ] Handle parse errors gracefully
+- [ ] Implement Python function discovery
+  - [ ] Implement `ParsedModule` for Python AST
+  - [ ] Discover function definitions (`def` statements)
+  - [ ] Discover async function definitions (`async def`)
+  - [ ] Discover methods in classes
+  - [ ] Discover nested functions (closures)
+  - [ ] Discover lambda expressions (optional - may skip)
+  - [ ] Extract function names and spans
+- [ ] Define Python AST types
+  - [ ] Add `FunctionBody::Python` variant with node ID and source
+  - [ ] Map Python AST → Hotspots IR (SourceSpan, FunctionNode)
+  - [ ] Handle Python-specific constructs overview:
+    - [ ] with statements (context managers)
+    - [ ] try/except/finally
+    - [ ] list comprehensions (skip or count?)
+    - [ ] decorators (skip)
+    - [ ] async/await
+- [ ] Add Python parser tests
+  - [ ] Test simple function discovery
+  - [ ] Test class method discovery
+  - [ ] Test async function discovery
+  - [ ] Test nested function discovery
+  - [ ] Test error handling for invalid Python
+
+**Acceptance:**
+- Python files can be parsed
+- Functions and methods are discovered correctly
+- AST is available for CFG building
+- Parser tests pass
+
+**Estimated effort:** 2-3 days
+
+---
+
+### 9.2 Python CFG Builder
+
+**Priority:** P0 (Core complexity analysis)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need to build control flow graphs from Python AST to calculate complexity metrics.
+
+**Tasks:**
+
+- [ ] Implement Python CFG builder
+  - [ ] Create `src/language/python/cfg_builder.rs`
+  - [ ] Implement `CfgBuilder` trait for Python
+  - [ ] Handle Python control flow:
+    - [ ] if/elif/else statements
+    - [ ] while loops
+    - [ ] for loops (including async for)
+    - [ ] try/except/else/finally
+    - [ ] with statements (context managers)
+    - [ ] break/continue
+    - [ ] return statements
+    - [ ] raise statements (exceptions)
+    - [ ] assert statements
+- [ ] Handle Python-specific complexity:
+  - [ ] Boolean operators: `and`, `or`, `not`
+  - [ ] Ternary expressions: `x if condition else y`
+  - [ ] List/dict/set comprehensions (decision: count or skip?)
+  - [ ] Generator expressions (decision: count or skip?)
+  - [ ] Match statements (Python 3.10+, count cases)
+  - [ ] Walrus operator `:=` (count as assignment, not decision)
+- [ ] Calculate Python metrics:
+  - [ ] CC: Count decision points (if, elif, while, for, except, case, and, or)
+  - [ ] ND: Track nesting depth from tree-sitter AST
+  - [ ] FO: Count function calls (including methods)
+  - [ ] NS: Count return, raise, break, continue
+- [ ] Add Python CFG tests
+  - [ ] Test if/elif/else chains
+  - [ ] Test loop structures
+  - [ ] Test exception handling
+  - [ ] Test context managers
+  - [ ] Test nested structures
+  - [ ] Test async functions
+  - [ ] Test comprehensions (if included in CC)
+  - [ ] Verify CC calculation accuracy
+
+**Design Decisions:**
+
+**Comprehensions:**
+- **Decision:** Count comprehensions with if-filters as +1 CC
+- **Rationale:** `[x for x in items if condition]` adds a decision point
+- **Implementation:** Check for if-clause in comprehension, increment CC
+
+**Context Managers:**
+- **Decision:** `with` statements do NOT add to CC (not a decision)
+- **Rationale:** Context managers are resource management, not control flow branching
+- **Implementation:** Track for ND but not CC
+
+**Exception Handling:**
+- **Decision:** Each `except` clause adds +1 CC (like switch cases)
+- **Rationale:** Exception handlers are execution paths
+- **Implementation:** Count except clauses, not the try block itself
+
+**Acceptance:**
+- CFG accurately represents Python control flow
+- CC values match expected complexity
+- All Python-specific constructs handled
+- Deterministic across runs
+- CFG tests pass
+
+**Estimated effort:** 3-4 days
+
+---
+
+### 9.3 Python Metrics & Testing
+
+**Priority:** P0 (Validation and quality)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need comprehensive tests to validate Python analysis accuracy.
+
+**Tasks:**
+
+- [ ] Create Python test fixtures
+  - [ ] Create `tests/fixtures/python/` directory
+  - [ ] **simple.py** - Basic functions with early returns
+  - [ ] **loops.py** - for/while loops, break/continue, nested loops
+  - [ ] **exceptions.py** - try/except/finally, multiple except clauses
+  - [ ] **python_specific.py** - with, comprehensions, match (3.10+), async/await
+  - [ ] **classes.py** - Methods vs functions, class methods, static methods
+  - [ ] **comprehensions.py** - List/dict/set comprehensions with conditions
+  - [ ] **boolean_ops.py** - Complex boolean expressions, ternary operators
+- [ ] Add Python golden file tests
+  - [ ] Generate golden outputs for each fixture
+  - [ ] **python-simple.json**
+  - [ ] **python-loops.json**
+  - [ ] **python-exceptions.json**
+  - [ ] **python-python_specific.json**
+  - [ ] Add determinism test (run twice, compare outputs)
+- [ ] Implement Python metrics extraction
+  - [ ] Implement full metrics calculation in `src/metrics.rs`
+  - [ ] Extract ND via recursive AST walking
+  - [ ] Extract FO by counting unique function calls
+  - [ ] Extract NS by counting return/raise/break/continue
+  - [ ] Calculate CC extras for boolean operators and comprehensions
+- [ ] Validate against real Python projects
+  - [ ] Analyze Flask/Django sample applications
+  - [ ] Analyze popular Python libraries (requests, pandas snippets)
+  - [ ] Verify metrics are sensible
+  - [ ] Compare with similar tools (radon, mccabe)
+- [ ] Update documentation
+  - [ ] Add Python to `docs/language-support.md`
+  - [ ] Document Python-specific metric calculations
+  - [ ] Add Python examples to `docs/USAGE.md`
+  - [ ] Update README.md to list Python support
+
+**Acceptance:**
+- 6+ Python test fixtures covering all language features
+- 4+ golden file tests for determinism
+- All tests pass
+- Metrics are accurate compared to manual calculation
+- Documentation complete
+
+**Estimated effort:** 2-3 days
+
+---
+
+### 9.4 Python Documentation
+
+**Priority:** P1 (User adoption)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Python users need to understand how Hotspots analyzes their code.
+
+**Tasks:**
+
+- [ ] Update language support documentation
+  - [ ] Add comprehensive Python section to `docs/language-support.md`
+  - [ ] Document supported Python versions (3.8+)
+  - [ ] Document Python-specific metrics behavior
+  - [ ] Explain comprehension handling
+  - [ ] Explain exception handling metrics
+  - [ ] Document async/await support
+- [ ] Add Python examples
+  - [ ] Add Python examples to `docs/USAGE.md`
+  - [ ] Show analyzing a Flask app
+  - [ ] Show analyzing a Django project
+  - [ ] Show interpreting Python results
+- [ ] Update AI examples for Python
+  - [ ] Update `examples/ai-agents/README.md` with Python examples
+  - [ ] Test AI examples with Python code
+  - [ ] Add Python-specific refactoring prompts
+- [ ] Update README.md
+  - [ ] Add Python to supported languages list
+  - [ ] Add Python code snippet example
+  - [ ] Update feature matrix
+
+**Acceptance:**
+- Python fully documented in language-support.md
+- Python examples in USAGE.md
+- README.md lists Python support
+- AI examples work with Python
+
+**Estimated effort:** 1-2 days
+
+---
+
+## Phase 9 Timeline
+
+**Total estimated effort:** 8-12 days (2 weeks)
+
+- **Week 1:** Parser integration (9.1) + CFG builder (9.2)
+- **Week 2:** Testing and metrics (9.3) + Documentation (9.4)
+
+**Dependencies:**
+- Phase 8 (Multi-Language Architecture) - Complete ✅
+
+**Blockers:**
+- None
+
+---
+
+## Phase 9 Success Metrics
+
+- [ ] Python files (.py) can be analyzed
+- [ ] Accurate metrics for Python functions
+- [ ] Exception handlers counted correctly in CC
+- [ ] Comprehensions with conditions counted correctly
+- [ ] Context managers don't inflate CC
+- [ ] Async functions supported
+- [ ] Comprehensive test coverage (>80%)
+- [ ] Performance <30ms for typical Python files
+- [ ] Documentation complete
+
+**Adoption targets:**
+- [ ] 100 Python projects using Hotspots
+- [ ] Featured in Awesome Python
+- [ ] Integration with popular Python frameworks (Flask, Django, FastAPI)
+
+---
+
+## Phase 10: Java Language Support
+
+**Priority:** P1 (Enterprise adoption)
+
+**Timeline:** v2.2.0 release (2-3 weeks after v2.1.0)
+
+**Rationale:** Java is the dominant enterprise language. Java support enables Hotspots adoption in large organizations with established Java codebases. Java's verbose syntax and complex inheritance patterns make complexity analysis especially valuable.
+
+### 10.1 Java Parser Integration
+
+**Priority:** P0 (Foundation for Java support)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need AST parsing for Java source files to discover methods and extract control flow.
+
+**Tasks:**
+
+- [ ] Add Java parser dependency
+  - [ ] Use `tree-sitter-java` for consistency
+  - [ ] Add dependency to Cargo.toml
+  - [ ] Document decision in `docs/ARCHITECTURE.md`
+- [ ] Implement Java parser
+  - [ ] Create `src/language/java/parser.rs`
+  - [ ] Implement `LanguageParser` trait for Java
+  - [ ] Parse Java source to AST using tree-sitter
+  - [ ] Extract source spans
+  - [ ] Handle parse errors gracefully
+- [ ] Implement Java method discovery
+  - [ ] Implement `ParsedModule` for Java AST
+  - [ ] Discover method declarations
+  - [ ] Discover constructor declarations
+  - [ ] Discover static initializer blocks
+  - [ ] Discover lambda expressions (treat as separate functions)
+  - [ ] Handle generic methods
+  - [ ] Extract method names and spans
+- [ ] Define Java AST types
+  - [ ] Add `FunctionBody::Java` variant with node ID and source
+  - [ ] Map Java AST → Hotspots IR (SourceSpan, FunctionNode)
+  - [ ] Handle Java-specific constructs overview:
+    - [ ] try-with-resources
+    - [ ] switch expressions (Java 12+)
+    - [ ] streams (decision on handling)
+    - [ ] lambda expressions
+    - [ ] synchronized blocks
+- [ ] Add Java parser tests
+  - [ ] Test simple method discovery
+  - [ ] Test constructor discovery
+  - [ ] Test static method discovery
+  - [ ] Test lambda discovery
+  - [ ] Test generic method discovery
+  - [ ] Test error handling for invalid Java
+
+**Acceptance:**
+- Java files can be parsed
+- Methods, constructors, lambdas are discovered correctly
+- AST is available for CFG building
+- Parser tests pass
+
+**Estimated effort:** 2-3 days
+
+---
+
+### 10.2 Java CFG Builder
+
+**Priority:** P0 (Core complexity analysis)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need to build control flow graphs from Java AST to calculate complexity metrics.
+
+**Tasks:**
+
+- [ ] Implement Java CFG builder
+  - [ ] Create `src/language/java/cfg_builder.rs`
+  - [ ] Implement `CfgBuilder` trait for Java
+  - [ ] Handle Java control flow:
+    - [ ] if/else statements
+    - [ ] while loops
+    - [ ] for loops (including enhanced for)
+    - [ ] do-while loops
+    - [ ] switch statements (traditional)
+    - [ ] switch expressions (Java 12+)
+    - [ ] try/catch/finally
+    - [ ] try-with-resources
+    - [ ] break/continue (including labeled)
+    - [ ] return statements
+    - [ ] throw statements
+- [ ] Handle Java-specific complexity:
+  - [ ] Boolean operators: `&&`, `||`, `!`
+  - [ ] Ternary expressions: `condition ? a : b`
+  - [ ] Lambda expressions (count as separate function)
+  - [ ] Stream operations (decision: skip or count?)
+  - [ ] Method references (count as call, not decision)
+  - [ ] Synchronized blocks (no CC impact)
+  - [ ] Switch expression cases (count each case)
+- [ ] Calculate Java metrics:
+  - [ ] CC: Count decision points (if, while, for, do, case, catch, &&, ||, ?)
+  - [ ] ND: Track nesting depth from tree-sitter AST
+  - [ ] FO: Count method calls (including constructors)
+  - [ ] NS: Count return, throw, break, continue
+- [ ] Add Java CFG tests
+  - [ ] Test if/else chains
+  - [ ] Test loop structures (for, while, do-while, enhanced for)
+  - [ ] Test switch statements and expressions
+  - [ ] Test exception handling (try/catch/finally)
+  - [ ] Test try-with-resources
+  - [ ] Test lambda expressions
+  - [ ] Test nested structures
+  - [ ] Verify CC calculation accuracy
+
+**Design Decisions:**
+
+**Stream Operations:**
+- **Decision:** Stream chains do NOT add to CC (fluent API, not branching)
+- **Rationale:** `.filter().map().collect()` is declarative, not imperative control flow
+- **Exception:** `.filter(x -> condition)` - the lambda DOES count if it has decisions
+- **Implementation:** Skip stream method calls, but analyze lambda bodies
+
+**Try-with-Resources:**
+- **Decision:** try-with-resources does NOT add to CC beyond the catch clauses
+- **Rationale:** Resource management syntax, not a decision point
+- **Implementation:** Count catch clauses, not the try-with-resources itself
+
+**Switch Expressions:**
+- **Decision:** Each case in switch expression adds +1 CC (like traditional switch)
+- **Rationale:** Each case is an execution path
+- **Implementation:** Count case labels in both statement and expression forms
+
+**Lambdas:**
+- **Decision:** Treat lambdas as separate functions (analyze their bodies independently)
+- **Rationale:** Consistent with closure handling in other languages
+- **Implementation:** Create separate FunctionNode for each lambda
+
+**Acceptance:**
+- CFG accurately represents Java control flow
+- CC values match expected complexity
+- All Java-specific constructs handled
+- Deterministic across runs
+- CFG tests pass
+
+**Estimated effort:** 3-4 days
+
+---
+
+### 10.3 Java Metrics & Testing
+
+**Priority:** P0 (Validation and quality)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Need comprehensive tests to validate Java analysis accuracy.
+
+**Tasks:**
+
+- [ ] Create Java test fixtures
+  - [ ] Create `tests/fixtures/java/` directory
+  - [ ] **Simple.java** - Basic methods with early returns
+  - [ ] **Loops.java** - for/while/do-while loops, enhanced for, nested loops
+  - [ ] **Switch.java** - Traditional switch and switch expressions (Java 12+)
+  - [ ] **Exceptions.java** - try/catch/finally, try-with-resources, multiple catch
+  - [ ] **JavaSpecific.java** - streams, lambdas, method references
+  - [ ] **Classes.java** - Methods vs constructors, static methods, instance methods
+  - [ ] **BooleanOps.java** - Complex boolean expressions, ternary operators
+- [ ] Add Java golden file tests
+  - [ ] Generate golden outputs for each fixture
+  - [ ] **java-simple.json**
+  - [ ] **java-loops.json**
+  - [ ] **java-switch.json**
+  - [ ] **java-exceptions.json**
+  - [ ] **java-java_specific.json**
+  - [ ] Add determinism test (run twice, compare outputs)
+- [ ] Implement Java metrics extraction
+  - [ ] Implement full metrics calculation in `src/metrics.rs`
+  - [ ] Extract ND via recursive AST walking
+  - [ ] Extract FO by counting unique method calls
+  - [ ] Extract NS by counting return/throw/break/continue
+  - [ ] Calculate CC extras for boolean operators and ternary
+- [ ] Validate against real Java projects
+  - [ ] Analyze Spring Boot sample applications
+  - [ ] Analyze popular Java libraries (Guava, Apache Commons snippets)
+  - [ ] Verify metrics are sensible
+  - [ ] Compare with similar tools (Checkstyle, PMD)
+- [ ] Update documentation
+  - [ ] Add Java to `docs/language-support.md`
+  - [ ] Document Java-specific metric calculations
+  - [ ] Add Java examples to `docs/USAGE.md`
+  - [ ] Update README.md to list Java support
+
+**Acceptance:**
+- 7+ Java test fixtures covering all language features
+- 5+ golden file tests for determinism
+- All tests pass
+- Metrics are accurate compared to manual calculation
+- Documentation complete
+
+**Estimated effort:** 2-3 days
+
+---
+
+### 10.4 Java Documentation
+
+**Priority:** P1 (Enterprise adoption)
+
+**Status:** ⏳ **PLANNED**
+
+**Problem:** Java users (especially enterprise teams) need comprehensive documentation.
+
+**Tasks:**
+
+- [ ] Update language support documentation
+  - [ ] Add comprehensive Java section to `docs/language-support.md`
+  - [ ] Document supported Java versions (Java 8+)
+  - [ ] Document Java-specific metrics behavior
+  - [ ] Explain stream handling
+  - [ ] Explain lambda handling
+  - [ ] Explain switch expression support
+  - [ ] Document try-with-resources behavior
+- [ ] Add Java examples
+  - [ ] Add Java examples to `docs/USAGE.md`
+  - [ ] Show analyzing a Spring Boot app
+  - [ ] Show analyzing a Maven/Gradle project
+  - [ ] Show interpreting Java results
+- [ ] Update AI examples for Java
+  - [ ] Update `examples/ai-agents/README.md` with Java examples
+  - [ ] Test AI examples with Java code
+  - [ ] Add Java-specific refactoring prompts
+- [ ] Create enterprise adoption guide
+  - [ ] Create `docs/ENTERPRISE.md`
+  - [ ] Explain value proposition for Java teams
+  - [ ] Show integration with enterprise CI/CD (Jenkins, TeamCity)
+  - [ ] Document SonarQube comparison
+  - [ ] Add success stories/testimonials (when available)
+- [ ] Update README.md
+  - [ ] Add Java to supported languages list
+  - [ ] Add Java code snippet example
+  - [ ] Update feature matrix
+  - [ ] Add enterprise-focused messaging
+
+**Acceptance:**
+- Java fully documented in language-support.md
+- Java examples in USAGE.md
+- README.md lists Java support
+- AI examples work with Java
+- Enterprise documentation available
+
+**Estimated effort:** 2-3 days
+
+---
+
+## Phase 10 Timeline
+
+**Total estimated effort:** 9-13 days (2 weeks)
+
+- **Week 1:** Parser integration (10.1) + CFG builder (10.2)
+- **Week 2:** Testing and metrics (10.3) + Documentation (10.4)
+
+**Dependencies:**
+- Phase 8 (Multi-Language Architecture) - Complete ✅
+- Phase 9 (Python support) - Optional (can be parallel)
+
+**Blockers:**
+- None
+
+---
+
+## Phase 10 Success Metrics
+
+- [ ] Java files (.java) can be analyzed
+- [ ] Accurate metrics for Java methods
+- [ ] Switch expressions (Java 12+) supported
+- [ ] Try-with-resources handled correctly
+- [ ] Lambdas analyzed as separate functions
+- [ ] Streams don't artificially inflate CC
+- [ ] Comprehensive test coverage (>80%)
+- [ ] Performance <30ms for typical Java files
+- [ ] Documentation complete
+- [ ] Enterprise adoption guide published
+
+**Adoption targets:**
+- [ ] 100 Java projects using Hotspots
+- [ ] Featured in Awesome Java
+- [ ] Integration with Spring Framework ecosystem
+- [ ] Adoption by at least 3 enterprise organizations
 
 ---
 
