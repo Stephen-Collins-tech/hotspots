@@ -1,0 +1,154 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "LoopWithCondition",
+    "line": 13,
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "NestedLoops",
+    "line": 23,
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "LoopWithBreak",
+    "line": 33,
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "LoopWithContinue",
+    "line": 43,
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "InfiniteLoop",
+    "line": 72,
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "SimpleLoop",
+    "line": 5,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.8,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "RangeLoop",
+    "line": 54,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.8,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "function": "WhileStyleLoop",
+    "line": 63,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.8,
+    "band": "low"
+  }
+]

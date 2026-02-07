@@ -1,0 +1,97 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
+    "function": "MultipleReturns",
+    "line": 39,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 3.0
+    },
+    "lrs": 4.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
+    "function": "IfElse",
+    "line": 20,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 4.199999999999999,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
+    "function": "EarlyReturn",
+    "line": 30,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 4.199999999999999,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
+    "function": "SingleBranch",
+    "line": 12,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.8,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/simple.go",
+    "function": "Simple",
+    "line": 5,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  }
+]

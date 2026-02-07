@@ -2779,7 +2779,7 @@ examples/ai-agents/
 
 **Priority:** P0 (First multi-language target)
 
-**Status:** ⏳ **IN PROGRESS** (Parser complete, CFG builder in progress)
+**Status:** ✅ **COMPLETE**
 
 **Problem:** Go is widely used and has simple, well-defined control flow. Good first language to validate architecture.
 
@@ -2804,38 +2804,49 @@ examples/ai-agents/
 - [x] Define Go AST types
   - [x] Add `FunctionBody::Go` variant with node ID and source
   - [x] Map Go AST → Hotspots IR (SourceSpan, FunctionNode)
-  - [ ] Handle Go-specific constructs:
-    - [ ] Defer statements (count as NS)
-    - [ ] Go statements/goroutines (count as FO)
-    - [ ] Select statements (count cases as CC)
-    - [ ] Type switches (count cases as CC)
-- [x] Implement Go CFG builder (placeholder)
+  - [x] Handle Go-specific constructs:
+    - [x] Defer statements (count as NS)
+    - [x] Go statements/goroutines (count as FO)
+    - [x] Select statements (count cases as CC)
+    - [x] Type switches (count cases as CC)
+- [x] Implement Go CFG builder
   - [x] Create `src/language/go/cfg_builder.rs`
-  - [x] Implement `CfgBuilder` for Go (basic structure)
-  - [ ] Handle Go control flow:
-    - [ ] If/else
-    - [ ] For loops (various forms)
-    - [ ] Switch/select
-    - [ ] Defer (track as non-structured exit)
-    - [ ] Go statements (concurrent, count as call)
-    - [ ] Panic/recover
-  - [ ] Calculate metrics:
-    - [x] CC: basic CFG calculation (placeholder)
-    - [ ] ND: nesting depth
-    - [ ] FO: function calls + go statements
-    - [ ] NS: return, panic, defer
-- [x] Add Go test suite (basic)
+  - [x] Implement `CfgBuilder` for Go
+  - [x] Handle Go control flow:
+    - [x] If/else
+    - [x] For loops (various forms)
+    - [x] Switch/select
+    - [x] Defer (track as non-structured exit)
+    - [x] Go statements (concurrent, count as call)
+    - [x] Panic/recover
+  - [x] Calculate metrics:
+    - [x] CC: CFG calculation + switch cases + boolean operators
+    - [x] ND: nesting depth from tree-sitter AST
+    - [x] FO: function calls + go statements
+    - [x] NS: return, panic, defer
+- [x] Add Go test suite
   - [x] 7 parser tests in parser.rs
-  - [ ] Create test fixtures in `tests/fixtures/go/`
-  - [ ] Test control flow (if, for, switch, select)
-  - [ ] Test Go-specific features (defer, go, panic)
+  - [x] Create test fixtures in `tests/fixtures/go/`
+    - [x] simple.go - Basic functions and early returns
+    - [x] loops.go - For loops, range, while-style, nested loops
+    - [x] switch.go - Switch statements, type switches, fallthrough
+    - [x] go_specific.go - Defer, goroutines, select, panic/recover
+    - [x] methods.go - Methods vs functions, interfaces, generics
+    - [x] boolean_ops.go - Boolean operators, deeply nested, pathological
+  - [x] Test control flow (if, for, switch, select)
+  - [x] Test Go-specific features (defer, go, panic)
   - [x] Test methods vs functions
-  - [ ] Golden file tests for determinism
-- [ ] Update documentation
-  - [ ] Add Go to supported languages list
-  - [ ] Document Go-specific metric calculations
-  - [ ] Add Go examples to docs/USAGE.md
-  - [ ] Update README.md language support section
+  - [x] Golden file tests for determinism (5 tests added)
+    - [x] go-simple.json
+    - [x] go-loops.json
+    - [x] go-switch.json
+    - [x] go-go_specific.json
+    - [x] Go determinism test
+- [x] Update documentation
+  - [x] Add Go to supported languages list (language-support.md)
+  - [x] Document Go-specific metric calculations (language-support.md)
+  - [x] Add Go examples to docs/USAGE.md
+  - [x] Update README.md language support section
 
 **Acceptance:**
 - ✅ Go files can be analyzed
@@ -2844,6 +2855,29 @@ examples/ai-agents/
 - ✅ Go statements counted in fan-out
 - ✅ Select/switch cases counted in CC
 - ✅ Comprehensive test coverage
+
+**Recent Progress:**
+- 2026-02-07 (Late Afternoon): ✅ Completed all documentation updates for Go
+  - Updated docs/language-support.md with comprehensive Go section (300+ lines)
+  - Updated README.md to list Go as supported language
+  - Added Go examples and metrics explanation to docs/USAGE.md
+  - All documentation now reflects multi-language support
+  - **Phase 8.2 (Go Language Support) is now COMPLETE**
+
+- 2026-02-07 (Afternoon): ✅ Completed comprehensive Go test suite
+  - Created 6 test fixture files covering all Go features
+  - Added 5 golden file tests for determinism verification
+  - All 194 tests passing (up from 189)
+  - Test coverage: simple functions, loops, switches, defer/go/select, methods, boolean operators, nested complexity
+
+- 2026-02-07 (Morning): ✅ Implemented full Go metrics extraction in `metrics.rs`
+  - Added `extract_go_metrics()` to replace placeholder implementation
+  - Implemented ND calculation via recursive AST walking
+  - Implemented FO calculation counting unique calls + go statements
+  - Implemented NS calculation for return/defer/panic
+  - Implemented CC extras for switch cases and boolean operators
+  - All 189 tests passing
+  - Verified with real Go files: metrics now calculated correctly (ND=3, FO=6, NS=5 for complex function vs previous ND=0, FO=0, NS=0)
 
 **Estimated effort:** 5-7 days
 

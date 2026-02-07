@@ -1,6 +1,6 @@
 # Hotspots
 
-Static analysis tool for TypeScript, JavaScript, and React that computes a Local Risk Score (LRS) based on control flow complexity metrics.
+Static analysis tool for TypeScript, JavaScript, React, and Go that computes a Local Risk Score (LRS) based on control flow complexity metrics.
 
 ## Quickstart
 
@@ -34,9 +34,10 @@ See [action/README.md](action/README.md) for full GitHub Action documentation.
 # Build the project
 cargo build --release
 
-# Analyze TypeScript, JavaScript, or React files
+# Analyze TypeScript, JavaScript, React, or Go files
 ./target/release/hotspots analyze src/main.ts
 ./target/release/hotspots analyze src/app.js
+./target/release/hotspots analyze main.go
 ./target/release/hotspots analyze src/Component.tsx
 ./target/release/hotspots analyze src/Button.jsx
 
@@ -331,13 +332,17 @@ See [docs/USAGE.md](docs/USAGE.md) for complete documentation.
 
 See [docs/language-support.md](docs/language-support.md) for full details.
 
-**Supported languages:** TypeScript, JavaScript, JSX, TSX
+**Supported languages:**
+- **ECMAScript:** TypeScript, JavaScript, JSX, TSX
+- **Go:** Full Go language support
 
-**Supported file extensions:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+**Supported file extensions:**
+- **ECMAScript:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+- **Go:** `.go`
 
 **Supported constructs:**
-- Function declarations, expressions, arrow functions
-- Class methods, object literal methods
+- **ECMAScript:** Function declarations, expressions, arrow functions, class methods, object literal methods
+- **Go:** Functions, methods, control flow, defer, goroutines, select statements
 - All control flow constructs (if, loops, switch, try/catch/finally)
 - JSX/TSX elements (elements don't inflate complexity; embedded control flow is counted)
 - Labeled break/continue with correct loop targeting

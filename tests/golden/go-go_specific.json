@@ -1,0 +1,287 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "ComplexGoFunction",
+    "line": 113,
+    "metrics": {
+      "cc": 8,
+      "nd": 3,
+      "fo": 5,
+      "ns": 5
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 3.0,
+      "r_fo": 2.584962500721156,
+      "r_ns": 5.0
+    },
+    "lrs": 10.620902501875007,
+    "band": "critical"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "SelectInLoop",
+    "line": 99,
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 2,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 1.0
+    },
+    "lrs": 5.835940001153849,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "MultipleDefers",
+    "line": 16,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 1,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 3.0
+    },
+    "lrs": 4.699999999999999,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "SelectWithDefault",
+    "line": 84,
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 1,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.207354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "ConditionalDefer",
+    "line": 24,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 4.1,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "WithPanic",
+    "line": 52,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 4.1,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "WithRecover",
+    "line": 60,
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 4.1,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "SimpleSelect",
+    "line": 70,
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 1,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.984962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "GoroutineAndDefer",
+    "line": 45,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 3,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 2.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.9000000000000004,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "MultipleGoroutines",
+    "line": 38,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 4,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 2.321928094887362,
+      "r_ns": 0.0
+    },
+    "lrs": 3.3931568569324173,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "WithDefer",
+    "line": 10,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.3,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "WithGoroutine",
+    "line": 32,
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 2,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 2.9509775004326935,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "cleanup",
+    "line": 154,
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "doWork",
+    "line": 155,
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/go_specific.go",
+    "function": "doOtherWork",
+    "line": 156,
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]

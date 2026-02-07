@@ -62,6 +62,81 @@ LRS     File              Line  Function
 
 ---
 
+## Language-Specific Examples
+
+### ECMAScript (TypeScript/JavaScript/React)
+
+```bash
+# Analyze TypeScript files
+hotspots analyze src/api.ts
+
+# Analyze entire TypeScript project
+hotspots analyze src/ --format json
+
+# Analyze React components
+hotspots analyze src/components/ --format json
+```
+
+**Supported files:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+
+### Go
+
+```bash
+# Analyze single Go file
+hotspots analyze main.go
+
+# Analyze Go package
+hotspots analyze pkg/handlers/
+
+# Analyze entire Go project
+hotspots analyze . --format json
+```
+
+**Go-specific metrics:**
+- **Defer statements** count as Non-Structured Exits (NS)
+- **Goroutines** (`go` statements) count as Fan-Out (FO)
+- **Select statements** - each case counts toward Cyclomatic Complexity (CC)
+- **Type switches** - each case counts toward CC
+
+**Example Go analysis:**
+
+```bash
+$ hotspots analyze server.go --format json
+```
+
+```json
+[
+  {
+    "file": "server.go",
+    "function": "HandleRequest",
+    "line": 45,
+    "metrics": {
+      "cc": 8,
+      "nd": 3,
+      "fo": 6,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 3.17,
+      "r_nd": 3.0,
+      "r_fo": 2.81,
+      "r_ns": 2.0
+    },
+    "lrs": 9.24,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Go metrics in this example:**
+- **CC=8:** Base complexity + switch cases + boolean operators
+- **ND=3:** Three levels of nesting (e.g., `for` → `if` → `switch`)
+- **FO=6:** 4 function calls + 1 goroutine + 1 defer
+- **NS=2:** 1 early return + 1 defer statement
+- **LRS=9.24:** Composite risk score → **critical** band
+
+---
+
 ## Git History Tracking
 
 ### Prerequisites

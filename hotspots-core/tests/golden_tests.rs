@@ -137,12 +137,101 @@ fn test_golden_determinism() {
         min_lrs: None,
         top_n: None,
     };
-    
+
     let reports1 = analyze(&fixture, options1).unwrap();
     let reports2 = analyze(&fixture, options2).unwrap();
-    
+
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
-    
+
     assert_eq!(json1, json2, "Output must be byte-for-byte identical across runs");
+}
+
+// Go language golden tests
+
+fn test_go_golden(fixture_name: &str) {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("go")
+        .join(format!("{}.go", fixture_name));
+    let golden = golden_path(&format!("go-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("go-{}.json", fixture_name));
+
+    // Parse both as JSON for comparison (handles formatting differences)
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    // Normalize paths in both JSON values before comparison
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for {}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_go_golden_simple() {
+    test_go_golden("simple");
+}
+
+#[test]
+fn test_go_golden_loops() {
+    test_go_golden("loops");
+}
+
+#[test]
+fn test_go_golden_switch() {
+    test_go_golden("switch");
+}
+
+#[test]
+fn test_go_golden_specific() {
+    test_go_golden("go_specific");
+}
+
+#[test]
+fn test_go_golden_determinism() {
+    // Test that running Go analysis twice produces identical output
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("go")
+        .join("simple.go");
+    let options1 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let options2 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports1 = analyze(&fixture, options1).unwrap();
+    let reports2 = analyze(&fixture, options2).unwrap();
+
+    let json1 = render_json(&reports1);
+    let json2 = render_json(&reports2);
+
+    assert_eq!(json1, json2, "Go output must be byte-for-byte identical across runs");
 }

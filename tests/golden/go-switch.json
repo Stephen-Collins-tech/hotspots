@@ -1,0 +1,135 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "SimpleSwitch",
+    "line": 5,
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 3.0
+    },
+    "lrs": 5.707354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "NestedSwitch",
+    "line": 45,
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "SwitchWithFallthrough",
+    "line": 29,
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 4.307354922057605,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "TypeSwitch",
+    "line": 72,
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6073549220576044,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "SwitchNoDefault",
+    "line": 18,
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.384962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "ExpressionSwitch",
+    "line": 61,
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.384962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "function": "SwitchMultipleValues",
+    "line": 85,
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.384962500721156,
+    "band": "moderate"
+  }
+]
