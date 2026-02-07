@@ -1,16 +1,14 @@
 //! Analysis orchestration - ties together parsing, discovery, CFG, metrics, and reporting
 
-use crate::cfg::builder;
-use crate::discover;
+use crate::language::{self, Language, LanguageParser};
 use crate::metrics;
-use crate::parser;
 use crate::report;
 use crate::risk;
 use anyhow::{Context, Result};
 use std::path::Path;
 use swc_common::{sync::Lrc, SourceMap};
 
-/// Analyze a TypeScript or JavaScript file
+/// Analyze a source file (TypeScript, JavaScript, Go, or Rust)
 pub fn analyze_file(
     path: &Path,
     source_map: &Lrc<SourceMap>,
@@ -38,17 +36,36 @@ pub fn analyze_file_with_config(
     let src = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
-    // Parse source file (TypeScript or JavaScript)
-    let module = parser::parse_source(&src, source_map, &path.to_string_lossy())?;
+    // Detect language from file extension
+    let language = Language::from_path(path)
+        .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
+
+    // Get appropriate parser for this language
+    let parser: Box<dyn LanguageParser> = match language {
+        Language::TypeScript | Language::TypeScriptReact |
+        Language::JavaScript | Language::JavaScriptReact => {
+            Box::new(language::ECMAScriptParser::new(source_map.clone()))
+        }
+        Language::Go => {
+            anyhow::bail!("Go support not yet implemented")
+        }
+        Language::Rust => {
+            anyhow::bail!("Rust support not yet implemented")
+        }
+    };
+
+    // Parse source file
+    let module = parser.parse(&src, &path.to_string_lossy())?;
 
     // Discover functions (with suppression extraction)
-    let functions = discover::discover_functions(&module, file_index, &src, source_map);
+    let functions = module.discover_functions(file_index, &src);
 
     // Analyze each function
     let mut reports = Vec::new();
     for function in &functions {
-        // Build CFG
-        let cfg = builder::build_cfg(function);
+        // Build CFG using language-specific builder
+        let builder = language::get_builder_for_function(function);
+        let cfg = builder.build(function);
 
         // Validate CFG
         cfg.validate()

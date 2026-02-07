@@ -1,4 +1,4 @@
-//! Hotspots core library - static analysis of TypeScript functions
+//! Hotspots core library - static analysis for TypeScript, JavaScript, Go, and Rust
 
 #![deny(warnings)]
 
@@ -70,7 +70,7 @@ pub fn analyze_with_config(
         critical: c.critical_threshold,
     });
 
-    // Collect TypeScript and JavaScript files
+    // Collect source files (TypeScript, JavaScript, Go, Rust)
     let source_files = collect_source_files(path)?;
 
     // Analyze each file (applying include/exclude from config)
@@ -105,29 +105,31 @@ pub fn analyze_with_config(
 
 /// Check if a file is a supported source file
 fn is_supported_source_file(filename: &str) -> bool {
-    // TypeScript files (.ts, .mts, .cts) but not declaration files (.d.ts)
-    let is_ts = (filename.ends_with(".ts") || filename.ends_with(".mts") || filename.ends_with(".cts"))
-        && !filename.ends_with(".d.ts");
+    // Skip TypeScript declaration files (.d.ts)
+    if filename.ends_with(".d.ts") {
+        return false;
+    }
 
-    // TSX files (.tsx, .mtsx, .ctsx)
-    let is_tsx = filename.ends_with(".tsx") || filename.ends_with(".mtsx") || filename.ends_with(".ctsx");
-
-    // JavaScript files (.js, .mjs, .cjs)
-    let is_js = filename.ends_with(".js") || filename.ends_with(".mjs") || filename.ends_with(".cjs");
-
-    // JSX files (.jsx, .mjsx, .cjsx)
-    let is_jsx = filename.ends_with(".jsx") || filename.ends_with(".mjsx") || filename.ends_with(".cjsx");
-
-    is_ts || is_tsx || is_js || is_jsx
+    // Use language detection to check if file is supported
+    if let Some(ext) = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        language::Language::from_extension(ext).is_some()
+    } else {
+        false
+    }
 }
 
-/// Collect all TypeScript, JavaScript, JSX, and TSX files from a path (file or directory)
+/// Collect all supported source files from a path (file or directory)
 ///
-/// Supported extensions:
+/// Supported languages and extensions:
 /// - TypeScript: .ts, .mts, .cts (excludes .d.ts declaration files)
 /// - TSX: .tsx, .mtsx, .ctsx
 /// - JavaScript: .js, .mjs, .cjs
 /// - JSX: .jsx, .mjsx, .cjsx
+/// - Go: .go
+/// - Rust: .rs
 fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
 
@@ -147,7 +149,7 @@ fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf
     Ok(files)
 }
 
-/// Recursively collect TypeScript and JavaScript files from a directory
+/// Recursively collect supported source files from a directory
 fn collect_source_files_recursive(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
     use std::ffi::OsStr;
 

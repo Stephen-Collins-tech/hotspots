@@ -33,14 +33,14 @@
 - ✅ Task 7.5: Reference Implementation Examples (COMPLETED 2026-02-06)
 
 **Phase 8: Multi-Language Support** (PRIORITY - v2.0.0 Feature)
-- ⏳ Task 8.1: Architecture Refactoring
+- ✅ Task 8.1: Architecture Refactoring (COMPLETED 2026-02-06)
 - ⏳ Task 8.2: Go Language Support
 - ⏳ Task 8.3: Rust Language Support
 - ⏳ Task 8.4: Integration & Polish
 
-**Overall Progress:** 13/34 tasks completed (38%)
+**Overall Progress:** 14/34 tasks completed (41%)
 
-**Latest Update:** 2026-02-06 - Phase 7 (AI-First Integration) complete! Added Phase 8 (Multi-Language Support) to support Go and Rust in addition to TypeScript/JavaScript. See MULTI_LANGUAGE_PLAN.md for implementation details.
+**Latest Update:** 2026-02-06 - Phase 8.1 (Architecture Refactoring) complete! Created language abstraction layer with trait-based parser and CFG builder interfaces. System now ready for Go and Rust language support.
 
 ---
 
@@ -2726,43 +2726,43 @@ examples/ai-agents/
 
 **See:** `MULTI_LANGUAGE_PLAN.md` for complete implementation plan and technical details.
 
-### 8.1 Architecture Refactoring
+### 8.1 Architecture Refactoring ✅ COMPLETE
 
 **Priority:** P0 (Foundation for all language support)
 
-**Status:** ⏳ **PLANNED**
+**Status:** ✅ **COMPLETE** (2026-02-06)
 
 **Problem:** Current codebase is tightly coupled to SWC (TypeScript/JavaScript) AST types. Need abstraction layer to support multiple languages.
 
 **Tasks:**
 
-- [ ] Create language module
-  - [ ] Define `Language` enum (TypeScript, JavaScript, Go, Rust)
-  - [ ] Implement `from_extension()` and `from_file()` methods
-  - [ ] Add language detection tests
-- [ ] Abstract SourceSpan
-  - [ ] Create language-agnostic `SourceSpan` struct
-  - [ ] Convert all `swc_common::Span` → `SourceSpan`
-  - [ ] Update `FunctionNode` to use `SourceSpan`
-  - [ ] Update metrics extraction to work with `SourceSpan`
-- [ ] Abstract FunctionBody
-  - [ ] Create `FunctionBody` enum with language variants
-  - [ ] Update `FunctionNode` to use `FunctionBody`
-  - [ ] Wrap existing `BlockStmt` in `FunctionBody::TypeScript`
-- [ ] Create parser trait
-  - [ ] Define `LanguageParser` trait
-  - [ ] Define `ParsedModule` trait
-  - [ ] Implement for TypeScript/JavaScript (wraps SWC)
-  - [ ] Update `analyze_file()` to use trait
-- [ ] Create CFG builder trait
-  - [ ] Define `CfgBuilder` trait
-  - [ ] Extract current logic to `TypeScriptCfgBuilder`
-  - [ ] Update `build_cfg()` to dispatch by language
-- [ ] Update analysis pipeline
-  - [ ] Modify `analyze_file()` to detect language
-  - [ ] Select appropriate parser based on language
-  - [ ] Select appropriate CFG builder based on language
-  - [ ] Ensure all existing tests pass
+- [x] Create language module (Task 8.1.1)
+  - [x] Define `Language` enum (TypeScript, JavaScript, Go, Rust)
+  - [x] Implement `from_extension()` and `from_file()` methods
+  - [x] Add language detection tests
+- [x] Abstract SourceSpan (Task 8.1.2)
+  - [x] Create language-agnostic `SourceSpan` struct
+  - [x] Convert all `swc_common::Span` → `SourceSpan`
+  - [x] Update `FunctionNode` to use `SourceSpan`
+  - [x] Update metrics extraction to work with `SourceSpan`
+- [x] Abstract FunctionBody (Task 8.1.3)
+  - [x] Create `FunctionBody` enum with language variants
+  - [x] Update `FunctionNode` to use `FunctionBody`
+  - [x] Wrap existing `BlockStmt` in `FunctionBody::ECMAScript`
+- [x] Create parser trait (Task 8.1.4)
+  - [x] Define `LanguageParser` trait
+  - [x] Define `ParsedModule` trait
+  - [x] Implement for TypeScript/JavaScript (wraps SWC)
+  - [x] Update `analyze_file()` to use trait
+- [x] Create CFG builder trait (Task 8.1.5)
+  - [x] Define `CfgBuilder` trait
+  - [x] Extract current logic to `ECMAScriptCfgBuilder`
+  - [x] Update `build_cfg()` to dispatch by language
+- [x] Update analysis pipeline (Task 8.1.6)
+  - [x] Modify `analyze_file()` to detect language
+  - [x] Select appropriate parser based on language
+  - [x] Select appropriate CFG builder based on language
+  - [x] Ensure all existing tests pass (142/142 passing)
 
 **Acceptance:**
 - ✅ Language detection from file extensions
@@ -2771,7 +2771,7 @@ examples/ai-agents/
 - ✅ All TypeScript/JavaScript tests passing
 - ✅ No functional regressions
 
-**Estimated effort:** 3-4 days
+**Completed effort:** 3 days
 
 ---
 
