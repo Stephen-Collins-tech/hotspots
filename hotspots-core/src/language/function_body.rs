@@ -25,8 +25,14 @@ pub enum FunctionBody {
         source: String,
     },
 
-    // Future language support (currently unimplemented):
-    // Rust(RustBlock),
+    /// Rust function body
+    ///
+    /// Contains the source code for the function body.
+    /// We re-parse on demand using syn when building CFG or extracting metrics.
+    Rust {
+        /// The source code for the entire function (signature + body)
+        source: String,
+    },
 }
 
 impl FunctionBody {
@@ -43,6 +49,11 @@ impl FunctionBody {
     /// Check if this is a Go function body
     pub fn is_go(&self) -> bool {
         matches!(self, FunctionBody::Go { .. })
+    }
+
+    /// Check if this is a Rust function body
+    pub fn is_rust(&self) -> bool {
+        matches!(self, FunctionBody::Rust { .. })
     }
 
     /// Get the ECMAScript body, if this is one
@@ -79,6 +90,18 @@ impl FunctionBody {
         match self {
             FunctionBody::Go { body_node, source } => (*body_node, source.as_str()),
             _ => panic!("FunctionBody is not Go"),
+        }
+    }
+
+    /// Get the Rust source, if this is a Rust function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a Rust body. Use `is_rust()` to check first.
+    pub fn as_rust(&self) -> &str {
+        match self {
+            FunctionBody::Rust { source } => source.as_str(),
+            _ => panic!("FunctionBody is not Rust"),
         }
     }
 }

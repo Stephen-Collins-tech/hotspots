@@ -33,8 +33,10 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             // Extract Go-specific metrics from tree-sitter AST
             extract_go_metrics(function, cfg)
         }
-        #[allow(unreachable_patterns)]
-        _ => panic!("Unsupported language for metrics extraction"),
+        FunctionBody::Rust { .. } => {
+            // Extract Rust-specific metrics from syn AST
+            extract_rust_metrics(function, cfg)
+        }
     }
 }
 
@@ -597,3 +599,355 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
 }
 
 // Note: Go metrics tests are integrated with cfg_builder tests
+
+// ========================================
+// Rust Metrics Extraction
+// ========================================
+
+/// Extract metrics for a Rust function
+fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let source = function.body.as_rust();
+
+    // Parse the function source
+    let item_fn: syn::ItemFn = match syn::parse_str(source) {
+        Ok(func) => func,
+        Err(_) => {
+            // Fallback on parse error
+            return RawMetrics {
+                cc: calculate_cc_from_cfg(cfg),
+                nd: 0,
+                fo: 0,
+                ns: 0,
+            };
+        }
+    };
+
+    let base_cc = calculate_cc_from_cfg(cfg);
+    let extra_cc = rust_count_cc_extras(&item_fn.block);
+    let nd = rust_nesting_depth(&item_fn.block);
+    let fo = rust_fan_out(&item_fn.block);
+    let ns = rust_non_structured_exits(&item_fn.block);
+
+    RawMetrics {
+        cc: base_cc + extra_cc,
+        nd,
+        fo,
+        ns,
+    }
+}
+
+/// Calculate nesting depth for Rust function
+fn rust_nesting_depth(block: &syn::Block) -> usize {
+    use syn::{Expr, Stmt};
+
+    fn calculate_depth(stmts: &[Stmt], current_depth: usize, max_depth: &mut usize) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Expr(expr, _) => expr_depth(expr, current_depth, max_depth),
+                Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        expr_depth(&init.expr, current_depth, max_depth);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn expr_depth(expr: &Expr, current_depth: usize, max_depth: &mut usize) {
+        let new_depth = match expr {
+            Expr::If(_) | Expr::Match(_) | Expr::Loop(_) | Expr::While(_) | Expr::ForLoop(_) => {
+                let depth = current_depth + 1;
+                if depth > *max_depth {
+                    *max_depth = depth;
+                }
+                depth
+            }
+            _ => current_depth,
+        };
+
+        // Recurse into sub-expressions
+        match expr {
+            Expr::If(expr_if) => {
+                calculate_depth(&expr_if.then_branch.stmts, new_depth, max_depth);
+                if let Some((_, else_expr)) = &expr_if.else_branch {
+                    expr_depth(else_expr, new_depth, max_depth);
+                }
+            }
+            Expr::Match(expr_match) => {
+                for arm in &expr_match.arms {
+                    expr_depth(&arm.body, new_depth, max_depth);
+                }
+            }
+            Expr::Loop(expr_loop) => {
+                calculate_depth(&expr_loop.body.stmts, new_depth, max_depth);
+            }
+            Expr::While(expr_while) => {
+                calculate_depth(&expr_while.body.stmts, new_depth, max_depth);
+            }
+            Expr::ForLoop(expr_for) => {
+                calculate_depth(&expr_for.body.stmts, new_depth, max_depth);
+            }
+            Expr::Block(expr_block) => {
+                calculate_depth(&expr_block.block.stmts, new_depth, max_depth);
+            }
+            _ => {}
+        }
+    }
+
+    let mut max_depth = 0;
+    calculate_depth(&block.stmts, 0, &mut max_depth);
+    max_depth
+}
+
+/// Calculate fan-out for Rust function
+fn rust_fan_out(block: &syn::Block) -> usize {
+    use std::collections::HashSet;
+    use syn::{Expr, ExprCall, ExprMethodCall, Stmt};
+
+    fn count_calls(stmts: &[Stmt], calls: &mut HashSet<String>) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Expr(expr, _) => expr_calls(expr, calls),
+                Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        expr_calls(&init.expr, calls);
+                    }
+                }
+                Stmt::Macro(stmt_macro) => {
+                    // Count macro invocations
+                    let macro_name = stmt_macro
+                        .mac
+                        .path
+                        .segments
+                        .last()
+                        .map(|seg| seg.ident.to_string())
+                        .unwrap_or_else(|| "macro".to_string());
+                    calls.insert(macro_name);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn expr_calls(expr: &Expr, calls: &mut HashSet<String>) {
+        match expr {
+            Expr::Call(ExprCall { func, .. }) => {
+                // Extract function name from path
+                if let Expr::Path(expr_path) = &**func {
+                    let func_name = expr_path
+                        .path
+                        .segments
+                        .last()
+                        .map(|seg| seg.ident.to_string())
+                        .unwrap_or_else(|| "fn".to_string());
+                    calls.insert(func_name);
+                }
+            }
+            Expr::MethodCall(ExprMethodCall { method, .. }) => {
+                calls.insert(method.to_string());
+            }
+            Expr::Macro(expr_macro) => {
+                let macro_name = expr_macro
+                    .mac
+                    .path
+                    .segments
+                    .last()
+                    .map(|seg| seg.ident.to_string())
+                    .unwrap_or_else(|| "macro".to_string());
+                calls.insert(macro_name);
+            }
+            Expr::If(expr_if) => {
+                expr_calls(&expr_if.cond, calls);
+                count_calls(&expr_if.then_branch.stmts, calls);
+                if let Some((_, else_expr)) = &expr_if.else_branch {
+                    expr_calls(else_expr, calls);
+                }
+            }
+            Expr::Match(expr_match) => {
+                expr_calls(&expr_match.expr, calls);
+                for arm in &expr_match.arms {
+                    expr_calls(&arm.body, calls);
+                }
+            }
+            Expr::Loop(expr_loop) => {
+                count_calls(&expr_loop.body.stmts, calls);
+            }
+            Expr::While(expr_while) => {
+                expr_calls(&expr_while.cond, calls);
+                count_calls(&expr_while.body.stmts, calls);
+            }
+            Expr::ForLoop(expr_for) => {
+                expr_calls(&expr_for.expr, calls);
+                count_calls(&expr_for.body.stmts, calls);
+            }
+            Expr::Block(expr_block) => {
+                count_calls(&expr_block.block.stmts, calls);
+            }
+            _ => {}
+        }
+    }
+
+    let mut calls = HashSet::new();
+    count_calls(&block.stmts, &mut calls);
+    calls.len()
+}
+
+/// Calculate non-structured exits for Rust function
+fn rust_non_structured_exits(block: &syn::Block) -> usize {
+    use syn::{Expr, ExprMethodCall, Stmt};
+
+    fn count_exits(stmts: &[Stmt], count: &mut usize, is_tail: bool) {
+        for (i, stmt) in stmts.iter().enumerate() {
+            let is_last = i == stmts.len() - 1;
+            match stmt {
+                Stmt::Expr(expr, _) => {
+                    expr_exits(expr, count, is_tail && is_last);
+                }
+                Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        expr_exits(&init.expr, count, false);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn expr_exits(expr: &Expr, count: &mut usize, is_tail: bool) {
+        match expr {
+            Expr::Return(_) => {
+                // Don't count final tail return
+                if !is_tail {
+                    *count += 1;
+                }
+            }
+            Expr::Try(_) => {
+                // ? operator counts as early return
+                *count += 1;
+            }
+            Expr::MethodCall(ExprMethodCall { method, .. }) => {
+                // unwrap, expect, panic count as non-structured exits
+                let method_name = method.to_string();
+                if matches!(
+                    method_name.as_str(),
+                    "unwrap" | "expect" | "unwrap_or_else" | "unwrap_or"
+                ) {
+                    *count += 1;
+                }
+            }
+            Expr::Macro(expr_macro) => {
+                // panic!, unreachable!, unimplemented! count as exits
+                if let Some(segment) = expr_macro.mac.path.segments.last() {
+                    let macro_name = segment.ident.to_string();
+                    if matches!(
+                        macro_name.as_str(),
+                        "panic" | "unreachable" | "unimplemented" | "todo"
+                    ) {
+                        *count += 1;
+                    }
+                }
+            }
+            Expr::If(expr_if) => {
+                expr_exits(&expr_if.cond, count, false);
+                count_exits(&expr_if.then_branch.stmts, count, false);
+                if let Some((_, else_expr)) = &expr_if.else_branch {
+                    expr_exits(else_expr, count, false);
+                }
+            }
+            Expr::Match(expr_match) => {
+                expr_exits(&expr_match.expr, count, false);
+                for arm in &expr_match.arms {
+                    expr_exits(&arm.body, count, false);
+                }
+            }
+            Expr::Loop(expr_loop) => {
+                count_exits(&expr_loop.body.stmts, count, false);
+            }
+            Expr::While(expr_while) => {
+                expr_exits(&expr_while.cond, count, false);
+                count_exits(&expr_while.body.stmts, count, false);
+            }
+            Expr::ForLoop(expr_for) => {
+                expr_exits(&expr_for.expr, count, false);
+                count_exits(&expr_for.body.stmts, count, false);
+            }
+            Expr::Block(expr_block) => {
+                count_exits(&expr_block.block.stmts, count, is_tail);
+            }
+            _ => {}
+        }
+    }
+
+    let mut count = 0;
+    count_exits(&block.stmts, &mut count, true);
+    count
+}
+
+/// Count CC extras for Rust (match arms, boolean operators)
+fn rust_count_cc_extras(block: &syn::Block) -> usize {
+    use syn::{BinOp, Expr, Stmt};
+
+    fn count_extras(stmts: &[Stmt], count: &mut usize) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Expr(expr, _) => expr_extras(expr, count),
+                Stmt::Local(local) => {
+                    if let Some(init) = &local.init {
+                        expr_extras(&init.expr, count);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn expr_extras(expr: &Expr, count: &mut usize) {
+        match expr {
+            Expr::Match(expr_match) => {
+                // Each match arm is a decision point
+                *count += expr_match.arms.len();
+                expr_extras(&expr_match.expr, count);
+                for arm in &expr_match.arms {
+                    expr_extras(&arm.body, count);
+                }
+            }
+            Expr::Binary(expr_binary) => {
+                // Boolean operators
+                if matches!(expr_binary.op, BinOp::And(_) | BinOp::Or(_)) {
+                    *count += 1;
+                }
+                expr_extras(&expr_binary.left, count);
+                expr_extras(&expr_binary.right, count);
+            }
+            Expr::If(expr_if) => {
+                expr_extras(&expr_if.cond, count);
+                count_extras(&expr_if.then_branch.stmts, count);
+                if let Some((_, else_expr)) = &expr_if.else_branch {
+                    expr_extras(else_expr, count);
+                }
+            }
+            Expr::Loop(expr_loop) => {
+                count_extras(&expr_loop.body.stmts, count);
+            }
+            Expr::While(expr_while) => {
+                expr_extras(&expr_while.cond, count);
+                count_extras(&expr_while.body.stmts, count);
+            }
+            Expr::ForLoop(expr_for) => {
+                expr_extras(&expr_for.expr, count);
+                count_extras(&expr_for.body.stmts, count);
+            }
+            Expr::Block(expr_block) => {
+                count_extras(&expr_block.block.stmts, count);
+            }
+            _ => {}
+        }
+    }
+
+    let mut count = 0;
+    count_extras(&block.stmts, &mut count);
+    count
+}
+
+// Note: Rust metrics tests are integrated with parser/cfg_builder tests

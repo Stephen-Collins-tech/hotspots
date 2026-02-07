@@ -8,6 +8,7 @@ pub mod ecmascript;
 pub mod function_body;
 pub mod go;
 pub mod parser;
+pub mod rust;
 pub mod span;
 
 use std::path::Path;
@@ -17,6 +18,7 @@ pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use parser::{LanguageParser, ParsedModule};
+pub use rust::{RustCfgBuilder, RustParser};
 pub use span::SourceSpan;
 
 /// Supported programming languages

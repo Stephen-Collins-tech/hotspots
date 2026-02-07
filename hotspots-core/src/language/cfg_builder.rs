@@ -29,8 +29,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
     match &function.body {
         FunctionBody::ECMAScript(_) => Box::new(super::ecmascript::ECMAScriptCfgBuilder),
         FunctionBody::Go { .. } => Box::new(super::go::GoCfgBuilder),
-        #[allow(unreachable_patterns)]
-        _ => panic!("Unsupported language for CFG building"),
+        FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
     }
 }
 

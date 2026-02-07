@@ -50,7 +50,7 @@ pub fn analyze_file_with_config(
             Box::new(language::GoParser::new().context("Failed to create Go parser")?)
         }
         Language::Rust => {
-            anyhow::bail!("Rust support not yet implemented")
+            Box::new(language::RustParser)
         }
     };
 

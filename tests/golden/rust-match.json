@@ -1,0 +1,135 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "nested_match",
+    "line": 43,
+    "metrics": {
+      "cc": 12,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.700439718141092,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 5.300439718141092,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "match_with_guards",
+    "line": 11,
+    "metrics": {
+      "cc": 10,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.4594316186372973,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.259431618637297,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "match_with_ranges",
+    "line": 20,
+    "metrics": {
+      "cc": 10,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.4594316186372973,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.259431618637297,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "simple_match",
+    "line": 3,
+    "metrics": {
+      "cc": 8,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.969925001442312,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "match_enum",
+    "line": 35,
+    "metrics": {
+      "cc": 8,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.969925001442312,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "match_option",
+    "line": 56,
+    "metrics": {
+      "cc": 8,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.969925001442312,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "function": "match_result",
+    "line": 64,
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.6073549220576044,
+    "band": "moderate"
+  }
+]
