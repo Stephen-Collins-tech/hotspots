@@ -20,11 +20,14 @@ pub struct RawMetrics {
 
 /// Extract all metrics for a function
 pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    // Extract ECMAScript body - only ECMAScript is currently supported
+    let body = function.body.as_ecmascript();
+
     RawMetrics {
-        cc: cyclomatic_complexity(cfg, &function.body),
-        nd: nesting_depth(&function.body),
-        fo: fan_out(&function.body),
-        ns: non_structured_exits(&function.body),
+        cc: cyclomatic_complexity(cfg, body),
+        nd: nesting_depth(body),
+        fo: fan_out(body),
+        ns: non_structured_exits(body),
     }
 }
 

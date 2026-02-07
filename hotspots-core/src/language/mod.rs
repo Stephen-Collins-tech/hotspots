@@ -3,10 +3,12 @@
 //! This module provides language-agnostic interfaces for parsing and analyzing
 //! source code across multiple programming languages.
 
+pub mod function_body;
 pub mod span;
 
 use std::path::Path;
 
+pub use function_body::FunctionBody;
 pub use span::SourceSpan;
 
 /// Supported programming languages

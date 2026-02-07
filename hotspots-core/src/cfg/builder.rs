@@ -12,7 +12,10 @@ use swc_ecma_ast::*;
 /// Build a CFG from a function's AST body
 pub fn build_cfg(function: &FunctionNode) -> Cfg {
     let mut builder = CfgBuilder::new();
-    builder.build_from_body(&function.body);
+    // Extract ECMAScript body - this will panic if the function is not ECMAScript
+    // This is intentional: only ECMAScript is currently supported
+    let block_stmt = function.body.as_ecmascript();
+    builder.build_from_body(block_stmt);
     builder.cfg
 }
 

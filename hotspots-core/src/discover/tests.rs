@@ -96,6 +96,10 @@ mod discover_tests {
         let functions = parse_and_discover(src, 0);
         assert_eq!(functions.len(), 1, "Should discover arrow with expression body");
         // Expression body should be converted to return statement
-        assert_eq!(functions[0].body.stmts.len(), 1, "Should have one statement (return)");
+        assert_eq!(
+            functions[0].body.as_ecmascript().stmts.len(),
+            1,
+            "Should have one statement (return)"
+        );
     }
 }

@@ -4,8 +4,7 @@
 //! - Deterministic traversal order by (file, span.start)
 //! - Formatting, comments, and whitespace must not affect results
 
-use crate::language::SourceSpan;
-use swc_ecma_ast::*;
+use crate::language::{FunctionBody, SourceSpan};
 
 /// Function identifier: (file_index, local_index)
 ///
@@ -23,7 +22,7 @@ pub struct FunctionNode {
     pub id: FunctionId,
     pub name: Option<String>,
     pub span: SourceSpan,
-    pub body: BlockStmt,
+    pub body: FunctionBody,
     pub suppression_reason: Option<String>,
 }
 

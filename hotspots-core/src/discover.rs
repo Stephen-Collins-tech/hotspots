@@ -18,7 +18,7 @@
 //! - Ambient declarations
 
 use crate::ast::{FunctionId, FunctionNode};
-use crate::language::span::span_with_location;
+use crate::language::{span::span_with_location, FunctionBody};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitWith};
 
@@ -88,7 +88,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                 },
                 name,
                 span: span_with_location(decl.function.span, self.source_map),
-                body,
+                body: FunctionBody::ecmascript(body),
                 suppression_reason: None,
             });
             self.local_index += 1;
@@ -113,7 +113,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                 },
                 name,
                 span: span_with_location(expr.function.span, self.source_map),
-                body,
+                body: FunctionBody::ecmascript(body),
                 suppression_reason: None,
             });
             self.local_index += 1;
@@ -136,7 +136,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                     },
                     name,
                     span: span_with_location(arrow.span, self.source_map),
-                    body: body.clone(),
+                    body: FunctionBody::ecmascript(body.clone()),
                     suppression_reason: None,
                 });
                 self.local_index += 1;
@@ -161,7 +161,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                     },
                     name,
                     span: span_with_location(arrow.span, self.source_map),
-                    body,
+                    body: FunctionBody::ecmascript(body),
                     suppression_reason: None,
                 });
                 self.local_index += 1;
@@ -193,7 +193,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                 },
                 name,
                 span: span_with_location(method.span, self.source_map),
-                body,
+                body: FunctionBody::ecmascript(body),
                 suppression_reason: None,
             });
             self.local_index += 1;
@@ -224,7 +224,7 @@ impl<'a> Visit for FunctionCollector<'a> {
                 },
                 name,
                 span: span_with_location(method.function.span, self.source_map),
-                body,
+                body: FunctionBody::ecmascript(body),
                 suppression_reason: None,
             });
             self.local_index += 1;
