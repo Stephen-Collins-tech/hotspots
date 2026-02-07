@@ -1,6 +1,6 @@
 //! Integration tests for faultline analysis
 
-use faultline_core::{analyze, render_json, AnalysisOptions};
+use hotspots_core::{analyze, render_json, AnalysisOptions};
 use std::path::PathBuf;
 
 fn fixture_path(name: &str) -> PathBuf {

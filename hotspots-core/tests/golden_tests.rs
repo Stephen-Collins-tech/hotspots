@@ -1,6 +1,6 @@
 //! Golden file tests - verify output matches expected snapshots
 
-use faultline_core::{analyze, render_json, AnalysisOptions};
+use hotspots_core::{analyze, render_json, AnalysisOptions};
 use std::fs;
 use std::path::PathBuf;
 

@@ -10,7 +10,7 @@
 //! - Assert relationships only
 //! - Fail loudly on invariant violation
 
-use faultline_core::{analyze, snapshot, git, delta, AnalysisOptions};
+use hotspots_core::{analyze, snapshot, git, delta, AnalysisOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;

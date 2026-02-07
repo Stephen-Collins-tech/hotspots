@@ -3,7 +3,7 @@
 //! Critical invariant: JSX and TSX versions of the same component
 //! should yield identical complexity metrics.
 
-use faultline_core::{analyze, AnalysisOptions};
+use hotspots_core::{analyze, AnalysisOptions};
 use std::path::PathBuf;
 
 /// Test that JSX and TSX versions produce identical metrics

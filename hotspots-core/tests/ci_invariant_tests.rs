@@ -3,8 +3,8 @@
 //! These tests explicitly validate critical invariants that must always hold.
 //! Run in CI to prevent regressions.
 
-use faultline_core::{delta, snapshot, git};
-use faultline_core::report::{FunctionRiskReport, MetricsReport, RiskReport};
+use hotspots_core::{delta, snapshot, git};
+use hotspots_core::report::{FunctionRiskReport, MetricsReport, RiskReport};
 use tempfile::TempDir;
 
 /// Create a test snapshot with given SHA

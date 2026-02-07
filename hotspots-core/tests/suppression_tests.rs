@@ -1,11 +1,11 @@
 //! Integration tests for suppression comments
 
-use faultline_core::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
-use faultline_core::discover;
-use faultline_core::parser;
-use faultline_core::policy::{evaluate_policies, PolicyId, PolicySeverity};
-use faultline_core::snapshot::Snapshot;
-use faultline_core::{git::GitContext, ResolvedConfig};
+use hotspots_core::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
+use hotspots_core::discover;
+use hotspots_core::parser;
+use hotspots_core::policy::{evaluate_policies, PolicyId, PolicySeverity};
+use hotspots_core::snapshot::Snapshot;
+use hotspots_core::{git::GitContext, ResolvedConfig};
 use std::path::Path;
 use swc_common::{sync::Lrc, SourceMap};
 
@@ -77,8 +77,8 @@ function notSuppressed() {
 
 #[test]
 fn test_suppression_missing_reason_policy() {
-    use faultline_core::delta::FunctionState;
-    use faultline_core::report::MetricsReport;
+    use hotspots_core::delta::FunctionState;
+    use hotspots_core::report::MetricsReport;
 
     let delta_entry = FunctionDeltaEntry {
         function_id: "test.ts::foo".to_string(),
@@ -101,7 +101,7 @@ fn test_suppression_missing_reason_policy() {
 
     let delta = Delta {
         schema_version: 1,
-        commit: faultline_core::delta::DeltaCommitInfo {
+        commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
         },
@@ -138,8 +138,8 @@ fn test_suppression_missing_reason_policy() {
 
 #[test]
 fn test_suppressed_function_excluded_from_critical_introduction() {
-    use faultline_core::delta::FunctionState;
-    use faultline_core::report::MetricsReport;
+    use hotspots_core::delta::FunctionState;
+    use hotspots_core::report::MetricsReport;
 
     // Create a function that would normally trigger critical introduction
     let critical_entry = FunctionDeltaEntry {
@@ -163,7 +163,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
 
     let delta = Delta {
         schema_version: 1,
-        commit: faultline_core::delta::DeltaCommitInfo {
+        commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
         },
@@ -195,8 +195,8 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
 
 #[test]
 fn test_unsuppressed_function_triggers_critical_introduction() {
-    use faultline_core::delta::FunctionState;
-    use faultline_core::report::MetricsReport;
+    use hotspots_core::delta::FunctionState;
+    use hotspots_core::report::MetricsReport;
 
     // Create a function that would trigger critical introduction (not suppressed)
     let critical_entry = FunctionDeltaEntry {
@@ -220,7 +220,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
 
     let delta = Delta {
         schema_version: 1,
-        commit: faultline_core::delta::DeltaCommitInfo {
+        commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
         },

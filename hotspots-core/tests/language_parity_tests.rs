@@ -4,7 +4,7 @@
 //! identical complexity metrics regardless of whether they're written
 //! in TypeScript or JavaScript.
 
-use faultline_core::{analyze, AnalysisOptions};
+use hotspots_core::{analyze, AnalysisOptions};
 use std::path::PathBuf;
 
 /// Test that TypeScript and JavaScript versions of the same function yield identical metrics
