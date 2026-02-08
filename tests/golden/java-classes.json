@@ -1,0 +1,82 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Classes.java",
+    "function": "Classes",
+    "line": 4,
+    "language": "Java",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Classes.java",
+    "function": "instanceMethod",
+    "line": 8,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Classes.java",
+    "function": "staticMethod",
+    "line": 12,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Classes.java",
+    "function": "innerMethod",
+    "line": 17,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  }
+]

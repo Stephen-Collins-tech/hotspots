@@ -1,0 +1,82 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/AnonymousClass.java",
+    "function": "run",
+    "line": 4,
+    "language": "Java",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 2,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 4.072905595320056,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/AnonymousClass.java",
+    "function": "useAnonymousClass",
+    "line": 2,
+    "language": "Java",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 2,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 3.7509775004326933,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/AnonymousClass.java",
+    "function": "doSomething",
+    "line": 17,
+    "language": "Java",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/AnonymousClass.java",
+    "function": "someCondition",
+    "line": 13,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  }
+]

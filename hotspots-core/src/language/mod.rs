@@ -7,6 +7,7 @@ pub mod cfg_builder;
 pub mod ecmascript;
 pub mod function_body;
 pub mod go;
+pub mod java;
 pub mod parser;
 pub mod python;
 pub mod rust;
@@ -18,6 +19,7 @@ pub use cfg_builder::{CfgBuilder, get_builder_for_function};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
+pub use java::{JavaCfgBuilder, JavaParser};
 pub use parser::{LanguageParser, ParsedModule};
 pub use python::{PythonCfgBuilder, PythonParser};
 pub use rust::{RustCfgBuilder, RustParser};
@@ -36,6 +38,8 @@ pub enum Language {
     JavaScriptReact,
     /// Go (.go)
     Go,
+    /// Java (.java)
+    Java,
     /// Python (.py, .pyw)
     Python,
     /// Rust (.rs)
@@ -67,6 +71,8 @@ impl Language {
             "jsx" | "mjsx" | "cjsx" => Some(Language::JavaScriptReact),
             // Go
             "go" => Some(Language::Go),
+            // Java
+            "java" => Some(Language::Java),
             // Python
             "py" | "pyw" => Some(Language::Python),
             // Rust
@@ -124,6 +130,7 @@ impl Language {
             Language::JavaScript => "JavaScript",
             Language::JavaScriptReact => "JavaScript React",
             Language::Go => "Go",
+            Language::Java => "Java",
             Language::Python => "Python",
             Language::Rust => "Rust",
         }
@@ -154,6 +161,7 @@ impl Language {
             Language::JavaScript => &["js", "mjs", "cjs"],
             Language::JavaScriptReact => &["jsx", "mjsx", "cjsx"],
             Language::Go => &["go"],
+            Language::Java => &["java"],
             Language::Python => &["py", "pyw"],
             Language::Rust => &["rs"],
         }
@@ -197,9 +205,14 @@ mod tests {
     }
 
     #[test]
+    fn test_from_extension_java() {
+        assert_eq!(Language::from_extension("java"), Some(Language::Java));
+    }
+
+    #[test]
     fn test_from_extension_unknown() {
         assert_eq!(Language::from_extension("cpp"), None);
-        assert_eq!(Language::from_extension("java"), None);
+        assert_eq!(Language::from_extension("c"), None);
         assert_eq!(Language::from_extension(""), None);
     }
 

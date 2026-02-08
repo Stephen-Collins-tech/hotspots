@@ -1,0 +1,62 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/SwitchAndTernary.java",
+    "function": "traditionalSwitch",
+    "line": 2,
+    "language": "Java",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 4
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 4.0
+    },
+    "lrs": 5.921928094887362,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/SwitchAndTernary.java",
+    "function": "booleanOperators",
+    "line": 19,
+    "language": "Java",
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.007354922057605,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/SwitchAndTernary.java",
+    "function": "ternaryExpression",
+    "line": 15,
+    "language": "Java",
+    "metrics": {
+      "cc": 2,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.2849625007211563,
+    "band": "low"
+  }
+]

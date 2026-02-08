@@ -33,6 +33,10 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             // Extract Go-specific metrics from tree-sitter AST
             extract_go_metrics(function, cfg)
         }
+        FunctionBody::Java { .. } => {
+            // Extract Java-specific metrics from tree-sitter AST
+            extract_java_metrics(function, cfg)
+        }
         FunctionBody::Python { .. } => {
             // Extract Python-specific metrics from tree-sitter AST
             extract_python_metrics(function, cfg)
@@ -603,6 +607,199 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
 }
 
 // Note: Go metrics tests are integrated with cfg_builder tests
+
+// ============================================================================
+// Java Metrics Implementation
+// ============================================================================
+
+/// Extract metrics for Java functions using tree-sitter
+fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_java();
+
+    // Re-parse the source to get the tree
+    use tree_sitter::Parser;
+    let mut parser = Parser::new();
+    let language = tree_sitter_java::LANGUAGE;
+    parser.set_language(&language.into()).expect("Failed to set Java language");
+
+    let tree = parser.parse(source, None).expect("Failed to re-parse Java source");
+    let root = tree.root_node();
+
+    // Find the function/method node in the tree
+    if let Some(func_node) = find_java_function_by_start(root, function.span.start) {
+        // Find the block (method body) or constructor_body
+        if let Some(body_node) = find_java_child_by_kind(func_node, "block")
+            .or_else(|| find_java_child_by_kind(func_node, "constructor_body"))
+        {
+            // Calculate base CC from CFG
+            let base_cc = calculate_cc_from_cfg(cfg);
+
+            // Count additional CC contributors (ternary, boolean operators, etc.)
+            let extra_cc = java_count_cc_extras(&body_node, source);
+
+            // Calculate other metrics from AST
+            let nd = java_nesting_depth(&body_node);
+            let fo = java_fan_out(&body_node, source);
+            let ns = java_non_structured_exits(&body_node);
+
+            return RawMetrics {
+                cc: base_cc + extra_cc,
+                nd,
+                fo,
+                ns,
+            };
+        }
+    }
+
+    // Fallback: return minimal metrics
+    RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+    }
+}
+
+/// Find a Java function/method node by its start byte position
+fn find_java_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Option<tree_sitter::Node> {
+    fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
+        if (node.kind() == "method_declaration" || node.kind() == "constructor_declaration")
+            && node.start_byte() == start
+        {
+            return Some(node);
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if let Some(found) = search_recursive(child, start) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search_recursive(root, start_byte)
+}
+
+/// Find a child node by kind
+#[allow(clippy::manual_find)]
+fn find_java_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == kind {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// Calculate nesting depth for Java function
+fn java_nesting_depth(body_node: &tree_sitter::Node) -> usize {
+    fn calculate_depth(node: tree_sitter::Node, current_depth: usize, max_depth: &mut usize) {
+        // Increment depth for control structures
+        let new_depth = if matches!(
+            node.kind(),
+            "if_statement" | "while_statement" | "do_statement" |
+            "for_statement" | "enhanced_for_statement" |
+            "switch_statement" | "switch_expression" |
+            "try_statement" | "synchronized_statement"
+        ) {
+            let depth = current_depth + 1;
+            if depth > *max_depth {
+                *max_depth = depth;
+            }
+            depth
+        } else {
+            current_depth
+        };
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            calculate_depth(child, new_depth, max_depth);
+        }
+    }
+
+    let mut max_depth = 0;
+    calculate_depth(*body_node, 0, &mut max_depth);
+    max_depth
+}
+
+/// Count method calls (fan-out) in Java
+fn java_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
+    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut std::collections::HashSet<String>) {
+        // Java uses "method_invocation" node for method calls
+        if node.kind() == "method_invocation" {
+            // Extract the method name
+            let method_text = &source[node.start_byte()..node.end_byte()];
+            calls.insert(method_text.to_string());
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_calls(child, source, calls);
+        }
+    }
+
+    let mut calls = std::collections::HashSet::new();
+    count_calls(*body_node, source, &mut calls);
+    calls.len()
+}
+
+/// Count non-structured exits in Java (return, throw, break, continue)
+fn java_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
+    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
+        match node.kind() {
+            "return_statement" | "throw_statement" | "break_statement" | "continue_statement" => {
+                *count += 1;
+            }
+            _ => {}
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_exits(child, count);
+        }
+    }
+
+    let mut count = 0;
+    count_exits(*body_node, &mut count);
+    count
+}
+
+/// Count additional CC contributors in Java
+/// (ternary expressions, boolean operators)
+fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, source: &str, count: &mut usize) {
+        match node.kind() {
+            // Ternary expressions (conditional_expression) add to CC
+            "ternary_expression" => {
+                *count += 1;
+            }
+            // Binary expressions with && or || add to CC
+            "binary_expression" => {
+                // Check if operator is && or ||
+                let text = &source[node.start_byte()..node.end_byte()];
+                if text.contains("&&") || text.contains("||") {
+                    *count += 1;
+                }
+            }
+            _ => {}
+        }
+
+        // Recursively check children
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_extras(child, source, count);
+        }
+    }
+
+    let mut count = 0;
+    count_extras(*body_node, source, &mut count);
+    count
+}
 
 // ============================================================================
 // Python Metrics Implementation

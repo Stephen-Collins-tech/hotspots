@@ -25,6 +25,17 @@ pub enum FunctionBody {
         source: String,
     },
 
+    /// Java function body
+    ///
+    /// Contains the tree-sitter node ID for the block and the source code.
+    /// We store the source because tree-sitter nodes are tied to the tree lifetime.
+    Java {
+        /// The tree-sitter node ID for the function body block
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: String,
+    },
+
     /// Python function body
     ///
     /// Contains the tree-sitter node ID for the block and the source code.
@@ -60,6 +71,11 @@ impl FunctionBody {
     /// Check if this is a Go function body
     pub fn is_go(&self) -> bool {
         matches!(self, FunctionBody::Go { .. })
+    }
+
+    /// Check if this is a Java function body
+    pub fn is_java(&self) -> bool {
+        matches!(self, FunctionBody::Java { .. })
     }
 
     /// Check if this is a Python function body
@@ -106,6 +122,18 @@ impl FunctionBody {
         match self {
             FunctionBody::Go { body_node, source } => (*body_node, source.as_str()),
             _ => panic!("FunctionBody is not Go"),
+        }
+    }
+
+    /// Get the Java body node ID and source, if this is a Java function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a Java body. Use `is_java()` to check first.
+    pub fn as_java(&self) -> (usize, &str) {
+        match self {
+            FunctionBody::Java { body_node, source } => (*body_node, source.as_str()),
+            _ => panic!("FunctionBody is not Java"),
         }
     }
 

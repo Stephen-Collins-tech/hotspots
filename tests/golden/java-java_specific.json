@@ -1,0 +1,82 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "function": "lambdaExpression",
+    "line": 5,
+    "language": "Java",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 2,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 3.7509775004326933,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "function": "streamOperations",
+    "line": 13,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 5,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 2.584962500721156,
+      "r_ns": 1.0
+    },
+    "lrs": 3.2509775004326933,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "function": "switchExpression",
+    "line": 20,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.5,
+    "band": "low"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "function": "synchronizedMethod",
+    "line": 28,
+    "language": "Java",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  }
+]

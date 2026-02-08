@@ -49,6 +49,9 @@ pub fn analyze_file_with_config(
         Language::Go => {
             Box::new(language::GoParser::new().context("Failed to create Go parser")?)
         }
+        Language::Java => {
+            Box::new(language::JavaParser::new().context("Failed to create Java parser")?)
+        }
         Language::Python => {
             Box::new(language::PythonParser::new().context("Failed to create Python parser")?)
         }

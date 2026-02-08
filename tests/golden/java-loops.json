@@ -1,0 +1,82 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "function": "nestedLoops",
+    "line": 27,
+    "language": "Java",
+    "metrics": {
+      "cc": 6,
+      "nd": 3,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 3.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.907354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "function": "forLoopWithBreak",
+    "line": 18,
+    "language": "Java",
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.584962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "function": "whileLoop",
+    "line": 2,
+    "language": "Java",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.8219280948873626,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "function": "doWhileLoop",
+    "line": 10,
+    "language": "Java",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.8219280948873626,
+    "band": "moderate"
+  }
+]

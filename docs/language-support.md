@@ -8,6 +8,7 @@ Hotspots supports multi-language analysis with consistent metrics across all lan
 
 - **ECMAScript** - TypeScript, JavaScript, and React (JSX/TSX) with full feature parity
 - **Go** - Full Go language support including goroutines, defer, select, and channels
+- **Java** - Full Java language support (Java 8+) including lambdas, streams, try-with-resources, and switch expressions (Java 14+)
 - **Python** - Full Python language support including async/await, comprehensions, context managers, and match statements
 - **Rust** - Full Rust language support including match expressions, ? operator, unwrap/expect, and panic
 
@@ -716,6 +717,378 @@ Parse errors in Rust files are handled gracefully:
 - Functions with parse errors are skipped
 - Analysis continues with remaining valid functions
 - Error messages include line numbers and context
+
+---
+
+## Java Language Support
+
+### Supported File Extensions
+
+- `.java` - Java source files
+
+### Supported Java Versions
+
+Hotspots supports Java 8 through Java 21, including:
+
+**Java 8 Features:**
+- Lambda expressions
+- Method references
+- Stream API
+- Default and static interface methods
+- Try-with-resources
+
+**Java 11+ Features:**
+- Local variable type inference (`var`)
+- Private interface methods
+
+**Java 14+ Features:**
+- Switch expressions
+- Pattern matching for instanceof (preview)
+
+**Java 17+ Features:**
+- Sealed classes
+- Pattern matching for switch (preview)
+
+**Java 21 Features:**
+- Record patterns
+- Pattern matching for switch (full support)
+
+### Function Discovery
+
+Java functions are discovered and analyzed as follows:
+
+**Methods:**
+- Instance methods
+- Static methods
+- Abstract methods (interface definitions)
+- Default methods (interface implementations)
+- Private interface methods
+
+**Constructors:**
+- Default constructors
+- Parameterized constructors
+- Constructor chaining (`this()`, `super()`)
+
+**Inner Classes:**
+- Non-static inner class methods
+- Static nested class methods
+- Anonymous inner class methods (each method analyzed separately)
+- Local class methods
+
+**Not Analyzed:**
+- Interface method declarations (no body)
+- Abstract method declarations (no body)
+
+### Control Flow Structures
+
+#### Conditionals
+
+**If/Else:**
+- Standard if/else chains
+- Each `if` adds +1 to CC
+- Nested conditions tracked for ND
+
+**Switch Statements (Traditional):**
+- Base +1 CC for switch
+- Each `case` label adds +1 CC
+- `default` case adds +1 CC
+- Fall-through behavior supported
+
+**Switch Expressions (Java 14+):**
+- Treated identically to traditional switch
+- Base +1 CC
+- Each case adds +1 CC
+- Arrow (`->`) and colon (`:`) syntax both supported
+
+**Ternary Operator:**
+- `condition ? true : false` adds +1 to CC
+- Nested ternary operators counted separately
+
+**Boolean Operators:**
+- `&&` (logical AND) adds +1 to CC
+- `||` (logical OR) adds +1 to CC
+- Short-circuit evaluation recognized
+
+#### Loops
+
+**While Loop:**
+- Condition adds +1 to CC
+- Loop body tracked for ND
+- `break` and `continue` counted as NS
+
+**Do-While Loop:**
+- Condition adds +1 to CC
+- At least one iteration guaranteed
+
+**Traditional For Loop:**
+- `for (init; condition; update)` adds +1 to CC
+- Complex conditions with `&&`/`||` add additional CC
+
+**Enhanced For Loop:**
+- `for (Type item : collection)` adds +1 to CC
+- Same complexity impact as while loop
+
+#### Exception Handling
+
+**Try-Catch:**
+- Base +1 CC for try/catch construct
+- Each `catch` clause adds +1 to CC
+- Multiple catch clauses handled correctly
+- `finally` blocks don't add to CC (always execute)
+
+**Try-With-Resources:**
+- Resource declarations add 0 CC
+- Only catch clauses contribute to CC
+- Example: `try (Scanner sc = ...) { } catch (IOException e) { }`
+  - CC +1 from catch only, resource doesn't count
+
+**Throw:**
+- `throw` statements counted as NS (non-structured exit)
+
+#### Synchronization
+
+**Synchronized Blocks:**
+- `synchronized (obj) { }` adds +1 to CC
+- Represents decision point for acquiring lock
+- Critical section boundary
+
+**Synchronized Methods:**
+- Method-level `synchronized` keyword adds +1 to CC
+
+### Java-Specific Constructs
+
+#### Lambda Expressions
+
+Lambdas are analyzed **inline** with their enclosing method:
+
+```java
+list.forEach(item -> {
+    if (item > 5) {  // This if adds +1 to enclosing method's CC
+        process(item);
+    }
+});
+```
+
+**Design Decision:** Lambdas don't create separate function entries. Control flow inside lambdas contributes to the parent method's metrics. This aligns with cognitive complexity principles - the complexity is experienced by the developer reading the method.
+
+#### Stream API
+
+Stream operations (`filter`, `map`, `forEach`, etc.) **do not** inflate CC:
+
+```java
+items.stream()
+    .filter(x -> x > 5)   // filter predicate counts
+    .map(x -> x * 2)      // map function counts
+    .collect(Collectors.toList());
+```
+
+Control flow *inside* lambda arguments to stream operations is counted, but the stream chain itself adds minimal complexity.
+
+#### Anonymous Inner Classes
+
+Methods inside anonymous inner classes are analyzed as **separate functions**:
+
+```java
+Runnable r = new Runnable() {
+    @Override
+    public void run() {  // Separate function entry
+        if (condition) {
+            doWork();
+        }
+    }
+};
+```
+
+#### Method Invocations
+
+All method calls contribute to Fan-Out (FO):
+- Instance method calls: `obj.method()`
+- Static method calls: `ClassName.method()`
+- Constructor calls: `new ClassName()`
+- Super calls: `super.method()`
+
+### Metric Calculation
+
+#### Cyclomatic Complexity (CC)
+
+Base formula: `CC = E - N + 2` (from Control Flow Graph)
+
+Additional contributions:
+- Each `if` statement: +1
+- Each `while`/`do-while`/`for` loop: +1
+- Each `switch` statement: +1 (base)
+- Each `case` label (including `default`): +1
+- Each `catch` clause: +1
+- Each `&&` or `||` operator: +1
+- Each ternary `? :` expression: +1
+- Each `synchronized` block/method: +1
+
+**Example:**
+```java
+public String process(int x) {
+    if (x > 0 && x < 100) {    // CC: +1 (if) +1 (&&) = +2
+        switch (x) {
+            case 1:             // CC: +1 (switch base) +1 (case) = +2
+                return "one";
+            case 2:             // CC: +1
+                return "two";
+            default:            // CC: +1
+                return "other";
+        }
+    }
+    return "invalid";
+}
+// Total CC: 1 (base) + 2 (if + &&) + 4 (switch + cases) = 7
+```
+
+#### Nesting Depth (ND)
+
+Maximum depth of nested control structures:
+- `if`/`else`
+- `while`/`do-while`/`for`
+- `switch`
+- `try`/`catch`
+- `synchronized`
+
+**Example:**
+```java
+if (a) {                    // Depth 1
+    while (b) {             // Depth 2
+        if (c) {            // Depth 3
+            synchronized (obj) {  // Depth 4
+                doWork();
+            }
+        }
+    }
+}
+// ND = 4
+```
+
+#### Fan-Out (FO)
+
+Count of unique method calls:
+- Method invocations
+- Constructor calls
+- Static method calls
+- Super calls
+
+**Example:**
+```java
+public void process() {
+    doA();          // FO +1
+    doB();          // FO +1
+    doA();          // Already counted, FO stays at 2
+    new Obj();      // FO +1
+}
+// Total FO = 3
+```
+
+#### Non-Structured Exits (NS)
+
+Count of exits that bypass normal control flow:
+- `return` statements
+- `throw` statements
+- `break` statements
+- `continue` statements
+
+**Example:**
+```java
+public int exits(int x) {
+    if (x < 0) {
+        return 0;       // NS +1
+    }
+    for (int i = 0; i < x; i++) {
+        if (i == 5) {
+            break;      // NS +1
+        }
+        if (i == 3) {
+            continue;   // NS +1
+        }
+    }
+    return x;           // NS +1
+}
+// Total NS = 4
+```
+
+### Java-Specific Behavior
+
+#### Try-With-Resources Does Not Inflate CC
+
+Resource declarations in try-with-resources are **not** counted toward CC:
+
+```java
+// CC = 3 (try/catch + 1 catch clause + final return)
+try (BufferedReader br = new BufferedReader(...);
+     Scanner sc = new Scanner(...)) {  // Resources don't add CC
+    return br.readLine();
+} catch (IOException e) {  // CC +1
+    return "";
+}
+```
+
+**Rationale:** Resource declarations don't represent decision points. They're deterministic initialization.
+
+#### Switch Expressions vs Statements
+
+Both traditional switch statements and modern switch expressions (Java 14+) are treated identically:
+
+**Traditional:**
+```java
+String result = switch (value) {
+    case 0:
+        result = "zero";    // CC +1
+        break;
+    case 1:
+        result = "one";     // CC +1
+        break;
+    default:
+        result = "other";   // CC +1
+}
+// Total CC: 1 (base) + 3 (cases) = 4
+```
+
+**Expression:**
+```java
+String result = switch (value) {
+    case 0 -> "zero";       // CC +1
+    case 1 -> "one";        // CC +1
+    default -> "other";     // CC +1
+};
+// Total CC: 1 (base) + 3 (cases) = 4
+```
+
+#### Synchronized Adds to CC
+
+Synchronized blocks represent a decision point (acquiring/waiting for lock):
+
+```java
+synchronized (lock) {   // CC +1
+    doWork();
+}
+```
+
+This aligns with the cognitive overhead of reasoning about concurrency and lock acquisition.
+
+### Limitations
+
+**Lambda Complexity:**
+- Lambdas with complex control flow contribute to parent method's metrics
+- Very complex lambdas (>10 CC) may make parent appear more complex than it feels
+- Consider refactoring complex lambdas into named methods
+
+**Stream Chains:**
+- Long stream chains with multiple lambdas don't inflate CC significantly
+- FO counts individual method calls, not stream operations
+- Deeply nested stream pipelines may have lower CC than equivalent imperative code
+
+**Anonymous Classes:**
+- Each anonymous class method is a separate function entry
+- Can result in many small function entries in output
+- Consider filtering output by minimum LRS to focus on complex methods
+
+**Generics:**
+- Type parameters don't affect metrics
+- Generic method signatures treated like non-generic equivalents
 
 ---
 

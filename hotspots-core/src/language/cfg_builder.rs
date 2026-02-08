@@ -29,6 +29,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
     match &function.body {
         FunctionBody::ECMAScript(_) => Box::new(super::ecmascript::ECMAScriptCfgBuilder),
         FunctionBody::Go { .. } => Box::new(super::go::GoCfgBuilder),
+        FunctionBody::Java { .. } => Box::new(super::java::JavaCfgBuilder),
         FunctionBody::Python { .. } => Box::new(super::python::PythonCfgBuilder),
         FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
     }

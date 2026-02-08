@@ -135,6 +135,101 @@ $ hotspots analyze server.go --format json
 - **NS=2:** 1 early return + 1 defer statement
 - **LRS=9.24:** Composite risk score → **critical** band
 
+### Java
+
+```bash
+# Analyze single Java file
+hotspots analyze src/Main.java
+
+# Analyze Java package
+hotspots analyze src/com/example/
+
+# Analyze entire Java project
+hotspots analyze src/ --format json
+
+# Analyze Spring Boot application
+hotspots analyze src/main/java/com/example/
+```
+
+**Supported files:** `.java`
+
+**Java-specific metrics:**
+- **Lambda expressions** - control flow inside lambdas counted inline with parent method
+- **Stream operations** - don't inflate CC, but lambdas inside streams do count
+- **Try-with-resources** - resource declarations add 0 CC, only catch clauses count
+- **Switch expressions (Java 14+)** - treated same as traditional switch statements
+- **Synchronized blocks** - each adds +1 to CC (critical section)
+- **Anonymous inner classes** - methods analyzed as separate functions
+
+**Example Java analysis:**
+
+```bash
+$ hotspots analyze UserService.java --format json
+```
+
+```json
+[
+  {
+    "file": "UserService.java",
+    "function": "processUsers",
+    "line": 23,
+    "language": "Java",
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 4,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 2.32,
+      "r_ns": 3.0
+    },
+    "lrs": 8.82,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Java metrics in this example:**
+- **CC=7:** Base complexity + if statements + try/catch clauses + boolean operators
+- **ND=2:** Two levels of nesting (e.g., `try` → `for`)
+- **FO=4:** 4 method calls (including constructors)
+- **NS=3:** 2 returns + 1 throw statement
+- **LRS=8.82:** Critical risk band - consider refactoring
+
+**Common Java patterns and their metrics:**
+
+```java
+// Simple method with early return
+public int getValue(String key) {
+    if (key == null) {     // CC +1
+        return -1;          // NS +1
+    }
+    return map.get(key);    // FO +1, NS +1
+}
+// CC=2, ND=1, FO=1, NS=2
+
+// Try-with-resources
+public String readFile(String path) {
+    try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+        return br.readLine();   // FO +1, NS +1
+    } catch (IOException e) {   // CC +1
+        return "";               // NS +1
+    }
+}
+// CC=2, ND=0, FO=1, NS=2
+
+// Stream with filter
+public List<User> getActiveUsers(List<User> users) {
+    return users.stream()
+        .filter(u -> u.isActive())   // CC +0 (stream doesn't inflate)
+        .collect(Collectors.toList()); // FO +1
+}
+// CC=1, ND=0, FO=1, NS=1
+```
+
 ### Python
 
 ```bash
