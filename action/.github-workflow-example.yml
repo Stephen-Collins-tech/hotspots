@@ -1,7 +1,7 @@
-# Example GitHub Actions workflow using Faultline
+# Example GitHub Actions workflow using Hotspots
 # Copy this to .github/workflows/hotspots.yml in your repository
 
-name: Faultline Complexity Analysis
+name: Hotspots Complexity Analysis
 
 on:
   pull_request:
@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for delta analysis
 
-      - name: Run Faultline
+      - name: Run Hotspots
         uses: yourorg/hotspots@v1  # Replace with actual action path
         id: hotspots
         with:
@@ -45,6 +45,6 @@ jobs:
       - name: Check Results
         if: steps.hotspots.outputs.passed == 'false'
         run: |
-          echo "::error::Faultline analysis failed"
+          echo "::error::Hotspots analysis failed"
           echo "Violations: ${{ steps.hotspots.outputs.violations }}"
           exit 1

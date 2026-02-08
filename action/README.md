@@ -1,6 +1,8 @@
 # Hotspots GitHub Action
 
-Analyze TypeScript/JavaScript complexity and block regressions in your CI pipeline.
+Multi-language static analysis tool - analyze complexity and block regressions in your CI pipeline.
+
+**Supports:** TypeScript, JavaScript, Go, Java, Python, and Rust
 
 ## Features
 

@@ -1,5 +1,5 @@
 name: 'Hotspots'
-description: 'Analyze TypeScript/JavaScript/Go/Rust complexity and block regressions in CI'
+description: 'Multi-language static analysis (TypeScript, JavaScript, Go, Java, Python, Rust) - block complexity regressions in CI'
 author: 'Hotspots'
 branding:
   icon: 'alert-triangle'

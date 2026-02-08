@@ -1,4 +1,4 @@
-//! Hotspots CLI - command-line interface for TypeScript/JavaScript/React analysis
+//! Hotspots CLI - multi-language static analysis tool
 
 #![deny(warnings)]
 
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "hotspots")]
-#[command(about = "Static analysis tool for TypeScript, JavaScript, and React")]
+#[command(about = "Multi-language static analysis tool (TypeScript, JavaScript, Go, Java, Python, Rust)")]
 #[command(version = env!("FAULTLINE_VERSION"))]
 struct Cli {
     #[command(subcommand)]
@@ -28,7 +28,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Analyze TypeScript, JavaScript, JSX, and TSX files
+    /// Analyze source files (TypeScript, JavaScript, Go, Java, Python, Rust)
     Analyze {
         /// Path to source file or directory
         path: PathBuf,
