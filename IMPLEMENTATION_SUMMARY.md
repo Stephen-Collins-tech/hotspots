@@ -6,11 +6,11 @@
 
 ## Overview
 
-Added full JavaScript support to Faultline, enabling analysis of both TypeScript and JavaScript files with complete metric parity.
+Added full JavaScript support to Hotspots, enabling analysis of both TypeScript and JavaScript files with complete metric parity.
 
 ## Changes Made
 
-### 1. Parser Updates (`faultline-core/src/parser.rs`)
+### 1. Parser Updates (`hotspots-core/src/parser.rs`)
 
 - **Added `syntax_for_file()`**: Automatically detects file type based on extension and returns appropriate SWC syntax configuration
   - TypeScript files (`.ts`, `.mts`, `.cts`): Uses `Syntax::Typescript`
@@ -20,7 +20,7 @@ Added full JavaScript support to Faultline, enabling analysis of both TypeScript
   - Old function kept as deprecated alias for backwards compatibility
   - Updated error messages to mention "TypeScript or JavaScript"
 
-### 2. File Collection Updates (`faultline-core/src/lib.rs`)
+### 2. File Collection Updates (`hotspots-core/src/lib.rs`)
 
 - **Added `is_supported_source_file()`**: Checks if a filename is a supported source file
   - TypeScript: `.ts`, `.mts`, `.cts` (excludes `.d.ts`)
@@ -32,12 +32,12 @@ Added full JavaScript support to Faultline, enabling analysis of both TypeScript
 
 - Updated directory traversal to collect both TS and JS files
 
-### 3. Analysis Updates (`faultline-core/src/analysis.rs`)
+### 3. Analysis Updates (`hotspots-core/src/analysis.rs`)
 
 - Updated `analyze_file()` to use `parse_source()` instead of `parse_typescript()`
 - Updated comments to reflect TypeScript/JavaScript support
 
-### 4. CLI Updates (`faultline-cli/src/main.rs`)
+### 4. CLI Updates (`hotspots-cli/src/main.rs`)
 
 - Updated help text: "Static analysis tool for TypeScript and JavaScript"
 - Updated command descriptions to mention both languages
@@ -81,7 +81,7 @@ tests/fixtures/js/
 
 ✅ **JavaScript files are analyzed successfully**
 ```bash
-$ faultline analyze tests/fixtures/js/simple.js --format json
+$ hotspots analyze tests/fixtures/js/simple.js --format json
 # Returns: LRS=1.0, same as TypeScript version
 ```
 

@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotspots.dev/schemas/metrics.schema.json",
+  "title": "Function Complexity Metrics",
+  "description": "Raw complexity metrics for a function",
+  "type": "object",
+  "required": ["cc", "nd", "fo", "ns"],
+  "properties": {
+    "cc": {
+      "type": "integer",
+      "description": "Cyclomatic Complexity - number of linearly independent paths through the code (decision points + 1)",
+      "minimum": 1,
+      "examples": [1, 5, 12]
+    },
+    "nd": {
+      "type": "integer",
+      "description": "Nesting Depth - maximum level of nested control structures (if/while/for/try)",
+      "minimum": 0,
+      "examples": [0, 2, 4]
+    },
+    "fo": {
+      "type": "integer",
+      "description": "Fan-Out - number of distinct functions or methods called by this function",
+      "minimum": 0,
+      "examples": [0, 3, 10]
+    },
+    "ns": {
+      "type": "integer",
+      "description": "Non-Structured exits - number of early returns, throws, breaks, and continues",
+      "minimum": 0,
+      "examples": [0, 2, 5]
+    }
+  },
+  "examples": [
+    {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0
+    },
+    {
+      "cc": 8,
+      "nd": 2,
+      "fo": 3,
+      "ns": 2
+    }
+  ]
+}

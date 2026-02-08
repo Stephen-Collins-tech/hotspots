@@ -1,0 +1,42 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Simple.java",
+    "function": "withEarlyReturn",
+    "line": 6,
+    "language": "Java",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 4.521928094887363,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Simple.java",
+    "function": "simpleMethod",
+    "line": 2,
+    "language": "Java",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  }
+]

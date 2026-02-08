@@ -1,6 +1,6 @@
-# Publishing the Faultline GitHub Action
+# Publishing the Hotspots GitHub Action
 
-This guide covers how to publish and distribute the Faultline GitHub Action.
+This guide covers how to publish and distribute the Hotspots GitHub Action.
 
 ## Pre-Publishing Checklist
 
@@ -53,7 +53,7 @@ git push origin v1 --force
 
 Now users can reference the action with:
 ```yaml
-- uses: yourorg/faultline@v1  # Always uses latest v1.x.x
+- uses: yourorg/hotspots@v1  # Always uses latest v1.x.x
 ```
 
 ### 5. Verify Release
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: yourorg/faultline@v1.0.0  # Test specific version
+      - uses: yourorg/hotspots@v1.0.0  # Test specific version
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -104,8 +104,8 @@ Verify:
 Users should reference major version tags:
 
 ```yaml
-- uses: yourorg/faultline@v1  # Recommended - auto-updates to latest v1.x.x
-- uses: yourorg/faultline@v1.0.0  # Pin to specific version
+- uses: yourorg/hotspots@v1  # Recommended - auto-updates to latest v1.x.x
+- uses: yourorg/hotspots@v1.0.0  # Pin to specific version
 ```
 
 After each release, update the major version tag:
@@ -140,20 +140,20 @@ The `.github/workflows/release.yml` automates:
 Users add to their workflows:
 
 ```yaml
-- uses: yourorg/faultline@v1
+- uses: yourorg/hotspots@v1
 ```
 
 The action automatically:
 - Downloads the correct binary for the platform
 - Caches it for future runs
-- Runs faultline with specified options
+- Runs hotspots with specified options
 
 ### 2. Direct Binary Download
 
 Users can download from releases:
 
 ```bash
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-linux-x64.tar.gz
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-linux-x64.tar.gz
 ```
 
 ### 3. Cargo Installation
@@ -161,7 +161,7 @@ wget https://github.com/yourorg/faultline/releases/latest/download/faultline-lin
 Users with Rust can install from git:
 
 ```bash
-cargo install --git https://github.com/yourorg/faultline --tag v1.0.0
+cargo install --git https://github.com/yourorg/hotspots --tag v1.0.0
 ```
 
 ## Marketplace Publishing (Optional)
@@ -170,7 +170,7 @@ To list on GitHub Marketplace:
 
 1. Add marketplace metadata to `action/action.yml`:
    ```yaml
-   name: 'Faultline Complexity Analysis'
+   name: 'Hotspots Complexity Analysis'
    description: 'Block complexity regressions in TypeScript/JavaScript'
    branding:
      icon: 'alert-triangle'
@@ -187,7 +187,7 @@ To list on GitHub Marketplace:
 6. Submit for review
 
 Once approved, the action appears at:
-`https://github.com/marketplace/actions/faultline-complexity-analysis`
+`https://github.com/marketplace/actions/hotspots-complexity-analysis`
 
 ## Updating After Release
 
@@ -271,16 +271,16 @@ Do NOT delete old releases - users may have pinned to specific versions.
 
 ### Action Not Finding Binary
 
-**Problem:** `Error: Unable to locate executable file: faultline`
+**Problem:** `Error: Unable to locate executable file: hotspots`
 
 **Solution:** Check that:
 1. Release workflow completed successfully
 2. Binaries are attached to the release
 3. File names match the expected pattern:
-   - `faultline-linux-x64.tar.gz`
-   - `faultline-darwin-x64.tar.gz`
-   - `faultline-darwin-arm64.tar.gz`
-   - `faultline-win32-x64.zip`
+   - `hotspots-linux-x64.tar.gz`
+   - `hotspots-darwin-x64.tar.gz`
+   - `hotspots-darwin-arm64.tar.gz`
+   - `hotspots-win32-x64.zip`
 
 ### dist/ Not Up to Date
 

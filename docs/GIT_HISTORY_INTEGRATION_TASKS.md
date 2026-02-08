@@ -5,7 +5,7 @@
 ## Status
 
 ```text
-project: faultline
+project: hotspots
 scope: git history integration
 analysis semantics: frozen
 risk model: frozen
@@ -17,7 +17,7 @@ kernel usage: none
 
 ## Purpose
 
-Transform Faultline from a **point-in-time structural analyzer** into a **git-native history engine** that:
+Transform Hotspots from a **point-in-time structural analyzer** into a **git-native history engine** that:
 
 * Models code structure as **immutable commit-scoped snapshots**
 * Computes **parent-relative deltas**
@@ -104,7 +104,7 @@ These answers resolve implementation ambiguities and should be treated as author
 - Pull from `CARGO_PKG_VERSION` at build time
 - No runtime config needed
 
-**`.faultline/` directory:**
+**`.hotspots/` directory:**
 - Location: repo root
 - Should be git-ignored (derived state, not source)
 
@@ -177,7 +177,7 @@ These answers resolve implementation ambiguities and should be treated as author
 ### Phase H5 – Golden History Fixtures
 
 **Test structure:**
-- New file: `faultline-core/tests/git_history_tests.rs`
+- New file: `hotspots-core/tests/git_history_tests.rs`
 - Use shared helpers with existing golden tests if possible
 - Keeps history semantics isolated and readable
 
@@ -388,7 +388,7 @@ Rules:
 ### On-Disk Layout
 
 ```text
-.faultline/
+.hotspots/
   snapshots/
     <commit_sha>.json
   index.json
@@ -423,14 +423,14 @@ Rules:
 * [x] Serialize deterministically (use same `serde_json` settings as existing output)
 * [x] Normalize all paths to `/` (forward slashes only)
 * [x] Use ASCII lexical ordering (not locale-aware)
-* [x] Persist snapshot as `<sha>.json` in `.faultline/snapshots/` (repo root) - function implemented
+* [x] Persist snapshot as `<sha>.json` in `.hotspots/snapshots/` (repo root) - function implemented
 * [x] Use atomic write (temp file + `rename`) for snapshots
 * [x] Use atomic write (temp file + `rename`) for `index.json`
 * [x] Enforce idempotency (safe to re-run on same commit) - logic implemented
 * [x] Never overwrite existing snapshots (fail on `schema_version` mismatch) - logic implemented
-* [x] Append to `index.json` in `.faultline/` - function implemented
+* [x] Append to `index.json` in `.hotspots/` - function implemented
 * [x] Implement `index.json` rebuild from `snapshots/` directory (recovery, with deterministic ordering)
-* [x] Ensure `.faultline/` is git-ignored
+* [x] Ensure `.hotspots/` is git-ignored
 
 ---
 
@@ -574,7 +574,7 @@ Prove correctness under real git mutations.
 * No fixed SHAs
 * Assert relationships only
 * Fail loudly on invariant violation
-* New test file: `faultline-core/tests/git_history_tests.rs`
+* New test file: `hotspots-core/tests/git_history_tests.rs`
 * Share helpers with existing golden tests where possible
 
 ---
@@ -632,7 +632,7 @@ Reduce storage without losing semantic signal.
 
 **Implementation Notes:**
 - Compaction metadata (`compaction_level`) added to Index struct (defaults to 0 for backward compatibility)
-- `faultline compact --level N` CLI command implemented to set compaction level
+- `hotspots compact --level N` CLI command implemented to set compaction level
 - Currently only Level 0 (full snapshots) is fully implemented
 - Levels 1-2 are placeholders - setting the level updates metadata only
 - Future work needed to actually compact snapshots to deltas/band transitions
@@ -646,7 +646,7 @@ Reduce storage without losing semantic signal.
 Prevent regressions forever.
 
 **Scope:**
-- CI invariants validate Faultline behavior against controlled test fixtures, not user repositories
+- CI invariants validate Hotspots behavior against controlled test fixtures, not user repositories
 - Invariants run on test repositories to ensure correctness, not to enforce policies on arbitrary user history
 
 ---
@@ -692,6 +692,6 @@ This work is complete when:
 
 ## Final Design Reminder
 
-> Faultline models **commit graph transitions**, not time and not intent.
+> Hotspots models **commit graph transitions**, not time and not intent.
 
 If this layer is correct, everything downstream becomes easy.

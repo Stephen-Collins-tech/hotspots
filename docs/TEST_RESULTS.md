@@ -113,7 +113,7 @@ Finished `release` profile [optimized] target(s) in 0.86s
 
 ### Version Management
 ```
-faultline 0.1.0-b1ea582-dirty
+hotspots 0.1.0-b1ea582-dirty
 ```
 
 **Status:** ✅ Dynamic versioning working correctly

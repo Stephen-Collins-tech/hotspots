@@ -1,4 +1,4 @@
-# Faultline - Complete Feature Summary
+# Hotspots - Complete Feature Summary
 
 **Last Updated:** 2026-01-18  
 **Status:** Production-ready with full git-native history tracking
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-Faultline is a **git-native structural analysis tool** for TypeScript that:
+Hotspots is a **git-native structural analysis tool** for TypeScript that:
 
 1. **Analyzes code complexity** using four metrics (CC, ND, FO, NS) combined into a Local Risk Score (LRS)
 2. **Tracks complexity over time** via immutable commit-scoped snapshots
@@ -15,7 +15,7 @@ Faultline is a **git-native structural analysis tool** for TypeScript that:
 4. **Manages history** with pruning and compaction capabilities
 5. **Generates visualizations** from snapshot data
 
-Faultline is deterministic, git-native, and designed for CI/CD integration.
+Hotspots is deterministic, git-native, and designed for CI/CD integration.
 
 ---
 
@@ -25,7 +25,7 @@ Faultline is deterministic, git-native, and designed for CI/CD integration.
 
 **Command:**
 ```bash
-faultline analyze <path> [options]
+hotspots analyze <path> [options]
 ```
 
 **Features:**
@@ -49,7 +49,7 @@ faultline analyze <path> [options]
 
 **Example:**
 ```bash
-faultline analyze src/ --top 10 --min-lrs 5.0 --format json
+hotspots analyze src/ --top 10 --min-lrs 5.0 --format json
 ```
 
 ---
@@ -60,15 +60,15 @@ faultline analyze src/ --top 10 --min-lrs 5.0 --format json
 
 **Command:**
 ```bash
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 ```
 
 **What It Does:**
 - Extracts git context (SHA, parents, timestamp, branch)
 - Analyzes all TypeScript files in the repository
 - Creates immutable snapshot with all function metrics
-- Persists to `.faultline/snapshots/<commit_sha>.json`
-- Updates `.faultline/index.json` atomically
+- Persists to `.hotspots/snapshots/<commit_sha>.json`
+- Updates `.hotspots/index.json` atomically
 
 **Snapshot Contents:**
 - Commit metadata (SHA, parents, timestamp, branch)
@@ -85,7 +85,7 @@ faultline analyze . --mode snapshot --format json
 
 **Command:**
 ```bash
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **What It Does:**
@@ -115,7 +115,7 @@ faultline analyze . --mode delta --format json
 
 **Command:**
 ```bash
-faultline prune --unreachable [options]
+hotspots prune --unreachable [options]
 ```
 
 **Options:**
@@ -137,17 +137,17 @@ faultline prune --unreachable [options]
 **Example:**
 ```bash
 # Preview what would be pruned
-faultline prune --unreachable --dry-run
+hotspots prune --unreachable --dry-run
 
 # Prune unreachable snapshots older than 30 days
-faultline prune --unreachable --older-than 30
+hotspots prune --unreachable --older-than 30
 ```
 
 #### Compaction
 
 **Command:**
 ```bash
-faultline compact --level <0|1|2>
+hotspots compact --level <0|1|2>
 ```
 
 **Levels:**
@@ -160,7 +160,7 @@ faultline compact --level <0|1|2>
 - Levels 1-2 are metadata placeholders for future implementation
 
 **What It Does:**
-- Updates compaction level in `.faultline/index.json`
+- Updates compaction level in `.hotspots/index.json`
 - Future: Will rewrite snapshots to use deltas/transitions only
 
 ---
@@ -169,7 +169,7 @@ faultline compact --level <0|1|2>
 
 #### Automatic PR Detection
 
-Faultline automatically detects PR context via CI environment variables:
+Hotspots automatically detects PR context via CI environment variables:
 - `GITHUB_EVENT_NAME=pull_request`
 - `GITHUB_REF=refs/pull/123/head`
 
@@ -181,7 +181,7 @@ Faultline automatically detects PR context via CI environment variables:
 
 **Mainline Mode Behavior:**
 - Compares vs direct parent (`parents[0]`)
-- Persists snapshots to `.faultline/snapshots/`
+- Persists snapshots to `.hotspots/snapshots/`
 - Updates index atomically
 - Builds complete history over time
 
@@ -265,7 +265,7 @@ Faultline automatically detects PR context via CI environment variables:
 ### On-Disk Layout
 
 ```
-.faultline/
+.hotspots/
   snapshots/
     <sha1>.json
     <sha2>.json
@@ -303,12 +303,12 @@ cargo run --bin update-report [options]
 ```
 
 **Options:**
-- `--repo <path>`: Repository path (default: `../faultline-synthetic-hotspot-linear-repo`)
+- `--repo <path>`: Repository path (default: `../hotspots-synthetic-hotspot-linear-repo`)
 - `--target-function <id>`: Target function ID (auto-detected if not specified)
 - `--output-dir <path>`: Output directory (default: `./analysis`)
 
 **What It Does:**
-- Reads all snapshots from `.faultline/snapshots/`
+- Reads all snapshots from `.hotspots/snapshots/`
 - Extracts timeline data for target function (LRS series)
 - Computes deltas between commits
 - Extracts repo distribution from latest snapshot
@@ -447,33 +447,33 @@ See [docs/ts-support.md](ts-support.md) for complete details.
 
 ## CLI Commands Reference
 
-### `faultline analyze`
+### `hotspots analyze`
 
 **Basic analysis:**
 ```bash
-faultline analyze <path> [--format text|json] [--top N] [--min-lrs <float>]
+hotspots analyze <path> [--format text|json] [--top N] [--min-lrs <float>]
 ```
 
 **Snapshot mode:**
 ```bash
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 ```
 
 **Delta mode:**
 ```bash
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
-### `faultline prune`
+### `hotspots prune`
 
 ```bash
-faultline prune --unreachable [--older-than <days>] [--dry-run]
+hotspots prune --unreachable [--older-than <days>] [--dry-run]
 ```
 
-### `faultline compact`
+### `hotspots compact`
 
 ```bash
-faultline compact --level <0|1|2>
+hotspots compact --level <0|1|2>
 ```
 
 ---
@@ -490,10 +490,10 @@ faultline compact --level <0|1|2>
 
 ### Test Suites
 
-- `faultline-core/tests/integration_tests.rs` - Basic analysis
-- `faultline-core/tests/golden_tests.rs` - Output determinism
-- `faultline-core/tests/ci_invariant_tests.rs` - Core invariants
-- `faultline-core/tests/git_history_tests.rs` - Git operations
+- `hotspots-core/tests/integration_tests.rs` - Basic analysis
+- `hotspots-core/tests/golden_tests.rs` - Output determinism
+- `hotspots-core/tests/ci_invariant_tests.rs` - Core invariants
+- `hotspots-core/tests/git_history_tests.rs` - Git operations
 
 **Run tests:**
 ```bash
@@ -528,8 +528,8 @@ cargo run --bin update-report  # Generates data.json from snapshots
 ## Project Structure
 
 ```
-faultline/
-  faultline-core/          # Core library
+hotspots/
+  hotspots-core/          # Core library
     src/
       analysis.rs         # Main analysis entry point
       ast.rs              # AST utilities
@@ -545,7 +545,7 @@ faultline/
       snapshot.rs         # Snapshot persistence
     tests/                # Test suites
   
-  faultline-cli/          # CLI application
+  hotspots-cli/          # CLI application
     src/main.rs           # Command-line interface
   
   analysis/               # Visualization tools
@@ -624,7 +624,7 @@ See [docs/limitations.md](limitations.md) for complete details.
 
 ## Future Enhancements (Not Yet Implemented)
 
-1. **Batch History Processing**: `faultline history --all` command (see [docs/future-history-command.md](future-history-command.md))
+1. **Batch History Processing**: `hotspots history --all` command (see [docs/future-history-command.md](future-history-command.md))
 2. **Compaction Levels 1-2**: Delta-only and band-transition-only storage
 3. **Multi-Language Support**: Extend to JavaScript, Python, etc.
 4. **Module-Level Metrics**: Aggregate LRS at file/module level
@@ -634,7 +634,7 @@ See [docs/limitations.md](limitations.md) for complete details.
 
 ## Documentation Index
 
-- **[USAGE.md](USAGE.md)** - How to use Faultline
+- **[USAGE.md](USAGE.md)** - How to use Hotspots
 - **[metrics-calculation-and-rationale.md](metrics-calculation-and-rationale.md)** - Complete metrics specification
 - **[git-history-integration-summary.md](git-history-integration-summary.md)** - History system technical details
 - **[capabilities-and-use-cases.md](capabilities-and-use-cases.md)** - Use cases and workflows
@@ -651,25 +651,25 @@ See [docs/limitations.md](limitations.md) for complete details.
 
 **Daily development:**
 ```bash
-faultline analyze . --format text                    # Check complexity
-faultline analyze . --mode snapshot --format json    # Create snapshot
+hotspots analyze . --format text                    # Check complexity
+hotspots analyze . --mode snapshot --format json    # Create snapshot
 # Make changes...
-faultline analyze . --mode delta --format json       # See what changed
+hotspots analyze . --mode delta --format json       # See what changed
 ```
 
 **CI/CD integration:**
 ```bash
 # Mainline: persist snapshots
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # PR: compare vs merge-base (auto-detected)
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **History management:**
 ```bash
-faultline prune --unreachable --dry-run              # Preview
-faultline prune --unreachable --older-than 30        # Clean up
+hotspots prune --unreachable --dry-run              # Preview
+hotspots prune --unreachable --older-than 30        # Clean up
 ```
 
 **Visualization:**
@@ -701,4 +701,4 @@ python3 -m http.server 8000                         # View charts
 
 ---
 
-**Faultline is a complete, production-ready tool for tracking code complexity over time with git-native semantics.**
+**Hotspots is a complete, production-ready tool for tracking code complexity over time with git-native semantics.**

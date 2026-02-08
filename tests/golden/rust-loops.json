@@ -1,0 +1,162 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "loop_with_break",
+    "line": 42,
+    "language": "Rust",
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "nested_loops",
+    "line": 65,
+    "language": "Rust",
+    "metrics": {
+      "cc": 6,
+      "nd": 3,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 3.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 5.207354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "simple_loop",
+    "line": 3,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.184962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "loop_with_continue",
+    "line": 54,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.184962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "while_with_break",
+    "line": 77,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.184962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "while_loop",
+    "line": 16,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "for_loop",
+    "line": 26,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "function": "for_range",
+    "line": 34,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.1219280948873624,
+    "band": "moderate"
+  }
+]

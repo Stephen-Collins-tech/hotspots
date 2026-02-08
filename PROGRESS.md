@@ -79,8 +79,8 @@ According to `TASKS.md`, the next priority task is:
 - Comprehensive test coverage for edge cases
 
 **Files likely to modify**:
-- `faultline-core/src/cfg.rs` - Control flow graph construction
-- `faultline-core/tests/cfg_tests.rs` - Add break/continue test cases
+- `hotspots-core/src/cfg.rs` - Control flow graph construction
+- `hotspots-core/tests/cfg_tests.rs` - Add break/continue test cases
 
 This is marked P0 because it affects correctness of complexity calculations in common code patterns.
 
@@ -117,9 +117,9 @@ If the break/continue issue isn't immediately critical, Task 2.1 (Add threshold 
 cargo test --all
 
 # Check supported extensions work
-faultline analyze tests/fixtures/js/simple.js
-faultline analyze tests/fixtures/jsx/simple-component.jsx
-faultline analyze tests/fixtures/tsx/simple-component.tsx
+hotspots analyze tests/fixtures/js/simple.js
+hotspots analyze tests/fixtures/jsx/simple-component.jsx
+hotspots analyze tests/fixtures/tsx/simple-component.tsx
 
 # Verify git status
 git status

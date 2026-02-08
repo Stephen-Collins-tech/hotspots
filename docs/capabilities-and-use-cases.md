@@ -1,8 +1,8 @@
-# Faultline Capabilities and Use Cases
+# Hotspots Capabilities and Use Cases
 
 ## Overview
 
-Faultline is a **git-native structural analysis tool** that tracks code complexity over time as immutable commit-scoped snapshots and computes parent-relative deltas. It provides both point-in-time analysis and historical tracking of code structure.
+Hotspots is a **git-native structural analysis tool** that tracks code complexity over time as immutable commit-scoped snapshots and computes parent-relative deltas. It provides both point-in-time analysis and historical tracking of code structure.
 
 ---
 
@@ -14,16 +14,16 @@ Analyze TypeScript code structure and compute complexity metrics:
 
 ```bash
 # Analyze a file or directory
-faultline analyze src/
+hotspots analyze src/
 
 # Output as JSON
-faultline analyze src/ --format json
+hotspots analyze src/ --format json
 
 # Filter by LRS threshold
-faultline analyze src/ --min-lrs 5.0
+hotspots analyze src/ --min-lrs 5.0
 
 # Show top N most complex functions
-faultline analyze src/ --top 10
+hotspots analyze src/ --top 10
 ```
 
 **Metrics Computed:**
@@ -44,10 +44,10 @@ Track code structure changes across git commits:
 
 ```bash
 # Analyze and create snapshot for current commit
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
-# Snapshot is automatically persisted to .faultline/snapshots/<commit_sha>.json
-# Index is updated in .faultline/index.json
+# Snapshot is automatically persisted to .hotspots/snapshots/<commit_sha>.json
+# Index is updated in .hotspots/index.json
 ```
 
 **What Snapshots Capture:**
@@ -61,7 +61,7 @@ faultline analyze . --mode snapshot --format json
 
 ```bash
 # Compare current state vs parent commit
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 
 # Shows what changed since last commit:
 # - New functions
@@ -82,7 +82,7 @@ faultline analyze . --mode delta --format json
 
 #### PR Mode (Automatic)
 
-In CI environments with PR context (GitHub Actions), Faultline automatically:
+In CI environments with PR context (GitHub Actions), Hotspots automatically:
 
 ```bash
 # In PR CI - automatically detected
@@ -90,7 +90,7 @@ export GITHUB_EVENT_NAME=pull_request
 export GITHUB_REF=refs/pull/123/head
 
 # Compares vs merge-base (common ancestor), doesn't persist
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **PR Behavior:**
@@ -105,12 +105,12 @@ In regular git repositories:
 
 ```bash
 # Creates snapshot and compares vs direct parent
-faultline analyze . --mode snapshot --format json
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode snapshot --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **Mainline Behavior:**
-- ✅ Persists snapshots to `.faultline/snapshots/`
+- ✅ Persists snapshots to `.hotspots/snapshots/`
 - ✅ Compares vs direct parent (`parents[0]`)
 - ✅ Updates index atomically
 - ✅ Builds complete history over time
@@ -125,13 +125,13 @@ After force-pushes or branch deletions, clean up orphaned snapshots:
 
 ```bash
 # Dry-run: see what would be pruned
-faultline prune --unreachable --dry-run
+hotspots prune --unreachable --dry-run
 
 # Prune unreachable snapshots older than 30 days
-faultline prune --unreachable --older-than 30
+hotspots prune --unreachable --older-than 30
 
 # Prune all unreachable snapshots
-faultline prune --unreachable
+hotspots prune --unreachable
 ```
 
 **Pruning Behavior:**
@@ -146,7 +146,7 @@ Configure storage strategy (currently Level 0 - full snapshots):
 
 ```bash
 # Set compaction level (0 = full snapshots, 1 = deltas only, 2 = band transitions only)
-faultline compact --level 0
+hotspots compact --level 0
 ```
 
 **Note:** Currently only Level 0 is fully implemented. Levels 1-2 are placeholders for future work.
@@ -170,7 +170,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Check complexity changes
         run: |
-          faultline analyze . --mode delta --format json > delta.json
+          hotspots analyze . --mode delta --format json > delta.json
           # Parse delta.json and fail if critical functions degraded
 ```
 
@@ -188,7 +188,7 @@ jobs:
 
 ```bash
 # Run on every commit (e.g., in pre-commit hook or CI)
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # Analyze historical patterns:
 # - When did complexity spike?
@@ -210,7 +210,7 @@ faultline analyze . --mode snapshot --format json
 
 ```bash
 # In PR review - see exactly what changed
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **Delta Output Shows:**
@@ -232,13 +232,13 @@ faultline analyze . --mode delta --format json
 
 ```bash
 # Before refactoring
-faultline analyze . --mode snapshot --format json > before.json
+hotspots analyze . --mode snapshot --format json > before.json
 
 # After refactoring
-faultline analyze . --mode snapshot --format json > after.json
+hotspots analyze . --mode snapshot --format json > after.json
 
 # Compare deltas - successful refactoring should show negative deltas
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 **Success Indicators:**
@@ -271,17 +271,17 @@ faultline analyze . --mode delta --format json
 
 ```bash
 # 1. Analyze current state
-faultline analyze . --format text
+hotspots analyze . --format text
 
 # 2. Create snapshot before major changes
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # 3. Make changes, then see delta
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 
 # 4. Commit changes
 git commit -m "Refactor complexity"
-faultline analyze . --mode snapshot --format json  # Capture new state
+hotspots analyze . --mode snapshot --format json  # Capture new state
 ```
 
 ### CI Pipeline Integration
@@ -301,12 +301,12 @@ jobs:
       
       # PR mode: compare vs merge-base
       - name: Analyze complexity delta
-        run: faultline analyze . --mode delta --format json > complexity-delta.json
+        run: hotspots analyze . --mode delta --format json > complexity-delta.json
       
       # Mainline mode: persist snapshot (on main branch only)
       - name: Persist snapshot
         if: github.ref == 'refs/heads/main'
-        run: faultline analyze . --mode snapshot --format json
+        run: hotspots analyze . --mode snapshot --format json
       
       # Optional: Upload delta for review
       - name: Upload complexity report
@@ -320,8 +320,8 @@ jobs:
 
 ```bash
 # Weekly/monthly: Clean up unreachable snapshots
-faultline prune --unreachable --older-than 90 --dry-run  # Preview
-faultline prune --unreachable --older-than 90            # Execute
+hotspots prune --unreachable --older-than 90 --dry-run  # Preview
+hotspots prune --unreachable --older-than 90            # Execute
 
 # Review complexity trends
 # Use index.json and snapshots to build historical reports
@@ -429,7 +429,7 @@ Changes from parent commit:
 
 ```bash
 # Create snapshot for commit
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # Parse snapshot, identify high-risk functions
 # Open issues for functions in "critical" band
@@ -440,7 +440,7 @@ faultline analyze . --mode snapshot --format json
 
 ```bash
 # Generate delta in PR
-faultline analyze . --mode delta --format json > review-data.json
+hotspots analyze . --mode delta --format json > review-data.json
 
 # Post as PR comment showing:
 # - Complexity changes
@@ -485,10 +485,10 @@ The snapshot/delta format provides a foundation for:
 
 ## Getting Started
 
-1. **Install Faultline** (if not already installed)
+1. **Install Hotspots** (if not already installed)
 2. **Run analysis** on your repository:
    ```bash
-   faultline analyze . --mode snapshot --format json
+   hotspots analyze . --mode snapshot --format json
    ```
 3. **Integrate into CI** for continuous tracking
 4. **Review deltas** in PRs to understand complexity changes

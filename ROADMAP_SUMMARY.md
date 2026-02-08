@@ -1,4 +1,4 @@
-# Faultline Roadmap - Quick Reference
+# Hotspots Roadmap - Quick Reference
 
 **Full Roadmap:** See [ROADMAP.md](ROADMAP.md)
 **Last Updated:** 2026-02-04
@@ -149,7 +149,7 @@
 ### Rust (Defer)
 
 **Why Consider:**
-- "Dogfooding" - analyze Faultline itself
+- "Dogfooding" - analyze Hotspots itself
 - Your codebase is 4,648 Rust files
 
 **Why Defer:**

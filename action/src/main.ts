@@ -38,13 +38,13 @@ async function getInputs(): Promise<FaultlineInputs> {
 }
 
 async function installFaultline(version: string): Promise<string> {
-  core.info(`Installing faultline version: ${version}`);
+  core.info(`Installing hotspots version: ${version}`);
 
   // Check if already cached
-  const cachedPath = tc.find('faultline', version);
+  const cachedPath = tc.find('hotspots', version);
   if (cachedPath) {
-    core.info(`Found cached faultline at ${cachedPath}`);
-    return path.join(cachedPath, 'faultline');
+    core.info(`Found cached hotspots at ${cachedPath}`);
+    return path.join(cachedPath, 'hotspots');
   }
 
   // Determine platform and architecture
@@ -54,19 +54,19 @@ async function installFaultline(version: string): Promise<string> {
   let downloadUrl: string;
   if (version === 'latest') {
     // TODO: Fetch latest release from GitHub API
-    downloadUrl = `https://github.com/yourorg/faultline/releases/latest/download/faultline-${platform}-${arch}.tar.gz`;
+    downloadUrl = `https://github.com/yourorg/hotspots/releases/latest/download/hotspots-${platform}-${arch}.tar.gz`;
   } else {
-    downloadUrl = `https://github.com/yourorg/faultline/releases/download/v${version}/faultline-${platform}-${arch}.tar.gz`;
+    downloadUrl = `https://github.com/yourorg/hotspots/releases/download/v${version}/hotspots-${platform}-${arch}.tar.gz`;
   }
 
-  core.info(`Downloading faultline from ${downloadUrl}`);
+  core.info(`Downloading hotspots from ${downloadUrl}`);
 
   try {
     const downloadPath = await tc.downloadTool(downloadUrl);
     const extractPath = await tc.extractTar(downloadPath);
-    const cachedDir = await tc.cacheDir(extractPath, 'faultline', version);
+    const cachedDir = await tc.cacheDir(extractPath, 'hotspots', version);
 
-    const binaryPath = path.join(cachedDir, 'faultline');
+    const binaryPath = path.join(cachedDir, 'hotspots');
 
     // Make binary executable
     if (platform !== 'win32') {
@@ -83,16 +83,16 @@ async function installFaultline(version: string): Promise<string> {
 }
 
 async function buildFromSource(): Promise<string> {
-  core.info('Building faultline from source using cargo...');
+  core.info('Building hotspots from source using cargo...');
 
-  // Check if we're in the faultline repo (for local development/testing)
+  // Check if we're in the hotspots repo (for local development/testing)
   const repoRoot = process.env.GITHUB_WORKSPACE || process.cwd();
   const cargoToml = path.join(repoRoot, 'Cargo.toml');
 
   if (fs.existsSync(cargoToml)) {
     core.info('Found Cargo.toml in workspace, building local version...');
-    await exec.exec('cargo', ['build', '--release', '--bin', 'faultline']);
-    return path.join(repoRoot, 'target', 'release', 'faultline');
+    await exec.exec('cargo', ['build', '--release', '--bin', 'hotspots']);
+    return path.join(repoRoot, 'target', 'release', 'hotspots');
   }
 
   throw new Error('Could not download binary and no local source found');
@@ -118,7 +118,7 @@ async function runFaultline(
   // Determine mode based on context
   if (context === 'pr') {
     args.push('--mode', 'delta');
-    // Note: faultline automatically detects merge-base from git context in PR mode
+    // Note: hotspots automatically detects merge-base from git context in PR mode
   } else {
     args.push('--mode', 'snapshot');
   }
@@ -147,7 +147,7 @@ async function runFaultline(
   args.push(inputs.path);
 
   // Also generate HTML report
-  const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'faultline-report.html');
+  const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-report.html');
 
   core.info(`Running: ${binaryPath} ${args.join(' ')}`);
 
@@ -182,9 +182,9 @@ async function runFaultline(
   try {
     result = JSON.parse(stdout);
   } catch (error) {
-    core.error(`Failed to parse faultline output: ${error}`);
+    core.error(`Failed to parse hotspots output: ${error}`);
     core.error(`Raw output: ${stdout}`);
-    throw new Error('Failed to parse faultline output');
+    throw new Error('Failed to parse hotspots output');
   }
 
   // Determine if passed based on policy violations and fail-on setting
@@ -326,14 +326,14 @@ async function run(): Promise<void> {
     core.info('Starting Faultline analysis...');
     core.info(`Inputs: ${JSON.stringify(inputs, null, 2)}`);
 
-    // Install faultline
+    // Install hotspots
     const binaryPath = await installFaultline(inputs.version);
 
     // Detect context (PR or push)
     const context = await detectContext();
     core.info(`Detected context: ${context}`);
 
-    // Run faultline
+    // Run hotspots
     const result = await runFaultline(binaryPath, inputs, context);
 
     // Set outputs

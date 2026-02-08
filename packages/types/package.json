@@ -1,0 +1,41 @@
+{
+  "name": "@hotspots/types",
+  "version": "1.0.0",
+  "description": "TypeScript types and JSON Schema for Hotspots complexity analysis output",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "hotspots",
+    "types",
+    "typescript",
+    "complexity",
+    "analysis",
+    "metrics",
+    "lrs",
+    "cyclomatic-complexity"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stephen-Collins-tech/hotspots.git",
+    "directory": "packages/types"
+  },
+  "bugs": {
+    "url": "https://github.com/Stephen-Collins-tech/hotspots/issues"
+  },
+  "homepage": "https://hotspots.dev",
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

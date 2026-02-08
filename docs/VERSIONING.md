@@ -1,10 +1,10 @@
 # Version Management
 
-Faultline uses git tags for versioning, with automatic fallback to `CARGO_PKG_VERSION`.
+Hotspots uses git tags for versioning, with automatic fallback to `CARGO_PKG_VERSION`.
 
 ## Current Implementation
 
-We use a **build script** (`faultline-cli/build.rs`) that:
+We use a **build script** (`hotspots-cli/build.rs`) that:
 - Runs `git describe --tags --always --dirty` at build time
 - Extracts version from git tags (e.g., `v0.1.0` → `0.1.0`)
 - Falls back to `CARGO_PKG_VERSION` if git is unavailable

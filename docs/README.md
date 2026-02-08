@@ -1,6 +1,6 @@
-# Faultline Documentation
+# Hotspots Documentation
 
-This directory contains comprehensive documentation for the Faultline MVP project.
+This directory contains comprehensive documentation for the Hotspots MVP project.
 
 ## Documentation Overview
 
@@ -34,7 +34,7 @@ This directory contains comprehensive documentation for the Faultline MVP projec
 2. Read [design-decisions.md](./design-decisions.md) for key choices
 3. Review [invariants.md](./invariants.md) for constraints
 
-### Using Faultline
+### Using Hotspots
 
 1. Read [README.md](../README.md) for quickstart
 2. See [USAGE.md](./USAGE.md) for complete feature guide

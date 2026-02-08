@@ -1,6 +1,6 @@
-name: 'Faultline'
-description: 'Analyze TypeScript/JavaScript complexity and block regressions in CI'
-author: 'Faultline'
+name: 'Hotspots'
+description: 'Multi-language static analysis (TypeScript, JavaScript, Go, Java, Python, Rust) - block complexity regressions in CI'
+author: 'Hotspots'
 branding:
   icon: 'alert-triangle'
   color: 'orange'
@@ -18,14 +18,14 @@ inputs:
     description: 'Minimum LRS threshold (overrides policy)'
     required: false
   config:
-    description: 'Path to faultline config file'
+    description: 'Path to hotspots config file'
     required: false
   fail-on:
     description: 'When to fail the build (error, warn, never)'
     required: false
     default: 'error'
   version:
-    description: 'Faultline version to use (default: latest)'
+    description: 'Hotspots version to use (default: latest)'
     required: false
     default: 'latest'
   github-token:

@@ -1,0 +1,162 @@
+[
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "async_for_with_filter",
+    "line": 30,
+    "language": "Python",
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "match_statement",
+    "line": 39,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 4
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 4.0
+    },
+    "lrs": 5.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "match_with_guard",
+    "line": 52,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 4
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 4.0
+    },
+    "lrs": 5.6,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "nested_context_managers",
+    "line": 7,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 2,
+      "fo": 3,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 2.0,
+      "r_fo": 2.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.5,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "with_context_manager",
+    "line": 1,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 2,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 1.0
+    },
+    "lrs": 4.4509775004326935,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "async_function",
+    "line": 24,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 2,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 1.0
+    },
+    "lrs": 4.4509775004326935,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "list_comprehension_filtered",
+    "line": 14,
+    "language": "Python",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.021928094887362,
+    "band": "moderate"
+  },
+  {
+    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "function": "list_comprehension_no_filter",
+    "line": 19,
+    "language": "Python",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.7,
+    "band": "low"
+  }
+]

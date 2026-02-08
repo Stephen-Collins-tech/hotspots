@@ -1,4 +1,4 @@
-# How to Use Faultline
+# How to Use Hotspots
 
 ## Installation
 
@@ -6,11 +6,11 @@
 
 ```bash
 git clone <repo-url>
-cd faultline
+cd hotspots
 cargo build --release
 ```
 
-The binary will be at `target/release/faultline`.
+The binary will be at `target/release/hotspots`.
 
 ### Install to System Path (Dev Version)
 
@@ -18,7 +18,7 @@ The binary will be at `target/release/faultline`.
 ./install-dev.sh
 ```
 
-This builds and installs `faultline` to `~/.local/bin` (or a custom directory).
+This builds and installs `hotspots` to `~/.local/bin` (or a custom directory).
 
 ---
 
@@ -30,26 +30,26 @@ This builds and installs `faultline` to `~/.local/bin` (or a custom directory).
 
 ```bash
 # Text output (default)
-faultline analyze src/
+hotspots analyze src/
 
 # JSON output
-faultline analyze src/ --format json
+hotspots analyze src/ --format json
 
 # Analyze specific file
-faultline analyze src/api.ts
+hotspots analyze src/api.ts
 ```
 
 **Filter results:**
 
 ```bash
 # Show only top 10 most complex functions
-faultline analyze src/ --top 10
+hotspots analyze src/ --top 10
 
 # Show only functions with LRS >= 5.0
-faultline analyze src/ --min-lrs 5.0
+hotspots analyze src/ --min-lrs 5.0
 
 # Combine filters
-faultline analyze src/ --top 10 --min-lrs 5.0 --format json
+hotspots analyze src/ --top 10 --min-lrs 5.0 --format json
 ```
 
 **Example output (text):**
@@ -62,11 +62,244 @@ LRS     File              Line  Function
 
 ---
 
+## Language-Specific Examples
+
+### ECMAScript (TypeScript/JavaScript/React)
+
+```bash
+# Analyze TypeScript files
+hotspots analyze src/api.ts
+
+# Analyze entire TypeScript project
+hotspots analyze src/ --format json
+
+# Analyze React components
+hotspots analyze src/components/ --format json
+```
+
+**Supported files:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+
+### Go
+
+```bash
+# Analyze single Go file
+hotspots analyze main.go
+
+# Analyze Go package
+hotspots analyze pkg/handlers/
+
+# Analyze entire Go project
+hotspots analyze . --format json
+```
+
+**Go-specific metrics:**
+- **Defer statements** count as Non-Structured Exits (NS)
+- **Goroutines** (`go` statements) count as Fan-Out (FO)
+- **Select statements** - each case counts toward Cyclomatic Complexity (CC)
+- **Type switches** - each case counts toward CC
+
+**Example Go analysis:**
+
+```bash
+$ hotspots analyze server.go --format json
+```
+
+```json
+[
+  {
+    "file": "server.go",
+    "function": "HandleRequest",
+    "line": 45,
+    "metrics": {
+      "cc": 8,
+      "nd": 3,
+      "fo": 6,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 3.17,
+      "r_nd": 3.0,
+      "r_fo": 2.81,
+      "r_ns": 2.0
+    },
+    "lrs": 9.24,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Go metrics in this example:**
+- **CC=8:** Base complexity + switch cases + boolean operators
+- **ND=3:** Three levels of nesting (e.g., `for` → `if` → `switch`)
+- **FO=6:** 4 function calls + 1 goroutine + 1 defer
+- **NS=2:** 1 early return + 1 defer statement
+- **LRS=9.24:** Composite risk score → **critical** band
+
+### Java
+
+```bash
+# Analyze single Java file
+hotspots analyze src/Main.java
+
+# Analyze Java package
+hotspots analyze src/com/example/
+
+# Analyze entire Java project
+hotspots analyze src/ --format json
+
+# Analyze Spring Boot application
+hotspots analyze src/main/java/com/example/
+```
+
+**Supported files:** `.java`
+
+**Java-specific metrics:**
+- **Lambda expressions** - control flow inside lambdas counted inline with parent method
+- **Stream operations** - don't inflate CC, but lambdas inside streams do count
+- **Try-with-resources** - resource declarations add 0 CC, only catch clauses count
+- **Switch expressions (Java 14+)** - treated same as traditional switch statements
+- **Synchronized blocks** - each adds +1 to CC (critical section)
+- **Anonymous inner classes** - methods analyzed as separate functions
+
+**Example Java analysis:**
+
+```bash
+$ hotspots analyze UserService.java --format json
+```
+
+```json
+[
+  {
+    "file": "UserService.java",
+    "function": "processUsers",
+    "line": 23,
+    "language": "Java",
+    "metrics": {
+      "cc": 7,
+      "nd": 2,
+      "fo": 4,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 2.0,
+      "r_fo": 2.32,
+      "r_ns": 3.0
+    },
+    "lrs": 8.82,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Java metrics in this example:**
+- **CC=7:** Base complexity + if statements + try/catch clauses + boolean operators
+- **ND=2:** Two levels of nesting (e.g., `try` → `for`)
+- **FO=4:** 4 method calls (including constructors)
+- **NS=3:** 2 returns + 1 throw statement
+- **LRS=8.82:** Critical risk band - consider refactoring
+
+**Common Java patterns and their metrics:**
+
+```java
+// Simple method with early return
+public int getValue(String key) {
+    if (key == null) {     // CC +1
+        return -1;          // NS +1
+    }
+    return map.get(key);    // FO +1, NS +1
+}
+// CC=2, ND=1, FO=1, NS=2
+
+// Try-with-resources
+public String readFile(String path) {
+    try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+        return br.readLine();   // FO +1, NS +1
+    } catch (IOException e) {   // CC +1
+        return "";               // NS +1
+    }
+}
+// CC=2, ND=0, FO=1, NS=2
+
+// Stream with filter
+public List<User> getActiveUsers(List<User> users) {
+    return users.stream()
+        .filter(u -> u.isActive())   // CC +0 (stream doesn't inflate)
+        .collect(Collectors.toList()); // FO +1
+}
+// CC=1, ND=0, FO=1, NS=1
+```
+
+### Python
+
+```bash
+# Analyze single Python file
+hotspots analyze app.py
+
+# Analyze Python package
+hotspots analyze src/handlers/
+
+# Analyze entire Python project
+hotspots analyze . --format json
+```
+
+**Python-specific metrics:**
+- **Comprehensions with filters** count toward Cyclomatic Complexity (CC)
+- **Context managers** (`with` statements) count toward Nesting Depth (ND) but NOT CC
+- **Exception handlers** - each `except` clause counts toward CC
+- **Match statements** (Python 3.10+) - each `case` counts toward CC
+- **Boolean operators** (`and`, `or`) each count toward CC
+
+**Example Python analysis:**
+
+```bash
+$ hotspots analyze api.py --format json
+```
+
+```json
+[
+  {
+    "file": "api.py",
+    "function": "process_request",
+    "line": 12,
+    "language": "Python",
+    "metrics": {
+      "cc": 7,
+      "nd": 3,
+      "fo": 5,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 3.01,
+      "r_nd": 3.0,
+      "r_fo": 2.58,
+      "r_ns": 2.58
+    },
+    "lrs": 8.64,
+    "band": "critical"
+  }
+]
+```
+
+**Understanding Python metrics in this example:**
+- **CC=7:** Base complexity + if statements + boolean operators + except clauses + comprehension filters
+- **ND=3:** Three levels of nesting (e.g., `if` → `with` → `try`)
+- **FO=5:** 5 unique function calls
+- **NS=3:** 2 early returns + 1 raise statement
+- **LRS=8.64:** Composite risk score → **critical** band
+
+**Python design decisions:**
+- **Context managers don't inflate CC:** `with open(file) as f:` is resource management, not branching
+- **Filtered comprehensions count:** `[x for x in items if x > 0]` has a conditional decision (the `if`)
+- **Each except is a branch:** `try/except ValueError/except KeyError` has 2 decision points
+
+---
+
 ## Git History Tracking
 
 ### Prerequisites
 
-Faultline must be run from within a git repository for snapshot/delta modes.
+Hotspots must be run from within a git repository for snapshot/delta modes.
 
 ### Creating Snapshots
 
@@ -75,14 +308,14 @@ Faultline must be run from within a git repository for snapshot/delta modes.
 ```bash
 # In a git repository
 cd my-repo
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 ```
 
 This will:
 - Analyze all TypeScript files in the repository
 - Create a snapshot with commit metadata (SHA, parents, timestamp, branch)
-- Persist to `.faultline/snapshots/<commit_sha>.json`
-- Update `.faultline/index.json`
+- Persist to `.hotspots/snapshots/<commit_sha>.json`
+- Update `.hotspots/index.json`
 
 **What gets stored:**
 - All functions with their metrics (CC, ND, FO, NS, LRS, band)
@@ -94,7 +327,7 @@ This will:
 **Compare current state vs parent commit:**
 
 ```bash
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 This will:
@@ -156,21 +389,21 @@ This will:
 
 ```bash
 # 1. Check current complexity
-faultline analyze . --format text
+hotspots analyze . --format text
 
 # 2. Before making changes, create snapshot
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # 3. Make your changes...
 
 # 4. See what changed
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 
 # 5. Commit changes
 git commit -m "Add feature"
 
 # 6. Create snapshot for new commit
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 ```
 
 ### CI/CD Integration
@@ -181,7 +414,7 @@ faultline analyze . --mode snapshot --format json
 # .github/workflows/complexity.yml
 - name: Track complexity
   run: |
-    faultline analyze . --mode snapshot --format json
+    hotspots analyze . --mode snapshot --format json
 ```
 
 **PR branch (compare vs merge-base, don't persist):**
@@ -190,25 +423,25 @@ faultline analyze . --mode snapshot --format json
 # Automatically detected in PR context
 - name: Check complexity changes
   run: |
-    faultline analyze . --mode delta --format json > delta.json
+    hotspots analyze . --mode delta --format json > delta.json
     # Parse delta.json and fail if critical functions degraded
 ```
 
-Faultline automatically detects PR context via `GITHUB_EVENT_NAME` and `GITHUB_REF` environment variables.
+Hotspots automatically detects PR context via `GITHUB_EVENT_NAME` and `GITHUB_REF` environment variables.
 
 ### Refactoring Validation
 
 ```bash
 # Before refactoring
-faultline analyze . --mode snapshot --format json > before.json
+hotspots analyze . --mode snapshot --format json > before.json
 
 # Make refactoring changes...
 
 # After refactoring
-faultline analyze . --mode snapshot --format json > after.json
+hotspots analyze . --mode snapshot --format json > after.json
 
 # See the improvement
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 Look for:
@@ -226,13 +459,13 @@ After force-pushes or branch deletions, clean up orphaned snapshots:
 
 ```bash
 # Dry-run: see what would be pruned
-faultline prune --unreachable --dry-run
+hotspots prune --unreachable --dry-run
 
 # Prune unreachable snapshots older than 30 days
-faultline prune --unreachable --older-than 30
+hotspots prune --unreachable --older-than 30
 
 # Prune all unreachable snapshots
-faultline prune --unreachable
+hotspots prune --unreachable
 ```
 
 **Safety:** Only prunes snapshots unreachable from `refs/heads/*` (local branches). Never prunes reachable snapshots.
@@ -241,7 +474,7 @@ faultline prune --unreachable
 
 ```bash
 # Set compaction level (currently only Level 0 is implemented)
-faultline compact --level 0
+hotspots compact --level 0
 ```
 
 **Note:** Levels 1-2 are metadata placeholders for future implementation.
@@ -261,7 +494,7 @@ LRS     File              Line  Function
 ### JSON Format
 
 ```bash
-faultline analyze src/ --format json
+hotspots analyze src/ --format json
 ```
 
 Outputs structured JSON with all metrics, risk components, LRS, and band.
@@ -286,25 +519,25 @@ Functions are classified into risk bands based on LRS:
 ### Find Most Complex Functions
 
 ```bash
-faultline analyze src/ --top 5 --format text
+hotspots analyze src/ --top 5 --format text
 ```
 
 ### Find Functions Needing Refactoring
 
 ```bash
-faultline analyze src/ --min-lrs 9.0 --format json
+hotspots analyze src/ --min-lrs 9.0 --format json
 ```
 
 ### Track Complexity Over Time
 
 ```bash
 # On every commit (e.g., in pre-commit hook or CI)
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 ```
 
 Then use deltas to see trends:
 ```bash
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 ### Compare Two Commits
@@ -312,14 +545,14 @@ faultline analyze . --mode delta --format json
 ```bash
 # Checkout first commit
 git checkout <sha1>
-faultline analyze . --mode snapshot --format json > commit1.json
+hotspots analyze . --mode snapshot --format json > commit1.json
 
 # Checkout second commit
 git checkout <sha2>
-faultline analyze . --mode snapshot --format json > commit2.json
+hotspots analyze . --mode snapshot --format json > commit2.json
 
 # Compare manually or use delta mode
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 ---
@@ -330,8 +563,8 @@ faultline analyze . --mode delta --format json
 
 Make sure you're pointing to a valid file or directory:
 ```bash
-faultline analyze ./src  # Correct
-faultline analyze src    # Also correct (relative path)
+hotspots analyze ./src  # Correct
+hotspots analyze src    # Also correct (relative path)
 ```
 
 ### "failed to extract git context"
@@ -340,7 +573,7 @@ Snapshot/delta modes require a git repository:
 ```bash
 # Make sure you're in a git repo
 cd my-git-repo
-faultline analyze . --mode snapshot
+hotspots analyze . --mode snapshot
 ```
 
 ### "snapshot already exists"
@@ -350,7 +583,7 @@ Snapshots are immutable. If you get this error, the snapshot already exists for 
 ### No output in delta mode
 
 If delta shows no changes:
-- Check that parent snapshot exists (should be in `.faultline/snapshots/`)
+- Check that parent snapshot exists (should be in `.hotspots/snapshots/`)
 - Verify you're comparing against the correct parent (uses `parents[0]`)
 - First commit will show `baseline: true` with all functions marked `new`
 
@@ -373,13 +606,13 @@ For development, use the `dev` script:
 
 ### Configuration File
 
-Faultline supports project-specific configuration via config files. Create one of the following:
+Hotspots supports project-specific configuration via config files. Create one of the following:
 
-- `.faultlinerc.json` (recommended)
-- `faultline.config.json`
-- `package.json` with a `"faultline"` key
+- `.hotspotsrc.json` (recommended)
+- `hotspots.config.json`
+- `package.json` with a `"hotspots"` key
 
-**Example `.faultlinerc.json`:**
+**Example `.hotspotsrc.json`:**
 
 ```json
 {
@@ -421,20 +654,20 @@ Faultline supports project-specific configuration via config files. Create one o
 **Validate configuration:**
 
 ```bash
-faultline config validate
+hotspots config validate
 ```
 
 **View resolved configuration:**
 
 ```bash
-faultline config show
+hotspots config show
 ```
 
 **CLI flags override config:**
 
 ```bash
 # Config file has --min-lrs 3.0, this overrides to 5.0
-faultline analyze . --min-lrs 5.0
+hotspots analyze . --min-lrs 5.0
 ```
 
 ---
@@ -447,7 +680,7 @@ The policy engine evaluates complexity regressions and enforces quality gates in
 
 ```bash
 # Analyze with policy evaluation
-faultline analyze . --mode delta --policies --format json
+hotspots analyze . --mode delta --policies --format json
 ```
 
 Output includes a `policy` section with failures and warnings.
@@ -479,7 +712,7 @@ Output includes a `policy` section with failures and warnings.
    - Detects sudden complexity spikes
 
 6. **Suppression Missing Reason** - Suppressions without documentation
-   - Warns when `// faultline-ignore:` has no reason
+   - Warns when `// hotspots-ignore:` has no reason
    - Encourages documenting why functions are suppressed
 
 7. **Net Repo Regression** - Overall repository complexity increase
@@ -550,7 +783,7 @@ Use suppression comments to exclude specific functions from policy checks while 
 Place a comment **immediately before** the function:
 
 ```typescript
-// faultline-ignore: legacy code, refactor planned for Q2 2026
+// hotspots-ignore: legacy code, refactor planned for Q2 2026
 function complexLegacyParser(input: string) {
   // High complexity code...
 }
@@ -558,7 +791,7 @@ function complexLegacyParser(input: string) {
 
 **Rules:**
 - Comment must be on the line immediately before the function
-- Format: `// faultline-ignore: reason`
+- Format: `// hotspots-ignore: reason`
 - Reason is required (warning if missing)
 - Blank lines break the suppression
 
@@ -592,7 +825,7 @@ function complexLegacyParser(input: string) {
 Functions suppressed without a reason will trigger a warning:
 
 ```typescript
-// faultline-ignore:
+// hotspots-ignore:
 function foo() { }  // ⚠️  Warning: suppressed without reason
 ```
 
@@ -620,7 +853,7 @@ function foo() { }  // ⚠️  Warning: suppressed without reason
 Generate interactive HTML reports for better visualization:
 
 ```bash
-faultline analyze . --format html > report.html
+hotspots analyze . --format html > report.html
 ```
 
 **HTML report features:**
@@ -634,7 +867,7 @@ faultline analyze . --format html > report.html
 **Delta mode HTML:**
 
 ```bash
-faultline analyze . --mode delta --format html > delta-report.html
+hotspots analyze . --mode delta --format html > delta-report.html
 ```
 
 Shows function changes with:
@@ -646,7 +879,7 @@ Shows function changes with:
 **Open in browser:**
 
 ```bash
-faultline analyze . --format html > report.html
+hotspots analyze . --format html > report.html
 open report.html  # macOS
 xdg-open report.html  # Linux
 start report.html  # Windows

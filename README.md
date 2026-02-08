@@ -1,15 +1,15 @@
-# Faultline
+# Hotspots
 
-Static analysis tool for TypeScript, JavaScript, and React that computes a Local Risk Score (LRS) based on control flow complexity metrics.
+Static analysis tool for TypeScript, JavaScript, React, Go, Java, Python, and Rust that computes a Local Risk Score (LRS) based on control flow complexity metrics.
 
 ## Quickstart
 
 ### GitHub Action (Recommended for CI/CD)
 
-Add to `.github/workflows/faultline.yml`:
+Add to `.github/workflows/hotspots.yml`:
 
 ```yaml
-name: Faultline
+name: Hotspots
 
 on: [pull_request, push]
 
@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0  # Required for delta analysis
 
-      - uses: yourorg/faultline@v1
+      - uses: yourorg/hotspots@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -34,23 +34,27 @@ See [action/README.md](action/README.md) for full GitHub Action documentation.
 # Build the project
 cargo build --release
 
-# Analyze TypeScript, JavaScript, or React files
-./target/release/faultline analyze src/main.ts
-./target/release/faultline analyze src/app.js
-./target/release/faultline analyze src/Component.tsx
-./target/release/faultline analyze src/Button.jsx
+# Analyze TypeScript, JavaScript, React, Go, Java, Python, or Rust files
+./target/release/hotspots analyze src/main.ts
+./target/release/hotspots analyze src/app.js
+./target/release/hotspots analyze main.go
+./target/release/hotspots analyze src/Main.java
+./target/release/hotspots analyze src/lib.py
+./target/release/hotspots analyze src/lib.rs
+./target/release/hotspots analyze src/Component.tsx
+./target/release/hotspots analyze src/Button.jsx
 
 # Analyze a directory (all .ts, .js, .tsx, .jsx files)
-./target/release/faultline analyze src/
+./target/release/hotspots analyze src/
 
 # Output as JSON
-./target/release/faultline analyze src/main.ts --format json
+./target/release/hotspots analyze src/main.ts --format json
 
 # Show only top 10 results
-./target/release/faultline analyze src/ --top 10
+./target/release/hotspots analyze src/ --top 10
 
 # Filter by minimum LRS
-./target/release/faultline analyze src/ --min-lrs 5.0
+./target/release/hotspots analyze src/ --min-lrs 5.0
 ```
 
 ## What is LRS?
@@ -67,6 +71,38 @@ Each metric is transformed to a risk component (R_cc, R_nd, R_fo, R_ns) and weig
 See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ## Features
+
+### 🤖 Built for AI Coding Assistants
+
+Hotspots is designed from day one for AI-assisted development. Deterministic, machine-readable complexity analysis that AI agents can use to review code, guide refactoring, and generate better code.
+
+- ✅ **Claude MCP Server** - Direct tool access in Claude Desktop/Code
+- ✅ **Structured JSON** - Machine-readable output with TypeScript types
+- ✅ **Deterministic** - Same code always produces identical results
+- ✅ **Fast Execution** - Suitable for iterative AI workflows
+
+**Quick Start with Claude:**
+
+```bash
+npm install -g @hotspots/mcp-server
+```
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "hotspots": {
+      "command": "npx",
+      "args": ["@hotspots/mcp-server"]
+    }
+  }
+}
+```
+
+Then ask Claude: *"Analyze my codebase for complexity"*
+
+See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for complete AI integration guide with workflows for Claude, GPT-4, Cursor, and Copilot.
 
 ### CI/CD Integration
 
@@ -85,7 +121,7 @@ See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
 
 ### Policy Enforcement
 
-Faultline includes 7 built-in policies to enforce code quality:
+Hotspots includes 7 built-in policies to enforce code quality:
 
 **Blocking (fail CI):**
 - Critical Introduction - Functions entering critical risk band
@@ -105,7 +141,7 @@ See [docs/USAGE.md#policy-engine](docs/USAGE.md#policy-engine) for details.
 Suppress policy violations for specific functions while keeping them in reports:
 
 ```typescript
-// faultline-ignore: legacy code, refactor planned for Q2 2026
+// hotspots-ignore: legacy code, refactor planned for Q2 2026
 function complexLegacyParser(input: string) {
   // High complexity code...
 }
@@ -121,7 +157,7 @@ See [docs/USAGE.md#suppressing-policy-violations](docs/USAGE.md#suppressing-poli
 
 ### Configuration
 
-Customize behavior with `.faultlinerc.json`:
+Customize behavior with `.hotspotsrc.json`:
 
 ```json
 {
@@ -151,33 +187,33 @@ See [docs/USAGE.md#configuration](docs/USAGE.md#configuration) for details.
 
 ### GitHub Action (Recommended)
 
-Add Faultline to your GitHub Actions workflow:
+Add Hotspots to your GitHub Actions workflow:
 
 ```yaml
-- uses: yourorg/faultline@v1
+- uses: yourorg/hotspots@v1
 ```
 
 See [action/README.md](action/README.md) for configuration options.
 
 ### Binary Releases
 
-Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/faultline/releases):
+Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/hotspots/releases):
 
 ```bash
 # Linux
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-linux-x64.tar.gz
-tar -xzf faultline-linux-x64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-linux-x64.tar.gz
+tar -xzf hotspots-linux-x64.tar.gz
+sudo mv hotspots /usr/local/bin/
 
 # macOS (Intel)
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-x64.tar.gz
-tar -xzf faultline-darwin-x64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-x64.tar.gz
+tar -xzf hotspots-darwin-x64.tar.gz
+sudo mv hotspots /usr/local/bin/
 
 # macOS (Apple Silicon)
-wget https://github.com/yourorg/faultline/releases/latest/download/faultline-darwin-arm64.tar.gz
-tar -xzf faultline-darwin-arm64.tar.gz
-sudo mv faultline /usr/local/bin/
+wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-arm64.tar.gz
+tar -xzf hotspots-darwin-arm64.tar.gz
+sudo mv hotspots /usr/local/bin/
 ```
 
 ### Local Development (No Installation)
@@ -200,8 +236,8 @@ This runs the tool directly without installing it globally. Useful for:
 Install to your local bin directory (`~/.local/bin`):
 
 ```bash
-git clone https://github.com/Stephen-Collins-tech/faultline
-cd faultline
+git clone https://github.com/Stephen-Collins-tech/hotspots
+cd hotspots
 ./install-dev.sh
 # or
 make install
@@ -209,7 +245,7 @@ make install
 
 This will:
 - Build the release binary
-- Install it to `~/.local/bin/faultline`
+- Install it to `~/.local/bin/hotspots`
 - Make it available globally (if `~/.local/bin` is in your PATH)
 
 **Note:** If `~/.local/bin` is not in your PATH, add this to your shell config:
@@ -220,10 +256,10 @@ export PATH="${HOME}/.local/bin:${PATH}"
 ### Manual Build
 
 ```bash
-git clone https://github.com/Stephen-Collins-tech/faultline
-cd faultline
+git clone https://github.com/Stephen-Collins-tech/hotspots
+cd hotspots
 cargo build --release
-# Binary will be at ./target/release/faultline
+# Binary will be at ./target/release/hotspots
 ```
 
 ## Usage
@@ -231,7 +267,7 @@ cargo build --release
 ### Basic Analysis
 
 ```bash
-./target/release/faultline analyze path/to/file.ts
+./target/release/hotspots analyze path/to/file.ts
 ```
 
 ### Output Formats
@@ -245,7 +281,7 @@ LRS     File              Line  Function
 
 **JSON format:**
 ```bash
-./target/release/faultline analyze path/to/file.ts --format json
+./target/release/hotspots analyze path/to/file.ts --format json
 ```
 
 ```json
@@ -299,13 +335,17 @@ See [docs/USAGE.md](docs/USAGE.md) for complete documentation.
 
 See [docs/language-support.md](docs/language-support.md) for full details.
 
-**Supported languages:** TypeScript, JavaScript, JSX, TSX
+**Supported languages:**
+- **ECMAScript:** TypeScript, JavaScript, JSX, TSX
+- **Go:** Full Go language support
 
-**Supported file extensions:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+**Supported file extensions:**
+- **ECMAScript:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
+- **Go:** `.go`
 
 **Supported constructs:**
-- Function declarations, expressions, arrow functions
-- Class methods, object literal methods
+- **ECMAScript:** Function declarations, expressions, arrow functions, class methods, object literal methods
+- **Go:** Functions, methods, control flow, defer, goroutines, select statements
 - All control flow constructs (if, loops, switch, try/catch/finally)
 - JSX/TSX elements (elements don't inflate complexity; embedded control flow is counted)
 - Labeled break/continue with correct loop targeting
@@ -324,14 +364,14 @@ See [docs/limitations.md](docs/limitations.md) for full details.
 
 ## Determinism
 
-Faultline produces **byte-for-byte identical output** for identical input:
+Hotspots produces **byte-for-byte identical output** for identical input:
 
 - Function order is deterministic (sorted by span start)
 - File order is deterministic (sorted by path)
 - Output format is stable (JSON key order, float precision)
 - Whitespace and comments do not affect results
 
-This makes faultline suitable for CI/CD integration and regression testing.
+This makes hotspots suitable for CI/CD integration and regression testing.
 
 ## Development
 

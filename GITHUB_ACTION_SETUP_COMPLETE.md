@@ -8,7 +8,7 @@
 
 ## What Was Built
 
-A complete GitHub Action implementation that allows users to integrate Faultline into their CI/CD pipelines with zero configuration.
+A complete GitHub Action implementation that allows users to integrate Hotspots into their CI/CD pipelines with zero configuration.
 
 ### Core Components
 
@@ -49,7 +49,7 @@ docs/
 - ✅ `min-lrs` - Minimum LRS threshold override
 - ✅ `config` - Path to config file
 - ✅ `fail-on` - When to fail (`error`, `warn`, `never`)
-- ✅ `version` - Faultline version (default: `latest`)
+- ✅ `version` - Hotspots version (default: `latest`)
 - ✅ `github-token` - Token for PR comments
 - ✅ `post-comment` - Whether to post PR comments (default: `true`)
 
@@ -108,25 +108,25 @@ docs/
 ### Basic (Zero Config)
 
 ```yaml
-- uses: yourorg/faultline@v1
+- uses: yourorg/hotspots@v1
 ```
 
 ### With Options
 
 ```yaml
-- uses: yourorg/faultline@v1
+- uses: yourorg/hotspots@v1
   with:
     path: packages/frontend
     policy: strict
     fail-on: warn
-    config: .faultlinerc.json
+    config: .hotspotsrc.json
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### Full Workflow Example
 
 ```yaml
-name: Faultline
+name: Hotspots
 
 on:
   pull_request:
@@ -145,16 +145,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: yourorg/faultline@v1
-        id: faultline
+      - uses: yourorg/hotspots@v1
+        id: hotspots
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: faultline-report
-          path: ${{ steps.faultline.outputs.report-path }}
+          name: hotspots-report
+          path: ${{ steps.hotspots.outputs.report-path }}
 ```
 
 ---
@@ -196,7 +196,7 @@ jobs:
 
 4. **Test Published Action**
    - Create a test repo with TypeScript
-   - Add workflow using `yourorg/faultline@v1`
+   - Add workflow using `yourorg/hotspots@v1`
    - Verify it works end-to-end
 
 ### Optional: GitHub Marketplace
@@ -250,7 +250,7 @@ The action can be tested locally in this repo:
 ```
 
 This workflow:
-1. Builds the faultline binary from source
+1. Builds the hotspots binary from source
 2. Creates a sample TypeScript project
 3. Runs the action on it
 4. Verifies all outputs are present
@@ -284,10 +284,10 @@ This workflow:
 
 ### Binary Caching
 
-The action caches the faultline binary by version:
+The action caches the hotspots binary by version:
 
 ```
-~/.cache/tool-cache/faultline/1.0.0/x64/
+~/.cache/tool-cache/hotspots/1.0.0/x64/
 ```
 
 - **First run:** Downloads binary (~5s)

@@ -1,0 +1,24 @@
+[package]
+name = "hotspots-cli"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+description = "Static analysis CLI for TypeScript that computes Local Risk Score (LRS) based on control flow complexity"
+readme = "../README.md"
+
+[[bin]]
+name = "hotspots"
+path = "src/main.rs"
+
+[dependencies]
+hotspots-core = { path = "../hotspots-core" }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
+
+[lints]
+workspace = true

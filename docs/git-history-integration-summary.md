@@ -8,7 +8,7 @@
 
 ## Overview
 
-Faultline has been transformed from a **point-in-time structural analyzer** into a **git-native history engine** that models code structure as immutable commit-scoped snapshots and computes parent-relative deltas. The system remains correct under all git mutations (rebases, merges, cherry-picks, reverts, force-pushes) and includes storage management via reachability pruning.
+Hotspots has been transformed from a **point-in-time structural analyzer** into a **git-native history engine** that models code structure as immutable commit-scoped snapshots and computes parent-relative deltas. The system remains correct under all git mutations (rebases, merges, cherry-picks, reverts, force-pushes) and includes storage management via reachability pruning.
 
 ---
 
@@ -16,7 +16,7 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 ### ✅ Phase H0 – Git Context Extraction
 
-**Module:** `faultline-core/src/git.rs`
+**Module:** `hotspots-core/src/git.rs`
 
 **Key Features:**
 - Extracts git metadata (HEAD SHA, parent SHAs, timestamp, branch) deterministically
@@ -36,7 +36,7 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 ### ✅ Phase H1 – Snapshot Container and Persistence
 
-**Module:** `faultline-core/src/snapshot.rs`
+**Module:** `hotspots-core/src/snapshot.rs`
 
 **Key Features:**
 - Immutable, commit-scoped snapshots with explicit `function_id` field
@@ -50,7 +50,7 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 **On-Disk Layout:**
 ```
-.faultline/
+.hotspots/
   snapshots/
     <commit_sha>.json
   index.json
@@ -72,7 +72,7 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 ### ✅ Phase H2 – Parent-Relative Delta Computation
 
-**Module:** `faultline-core/src/delta.rs`
+**Module:** `hotspots-core/src/delta.rs`
 
 **Key Features:**
 - Computes deltas between snapshot and its parent (`parents[0]` only)
@@ -99,7 +99,7 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 ### ✅ Phase H3 – CLI Modes
 
-**Module:** `faultline-cli/src/main.rs`
+**Module:** `hotspots-cli/src/main.rs`
 
 **Key Features:**
 - Added `--mode snapshot | delta` flag (opt-in, non-breaking)
@@ -109,18 +109,18 @@ Faultline has been transformed from a **point-in-time structural analyzer** into
 
 **Usage:**
 ```bash
-# Snapshot mode (persists to .faultline/snapshots/)
-faultline analyze . --mode snapshot --format json
+# Snapshot mode (persists to .hotspots/snapshots/)
+hotspots analyze . --mode snapshot --format json
 
 # Delta mode (compares vs parent)
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 ---
 
 ### ✅ Phase H4 – PR vs Mainline Semantics
 
-**Module:** `faultline-cli/src/main.rs`, `faultline-core/src/git.rs`
+**Module:** `hotspots-cli/src/main.rs`, `hotspots-core/src/git.rs`
 
 **Key Features:**
 - Detects PR context via CI environment variables (GitHub Actions)
@@ -137,7 +137,7 @@ faultline analyze . --mode delta --format json
 
 ### ✅ Phase H5 – Golden History Fixtures
 
-**Module:** `faultline-core/tests/git_history_tests.rs`
+**Module:** `hotspots-core/tests/git_history_tests.rs`
 
 **Test Coverage:**
 - ✅ Rebase creates new snapshots (original commit snapshot preserved)
@@ -155,7 +155,7 @@ faultline analyze . --mode delta --format json
 
 ### ✅ Phase H6 – Reachability Pruning
 
-**Module:** `faultline-core/src/prune.rs`
+**Module:** `hotspots-core/src/prune.rs`
 
 **Key Features:**
 - Enumerates tracked refs (default: `refs/heads/*` - local branches only)
@@ -169,13 +169,13 @@ faultline analyze . --mode delta --format json
 **CLI Command:**
 ```bash
 # Prune unreachable snapshots
-faultline prune --unreachable
+hotspots prune --unreachable
 
 # Prune with age filter
-faultline prune --unreachable --older-than 30
+hotspots prune --unreachable --older-than 30
 
 # Dry-run (report without deleting)
-faultline prune --unreachable --dry-run
+hotspots prune --unreachable --dry-run
 ```
 
 **Main Functions:**
@@ -187,7 +187,7 @@ faultline prune --unreachable --dry-run
 
 ### ✅ Phase H7 – History Compaction (Basic Implementation)
 
-**Module:** `faultline-core/src/snapshot.rs`, `faultline-cli/src/main.rs`
+**Module:** `hotspots-core/src/snapshot.rs`, `hotspots-cli/src/main.rs`
 
 **Key Features:**
 - Compaction metadata stored in `index.json` only (not in snapshots)
@@ -207,7 +207,7 @@ faultline prune --unreachable --dry-run
 **CLI Command:**
 ```bash
 # Set compaction level to N (0, 1, or 2)
-faultline compact --level N
+hotspots compact --level N
 ```
 
 **Note:** Setting compaction level to 1 or 2 currently only updates metadata. Actual compaction logic (converting snapshots to deltas or band transitions) is not yet implemented. Only Level 0 (full snapshots) is fully functional.
@@ -222,7 +222,7 @@ faultline compact --level N
 
 ### ✅ Phase H8 – CI Invariant Enforcement
 
-**Module:** `faultline-core/tests/ci_invariant_tests.rs`
+**Module:** `hotspots-core/tests/ci_invariant_tests.rs`
 
 **Test Coverage:**
 
@@ -259,20 +259,20 @@ All invariants are enforced by code and validated by tests:
 ## File Structure
 
 ```
-faultline-core/src/
+hotspots-core/src/
   git.rs          - Git context extraction
   snapshot.rs     - Snapshot container and persistence
   delta.rs        - Parent-relative delta computation
   prune.rs        - Reachability pruning
 
-faultline-core/tests/
+hotspots-core/tests/
   git_history_tests.rs   - Golden history fixtures (rebase, merge, cherry-pick, revert)
   ci_invariant_tests.rs  - Explicit CI invariant tests
 
-faultline-cli/src/
+hotspots-cli/src/
   main.rs         - CLI with --mode snapshot|delta, prune, and compact subcommands
 
-.faultline/       - Generated history data (git-ignored)
+.hotspots/       - Generated history data (git-ignored)
   snapshots/      - Snapshot JSON files (<commit_sha>.json)
   index.json      - Index of all snapshots
 ```
@@ -285,10 +285,10 @@ faultline-cli/src/
 
 ```bash
 # Analyze and create snapshot (mainline mode)
-faultline analyze . --mode snapshot --format json
+hotspots analyze . --mode snapshot --format json
 
 # Analyze and show delta vs parent (mainline mode)
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 ### PR Mode (Automatic Detection)
@@ -297,33 +297,33 @@ faultline analyze . --mode delta --format json
 # In PR CI environment - compares vs merge-base, doesn't persist
 export GITHUB_EVENT_NAME=pull_request
 export GITHUB_REF=refs/pull/123/head
-faultline analyze . --mode delta --format json
+hotspots analyze . --mode delta --format json
 ```
 
 ### Pruning History
 
 ```bash
 # Dry-run: see what would be pruned
-faultline prune --unreachable --dry-run
+hotspots prune --unreachable --dry-run
 
 # Prune unreachable snapshots older than 30 days
-faultline prune --unreachable --older-than 30
+hotspots prune --unreachable --older-than 30
 
 # Prune all unreachable snapshots
-faultline prune --unreachable
+hotspots prune --unreachable
 ```
 
 ### Compaction (History Compression)
 
 ```bash
 # Set compaction level to 0 (full snapshots - default)
-faultline compact --level 0
+hotspots compact --level 0
 
 # Set compaction level to 1 (deltas only - metadata only, not yet implemented)
-faultline compact --level 1
+hotspots compact --level 1
 
 # Set compaction level to 2 (band transitions only - metadata only, not yet implemented)
-faultline compact --level 2
+hotspots compact --level 2
 ```
 
 **Note:** Currently only Level 0 is fully implemented. Levels 1-2 are metadata placeholders for future work.
@@ -407,13 +407,13 @@ faultline compact --level 2
 
 ```bash
 # Run all unit tests
-cargo test --package faultline-core --lib
+cargo test --package hotspots-core --lib
 
 # Run git history tests
-cargo test --package faultline-core --test git_history_tests
+cargo test --package hotspots-core --test git_history_tests
 
 # Run CI invariant tests
-cargo test --package faultline-core --test ci_invariant_tests
+cargo test --package hotspots-core --test ci_invariant_tests
 ```
 
 ### Test Results

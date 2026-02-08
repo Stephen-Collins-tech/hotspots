@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test script for Faultline High-Leverage Extensions
+Comprehensive test script for Hotspots High-Leverage Extensions
 Tests Policy Engine, Trend Semantics, Aggregation Views, and Visualization
 """
 
@@ -24,12 +24,12 @@ class Colors:
 class TestRunner:
     def __init__(self):
         self.script_dir = Path(__file__).parent.resolve()
-        self.faultline_bin = self.script_dir / "target" / "release" / "faultline"
+        self.hotspots_bin = self.script_dir / "target" / "release" / "hotspots"
         self.test_dir = self.script_dir / "test-repo-comprehensive"
         self.commits: List[str] = []
-        
-        if not self.faultline_bin.exists():
-            print(f"{Colors.RED}✗ Faultline binary not found at {self.faultline_bin}{Colors.NC}")
+
+        if not self.hotspots_bin.exists():
+            print(f"{Colors.RED}✗ Hotspots binary not found at {self.hotspots_bin}{Colors.NC}")
             sys.exit(1)
     
     def run_command(self, cmd: List[str], cwd: Optional[Path] = None, 
@@ -56,10 +56,10 @@ class TestRunner:
         """Run a git command"""
         return self.run_command(["git"] + args, check=check)
     
-    def faultline_command(self, args: List[str], output_file: Optional[Path] = None, 
+    def hotspots_command(self, args: List[str], output_file: Optional[Path] = None,
                          check: bool = True) -> subprocess.CompletedProcess:
-        """Run faultline command"""
-        cmd = [str(self.faultline_bin)] + args
+        """Run hotspots command"""
+        cmd = [str(self.hotspots_bin)] + args
         if output_file:
             with open(output_file, 'w') as f:
                 result = subprocess.run(
@@ -89,14 +89,14 @@ class TestRunner:
         self.git_command(["config", "user.email", "test@example.com"], check=True)
         
         # Create .gitignore
-        (self.test_dir / ".gitignore").write_text(".faultline/\n")
+        (self.test_dir / ".gitignore").write_text(".hotspots/\n")
         self.git_command(["add", ".gitignore"], check=True)
         self.git_command(["commit", "-m", "Initial commit"], check=True)
-        
+
         # Clean up any existing snapshots
-        faultline_dir = self.test_dir / ".faultline"
-        if faultline_dir.exists():
-            shutil.rmtree(faultline_dir)
+        hotspots_dir = self.test_dir / ".hotspots"
+        if hotspots_dir.exists():
+            shutil.rmtree(hotspots_dir)
     
     def create_initial_functions(self):
         """Create initial TypeScript file with low complexity functions"""
@@ -131,7 +131,7 @@ function moderateFunction(x: number) {
         # Run snapshot analysis
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot1.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
             output_file=snapshot_file,
             check=False
@@ -192,21 +192,21 @@ function highComplexityFunction(x: number, y: number, z: number) {
         # Run snapshot analysis
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot2.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
-        
+
         if result.returncode != 0:
             print(f"{Colors.RED}✗ Snapshot analysis failed{Colors.NC}")
             print(snapshot_file.read_text() if snapshot_file.exists() else "No output")
             sys.exit(1)
-        
+
         # Test delta with policy
         print("   Testing delta with policy...")
         delta_file = self.test_dir / "delta1.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"],
             output_file=delta_file,
             check=False
@@ -277,21 +277,21 @@ function criticalFunction() {
         # Run snapshot analysis
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot3.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
-        
+
         if result.returncode != 0:
             print(f"{Colors.RED}✗ Snapshot analysis failed{Colors.NC}")
             print(snapshot_file.read_text() if snapshot_file.exists() else "No output")
             sys.exit(1)
-        
+
         # Test delta with policy
         print("   Testing delta with policy...")
         delta_file = self.test_dir / "delta2.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"],
             output_file=delta_file,
             check=False
@@ -361,7 +361,7 @@ function criticalFunction() {
         print("\n6. Testing trend semantics...")
         
         trends_file = self.test_dir / "trends.json"
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["trends", "--window", "10", "--top", "5", "--format", "json", "."],
             output_file=trends_file,
             check=False
@@ -394,7 +394,7 @@ function criticalFunction() {
         print("\n7. Testing text output formats...")
         
         print("   Delta with policy (text):")
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["analyze", "--mode", "delta", "--policy", "--format", "text", "src/main.ts"],
             check=False
         )
@@ -404,9 +404,9 @@ function criticalFunction() {
                 print(f"     {line}")
         else:
             print(f"     {Colors.YELLOW}(Output not available){Colors.NC}")
-        
+
         print("\n   Trends (text):")
-        result = self.faultline_command(
+        result = self.hotspots_command(
             ["trends", "--window", "10", "--top", "5", "--format", "text", "."],
             check=False
         )
@@ -421,14 +421,14 @@ function criticalFunction() {
         """Print test summary"""
         print("\n=== Test Summary ===")
         print(f"Commits created: {len(self.commits)}")
-        print(f"Snapshots: {len(list((self.test_dir / '.faultline' / 'snapshots').glob('*.json')))}")
+        print(f"Snapshots: {len(list((self.test_dir / '.hotspots' / 'snapshots').glob('*.json')))}")
         print(f"Deltas tested: {len(list(self.test_dir.glob('delta*.json')))}")
         print(f"\nTest files saved in: {self.test_dir}")
         print(f"\n{Colors.GREEN}✓ Comprehensive test completed{Colors.NC}")
     
     def run(self):
         """Run all tests"""
-        print("=== Faultline Comprehensive Test Suite ===\n")
+        print("=== Hotspots Comprehensive Test Suite ===\n")
         print(f"Test directory: {self.test_dir}\n")
         
         try:

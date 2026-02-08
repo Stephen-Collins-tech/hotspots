@@ -38,8 +38,8 @@
 .env
 .env.local
 
-# Faultline history data (derived state, not source)
-.faultline/
+# Hotspots history data (derived state, not source)
+.hotspots/
 
 repomix-output.xml
 
@@ -51,3 +51,13 @@ analysis/*.zip
 test-repo-comprehensive/
 __pycache__/
 *.pyc
+
+# Node.js / npm packages
+node_modules/
+packages/*/node_modules/
+packages/*/dist/
+*.log
+npm-debug.log*
+
+# Sample outputs
+samples/

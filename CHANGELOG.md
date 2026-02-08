@@ -58,10 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full documentation in `docs/`
 
 ### Repository Structure
-- `faultline-core`: Core library for LRS computation
-- `faultline-cli`: Command-line interface
+- `hotspots-core`: Core library for LRS computation
+- `hotspots-cli`: Command-line interface
 - `examples/`: Example code (visualization export)
 - `visualizations/`: Interactive charts and specs
 - `docs/`: Comprehensive documentation
 
-[0.0.1]: https://github.com/Stephen-Collins-tech/faultline/releases/tag/v0.0.1
+[0.0.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v0.0.1

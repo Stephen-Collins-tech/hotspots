@@ -13,7 +13,7 @@ This report documents the new functionality added in the staged changes, with a 
 
 ---
 
-## 1. Aggregation Views Module (`faultline-core/src/aggregates.rs`)
+## 1. Aggregation Views Module (`hotspots-core/src/aggregates.rs`)
 
 ### Purpose
 Exposes architectural concentration by computing derived aggregates from snapshots and deltas **without modifying core data**. Aggregates are strictly derived (never stored, always computed on-demand).
@@ -105,7 +105,7 @@ pub struct DeltaAggregates {
 - Added `aggregates: Option<DeltaAggregates>` field to `Delta` struct
 - **Not persisted** - computed on-demand for output only
 - Added to delta JSON output when using `--mode delta`
-- Computed in `faultline-cli/src/main.rs` after delta computation
+- Computed in `hotspots-cli/src/main.rs` after delta computation
 
 ### Test Coverage
 
@@ -120,7 +120,7 @@ Integration tests in `test_comprehensive.py`:
 
 ---
 
-## 2. Policy Engine Module (`faultline-core/src/policy.rs`)
+## 2. Policy Engine Module (`hotspots-core/src/policy.rs`)
 
 ### Purpose
 CI enforcement through built-in policies that evaluate deltas for risk regressions.
@@ -146,7 +146,7 @@ CI enforcement through built-in policies that evaluate deltas for risk regressio
 
 ---
 
-## 3. Trend Semantics Module (`faultline-core/src/trends.rs`)
+## 3. Trend Semantics Module (`hotspots-core/src/trends.rs`)
 
 ### Purpose
 Extracts meaning from historical snapshots using configurable history window.
@@ -159,11 +159,11 @@ Extracts meaning from historical snapshots using configurable history window.
 
 ### Integration
 - New `trends` subcommand in CLI
-- Uses `.faultline/index.json` and snapshots for history
+- Uses `.hotspots/index.json` and snapshots for history
 
 ---
 
-## 4. CLI Enhancements (`faultline-cli/src/main.rs`)
+## 4. CLI Enhancements (`hotspots-cli/src/main.rs`)
 
 ### New Features
 
@@ -178,7 +178,7 @@ Extracts meaning from historical snapshots using configurable history window.
    - Exit code 1 on blocking failures
 
 3. **Trends Command**
-   - `faultline trends [options]` subcommand
+   - `hotspots trends [options]` subcommand
    - `--window N` for history window size
    - `--top K` for top functions to analyze
 
@@ -237,7 +237,7 @@ Extracts meaning from historical snapshots using configurable history window.
 1. **`dev.sh`** - Local development wrapper using `cargo run`
    - No installation required
    - Always uses latest code
-   - Usage: `./dev.sh [faultline args...]`
+   - Usage: `./dev.sh [hotspots args...]`
 
 2. **`install-dev.sh`** - Enhanced installation script
    - Builds release binary
@@ -249,7 +249,7 @@ Extracts meaning from historical snapshots using configurable history window.
 
 ### Build Script
 
-**`faultline-cli/build.rs`** - Dynamic versioning
+**`hotspots-cli/build.rs`** - Dynamic versioning
 - Extracts version from git tags
 - Falls back to `CARGO_PKG_VERSION`
 - Handles dirty working directories
@@ -349,19 +349,19 @@ Extracts meaning from historical snapshots using configurable history window.
 
 ## Files Modified for Aggregates
 
-1. **`faultline-core/src/aggregates.rs`** (NEW, 360 lines)
+1. **`hotspots-core/src/aggregates.rs`** (NEW, 360 lines)
    - Complete aggregation module
 
-2. **`faultline-core/src/delta.rs`** (9 lines added)
+2. **`hotspots-core/src/delta.rs`** (9 lines added)
    - Added `aggregates: Option<DeltaAggregates>` field
 
-3. **`faultline-core/src/snapshot.rs`** (3 lines added)
+3. **`hotspots-core/src/snapshot.rs`** (3 lines added)
    - Added `aggregates: Option<SnapshotAggregates>` field
 
-4. **`faultline-core/src/lib.rs`** (1 line added)
+4. **`hotspots-core/src/lib.rs`** (1 line added)
    - `pub mod aggregates;`
 
-5. **`faultline-cli/src/main.rs`** (~50 lines added)
+5. **`hotspots-cli/src/main.rs`** (~50 lines added)
    - Compute snapshot aggregates before JSON output
    - Compute delta aggregates before JSON output
    - Pass `repo_root` to aggregation functions

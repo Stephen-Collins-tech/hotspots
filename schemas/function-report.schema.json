@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotspots.dev/schemas/function-report.schema.json",
+  "title": "Function Analysis Report",
+  "description": "Complexity analysis result for a single function",
+  "type": "object",
+  "required": ["function_id", "file", "line", "metrics", "lrs", "band"],
+  "properties": {
+    "function_id": {
+      "type": "string",
+      "description": "Unique identifier for this function in the format 'file::functionName'",
+      "examples": [
+        "/src/api.ts::handleRequest",
+        "/utils/parser.js::parseJSON"
+      ]
+    },
+    "file": {
+      "type": "string",
+      "description": "Absolute path to the source file containing this function",
+      "examples": [
+        "/Users/dev/project/src/api.ts",
+        "/home/user/app/utils/parser.js"
+      ]
+    },
+    "line": {
+      "type": "integer",
+      "description": "Line number where the function is defined",
+      "minimum": 1,
+      "examples": [42, 100, 215]
+    },
+    "metrics": {
+      "$ref": "metrics.schema.json",
+      "description": "Raw complexity metrics (CC, ND, FO, NS)"
+    },
+    "lrs": {
+      "type": "number",
+      "description": "Logarithmic Risk Score - composite complexity metric combining all raw metrics with logarithmic scaling. Higher is more complex.",
+      "minimum": 0,
+      "examples": [1.0, 4.5, 7.2, 11.3]
+    },
+    "band": {
+      "type": "string",
+      "description": "Risk band classification based on LRS thresholds",
+      "enum": ["low", "moderate", "high", "critical"],
+      "examples": ["low", "high"]
+    },
+    "suppression_reason": {
+      "type": "string",
+      "description": "Reason provided via // hotspots-ignore comment, if this function is suppressed from policy checks",
+      "examples": [
+        "legacy code, refactor planned for Q2",
+        "complex algorithm, well-tested"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "function_id": "/src/api.ts::handleRequest",
+      "file": "/Users/dev/project/src/api.ts",
+      "line": 42,
+      "metrics": {
+        "cc": 8,
+        "nd": 2,
+        "fo": 4,
+        "ns": 2
+      },
+      "lrs": 7.2,
+      "band": "high"
+    },
+    {
+      "function_id": "/utils/simple.js::add",
+      "file": "/Users/dev/project/utils/simple.js",
+      "line": 5,
+      "metrics": {
+        "cc": 1,
+        "nd": 0,
+        "fo": 0,
+        "ns": 0
+      },
+      "lrs": 1.0,
+      "band": "low",
+      "suppression_reason": "intentionally simple"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Design Decisions
 
-This document captures key design decisions made during Faultline MVP development. These decisions are **final and binding** for the MVP scope.
+This document captures key design decisions made during Hotspots MVP development. These decisions are **final and binding** for the MVP scope.
 
 ## Architecture Decisions
 
@@ -15,8 +15,8 @@ This document captures key design decisions made during Faultline MVP developmen
 - Keeps structure simple for MVP
 
 **Implementation:**
-- `faultline-core` - Library crate with all analysis logic
-- `faultline-cli` - Binary crate with CLI interface
+- `hotspots-core` - Library crate with all analysis logic
+- `hotspots-cli` - Binary crate with CLI interface
 
 ### Rust Version
 

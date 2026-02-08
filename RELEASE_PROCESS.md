@@ -1,6 +1,6 @@
-# Faultline Release Process
+# Hotspots Release Process
 
-This document describes how to create releases for faultline, including building binaries for the GitHub Action.
+This document describes how to create releases for hotspots, including building binaries for the GitHub Action.
 
 ## Prerequisites
 
@@ -30,27 +30,27 @@ We'll create a release workflow that builds for all platforms automatically.
 
 ```bash
 cargo build --release --target x86_64-unknown-linux-gnu
-strip target/x86_64-unknown-linux-gnu/release/faultline
-tar -czf faultline-linux-x86_64.tar.gz \
-  -C target/x86_64-unknown-linux-gnu/release faultline
+strip target/x86_64-unknown-linux-gnu/release/hotspots
+tar -czf hotspots-linux-x86_64.tar.gz \
+  -C target/x86_64-unknown-linux-gnu/release hotspots
 ```
 
 #### macOS x86_64 (Intel)
 
 ```bash
 cargo build --release --target x86_64-apple-darwin
-strip target/x86_64-apple-darwin/release/faultline
-tar -czf faultline-darwin-x86_64.tar.gz \
-  -C target/x86_64-apple-darwin/release faultline
+strip target/x86_64-apple-darwin/release/hotspots
+tar -czf hotspots-darwin-x86_64.tar.gz \
+  -C target/x86_64-apple-darwin/release hotspots
 ```
 
 #### macOS ARM64 (Apple Silicon)
 
 ```bash
 cargo build --release --target aarch64-apple-darwin
-strip target/aarch64-apple-darwin/release/faultline
-tar -czf faultline-darwin-aarch64.tar.gz \
-  -C target/aarch64-apple-darwin/release faultline
+strip target/aarch64-apple-darwin/release/hotspots
+tar -czf hotspots-darwin-aarch64.tar.gz \
+  -C target/aarch64-apple-darwin/release hotspots
 ```
 
 #### Windows x86_64
@@ -59,8 +59,8 @@ tar -czf faultline-darwin-aarch64.tar.gz \
 cargo build --release --target x86_64-pc-windows-msvc
 # Or cross-compile from Linux:
 cargo build --release --target x86_64-pc-windows-gnu
-zip faultline-windows-x86_64.zip \
-  target/x86_64-pc-windows-*/release/faultline.exe
+zip hotspots-windows-x86_64.zip \
+  target/x86_64-pc-windows-*/release/hotspots.exe
 ```
 
 ## Creating a Release
@@ -105,10 +105,10 @@ git push origin v1.0.0
 gh release create v1.0.0 \
   --title "v1.0.0" \
   --notes-file CHANGELOG.md \
-  faultline-linux-x86_64.tar.gz \
-  faultline-darwin-x86_64.tar.gz \
-  faultline-darwin-aarch64.tar.gz \
-  faultline-windows-x86_64.zip
+  hotspots-linux-x86_64.tar.gz \
+  hotspots-darwin-x86_64.tar.gz \
+  hotspots-darwin-aarch64.tar.gz \
+  hotspots-windows-x86_64.zip
 ```
 
 ## Automated Release Workflow
@@ -155,13 +155,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} --bin faultline
+        run: cargo build --release --target ${{ matrix.target }} --bin hotspots
 
       - name: Create archive (Unix)
         if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
-          tar -czf ../../../faultline-${{ matrix.target }}.${{ matrix.archive }} faultline
+          tar -czf ../../../hotspots-${{ matrix.target }}.${{ matrix.archive }} hotspots
           cd ../../..
 
       - name: Create archive (Windows)
@@ -169,14 +169,14 @@ jobs:
         shell: pwsh
         run: |
           cd target/${{ matrix.target }}/release
-          Compress-Archive -Path faultline.exe -DestinationPath ../../../faultline-${{ matrix.target }}.${{ matrix.archive }}
+          Compress-Archive -Path hotspots.exe -DestinationPath ../../../hotspots-${{ matrix.target }}.${{ matrix.archive }}
           cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: faultline-${{ matrix.target }}
-          path: faultline-${{ matrix.target }}.${{ matrix.archive }}
+          name: hotspots-${{ matrix.target }}
+          path: hotspots-${{ matrix.target }}.${{ matrix.archive }}
 
   create-release:
     name: Create Release
@@ -206,7 +206,7 @@ After creating a release, test the GitHub Action:
 
 ```yaml
 # In a test repository
-- uses: yourorg/faultline@v1.0.0
+- uses: yourorg/hotspots@v1.0.0
 ```
 
 Verify:
@@ -269,7 +269,7 @@ git push origin :refs/tags/v1.0.0
 Users can reference the action by major version:
 
 ```yaml
-- uses: yourorg/faultline@v1  # Automatically uses latest v1.x.x
+- uses: yourorg/hotspots@v1  # Automatically uses latest v1.x.x
 ```
 
 To update the major version pointer:

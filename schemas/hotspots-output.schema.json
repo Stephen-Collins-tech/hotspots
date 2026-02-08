@@ -1,0 +1,285 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotspots.dev/schemas/hotspots-output.schema.json",
+  "title": "Hotspots Analysis Output",
+  "description": "Complete output from Hotspots complexity analysis in snapshot or delta mode",
+  "type": "object",
+  "required": ["schema_version", "commit", "analysis", "functions"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Schema version number for compatibility tracking",
+      "const": 1
+    },
+    "commit": {
+      "$ref": "#/$defs/CommitInfo"
+    },
+    "analysis": {
+      "$ref": "#/$defs/AnalysisInfo"
+    },
+    "functions": {
+      "type": "array",
+      "description": "Array of analyzed functions with their complexity metrics",
+      "items": {
+        "$ref": "#/$defs/FunctionReport"
+      }
+    },
+    "aggregates": {
+      "description": "Optional aggregate statistics by file and directory",
+      "$ref": "#/$defs/Aggregates"
+    },
+    "policy_results": {
+      "description": "Policy evaluation results (only present when --policy is used)",
+      "$ref": "#/$defs/PolicyResults"
+    }
+  },
+  "$defs": {
+    "CommitInfo": {
+      "type": "object",
+      "description": "Git commit information for this analysis",
+      "required": ["sha", "parents", "timestamp"],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "description": "Git commit SHA (40-character hex string)",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "parents": {
+          "type": "array",
+          "description": "Parent commit SHAs",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        },
+        "timestamp": {
+          "type": "integer",
+          "description": "Unix timestamp of commit"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Current branch name (if available)"
+        }
+      }
+    },
+    "AnalysisInfo": {
+      "type": "object",
+      "description": "Metadata about the analysis run",
+      "required": ["scope", "tool_version"],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "Analysis scope (full or delta)",
+          "enum": ["full", "delta"]
+        },
+        "tool_version": {
+          "type": "string",
+          "description": "Version of Hotspots that produced this output",
+          "pattern": "^\\d+\\.\\d+\\.\\d+"
+        }
+      }
+    },
+    "FunctionReport": {
+      "type": "object",
+      "description": "Complexity analysis for a single function",
+      "required": ["function_id", "file", "line", "metrics", "lrs", "band"],
+      "properties": {
+        "function_id": {
+          "type": "string",
+          "description": "Unique identifier for this function (file::name)"
+        },
+        "file": {
+          "type": "string",
+          "description": "Absolute path to source file containing this function"
+        },
+        "line": {
+          "type": "integer",
+          "description": "Line number where function is defined",
+          "minimum": 1
+        },
+        "metrics": {
+          "$ref": "#/$defs/Metrics"
+        },
+        "lrs": {
+          "type": "number",
+          "description": "Logarithmic Risk Score (composite complexity metric)",
+          "minimum": 0
+        },
+        "band": {
+          "type": "string",
+          "description": "Risk band classification",
+          "enum": ["low", "moderate", "high", "critical"]
+        },
+        "suppression_reason": {
+          "type": "string",
+          "description": "Reason for suppressing this function from policy checks (if suppressed)"
+        }
+      }
+    },
+    "Metrics": {
+      "type": "object",
+      "description": "Raw complexity metrics for a function",
+      "required": ["cc", "nd", "fo", "ns"],
+      "properties": {
+        "cc": {
+          "type": "integer",
+          "description": "Cyclomatic Complexity (number of decision points)",
+          "minimum": 1
+        },
+        "nd": {
+          "type": "integer",
+          "description": "Nesting Depth (maximum nesting level)",
+          "minimum": 0
+        },
+        "fo": {
+          "type": "integer",
+          "description": "Fan-Out (number of distinct callees)",
+          "minimum": 0
+        },
+        "ns": {
+          "type": "integer",
+          "description": "Non-Structured exits (early returns, throws, etc.)",
+          "minimum": 0
+        }
+      }
+    },
+    "Aggregates": {
+      "type": "object",
+      "description": "Aggregate statistics by file and directory",
+      "required": ["files", "directories"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileAggregate"
+          }
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DirectoryAggregate"
+          }
+        }
+      }
+    },
+    "FileAggregate": {
+      "type": "object",
+      "required": ["file", "sum_lrs", "max_lrs", "high_plus_count"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "File path"
+        },
+        "sum_lrs": {
+          "type": "number",
+          "description": "Sum of all LRS values in this file"
+        },
+        "max_lrs": {
+          "type": "number",
+          "description": "Maximum LRS value in this file"
+        },
+        "high_plus_count": {
+          "type": "integer",
+          "description": "Number of high or critical functions in this file"
+        }
+      }
+    },
+    "DirectoryAggregate": {
+      "type": "object",
+      "required": ["directory", "sum_lrs", "max_lrs", "high_plus_count"],
+      "properties": {
+        "directory": {
+          "type": "string",
+          "description": "Directory path"
+        },
+        "sum_lrs": {
+          "type": "number",
+          "description": "Sum of all LRS values in this directory"
+        },
+        "max_lrs": {
+          "type": "number",
+          "description": "Maximum LRS value in this directory"
+        },
+        "high_plus_count": {
+          "type": "integer",
+          "description": "Number of high or critical functions in this directory"
+        }
+      }
+    },
+    "PolicyResults": {
+      "type": "object",
+      "description": "Results of policy evaluation",
+      "required": ["failed", "warnings"],
+      "properties": {
+        "failed": {
+          "type": "array",
+          "description": "Blocking policy failures",
+          "items": {
+            "$ref": "#/$defs/PolicyResult"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "description": "Non-blocking policy warnings",
+          "items": {
+            "$ref": "#/$defs/PolicyResult"
+          }
+        }
+      }
+    },
+    "PolicyResult": {
+      "type": "object",
+      "description": "A single policy violation or warning",
+      "required": ["id", "severity", "message"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Policy identifier",
+          "enum": [
+            "critical_threshold",
+            "high_threshold",
+            "critical_introduction",
+            "high_introduction",
+            "rapid_growth",
+            "net_repo_regression",
+            "watch_threshold",
+            "attention_threshold",
+            "suppression_missing_reason"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity level",
+          "enum": ["error", "warning", "info"]
+        },
+        "function_id": {
+          "type": "string",
+          "description": "Function identifier (if violation is function-specific)"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable violation message"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional context about the violation",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer"
+            },
+            "lrs": {
+              "type": "number"
+            },
+            "band": {
+              "type": "string",
+              "enum": ["low", "moderate", "high", "critical"]
+            }
+          }
+        }
+      }
+    }
+  }
+}

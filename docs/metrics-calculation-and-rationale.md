@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document explains and defends how Faultline calculates code complexity metrics and the composite Local Risk Score (LRS). The methodology is based on established software engineering research and practical considerations for TypeScript codebases. Each metric measures a distinct dimension of complexity, and LRS combines them using weighted, logarithmic transforms that prevent any single metric from dominating the result.
+This document explains and defends how Hotspots calculates code complexity metrics and the composite Local Risk Score (LRS). The methodology is based on established software engineering research and practical considerations for TypeScript codebases. Each metric measures a distinct dimension of complexity, and LRS combines them using weighted, logarithmic transforms that prevent any single metric from dominating the result.
 
 ---
 
@@ -48,7 +48,7 @@ LRS does **not** claim to predict:
 
 Any correlation between LRS and bugs is indirect and contextual. LRS identifies *where risk concentrates*, not *what will fail*.
 
-LRS is designed to be stable under source control operations. When combined with Faultline's git-native snapshot and delta system, LRS enables tracking how structural risk accumulates, shifts, or is reduced across commits, rather than treating complexity as a static property.
+LRS is designed to be stable under source control operations. When combined with Hotspots's git-native snapshot and delta system, LRS enables tracking how structural risk accumulates, shifts, or is reduced across commits, rather than treating complexity as a static property.
 
 ### Explicit Non-Goals
 
@@ -75,7 +75,7 @@ LRS is not intended to:
 
 ### Function Identity Assumptions
 
-Faultline evaluates metrics per function based on its symbol identity within a file. Metrics are not tied to physical line numbers or historical rename tracking. Structural changes such as function moves are treated as deletion and addition events at the history layer.
+Hotspots evaluates metrics per function based on its symbol identity within a file. Metrics are not tied to physical line numbers or historical rename tracking. Structural changes such as function moves are treated as deletion and addition events at the history layer.
 
 This keeps metric computation simple, deterministic, and language-agnostic.
 
@@ -114,7 +114,7 @@ Thomas J. McCabe introduced cyclomatic complexity in 1976 as a measure of contro
 
 #### Why the Base Formula?
 
-The McCabe formula `E - N + 2` is mathematically sound for connected graphs. In Faultline's CFG model, entry and exit nodes are treated as structural scaffolding rather than semantic decision points. To preserve consistent CC values across functions, the node count excludes these nodes, and the formula is normalized accordingly.
+The McCabe formula `E - N + 2` is mathematically sound for connected graphs. In Hotspots's CFG model, entry and exit nodes are treated as structural scaffolding rather than semantic decision points. To preserve consistent CC values across functions, the node count excludes these nodes, and the formula is normalized accordingly.
 
 This does not change the meaning of CC; it ensures stable and comparable values across functions of different shapes. Every valid function CFG is connected (all nodes reachable from entry), ensuring the formula applies.
 
@@ -363,7 +363,7 @@ The final return statement is the expected exit point. It doesn't disrupt struct
 
 Early returns used as guard clauses often improve readability by reducing nesting depth. In such cases, NS may increase while ND decreases.
 
-This trade-off is intentional. Faultline does not assume early exits are inherently bad; instead, it surfaces structural complexity so reviewers can make informed judgments.
+This trade-off is intentional. Hotspots does not assume early exits are inherently bad; instead, it surfaces structural complexity so reviewers can make informed judgments.
 
 A function with higher NS but lower ND may still be preferable to deeply nested alternatives.
 
@@ -514,7 +514,7 @@ LRS = 1.0 * R_cc + 0.8 * R_nd + 0.6 * R_fo + 0.7 * R_ns
 **Why Not Max?**
 - Max would ignore multiple dimensions. A function with CC=6, ND=5, FO=3, NS=2 would score the same as one with CC=6, ND=0, FO=0, NS=0. The weighted sum distinguishes these cases.
 
-LRS is intentionally not normalized to a fixed range such as 0–1 or 0–100. Absolute values are meaningful only within the context of Faultline's risk bands and relative comparisons over time within the same codebase.
+LRS is intentionally not normalized to a fixed range such as 0–1 or 0–100. Absolute values are meaningful only within the context of Hotspots's risk bands and relative comparisons over time within the same codebase.
 
 ---
 
@@ -725,7 +725,7 @@ While large functions can be difficult to maintain, LOC conflates multiple conce
 - code generation,
 - and non-executable structure.
 
-Faultline prioritizes structural properties that directly affect reasoning and control flow. LOC may be added in the future as a secondary signal or filter, but it is not part of the core risk model.
+Hotspots prioritizes structural properties that directly affect reasoning and control flow. LOC may be added in the future as a secondary signal or filter, but it is not part of the core risk model.
 
 2. **No Data Complexity**: LRS doesn't measure data structure complexity (deeply nested objects, complex types).
    - **Future**: Could add data complexity metrics (type depth, parameter count).
@@ -760,11 +760,11 @@ Faultline prioritizes structural properties that directly affect reasoning and c
 
 ## Conclusion
 
-The Faultline metrics and LRS calculation are based on established software engineering research and practical considerations. The four-metric system (CC, ND, FO, NS) captures multiple dimensions of complexity, and the weighted, logarithmic transforms ensure balanced, interpretable scores. Risk bands provide actionable thresholds for code review and refactoring prioritization.
+The Hotspots metrics and LRS calculation are based on established software engineering research and practical considerations. The four-metric system (CC, ND, FO, NS) captures multiple dimensions of complexity, and the weighted, logarithmic transforms ensure balanced, interpretable scores. Risk bands provide actionable thresholds for code review and refactoring prioritization.
 
 While no metric is perfect, LRS provides a principled, defensible approach to measuring code complexity that balances theoretical rigor with practical utility. The design explicitly prioritizes interpretability, boundedness, and multi-dimensional assessment over single-metric simplicity.
 
-This document defines the canonical interpretation of Faultline's metrics. Any deviation or extension must preserve these semantics or explicitly version them.
+This document defines the canonical interpretation of Hotspots's metrics. Any deviation or extension must preserve these semantics or explicitly version them.
 
 ---
 
@@ -788,4 +788,4 @@ This document defines the canonical interpretation of Faultline's metrics. Any d
 
 **Document Version:** 1.0  
 **Last Updated:** 2026-01-18  
-**Status:** Current specification for Faultline metrics and LRS calculation
+**Status:** Current specification for Hotspots metrics and LRS calculation

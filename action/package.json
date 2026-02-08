@@ -1,5 +1,5 @@
 {
-  "name": "faultline-action",
+  "name": "hotspots-action",
   "version": "1.0.0",
   "description": "GitHub Action for Faultline complexity analysis",
   "main": "dist/index.js",
@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourorg/faultline.git"
+    "url": "git+https://github.com/yourorg/hotspots.git"
   },
   "keywords": [
     "actions",

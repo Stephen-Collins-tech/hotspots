@@ -1,6 +1,6 @@
 # Known Limitations
 
-This document lists known limitations of faultline MVP.
+This document lists known limitations of hotspots MVP.
 
 ## Control Flow
 

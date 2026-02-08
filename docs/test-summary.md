@@ -1,6 +1,6 @@
 # Test Summary
 
-This document summarizes all tests performed to verify Faultline MVP functionality.
+This document summarizes all tests performed to verify Hotspots MVP functionality.
 
 ## Test Results Overview
 
@@ -343,7 +343,7 @@ cargo test test_simple_function
 
 ## Conclusion
 
-All 36 tests pass successfully. The Faultline MVP demonstrates:
+All 36 tests pass successfully. The Hotspots MVP demonstrates:
 
 - ✅ Correct parsing of TypeScript
 - ✅ Accurate function discovery

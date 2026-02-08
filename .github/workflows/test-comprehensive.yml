@@ -19,7 +19,7 @@ jobs:
       with:
         toolchain: stable
     
-    - name: Build faultline
+    - name: Build hotspots
       run: cargo build --release
     
     - name: Install Python

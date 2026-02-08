@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hotspots.dev/schemas/policy-result.schema.json",
+  "title": "Policy Violation or Warning",
+  "description": "A single policy check result indicating a violation or warning",
+  "type": "object",
+  "required": ["id", "severity", "message"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Policy identifier indicating which rule was violated",
+      "enum": [
+        "critical_threshold",
+        "high_threshold",
+        "critical_introduction",
+        "high_introduction",
+        "rapid_growth",
+        "net_repo_regression",
+        "watch_threshold",
+        "attention_threshold",
+        "suppression_missing_reason"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "description": "Severity level of this result",
+      "enum": ["error", "warning", "info"]
+    },
+    "function_id": {
+      "type": "string",
+      "description": "Identifier of the function that violated the policy (if function-specific)",
+      "examples": [
+        "/src/api.ts::handleRequest",
+        "/utils/parser.js::parseJSON"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable message explaining the violation",
+      "examples": [
+        "Function exceeds critical threshold (LRS: 11.2 >= 9.0)",
+        "New high-risk function introduced (LRS: 7.5)",
+        "Rapid growth: LRS increased 52% in one commit"
+      ]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional structured information about the violation",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "File path where violation occurred"
+        },
+        "line": {
+          "type": "integer",
+          "description": "Line number where violation occurred",
+          "minimum": 1
+        },
+        "lrs": {
+          "type": "number",
+          "description": "Current LRS value",
+          "minimum": 0
+        },
+        "band": {
+          "type": "string",
+          "description": "Current risk band",
+          "enum": ["low", "moderate", "high", "critical"]
+        },
+        "previous_lrs": {
+          "type": "number",
+          "description": "Previous LRS value (for delta-based policies)",
+          "minimum": 0
+        },
+        "delta_lrs": {
+          "type": "number",
+          "description": "Change in LRS (for delta-based policies)"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "critical_threshold",
+      "severity": "error",
+      "function_id": "/src/complex.ts::processData",
+      "message": "Function exceeds critical threshold (LRS: 11.2 >= 9.0)",
+      "metadata": {
+        "file": "/src/complex.ts",
+        "line": 42,
+        "lrs": 11.2,
+        "band": "critical"
+      }
+    },
+    {
+      "id": "rapid_growth",
+      "severity": "warning",
+      "function_id": "/src/api.ts::handleRequest",
+      "message": "Rapid growth: LRS increased 52% in one commit (4.2 → 6.4)",
+      "metadata": {
+        "file": "/src/api.ts",
+        "line": 100,
+        "lrs": 6.4,
+        "band": "high",
+        "previous_lrs": 4.2,
+        "delta_lrs": 2.2
+      }
+    }
+  ]
+}

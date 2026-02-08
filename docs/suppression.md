@@ -7,7 +7,7 @@ Suppression comments allow you to exclude specific functions from policy violati
 Place a comment immediately before the function:
 
 ```typescript
-// faultline-ignore: legacy code, refactor planned for Q2 2026
+// hotspots-ignore: legacy code, refactor planned for Q2 2026
 function complexLegacyParser(input: string) {
   // High complexity code...
 }
@@ -17,12 +17,12 @@ function complexLegacyParser(input: string) {
 
 **Required format:**
 ```
-// faultline-ignore: <reason>
+// hotspots-ignore: <reason>
 ```
 
 **Rules:**
 1. Comment must be on the line **immediately before** the function
-2. Format starts with `// faultline-ignore:`
+2. Format starts with `// hotspots-ignore:`
 3. Reason is **required** after the colon (warning if missing)
 4. Blank lines between comment and function break the suppression
 
@@ -31,17 +31,17 @@ function complexLegacyParser(input: string) {
 ### Valid Suppressions
 
 ```typescript
-// faultline-ignore: complex algorithm with proven test coverage
+// hotspots-ignore: complex algorithm with proven test coverage
 function fibonacci(n: number): number {
   // ...
 }
 
-// faultline-ignore: generated code from protocol buffers
+// hotspots-ignore: generated code from protocol buffers
 class MessageHandler {
   handle() { /* ... */ }
 }
 
-// faultline-ignore: legacy parser, migration to new implementation in progress
+// hotspots-ignore: legacy parser, migration to new implementation in progress
 const parse = (input: string) => {
   // ...
 };
@@ -50,18 +50,18 @@ const parse = (input: string) => {
 ### Invalid Suppressions
 
 ```typescript
-// faultline-ignore: reason here
+// hotspots-ignore: reason here
 
 function foo() { }  // ❌ Blank line breaks suppression
 
 // This is a comment
-// faultline-ignore: reason
+// hotspots-ignore: reason
 function bar() { }  // ❌ Other comment in between
 
-// faultline-ignore
+// hotspots-ignore
 function baz() { }  // ⚠️  Missing colon - treated as missing reason
 
-// faultline-ignore:
+// hotspots-ignore:
 function qux() { }  // ⚠️  Warning: suppression without reason
 ```
 
@@ -83,7 +83,7 @@ Suppressed functions are **included** in:
 
 1. **Analysis Reports** - Visible with `suppression_reason` field
 2. **Net Repo Regression** - Counted in total repository LRS
-3. **Snapshots** - Persisted to `.faultline/snapshots/`
+3. **Snapshots** - Persisted to `.hotspots/snapshots/`
 4. **HTML Reports** - Displayed with suppression indicator
 5. **JSON Output** - Contains `suppression_reason` field
 
@@ -94,7 +94,7 @@ Suppressed functions are **included** in:
 Functions suppressed without a reason trigger a warning:
 
 ```typescript
-// faultline-ignore:
+// hotspots-ignore:
 function foo() { }
 ```
 
@@ -166,16 +166,16 @@ Suppressed functions include a `suppression_reason` field:
 
 ```typescript
 // ✅ Good: Specific, actionable, dated
-// faultline-ignore: RSA encryption algorithm, well-tested, cannot be simplified
+// hotspots-ignore: RSA encryption algorithm, well-tested, cannot be simplified
 
 // ✅ Good: Clear plan
-// faultline-ignore: legacy parser, migration to TreeSitter in Q2 2026
+// hotspots-ignore: legacy parser, migration to TreeSitter in Q2 2026
 
 // ❌ Bad: Vague, no plan
-// faultline-ignore: TODO fix this later
+// hotspots-ignore: TODO fix this later
 
 // ❌ Bad: No reason
-// faultline-ignore:
+// hotspots-ignore:
 ```
 
 ### Code Review Guidelines
@@ -226,7 +226,7 @@ Suppression fields are **backward compatible**:
 # .github/workflows/complexity.yml
 - name: Check complexity
   run: |
-    faultline analyze . --mode delta --policies --format json > delta.json
+    hotspots analyze . --mode delta --policies --format json > delta.json
 
     # Exit code 1 if any blocking policies failed
     # Suppressed functions won't cause failures
@@ -241,7 +241,7 @@ When comparing commits, suppression status comes from the **current** version:
 function foo() { }  // Not suppressed
 
 // Commit B
-// faultline-ignore: newly suppressed
+// hotspots-ignore: newly suppressed
 function foo() { }  // Now suppressed - won't trigger policies
 ```
 
@@ -249,7 +249,7 @@ function foo() { }  // Now suppressed - won't trigger policies
 
 ```bash
 # 1. Suppress complex function before refactor
-# Add: // faultline-ignore: refactoring in progress
+# Add: // hotspots-ignore: refactoring in progress
 
 # 2. Refactor the function
 # ... make changes ...
@@ -264,7 +264,7 @@ function foo() { }  // Now suppressed - won't trigger policies
 
 **Check:**
 1. Comment is immediately before function (no blank lines)
-2. Format is correct: `// faultline-ignore: reason`
+2. Format is correct: `// hotspots-ignore: reason`
 3. Running in delta mode with `--policies` flag
 4. Verify in JSON output: `suppression_reason` field present
 
@@ -273,11 +273,11 @@ function foo() { }  // Now suppressed - won't trigger policies
 **Fix:**
 ```typescript
 // Before (warning)
-// faultline-ignore:
+// hotspots-ignore:
 function foo() { }
 
 // After (no warning)
-// faultline-ignore: legacy code, refactor planned
+// hotspots-ignore: legacy code, refactor planned
 function foo() { }
 ```
 
@@ -288,12 +288,12 @@ function foo() { }
 **Fix:**
 ```typescript
 // Wrong
-// faultline-ignore: reason
+// hotspots-ignore: reason
 
 function foo() { }  // Suppression not applied
 
 // Correct
-// faultline-ignore: reason
+// hotspots-ignore: reason
 function foo() { }  // Suppression applied
 ```
 
