@@ -1,233 +1,346 @@
 # Quick Start
 
-Get started with Hotspots in 5 minutes.
+**Find your first hotspot in 5 minutes.**
+
+This guide walks you through your first complexity analysis and shows you exactly which code needs attention.
+
+---
 
 ## Prerequisites
 
-- Hotspots installed (see [Installation](./installation.md))
-- A git repository with TypeScript, JavaScript, Go, Python, Rust, or Java code
+✅ Hotspots installed - [Install now](./installation.md) (2 minutes)
+✅ A git repository with code (TypeScript, JavaScript, Go, Python, Rust, or Java)
 
-## Basic Usage
+**Ready?** Let's find your hotspots.
 
-### 1. Analyze a Directory
+---
+
+## Step 1: Find Your Hotspots
+
+Navigate to your project and run:
 
 ```bash
+cd your-project
 hotspots analyze src/
 ```
 
-This will analyze all supported files in `src/` and show:
-- Functions with highest complexity
-- Risk scores (LRS)
-- Metrics breakdown (CC, ND, FO, NS)
+**What this does:** Analyzes all supported files in `src/` and shows you the functions with highest complexity.
 
-**Example output:**
+**Output example:**
+
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HIGH (Leverage Risk Score 8.0+)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-./src/auth/validateUser.ts::validateUser
-  LRS: 12.5  CC: 15  ND: 4  FO: 8  NS: 2
-  Changes: 23  Risk: CRITICAL
+Hotspots Analysis Results
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CRITICAL (LRS ≥ 9.0) - Refactor NOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+src/auth/validateUser.ts:142  validateUser
+  LRS: 12.4  CC: 15  ND: 4  FO: 8  NS: 3
+
+src/api/billing.ts:89  processPlanUpgrade
+  LRS: 10.1  CC: 12  ND: 3  FO: 6  NS: 4
+
+HIGH (6.0 ≤ LRS < 9.0) - Watch Closely
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+src/db/migrations.ts:203  applySchema
+  LRS: 8.1  CC: 10  ND: 2  FO: 5  NS: 2
 ```
 
-### 2. Snapshot Mode (Track Over Time)
+### Understanding the Output
+
+**LRS (Local Risk Score):** The overall complexity/risk score
+- **Critical (≥ 9.0):** Refactor now. These cause incidents.
+- **High (6.0-9.0):** Refactor when you touch them.
+- **Moderate (3.0-6.0):** Monitor. Block increases.
+- **Low (< 3.0):** Safe. Don't overthink these.
+
+**Metrics breakdown:**
+- **CC (Cyclomatic Complexity):** Number of decision points
+- **ND (Nesting Depth):** Maximum nesting level
+- **FO (Fan-Out):** Number of function calls
+- **NS (Non-Structured):** Early returns, breaks, throws
+
+---
+
+## Step 2: Focus on Critical Functions
+
+Filter to show only critical functions:
+
+```bash
+hotspots analyze src/ --min-lrs 9.0
+```
+
+**What you get:** Only functions with LRS ≥ 9.0 - your top priorities for refactoring.
+
+**Pro tip:** Start with the worst offender. Refactor one critical function per sprint.
+
+---
+
+## Step 3: Get Machine-Readable Output
+
+Export results as JSON for tooling or AI:
+
+```bash
+hotspots analyze src/ --format json > hotspots.json
+```
+
+**What you can do with JSON:**
+- Feed to Claude/Cursor/Copilot for refactoring suggestions
+- Build dashboards and charts
+- Track metrics over time
+- Integrate with other tools
+
+**Example JSON output:**
+```json
+[
+  {
+    "file": "src/auth/validateUser.ts",
+    "function": "validateUser",
+    "line": 142,
+    "lrs": 12.4,
+    "band": "critical",
+    "metrics": {
+      "cc": 15,
+      "nd": 4,
+      "fo": 8,
+      "ns": 3
+    }
+  }
+]
+```
+
+---
+
+## Step 4: Track Changes Over Time
 
 Create a baseline snapshot:
 
 ```bash
-hotspots analyze src/ --mode snapshot --format json
+hotspots analyze src/ --mode snapshot
 ```
 
-This creates `.hotspots/snapshots/<commit-sha>.json` with current state.
+**What this does:** Saves current complexity state to `.hotspots/snapshots/<commit-sha>.json`
 
-Make changes, commit, and run again to track complexity evolution.
+**Why it matters:** You can now track complexity changes commit-to-commit.
 
-### 3. Delta Mode (Compare with Baseline)
+---
 
-Compare current state with the last snapshot:
+## Step 5: Compare With Baseline (Delta Mode)
+
+After making changes and committing:
 
 ```bash
+git commit -am "refactor validateUser"
 hotspots analyze src/ --mode delta
 ```
 
-Shows:
-- **New functions** - Functions added since last snapshot
-- **Modified functions** - Functions with changed complexity
-- **Deleted functions** - Functions removed
+**What this shows:**
 
-**Example output:**
 ```
-MODIFIED FUNCTIONS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-./src/auth/validateUser.ts::validateUser
-  Complexity: 12 → 15 (+3)
-  Status: REGRESSION
-  Changes: 23
+Delta Analysis: main...HEAD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPROVED Functions ✅
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+src/auth/validateUser.ts:142  validateUser
+  LRS: 12.4 → 6.2 (-6.2, -50%)  ← Nice work!
+
+REGRESSED Functions ❌
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+src/api/billing.ts:89  processPlanUpgrade
+  LRS: 10.1 → 11.3 (+1.2, +12%)  ← Needs attention
+
+NEW Functions (added in this change)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+src/auth/helpers.ts:15  checkPermissions
+  LRS: 3.2 (moderate)
 ```
 
-### 4. Policy Enforcement (CI/CD)
+**What you learn:**
+- ✅ Your refactoring reduced `validateUser` complexity by 50%
+- ❌ `processPlanUpgrade` got more complex - needs review
+- ℹ️ New function `checkPermissions` is moderate complexity - acceptable
 
-Block risky changes in CI:
+---
+
+## Step 6: Enforce Quality in CI/CD
+
+Block risky changes before they merge:
 
 ```bash
-hotspots analyze src/ --mode delta --policy --fail-on blocking
+hotspots analyze src/ --mode delta --policy
 ```
 
-This will:
-- ✅ Pass if no policy violations
-- ❌ Fail (exit code 1) if blocking policies fail
+**What this does:**
+- ✅ Exit code 0 if no policy violations → CI passes
+- ❌ Exit code 1 if policies fail → CI fails, prevents merge
 
 **Built-in policies:**
-- **Critical Introduction** - New function with LRS > 10
-- **Excessive Risk** - Modified function exceeds risk threshold
-- **Attention Needed** - Function enters "watch" range
-- **Rapid Growth** - Complexity increases too quickly
-- **Suppression Hygiene** - Suppression comments without reason
 
-### 5. Generate HTML Report
+| Policy | Severity | Trigger |
+|--------|----------|---------|
+| **Critical Introduction** | Blocking | New function with LRS ≥ 9.0 |
+| **Excessive Regression** | Blocking | Function LRS increases by ≥1.0 |
+| **Watch Threshold** | Warning | Function approaching moderate (2.5-3.0) |
+| **Attention Threshold** | Warning | Function approaching high (5.5-6.0) |
+| **Rapid Growth** | Warning | Function complexity +50% or more |
+
+**Example output when policies fail:**
+
+```
+Policy Evaluation Results
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ BLOCKING VIOLATIONS (CI will fail)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[critical-introduction] src/api/billing.ts:89 processPlanUpgrade
+  NEW function with critical complexity (LRS 10.1)
+  Refactor before merging
+
+⚠️  WARNINGS (informational)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[attention-threshold] src/auth/session.ts:45 refreshToken
+  Approaching high threshold (LRS 5.8)
+  Consider simplifying before it becomes problematic
+
+RESULT: FAILED (1 blocking violation)
+```
+
+---
+
+## Step 7: Generate Shareable Reports
+
+Create an HTML report for your team:
 
 ```bash
 hotspots analyze src/ --format html --output report.html
 ```
 
-Open `report.html` in your browser for interactive visualization.
+**What you get:** Interactive HTML report with:
+- Sortable tables
+- Filterable by risk band
+- Charts and visualizations
+- Shareable with stakeholders
 
-### 6. View Trends
-
-See complexity trends over time:
-
+**Open it:**
 ```bash
-hotspots trends src/
+open report.html  # macOS
+xdg-open report.html  # Linux
+start report.html  # Windows
 ```
 
-Shows:
-- **Risk velocity** - How quickly complexity is increasing
-- **Hotspots** - Functions that are both complex and frequently changed
-- **Refactor candidates** - High-leverage refactoring targets
+---
 
 ## Common Workflows
 
-### Workflow 1: Find Technical Debt
+### 🎯 Find Top 10 Hotspots
 
 ```bash
-# Create baseline
-hotspots analyze src/ --mode snapshot
-
-# Generate report
-hotspots analyze src/ --format html --output debt-report.html
+hotspots analyze src/ --top 10
 ```
 
-Review the HTML report to prioritize refactoring.
+**Use case:** Weekly refactoring meetings - "What should we tackle this sprint?"
 
-### Workflow 2: Block Risky PRs
-
-Add to `.github/workflows/ci.yml`:
-
-```yaml
-- name: Hotspots Analysis
-  uses: Stephen-Collins-tech/hotspots@v1
-  with:
-    path: src/
-    mode: delta
-    policy: true
-    fail-on: blocking
-```
-
-### Workflow 3: Track Refactoring Progress
+### 🔍 Analyze Single File
 
 ```bash
-# Before refactoring
-hotspots analyze src/ --mode snapshot
-
-# After refactoring
-hotspots analyze src/ --mode delta
-
-# View trends
-hotspots trends src/ --window 10
+hotspots analyze src/auth/validateUser.ts
 ```
 
-## Configuration
+**Use case:** Before touching a file - "Is this function a landmine?"
 
-Create `.hotspotsrc.json` in your project root:
+### 📊 Export for Dashboards
 
-```json
-{
-  "exclude": [
-    "**/*.test.ts",
-    "**/__tests__/**"
-  ],
-  "thresholds": {
-    "high": 8.0,
-    "moderate": 5.0,
-    "low": 3.0
-  },
-  "min_lrs": 3.0
-}
+```bash
+hotspots analyze src/ --format json | jq '.[] | select(.lrs > 9)' > critical-functions.json
 ```
 
-See [Configuration Guide](../guide/configuration.md) for all options.
+**Use case:** Track critical function count in Grafana/DataDog
 
-## Suppression Comments
+### 🤖 Feed to AI for Refactoring
 
-Suppress warnings for specific functions:
-
-```typescript
-// hotspots-ignore: legacy code, will refactor in Q2
-function complexLegacyFunction() {
-  // ...
-}
+```bash
+hotspots analyze src/ --format json --min-lrs 9.0 | pbcopy
+# Paste into Claude: "These are my critical functions. Suggest refactoring strategies."
 ```
 
-See [Suppression Guide](../guide/suppression.md) for more.
+**Use case:** AI-assisted refactoring with context
+
+---
 
 ## Next Steps
 
-- [Usage Guide](../guide/usage.md) - Complete CLI reference
-- [Configuration](../guide/configuration.md) - Config file setup
-- [CI Integration](../guide/ci-integration.md) - Use in CI/CD pipelines
-- [Metrics Reference](../reference/metrics.md) - How metrics are calculated
+### ✅ You just learned:
+- How to find your hotspots
+- How to interpret LRS and metrics
+- How to track changes over time
+- How to enforce quality in CI/CD
 
-## Quick Reference
+### 🚀 What's next:
 
-```bash
-# Analyze directory
-hotspots analyze <path>
+**For Solo Developers:**
+1. Add `hotspots analyze src/` to your workflow
+2. Refactor one hotspot per week
+3. Track your progress with delta mode
 
-# Snapshot mode
-hotspots analyze <path> --mode snapshot
+**For Teams:**
+1. [Set up GitHub Action](../guide/github-action.md) - Block risky code at merge time
+2. [Configure policies](../guide/usage.md#policy-engine) - Customize thresholds for your team
+3. [Add to CI/CD](../guide/ci-integration.md) - Jenkins, GitLab CI, CircleCI
 
-# Delta mode with policies
-hotspots analyze <path> --mode delta --policy
+**For AI Users:**
+1. [Install MCP server](../integrations/mcp-server.md) - Claude Desktop integration
+2. [Try AI workflows](../integrations/ai-agents.md) - Automated refactoring suggestions
 
-# HTML output
-hotspots analyze <path> --format html --output report.html
-
-# JSON output
-hotspots analyze <path> --format json
-
-# Trends
-hotspots trends <path>
-
-# Help
-hotspots --help
-hotspots analyze --help
-```
+---
 
 ## Troubleshooting
 
-**"No functions found"**
-- Ensure you're analyzing supported file types
-- Check that files aren't excluded by `.gitignore` or config
+### "No functions found"
 
-**"No baseline snapshot found"**
-- Run `hotspots analyze <path> --mode snapshot` first
-- Ensure `.hotspots/` directory exists
+**Problem:** Hotspots found no files to analyze.
 
-**"Policy violations but no error"**
-- Add `--fail-on blocking` to exit with error code 1
+**Solution:** Check file extensions and paths:
+```bash
+# Verify files exist
+ls src/**/*.ts
 
-## Getting Help
+# Try explicit path
+hotspots analyze src/components/Button.tsx
+```
 
-- 📖 [Documentation](../index.md)
-- 💬 [GitHub Discussions](https://github.com/Stephen-Collins-tech/hotspots/discussions)
-- 🐛 [Report Issues](https://github.com/Stephen-Collins-tech/hotspots/issues)
+### "Git repository required"
+
+**Problem:** Delta mode needs git history.
+
+**Solution:** Initialize git or use snapshot mode:
+```bash
+git init
+# or
+hotspots analyze src/ --mode snapshot  # No git required
+```
+
+### "Permission denied"
+
+**Problem:** Hotspots binary not executable.
+
+**Solution:**
+```bash
+chmod +x /usr/local/bin/hotspots
+```
+
+---
+
+## Learn More
+
+- **[CLI Reference](../reference/cli.md)** - All commands and options
+- **[Configuration](../guide/configuration.md)** - Customize thresholds and filters
+- **[Metrics Deep-Dive](../reference/metrics.md)** - How LRS is calculated
+- **[Policy Engine](../guide/usage.md#policy-engine)** - Advanced policy configuration
+- **[Language Support](../reference/language-support.md)** - TypeScript, JS, Go, Python, Rust, Java
+
+---
+
+**Need help?** [Open an issue](https://github.com/Stephen-Collins-tech/hotspots/issues) or [start a discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
+
+**Ready for CI/CD?** [Set up GitHub Action](../guide/github-action.md) in 5 minutes.
