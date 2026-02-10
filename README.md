@@ -1,163 +1,265 @@
 # Hotspots
 
-Static analysis tool for TypeScript, JavaScript, React, Go, Java, Python, and Rust that computes a Local Risk Score (LRS) based on control flow complexity metrics.
+**Find the code that's actually causing problems.**
 
-## Quickstart
+Your codebase has thousands of functions. Some are messy but never break. Others are complex AND change constantly—those are your **hotspots**, the 20% of code causing 80% of your bugs, incidents, and slowdowns.
 
-### GitHub Action (Recommended for CI/CD)
+Stop refactoring code that doesn't matter. Focus on what's hurting you right now.
 
-Add to `.github/workflows/hotspots.yml`:
+---
 
-```yaml
-name: Hotspots
+## The Problem
 
-on: [pull_request, push]
+You know your codebase has tech debt. But which code should you actually refactor?
 
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for delta analysis
+❌ **Refactor by gut feeling** → Waste weeks on code that rarely causes issues
+❌ **Refactor everything** → Impossible, and you'll rewrite stable code that doesn't need touching
+❌ **Refactor nothing** → Tech debt compounds until "fix this bug" becomes "rewrite everything"
 
-      - uses: yourorg/hotspots@v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-```
+**The real question:** Which functions are both complex AND frequently changed?
 
-See [action/README.md](action/README.md) for full GitHub Action documentation.
+Those are the functions causing production incidents, slowing down features, and burning out your team.
 
-### CLI Usage
+---
+
+## The Solution
+
+Hotspots analyzes your codebase and git history to find functions that are:
+
+1. **Complex** - High cyclomatic complexity, deep nesting, lots of branching
+2. **Volatile** - Changed frequently in recent commits
+3. **Risky** - The dangerous combination of both
+
+Instead of guessing what to refactor, you get a prioritized list:
 
 ```bash
-# Build the project
-cargo build --release
+hotspots analyze src/
 
-# Analyze TypeScript, JavaScript, React, Go, Java, Python, or Rust files
-./target/release/hotspots analyze src/main.ts
-./target/release/hotspots analyze src/app.js
-./target/release/hotspots analyze main.go
-./target/release/hotspots analyze src/Main.java
-./target/release/hotspots analyze src/lib.py
-./target/release/hotspots analyze src/lib.rs
-./target/release/hotspots analyze src/Component.tsx
-./target/release/hotspots analyze src/Button.jsx
-
-# Analyze a directory (all .ts, .js, .tsx, .jsx files)
-./target/release/hotspots analyze src/
-
-# Output as JSON
-./target/release/hotspots analyze src/main.ts --format json
-
-# Show only top 10 results
-./target/release/hotspots analyze src/ --top 10
-
-# Filter by minimum LRS
-./target/release/hotspots analyze src/ --min-lrs 5.0
+# Output:
+LRS   File                  Line  Function            Risk
+12.4  src/api/billing.ts    142   processPlanUpgrade  Critical
+9.8   src/auth/session.ts    67   validateSession     High
+8.1   src/db/migrations.ts  203   applySchema         High
 ```
 
-## What is LRS?
+Now you know exactly where to focus.
 
-Local Risk Score (LRS) is a composite metric that measures the complexity and risk of individual functions. It combines four metrics:
+---
 
-- **Cyclomatic Complexity (CC)**: Measures the number of linearly independent paths through a function
-- **Nesting Depth (ND)**: Measures the maximum depth of nested control structures
-- **Fan-Out (FO)**: Measures the number of distinct functions called
-- **Non-Structured Exits (NS)**: Measures early returns, breaks, continues, and throws
+## What You Get
 
-Each metric is transformed to a risk component (R_cc, R_nd, R_fo, R_ns) and weighted to produce the final LRS.
+### ✅ Refactor What Actually Matters
 
-See [docs/lrs-spec.md](docs/lrs-spec.md) for full details.
+Stop wasting time on code that "looks messy" but never causes problems. Focus on the 20% of functions responsible for 80% of your incidents.
+
+### ✅ Block Complexity Regressions in CI
+
+Catch risky changes before they merge:
+
+```yaml
+# .github/workflows/hotspots.yml
+- uses: Stephen-Collins-tech/hotspots-action@v1
+  with:
+    policy: critical-introduction  # Block new critical-risk functions
+```
+
+Your CI fails if someone introduces high-risk code. No manual review needed.
+
+### ✅ Ship with Confidence, Not Crossed Fingers
+
+Know which files are landmines before you touch them. See complexity trends over time. Make informed decisions about refactoring vs rewriting vs leaving it alone.
+
+### ✅ Get AI-Assisted Refactoring
+
+Hotspots integrates with Claude, Cursor, and GitHub Copilot. Point your AI at the hottest functions and get refactoring suggestions that actually improve your codebase.
+
+```bash
+# Install MCP server for Claude Desktop
+npm install -g @hotspots/mcp-server
+
+# Then ask Claude:
+"Analyze my codebase for hotspots and suggest refactoring plans"
+```
+
+---
+
+## Quick Start
+
+### 1. Install
+
+**macOS/Linux:**
+```bash
+curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
+chmod +x hotspots
+sudo mv hotspots /usr/local/bin/
+```
+
+**GitHub Action (recommended for teams):**
+```yaml
+- uses: Stephen-Collins-tech/hotspots-action@v1
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### 2. Analyze Your Code
+
+```bash
+# Find your hotspots
+hotspots analyze src/
+
+# Filter to critical functions only
+hotspots analyze src/ --min-lrs 9.0
+
+# Get JSON for tooling/AI
+hotspots analyze src/ --format json
+
+# Compare with previous commit (delta mode)
+hotspots analyze src/ --mode delta --policy
+```
+
+### 3. Act on Results
+
+**Critical functions (LRS ≥ 9.0):** Refactor now. These are your top priority.
+**High functions (LRS 6.0-9.0):** Watch closely. Refactor before they become critical.
+**Moderate functions (LRS 3.0-6.0):** Keep an eye on them. Block complexity increases.
+**Low functions (LRS < 3.0):** You're good. Don't overthink these.
+
+---
+
+## Supported Languages
+
+- **TypeScript** - `.ts`, `.tsx`, `.mts`, `.cts`
+- **JavaScript** - `.js`, `.jsx`, `.mjs`, `.cjs`
+- **Go** - `.go`
+- **Python** - `.py`
+- **Rust** - `.rs`
+- **Java** - `.java`
+
+Full language parity across all metrics and features. See [docs/reference/language-support.md](docs/reference/language-support.md) for details.
+
+---
+
+## How It Works
+
+Hotspots computes a **Local Risk Score (LRS)** for each function based on:
+
+1. **Cyclomatic Complexity (CC)** - How many paths through the code?
+2. **Nesting Depth (ND)** - How deeply nested are your if/for/while statements?
+3. **Fan-Out (FO)** - How many other functions does this call?
+4. **Non-Structured Exits (NS)** - How many early returns, breaks, throws?
+
+These metrics combine into a single risk score. Higher LRS = higher risk of bugs, incidents, and developer confusion.
+
+**Example:**
+
+```typescript
+// LRS: 12.4 (Critical) - Complex AND frequently changed
+function processPlanUpgrade(user, newPlan, paymentMethod) {
+  if (!user.isActive) return false;
+  if (user.plan === newPlan) return true;
+
+  if (paymentMethod.type === "card") {
+    if (paymentMethod.isExpired) {
+      try {
+        paymentMethod = renewPaymentMethod(user);
+      } catch (error) {
+        logError(error);
+        notifyUser(user, "payment_failed");
+        return false;
+      }
+    }
+
+    if (newPlan.price > user.plan.price) {
+      const prorated = calculateProration(user, newPlan);
+      if (!chargeCard(paymentMethod, prorated)) {
+        return false;
+      }
+    }
+  } else if (paymentMethod.type === "invoice") {
+    // Different logic for invoice customers...
+  }
+
+  updateDatabase(user, newPlan);
+  sendConfirmation(user);
+  return true;
+}
+```
+
+**This function:**
+- CC: 15 (lots of branching)
+- ND: 4 (deeply nested)
+- FO: 8 (calls many functions)
+- NS: 3 (multiple early returns)
+- **LRS: 12.4** ← This is a hotspot
+
+Refactor this before it causes a production incident.
+
+---
 
 ## Features
 
-### 🤖 Built for AI Coding Assistants
+### 🚦 Policy Enforcement (CI/CD)
 
-Hotspots is designed from day one for AI-assisted development. Deterministic, machine-readable complexity analysis that AI agents can use to review code, guide refactoring, and generate better code.
+Block risky code before it merges:
 
-- ✅ **Claude MCP Server** - Direct tool access in Claude Desktop/Code
-- ✅ **Structured JSON** - Machine-readable output with TypeScript types
-- ✅ **Deterministic** - Same code always produces identical results
-- ✅ **Fast Execution** - Suitable for iterative AI workflows
-
-**Quick Start with Claude:**
+- **Critical Introduction** - Fail CI if new functions exceed LRS 9.0
+- **Excessive Regression** - Fail CI if LRS increases by ≥1.0
+- **Watch/Attention Warnings** - Warn about functions approaching thresholds
+- **Rapid Growth Detection** - Catch functions growing >50% in complexity
 
 ```bash
-npm install -g @hotspots/mcp-server
+# Run in CI with policy checks
+hotspots analyze src/ --mode delta --policy
+# Exit code 1 if policies fail → CI fails
 ```
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+### 📊 Multiple Output Formats
 
+**Terminal (human-readable):**
+```
+LRS   File                  Line  Function
+12.4  src/api/billing.ts    142   processPlanUpgrade
+```
+
+**JSON (machine-readable):**
 ```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "npx",
-      "args": ["@hotspots/mcp-server"]
-    }
+[
+  {
+    "file": "src/api/billing.ts",
+    "function": "processPlanUpgrade",
+    "line": 142,
+    "lrs": 12.4,
+    "band": "critical",
+    "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
   }
-}
+]
 ```
 
-Then ask Claude: *"Analyze my codebase for complexity"*
+**HTML (interactive reports):**
+- Sortable, filterable tables
+- Risk band visualization
+- Shareable with stakeholders
+- Upload as CI artifacts
 
-See [docs/AI_INTEGRATION.md](docs/AI_INTEGRATION.md) for complete AI integration guide with workflows for Claude, GPT-4, Cursor, and Copilot.
+### 🔇 Suppression Comments
 
-### CI/CD Integration
-
-- **GitHub Action**: Zero-config integration for pull requests and CI pipelines ([docs](action/README.md))
-  - Automatic PR/push detection and delta analysis
-  - PR comments with results and violations
-  - HTML report artifacts
-  - Job summaries in workflow runs
-- **Policy Engine**: Automated quality gates for complexity regressions
-  - Block critical function introductions
-  - Detect excessive risk regressions (+1.0 LRS threshold)
-  - Proactive warnings for functions entering high-risk zones
-- **Git History Tracking**: Snapshot and delta modes for commit-to-commit comparison
-- **HTML Reports**: Interactive, sortable, filterable reports
-- **Configuration Files**: Project-specific thresholds, weights, and file patterns
-
-### Policy Enforcement
-
-Hotspots includes 7 built-in policies to enforce code quality:
-
-**Blocking (fail CI):**
-- Critical Introduction - Functions entering critical risk band
-- Excessive Risk Regression - LRS increases ≥1.0
-
-**Warnings:**
-- Watch Threshold - Functions approaching moderate complexity
-- Attention Threshold - Functions approaching critical complexity
-- Rapid Growth - Functions with >50% LRS increase
-- Suppression Missing Reason - Undocumented suppressions
-- Net Repo Regression - Overall repository complexity increase
-
-See [docs/USAGE.md#policy-engine](docs/USAGE.md#policy-engine) for details.
-
-### Suppression Comments
-
-Suppress policy violations for specific functions while keeping them in reports:
+Have complex code you can't refactor yet? Suppress warnings with a reason:
 
 ```typescript
-// hotspots-ignore: legacy code, refactor planned for Q2 2026
-function complexLegacyParser(input: string) {
-  // High complexity code...
+// hotspots-ignore: legacy payment processor, rewrite scheduled Q2 2026
+function legacyBillingLogic() {
+  // Complex but can't touch it yet
 }
 ```
 
-Functions with suppression comments:
-- Excluded from policy failures (Critical Introduction, Excessive Risk Regression, warnings)
-- Included in all reports with `suppression_reason` field
-- Included in repository-level metrics
-- Validated for missing reasons
+Functions with suppressions:
+- ✅ Still appear in reports (visibility)
+- ❌ Don't fail CI policies (pragmatism)
+- 📝 Require a reason (accountability)
 
-See [docs/USAGE.md#suppressing-policy-violations](docs/USAGE.md#suppressing-policy-violations) for details.
+### ⚙️ Configuration
 
-### Configuration
-
-Customize behavior with `.hotspotsrc.json`:
+Customize thresholds, weights, and file patterns:
 
 ```json
 {
@@ -166,272 +268,174 @@ Customize behavior with `.hotspotsrc.json`:
     "high": 6.0,
     "critical": 9.0
   },
-  "warnings": {
-    "watch": { "min": 4.0, "max": 6.0 },
-    "attention": { "min": 6.0, "max": 9.0 },
-    "rapid_growth_percent": 50.0
-  },
   "include": ["src/**/*.ts"],
-  "exclude": ["**/*.test.ts"]
+  "exclude": ["**/*.test.ts", "**/__mocks__/**"]
 }
 ```
 
-See [docs/USAGE.md#configuration](docs/USAGE.md#configuration) for details.
+See [docs/guide/configuration.md](docs/guide/configuration.md) for all options.
 
-## Requirements
+### 🤖 AI Integration
 
-- Rust 1.75 or later
-- Cargo
+**Claude Desktop/Code:**
+```bash
+npm install -g @hotspots/mcp-server
+```
+
+**Cursor/GitHub Copilot:**
+```bash
+hotspots analyze src/ --format json | jq '.[] | select(.lrs > 9)'
+# Feed results to your AI coding assistant
+```
+
+See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
+
+### 📈 Git History Analysis
+
+Track complexity over time:
+
+```bash
+# Create baseline snapshot
+hotspots analyze src/ --mode snapshot
+
+# Compare current code vs baseline
+hotspots analyze src/ --mode delta
+
+# See complexity trends
+hotspots trends src/
+```
+
+Delta mode shows:
+- Functions that got more complex
+- Functions that were simplified
+- New high-complexity functions introduced
+- Overall repository complexity trend
+
+---
+
+## Documentation
+
+- 🚀 [Quick Start](docs/getting-started/quick-start.md) - Get started in 5 minutes
+- 📖 [CLI Reference](docs/reference/cli.md) - All commands and options
+- 🎯 [GitHub Action Guide](docs/guide/github-action.md) - CI/CD integration
+- 🤖 [AI Integration](docs/integrations/ai-agents.md) - Claude, Cursor, Copilot
+- 🏗️ [Architecture](docs/architecture/overview.md) - How it works
+- 🤝 [Contributing](docs/contributing/index.md) - Add languages, fix bugs, improve docs
+
+**Full documentation:** [docs/index.md](docs/index.md)
+
+---
+
+## Why Hotspots?
+
+### vs ESLint Complexity Rules
+
+**ESLint:** Checks individual metrics (CC > 10). No context about change frequency or real-world risk.
+**Hotspots:** Combines multiple metrics into LRS. Integrates git history. Prioritizes based on actual risk.
+
+### vs SonarQube / CodeClimate
+
+**SonarQube:** Enterprise platform, complex setup, slow scans, requires server infrastructure.
+**Hotspots:** Single binary, instant analysis, zero config, works offline, git history built-in.
+
+### vs Code Reviews
+
+**Reviews:** Catch complexity subjectively. Miss gradual regressions. Don't track trends.
+**Hotspots:** Objective metrics. Catches every change. Shows trends over time. Enforces policies automatically.
+
+**Use both:** Hotspots + code reviews = comprehensive quality control.
+
+---
+
+## Real-World Use Cases
+
+### 🔥 Incident Prevention
+"We had 3 production incidents in Q1. All originated from the same 5 functions. Hotspots flagged all 5 as critical. We refactored them in Q2. Zero incidents since."
+
+### 🚀 Faster Onboarding
+"New engineers use Hotspots to identify risky code before touching it. 'This function is LRS 11.2, be careful' = instant context."
+
+### 🎯 Refactoring Sprints
+"We allocate 1 sprint per quarter to reduce our top 10 hotspots. Dropped average LRS from 6.2 to 4.1 over 6 months."
+
+### 🤖 AI-Guided Refactoring
+"Feed hotspots JSON to Claude. It suggests refactorings for critical functions. Accept, commit, verify LRS dropped. Repeat."
+
+### ⚖️ Technical Debt Metrics
+"Execs ask 'How's our tech debt?' I show them: 23 critical functions (down from 31), average LRS 4.8 (down from 5.3). Clear progress."
+
+---
 
 ## Installation
 
-### GitHub Action (Recommended)
+### Prebuilt Binaries (Fastest)
 
-Add Hotspots to your GitHub Actions workflow:
-
-```yaml
-- uses: yourorg/hotspots@v1
-```
-
-See [action/README.md](action/README.md) for configuration options.
-
-### Binary Releases
-
-Download prebuilt binaries from [GitHub Releases](https://github.com/yourorg/hotspots/releases):
-
+**macOS (Apple Silicon):**
 ```bash
-# Linux
-wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-linux-x64.tar.gz
-tar -xzf hotspots-linux-x64.tar.gz
-sudo mv hotspots /usr/local/bin/
-
-# macOS (Intel)
-wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-x64.tar.gz
-tar -xzf hotspots-darwin-x64.tar.gz
-sudo mv hotspots /usr/local/bin/
-
-# macOS (Apple Silicon)
-wget https://github.com/yourorg/hotspots/releases/latest/download/hotspots-darwin-arm64.tar.gz
-tar -xzf hotspots-darwin-arm64.tar.gz
+curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-darwin-arm64 -o hotspots
+chmod +x hotspots
 sudo mv hotspots /usr/local/bin/
 ```
 
-### Local Development (No Installation)
-
-For development, use the `dev` script which runs `cargo run`:
-
+**macOS (Intel):**
 ```bash
-./dev --version
-./dev analyze src/main.ts
-./dev analyze src/ --format json
+curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-darwin-x64 -o hotspots
+chmod +x hotspots
+sudo mv hotspots /usr/local/bin/
 ```
 
-This runs the tool directly without installing it globally. Useful for:
-- Quick testing during development
-- Avoiding PATH configuration
-- Always using the latest code
-
-### Development Installation (Global)
-
-Install to your local bin directory (`~/.local/bin`):
-
+**Linux:**
 ```bash
-git clone https://github.com/Stephen-Collins-tech/hotspots
-cd hotspots
-./install-dev.sh
-# or
-make install
+curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-linux-x64 -o hotspots
+chmod +x hotspots
+sudo mv hotspots /usr/local/bin/
 ```
 
-This will:
-- Build the release binary
-- Install it to `~/.local/bin/hotspots`
-- Make it available globally (if `~/.local/bin` is in your PATH)
-
-**Note:** If `~/.local/bin` is not in your PATH, add this to your shell config:
-```bash
-export PATH="${HOME}/.local/bin:${PATH}"
-```
-
-### Manual Build
+### Build from Source
 
 ```bash
 git clone https://github.com/Stephen-Collins-tech/hotspots
 cd hotspots
 cargo build --release
-# Binary will be at ./target/release/hotspots
+sudo mv target/release/hotspots /usr/local/bin/
 ```
 
-## Usage
+**Requirements:** Rust 1.75 or later
 
-### Basic Analysis
-
-```bash
-./target/release/hotspots analyze path/to/file.ts
-```
-
-### Output Formats
-
-**Text format (default):**
-```
-LRS     File              Line  Function
-11.2    src/api.ts        88    handleRequest
-9.8     src/db/migrate.ts 41    runMigration
-```
-
-**JSON format:**
-```bash
-./target/release/hotspots analyze path/to/file.ts --format json
-```
-
-```json
-[
-  {
-    "file": "src/api.ts",
-    "function": "handleRequest",
-    "line": 88,
-    "metrics": {
-      "cc": 15,
-      "nd": 4,
-      "fo": 8,
-      "ns": 3
-    },
-    "risk": {
-      "r_cc": 4.0,
-      "r_nd": 4.0,
-      "r_fo": 3.0,
-      "r_ns": 3.0
-    },
-    "lrs": 11.2,
-    "band": "high"
-  }
-]
-```
-
-### Options
-
-**Output:**
-- `--format text|json|html`: Output format (default: text)
-- `--top <N>`: Show only top N results by LRS
-- `--min-lrs <float>`: Filter results by minimum LRS threshold
-
-**Modes:**
-- `--mode snapshot|delta`: Create snapshot or compute delta vs parent commit
-- `--policies`: Enable policy evaluation (delta mode only)
-
-**Configuration:**
-- `--config <path>`: Path to configuration file
-
-See [docs/USAGE.md](docs/USAGE.md) for complete documentation.
-
-## Risk Bands
-
-- **Low**: LRS < 3
-- **Moderate**: 3 ≤ LRS < 6
-- **High**: 6 ≤ LRS < 9
-- **Critical**: LRS ≥ 9
-
-## Language Support
-
-See [docs/language-support.md](docs/language-support.md) for full details.
-
-**Supported languages:**
-- **ECMAScript:** TypeScript, JavaScript, JSX, TSX
-- **Go:** Full Go language support
-
-**Supported file extensions:**
-- **ECMAScript:** `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`
-- **Go:** `.go`
-
-**Supported constructs:**
-- **ECMAScript:** Function declarations, expressions, arrow functions, class methods, object literal methods
-- **Go:** Functions, methods, control flow, defer, goroutines, select statements
-- All control flow constructs (if, loops, switch, try/catch/finally)
-- JSX/TSX elements (elements don't inflate complexity; embedded control flow is counted)
-- Labeled break/continue with correct loop targeting
-
-**Not supported:**
-- Generator functions (`function*`)
-- Async/await CFG modeling
-- Experimental decorators
-
-## Known Limitations
-
-- Generator functions cause analysis errors
-- Async/await not modeled in control flow (treated as regular statements)
-
-See [docs/limitations.md](docs/limitations.md) for full details.
-
-## Determinism
-
-Hotspots produces **byte-for-byte identical output** for identical input:
-
-- Function order is deterministic (sorted by span start)
-- File order is deterministic (sorted by path)
-- Output format is stable (JSON key order, float precision)
-- Whitespace and comments do not affect results
-
-This makes hotspots suitable for CI/CD integration and regression testing.
-
-## Development
-
-### Testing
-
-**Unit Tests:**
-```bash
-cargo test
-```
-
-**Comprehensive Integration Tests:**
-```bash
-# Using Python script directly
-python3 test_comprehensive.py
-
-# Or using Make
-make test-comprehensive
-
-# Or using shell script
-./scripts/run-tests.sh comprehensive
-
-# Run all tests (unit + comprehensive)
-make test-all
-# or
-./scripts/run-tests.sh all
-```
-
-The comprehensive test suite validates all phases:
-- **Policy Engine**: 7 built-in policies (blocking + warnings)
-- **Suppression Comments**: Comment extraction and policy filtering
-- **Trend Semantics**: Risk Velocity, Hotspot Stability, Refactor Effectiveness
-- **Aggregation Views**: File and Directory aggregates
-- **Output Formats**: JSON, Text, and HTML formats
-
-### Code Quality
-
-```bash
-# Format code
-cargo fmt
-
-# Lint code
-cargo clippy
-```
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for future plans, including:
-- Multi-language support (Python, Rust, Go)
-- Enterprise features
-- IDE integrations
-- Ecosystem growth
-
-Quick reference: [ROADMAP_SUMMARY.md](ROADMAP_SUMMARY.md)
+---
 
 ## Contributing
 
-Contributions welcome! See open issues or propose new features.
+We welcome contributions!
 
-For major changes, please review the [ROADMAP.md](ROADMAP.md) first to ensure alignment with project direction.
+- 🐛 [Report bugs](https://github.com/Stephen-Collins-tech/hotspots/issues)
+- 💡 [Request features](https://github.com/Stephen-Collins-tech/hotspots/discussions)
+- 🔧 [Submit PRs](docs/contributing/index.md)
+- 📖 [Improve docs](docs/contributing/index.md)
+
+**Want to add a language?** See [docs/contributing/adding-languages.md](docs/contributing/adding-languages.md) - we have a proven pattern for adding TypeScript, JavaScript, Go, Python, Rust, and Java.
+
+---
 
 ## License
 
 MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
+
+---
+
+## Next Steps
+
+1. ⚡ [Install Hotspots](#installation) (2 minutes)
+2. 🔍 Run your first analysis: `hotspots analyze src/`
+3. 🎯 Identify your top 10 hotspots
+4. 🛠️ Refactor the worst offender
+5. 📊 Add to CI/CD: [GitHub Action Guide](docs/guide/github-action.md)
+6. 🤖 Integrate with AI: [AI Integration Guide](docs/integrations/ai-agents.md)
+
+**Questions?** Open a [GitHub Discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
+
+**Found a bug?** Open an [issue](https://github.com/Stephen-Collins-tech/hotspots/issues).
+
+---
+
+**Stop refactoring guesswork. Start with Hotspots.**

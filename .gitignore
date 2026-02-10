@@ -59,5 +59,9 @@ packages/*/dist/
 *.log
 npm-debug.log*
 
+# VitePress documentation build artifacts
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # Sample outputs
 samples/
