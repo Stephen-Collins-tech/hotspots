@@ -23,7 +23,10 @@ fn golden_path(name: &str) -> PathBuf {
 }
 
 fn project_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn read_golden(name: &str) -> String {
@@ -71,28 +74,28 @@ fn test_golden(fixture_name: &str) {
     let fixture = fixture_path(&format!("{}.ts", fixture_name));
     let golden = golden_path(&format!("{}.json", fixture_name));
     let project_root = project_root();
-    
+
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
     };
-    
+
     let reports = analyze(&fixture, options)
         .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
-    
+
     let output = render_json(&reports);
     let expected = read_golden(&format!("{}.json", fixture_name));
-    
+
     // Parse both as JSON for comparison (handles formatting differences)
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
-    
+
     // Normalize paths in both JSON values before comparison
     normalize_paths(&mut output_json, &project_root);
     normalize_paths(&mut expected_json, &project_root);
-    
+
     assert_eq!(
         output_json, expected_json,
         "Output does not match golden file for {}",
@@ -144,7 +147,10 @@ fn test_golden_determinism() {
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
 
-    assert_eq!(json1, json2, "Output must be byte-for-byte identical across runs");
+    assert_eq!(
+        json1, json2,
+        "Output must be byte-for-byte identical across runs"
+    );
 }
 
 // Go language golden tests
@@ -172,8 +178,8 @@ fn test_go_golden(fixture_name: &str) {
     let expected = read_golden(&format!("go-{}.json", fixture_name));
 
     // Parse both as JSON for comparison (handles formatting differences)
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -233,7 +239,10 @@ fn test_go_golden_determinism() {
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
 
-    assert_eq!(json1, json2, "Go output must be byte-for-byte identical across runs");
+    assert_eq!(
+        json1, json2,
+        "Go output must be byte-for-byte identical across runs"
+    );
 }
 
 // Rust language golden tests
@@ -261,8 +270,8 @@ fn test_rust_golden(fixture_name: &str) {
     let expected = read_golden(&format!("rust-{}.json", fixture_name));
 
     // Parse both as JSON for comparison (handles formatting differences)
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -322,7 +331,10 @@ fn test_rust_golden_determinism() {
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
 
-    assert_eq!(json1, json2, "Rust output must be byte-for-byte identical across runs");
+    assert_eq!(
+        json1, json2,
+        "Rust output must be byte-for-byte identical across runs"
+    );
 }
 
 // Java language golden tests
@@ -350,8 +362,8 @@ fn test_java_golden(fixture_name: &str) {
     let expected = read_golden(&format!("java-{}.json", fixture_name));
 
     // Parse both as JSON for comparison (handles formatting differences)
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -410,8 +422,8 @@ fn test_java_golden_anonymous_class() {
     let output = render_json(&reports);
     let expected = read_golden("java-anonymous_class.json");
 
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -448,8 +460,8 @@ fn test_java_golden_java_specific() {
     let output = render_json(&reports);
     let expected = read_golden("java-java_specific.json");
 
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -486,8 +498,8 @@ fn test_java_golden_switch_and_ternary() {
     let output = render_json(&reports);
     let expected = read_golden("java-switch_and_ternary.json");
 
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -525,7 +537,10 @@ fn test_java_golden_determinism() {
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
 
-    assert_eq!(json1, json2, "Java output must be byte-for-byte identical across runs");
+    assert_eq!(
+        json1, json2,
+        "Java output must be byte-for-byte identical across runs"
+    );
 }
 
 // Python language golden tests
@@ -553,8 +568,8 @@ fn test_python_golden(fixture_name: &str) {
     let expected = read_golden(&format!("python-{}.json", fixture_name));
 
     // Parse both as JSON for comparison (handles formatting differences)
-    let mut output_json: serde_json::Value = serde_json::from_str(&output)
-        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
     let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
         .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
 
@@ -629,5 +644,8 @@ fn test_python_golden_determinism() {
     let json1 = render_json(&reports1);
     let json2 = render_json(&reports2);
 
-    assert_eq!(json1, json2, "Python output must be byte-for-byte identical across runs");
+    assert_eq!(
+        json1, json2,
+        "Python output must be byte-for-byte identical across runs"
+    );
 }

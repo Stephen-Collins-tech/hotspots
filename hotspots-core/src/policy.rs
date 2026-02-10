@@ -249,10 +249,7 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
 
         // Trigger if becomes Critical and wasn't Critical before
         if !was_critical_before {
-            let message = format!(
-                "Function {} introduced as Critical",
-                entry.function_id
-            );
+            let message = format!("Function {} introduced as Critical", entry.function_id);
 
             results.failed.push(PolicyResult {
                 id: PolicyId::CriticalIntroduction,
@@ -288,8 +285,7 @@ fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &m
             if delta.lrs >= REGRESSION_THRESHOLD {
                 let message = format!(
                     "Function {} regressed by {:.2} LRS",
-                    entry.function_id,
-                    delta.lrs
+                    entry.function_id, delta.lrs
                 );
 
                 results.failed.push(PolicyResult {
@@ -352,8 +348,7 @@ fn evaluate_watch_threshold(
         if entering_watch {
             let message = format!(
                 "Function {} approaching moderate threshold (LRS: {:.2})",
-                entry.function_id,
-                after_lrs
+                entry.function_id, after_lrs
             );
 
             results.warnings.push(PolicyResult {
@@ -416,8 +411,7 @@ fn evaluate_attention_threshold(
         if entering_attention {
             let message = format!(
                 "Function {} approaching high threshold (LRS: {:.2})",
-                entry.function_id,
-                after_lrs
+                entry.function_id, after_lrs
             );
 
             results.warnings.push(PolicyResult {
@@ -474,10 +468,7 @@ fn evaluate_rapid_growth(
         if growth_percent >= config.rapid_growth_percent {
             let message = format!(
                 "Function {} LRS increased by {:.1}% ({:.2} -> {:.2})",
-                entry.function_id,
-                growth_percent,
-                before_lrs,
-                after_lrs
+                entry.function_id, growth_percent, before_lrs, after_lrs
             );
 
             results.warnings.push(PolicyResult {
@@ -504,10 +495,7 @@ fn evaluate_suppression_missing_reason(deltas: &[FunctionDeltaEntry], results: &
         // Check if function has suppression without reason
         if let Some(reason) = &entry.suppression_reason {
             if reason.is_empty() {
-                let message = format!(
-                    "Function {} suppressed without reason",
-                    entry.function_id
-                );
+                let message = format!("Function {} suppressed without reason", entry.function_id);
 
                 results.warnings.push(PolicyResult {
                     id: PolicyId::SuppressionMissingReason,
@@ -553,10 +541,7 @@ fn evaluate_net_repo_regression(
 
     // Trigger if repo total increased
     if total_delta > 0.0 {
-        let message = format!(
-            "Repository total LRS increased by {:.2}",
-            total_delta
-        );
+        let message = format!("Repository total LRS increased by {:.2}", total_delta);
 
         results.warnings.push(PolicyResult {
             id: PolicyId::NetRepoRegression,
@@ -578,8 +563,8 @@ fn evaluate_net_repo_regression(
 mod tests {
     use super::*;
     use crate::delta::{Delta, DeltaCommitInfo, FunctionDelta, FunctionDeltaEntry, FunctionState};
-    use crate::report::MetricsReport;
     use crate::git::GitContext;
+    use crate::report::MetricsReport;
     use tempfile::TempDir;
 
     fn create_test_delta_entry(
@@ -590,13 +575,23 @@ mod tests {
         delta_lrs: Option<f64>,
     ) -> FunctionDeltaEntry {
         let before = before_band.map(|band| FunctionState {
-            metrics: MetricsReport { cc: 4, nd: 2, fo: 2, ns: 1 },
+            metrics: MetricsReport {
+                cc: 4,
+                nd: 2,
+                fo: 2,
+                ns: 1,
+            },
             lrs: 3.9,
             band: band.to_string(),
         });
 
         let after = after_band.map(|band| FunctionState {
-            metrics: MetricsReport { cc: 6, nd: 3, fo: 3, ns: 1 },
+            metrics: MetricsReport {
+                cc: 6,
+                nd: 3,
+                fo: 3,
+                ns: 1,
+            },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: band.to_string(),
         });
@@ -620,7 +615,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_critical_introduction_new_function() {
         let mut results = PolicyResults::new();
@@ -637,7 +631,10 @@ mod tests {
         assert_eq!(results.failed.len(), 1);
         assert_eq!(results.failed[0].id, PolicyId::CriticalIntroduction);
         assert_eq!(results.failed[0].severity, PolicySeverity::Blocking);
-        assert_eq!(results.failed[0].function_id, Some("src/foo.ts::handler".to_string()));
+        assert_eq!(
+            results.failed[0].function_id,
+            Some("src/foo.ts::handler".to_string())
+        );
     }
 
     #[test]
@@ -700,7 +697,12 @@ mod tests {
         assert_eq!(results.failed.len(), 1);
         assert_eq!(results.failed[0].id, PolicyId::ExcessiveRiskRegression);
         assert_eq!(results.failed[0].severity, PolicySeverity::Blocking);
-        assert!(results.failed[0].metadata.as_ref().unwrap().delta_lrs.is_some());
+        assert!(results.failed[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .delta_lrs
+            .is_some());
     }
 
     #[test]
@@ -770,9 +772,15 @@ mod tests {
         // Should be sorted by id first (CriticalIntroduction < ExcessiveRiskRegression)
         // Then by function_id ASCII
         assert_eq!(results.failed[0].id, PolicyId::CriticalIntroduction);
-        assert_eq!(results.failed[0].function_id, Some("src/a.ts::func".to_string()));
+        assert_eq!(
+            results.failed[0].function_id,
+            Some("src/a.ts::func".to_string())
+        );
         assert_eq!(results.failed[1].id, PolicyId::CriticalIntroduction);
-        assert_eq!(results.failed[1].function_id, Some("src/b.ts::func".to_string()));
+        assert_eq!(
+            results.failed[1].function_id,
+            Some("src/b.ts::func".to_string())
+        );
         assert_eq!(results.failed[2].id, PolicyId::ExcessiveRiskRegression);
     }
 
@@ -816,7 +824,12 @@ mod tests {
         after_lrs: Option<f64>,
     ) -> FunctionDeltaEntry {
         let before = before_lrs.map(|lrs| FunctionState {
-            metrics: MetricsReport { cc: 4, nd: 2, fo: 2, ns: 1 },
+            metrics: MetricsReport {
+                cc: 4,
+                nd: 2,
+                fo: 2,
+                ns: 1,
+            },
             lrs,
             band: if lrs >= 9.0 {
                 "critical".to_string()
@@ -830,7 +843,12 @@ mod tests {
         });
 
         let after = after_lrs.map(|lrs| FunctionState {
-            metrics: MetricsReport { cc: 6, nd: 3, fo: 3, ns: 1 },
+            metrics: MetricsReport {
+                cc: 6,
+                nd: 3,
+                fo: 3,
+                ns: 1,
+            },
             lrs,
             band: if lrs >= 9.0 {
                 "critical".to_string()
@@ -999,8 +1017,18 @@ mod tests {
         assert_eq!(results.warnings.len(), 1);
         assert_eq!(results.warnings[0].id, PolicyId::RapidGrowth);
         assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-        assert!(results.warnings[0].metadata.as_ref().unwrap().growth_percent.is_some());
-        let growth = results.warnings[0].metadata.as_ref().unwrap().growth_percent.unwrap();
+        assert!(results.warnings[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .growth_percent
+            .is_some());
+        let growth = results.warnings[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .growth_percent
+            .unwrap();
         assert!((growth - 100.0).abs() < 0.1); // ~100%
     }
 

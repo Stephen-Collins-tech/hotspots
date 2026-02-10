@@ -54,11 +54,8 @@ pub fn discover_functions(
                 local_index: idx,
             };
             // Extract suppression comment for this function
-            func.suppression_reason = crate::suppression::extract_suppression(
-                source,
-                func.span,
-                source_map,
-            );
+            func.suppression_reason =
+                crate::suppression::extract_suppression(source, func.span, source_map);
             func
         })
         .collect()

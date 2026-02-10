@@ -77,13 +77,13 @@ fn enumerate_tracked_refs(repo_path: &Path, patterns: &[String]) -> Result<Vec<S
     for pattern in patterns {
         // Use `git for-each-ref` to list refs matching the pattern
         let refs_output = git_at(repo_path, &["for-each-ref", "--format=%(refname)", pattern])?;
-        
+
         for ref_line in refs_output.lines() {
             let ref_name = ref_line.trim();
             if ref_name.is_empty() {
                 continue;
             }
-            
+
             // Resolve ref to commit SHA
             match git_at(repo_path, &["rev-parse", ref_name]) {
                 Ok(sha) => ref_shas.push(sha),
@@ -101,7 +101,10 @@ fn enumerate_tracked_refs(repo_path: &Path, patterns: &[String]) -> Result<Vec<S
 /// Compute reachable commit set from starting SHAs
 ///
 /// Uses `git rev-list` to traverse commit graph from all starting points.
-fn compute_reachable_commits(repo_path: &Path, starting_shas: &[String]) -> Result<HashSet<String>> {
+fn compute_reachable_commits(
+    repo_path: &Path,
+    starting_shas: &[String],
+) -> Result<HashSet<String>> {
     if starting_shas.is_empty() {
         return Ok(HashSet::new());
     }
@@ -112,7 +115,7 @@ fn compute_reachable_commits(repo_path: &Path, starting_shas: &[String]) -> Resu
 
     for sha in starting_shas {
         let rev_list_output = git_at(repo_path, &["rev-list", sha])?;
-        
+
         for line in rev_list_output.lines() {
             let commit_sha = line.trim();
             if !commit_sha.is_empty() {
@@ -127,7 +130,8 @@ fn compute_reachable_commits(repo_path: &Path, starting_shas: &[String]) -> Resu
 /// Get commit timestamp for a commit SHA
 fn get_commit_timestamp(repo_path: &Path, sha: &str) -> Result<i64> {
     let output = git_at(repo_path, &["show", "-s", "--format=%ct", sha])?;
-    output.parse::<i64>()
+    output
+        .parse::<i64>()
         .with_context(|| format!("failed to parse commit timestamp for {}", sha))
 }
 
@@ -179,7 +183,7 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
     // Iterate over all commits in index
     for entry in &index.commits {
         let sha = &entry.sha;
-        
+
         // Check if snapshot file exists
         let snapshot_path = snapshot::snapshot_path(repo_path, sha);
         if !snapshot_path.exists() {
@@ -218,8 +222,9 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
         for sha in &pruned_shas {
             let snapshot_path = snapshot::snapshot_path(repo_path, sha);
             if snapshot_path.exists() {
-                std::fs::remove_file(&snapshot_path)
-                    .with_context(|| format!("failed to remove snapshot: {}", snapshot_path.display()))?;
+                std::fs::remove_file(&snapshot_path).with_context(|| {
+                    format!("failed to remove snapshot: {}", snapshot_path.display())
+                })?;
             }
         }
 

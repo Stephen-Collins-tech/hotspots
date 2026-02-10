@@ -98,8 +98,7 @@ pub struct TrendsAnalysis {
 impl TrendsAnalysis {
     /// Serialize to JSON string
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self)
-            .context("failed to serialize trends analysis to JSON")
+        serde_json::to_string_pretty(self).context("failed to serialize trends analysis to JSON")
     }
 }
 
@@ -116,8 +115,7 @@ impl TrendsAnalysis {
 pub fn load_snapshot_window(repo_root: &Path, window_size: usize) -> Result<Vec<Snapshot>> {
     // Load index
     let index_path = crate::snapshot::index_path(repo_root);
-    let index = Index::load_or_new(&index_path)
-        .context("failed to load index")?;
+    let index = Index::load_or_new(&index_path).context("failed to load index")?;
 
     if index.commits.is_empty() {
         return Ok(Vec::new());
@@ -137,15 +135,17 @@ pub fn load_snapshot_window(repo_root: &Path, window_size: usize) -> Result<Vec<
         if snapshot_path.exists() {
             let json = std::fs::read_to_string(&snapshot_path)
                 .with_context(|| format!("failed to read snapshot: {}", snapshot_path.display()))?;
-            let snapshot = Snapshot::from_json(&json)
-                .with_context(|| format!("failed to parse snapshot: {}", snapshot_path.display()))?;
+            let snapshot = Snapshot::from_json(&json).with_context(|| {
+                format!("failed to parse snapshot: {}", snapshot_path.display())
+            })?;
             snapshots.push(snapshot);
         }
     }
 
     // Ensure deterministic ordering (by timestamp, then SHA)
     snapshots.sort_by(|a, b| {
-        a.commit.timestamp
+        a.commit
+            .timestamp
             .cmp(&b.commit.timestamp)
             .then_with(|| a.commit.sha.cmp(&b.commit.sha))
     });
@@ -229,11 +229,8 @@ pub fn compute_risk_velocities(snapshots: &[Snapshot]) -> Vec<RiskVelocity> {
 
 /// Identify top K functions by LRS in a snapshot
 fn top_k_functions(snapshot: &Snapshot, k: usize) -> Vec<String> {
-    let mut functions: Vec<(&crate::snapshot::FunctionSnapshot, f64)> = snapshot
-        .functions
-        .iter()
-        .map(|f| (f, f.lrs))
-        .collect();
+    let mut functions: Vec<(&crate::snapshot::FunctionSnapshot, f64)> =
+        snapshot.functions.iter().map(|f| (f, f.lrs)).collect();
 
     // Sort by LRS descending
     functions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -249,10 +246,7 @@ fn top_k_functions(snapshot: &Snapshot, k: usize) -> Vec<String> {
 /// Compute hotspot stability for functions
 ///
 /// Identifies top K functions per snapshot and computes overlap ratio.
-pub fn compute_hotspot_stability(
-    snapshots: &[Snapshot],
-    top_k: usize,
-) -> Vec<HotspotAnalysis> {
+pub fn compute_hotspot_stability(snapshots: &[Snapshot], top_k: usize) -> Vec<HotspotAnalysis> {
     if snapshots.is_empty() {
         return Vec::new();
     }
@@ -264,7 +258,8 @@ pub fn compute_hotspot_stability(
     }
 
     // Collect all unique function IDs that appear in top K
-    let mut all_top_k_functions: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_top_k_functions: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     for top_k_list in &top_k_per_snapshot {
         for function_id in top_k_list {
             all_top_k_functions.insert(function_id.clone());
@@ -432,11 +427,15 @@ pub fn analyze_trends(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::FunctionSnapshot;
     use crate::git::GitContext;
     use crate::report::{FunctionRiskReport, MetricsReport, RiskReport};
+    use crate::snapshot::FunctionSnapshot;
 
-    fn create_test_snapshot(sha: &str, parent_sha: &str, functions: Vec<FunctionSnapshot>) -> Snapshot {
+    fn create_test_snapshot(
+        sha: &str,
+        parent_sha: &str,
+        functions: Vec<FunctionSnapshot>,
+    ) -> Snapshot {
         let git_context = GitContext {
             head_sha: sha.to_string(),
             parent_shas: vec![parent_sha.to_string()],
@@ -445,8 +444,9 @@ mod tests {
             is_detached: false,
         };
 
-        let reports: Vec<FunctionRiskReport> = functions.iter().map(|f| {
-            FunctionRiskReport {
+        let reports: Vec<FunctionRiskReport> = functions
+            .iter()
+            .map(|f| FunctionRiskReport {
                 file: f.file.clone(),
                 function: f.function_id.split("::").last().unwrap_or("").to_string(),
                 line: f.line,
@@ -461,8 +461,8 @@ mod tests {
                 lrs: f.lrs,
                 band: f.band.clone(),
                 suppression_reason: None,
-            }
-        }).collect();
+            })
+            .collect();
 
         Snapshot::new(git_context, reports)
     }
@@ -470,30 +470,44 @@ mod tests {
     #[test]
     fn test_risk_velocity_positive() {
         let snapshots = vec![
-            create_test_snapshot("sha1", "sha0", vec![
-                FunctionSnapshot {
+            create_test_snapshot(
+                "sha1",
+                "sha0",
+                vec![FunctionSnapshot {
                     function_id: "src/foo.ts::func".to_string(),
                     file: "src/foo.ts".to_string(),
                     line: 1,
                     language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
+                    metrics: MetricsReport {
+                        cc: 1,
+                        nd: 0,
+                        fo: 0,
+                        ns: 0,
+                    },
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
-                },
-            ]),
-            create_test_snapshot("sha2", "sha1", vec![
-                FunctionSnapshot {
+                }],
+            ),
+            create_test_snapshot(
+                "sha2",
+                "sha1",
+                vec![FunctionSnapshot {
                     function_id: "src/foo.ts::func".to_string(),
                     file: "src/foo.ts".to_string(),
                     line: 1,
                     language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 2, nd: 1, fo: 0, ns: 0 },
+                    metrics: MetricsReport {
+                        cc: 2,
+                        nd: 1,
+                        fo: 0,
+                        ns: 0,
+                    },
                     lrs: 3.0,
                     band: "moderate".to_string(),
                     suppression_reason: None,
-                },
-            ]),
+                }],
+            ),
         ];
 
         let velocities = compute_risk_velocities(&snapshots);
@@ -506,30 +520,44 @@ mod tests {
     #[test]
     fn test_risk_velocity_flat() {
         let snapshots = vec![
-            create_test_snapshot("sha1", "sha0", vec![
-                FunctionSnapshot {
+            create_test_snapshot(
+                "sha1",
+                "sha0",
+                vec![FunctionSnapshot {
                     function_id: "src/foo.ts::func".to_string(),
                     file: "src/foo.ts".to_string(),
                     line: 1,
                     language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
+                    metrics: MetricsReport {
+                        cc: 1,
+                        nd: 0,
+                        fo: 0,
+                        ns: 0,
+                    },
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
-                },
-            ]),
-            create_test_snapshot("sha2", "sha1", vec![
-                FunctionSnapshot {
+                }],
+            ),
+            create_test_snapshot(
+                "sha2",
+                "sha1",
+                vec![FunctionSnapshot {
                     function_id: "src/foo.ts::func".to_string(),
                     file: "src/foo.ts".to_string(),
                     line: 1,
                     language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
+                    metrics: MetricsReport {
+                        cc: 1,
+                        nd: 0,
+                        fo: 0,
+                        ns: 0,
+                    },
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
-                },
-            ]),
+                }],
+            ),
         ];
 
         let velocities = compute_risk_velocities(&snapshots);
@@ -540,50 +568,78 @@ mod tests {
     #[test]
     fn test_hotspot_stability() {
         let snapshots = vec![
-            create_test_snapshot("sha1", "sha0", vec![
-                FunctionSnapshot {
-                    function_id: "src/foo.ts::func1".to_string(),
-                    file: "src/foo.ts".to_string(),
-                    line: 1,
-                    language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 10, nd: 5, fo: 3, ns: 2 },
-                    lrs: 15.0,
-                    band: "high".to_string(),
-                    suppression_reason: None,
-                },
-                FunctionSnapshot {
-                    function_id: "src/bar.ts::func2".to_string(),
-                    file: "src/bar.ts".to_string(),
-                    line: 1,
-                    language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 5, nd: 2, fo: 1, ns: 0 },
-                    lrs: 5.0,
-                    band: "moderate".to_string(),
-                    suppression_reason: None,
-                },
-            ]),
-            create_test_snapshot("sha2", "sha1", vec![
-                FunctionSnapshot {
-                    function_id: "src/foo.ts::func1".to_string(),
-                    file: "src/foo.ts".to_string(),
-                    line: 1,
-                    language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 12, nd: 6, fo: 4, ns: 2 },
-                    lrs: 18.0,
-                    band: "high".to_string(),
-                    suppression_reason: None,
-                },
-                FunctionSnapshot {
-                    function_id: "src/bar.ts::func2".to_string(),
-                    file: "src/bar.ts".to_string(),
-                    line: 1,
-                    language: "TypeScript".to_string(),
-                    metrics: MetricsReport { cc: 5, nd: 2, fo: 1, ns: 0 },
-                    lrs: 5.0,
-                    band: "moderate".to_string(),
-                    suppression_reason: None,
-                },
-            ]),
+            create_test_snapshot(
+                "sha1",
+                "sha0",
+                vec![
+                    FunctionSnapshot {
+                        function_id: "src/foo.ts::func1".to_string(),
+                        file: "src/foo.ts".to_string(),
+                        line: 1,
+                        language: "TypeScript".to_string(),
+                        metrics: MetricsReport {
+                            cc: 10,
+                            nd: 5,
+                            fo: 3,
+                            ns: 2,
+                        },
+                        lrs: 15.0,
+                        band: "high".to_string(),
+                        suppression_reason: None,
+                    },
+                    FunctionSnapshot {
+                        function_id: "src/bar.ts::func2".to_string(),
+                        file: "src/bar.ts".to_string(),
+                        line: 1,
+                        language: "TypeScript".to_string(),
+                        metrics: MetricsReport {
+                            cc: 5,
+                            nd: 2,
+                            fo: 1,
+                            ns: 0,
+                        },
+                        lrs: 5.0,
+                        band: "moderate".to_string(),
+                        suppression_reason: None,
+                    },
+                ],
+            ),
+            create_test_snapshot(
+                "sha2",
+                "sha1",
+                vec![
+                    FunctionSnapshot {
+                        function_id: "src/foo.ts::func1".to_string(),
+                        file: "src/foo.ts".to_string(),
+                        line: 1,
+                        language: "TypeScript".to_string(),
+                        metrics: MetricsReport {
+                            cc: 12,
+                            nd: 6,
+                            fo: 4,
+                            ns: 2,
+                        },
+                        lrs: 18.0,
+                        band: "high".to_string(),
+                        suppression_reason: None,
+                    },
+                    FunctionSnapshot {
+                        function_id: "src/bar.ts::func2".to_string(),
+                        file: "src/bar.ts".to_string(),
+                        line: 1,
+                        language: "TypeScript".to_string(),
+                        metrics: MetricsReport {
+                            cc: 5,
+                            nd: 2,
+                            fo: 1,
+                            ns: 0,
+                        },
+                        lrs: 5.0,
+                        band: "moderate".to_string(),
+                        suppression_reason: None,
+                    },
+                ],
+            ),
         ];
 
         let hotspots = compute_hotspot_stability(&snapshots, 1);

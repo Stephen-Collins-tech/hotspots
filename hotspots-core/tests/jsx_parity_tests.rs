@@ -119,8 +119,7 @@ fn test_jsx_elements_dont_inflate_complexity() {
         top_n: None,
     };
 
-    let reports = analyze(&tsx_path, options)
-        .expect("Should analyze simple TSX component");
+    let reports = analyze(&tsx_path, options).expect("Should analyze simple TSX component");
 
     assert_eq!(reports.len(), 1, "Should find exactly one function");
 
@@ -132,7 +131,10 @@ fn test_jsx_elements_dont_inflate_complexity() {
     assert_eq!(report.metrics.nd, 0, "JSX elements should not increase ND");
     assert_eq!(report.metrics.fo, 0, "JSX elements should not increase FO");
     assert_eq!(report.metrics.ns, 0, "JSX elements should not increase NS");
-    assert_eq!(report.lrs, 1.0, "Simple JSX component should have LRS of 1.0");
+    assert_eq!(
+        report.lrs, 1.0,
+        "Simple JSX component should have LRS of 1.0"
+    );
 }
 
 /// Test that control flow in JSX expressions IS counted
@@ -145,8 +147,8 @@ fn test_jsx_control_flow_is_counted() {
         top_n: None,
     };
 
-    let reports = analyze(&tsx_path, options)
-        .expect("Should analyze conditional rendering component");
+    let reports =
+        analyze(&tsx_path, options).expect("Should analyze conditional rendering component");
 
     assert_eq!(reports.len(), 1, "Should find exactly one function");
 
@@ -178,8 +180,7 @@ fn test_multiple_functions_in_jsx_file() {
         top_n: None,
     };
 
-    let reports = analyze(&tsx_path, options)
-        .expect("Should analyze complex component");
+    let reports = analyze(&tsx_path, options).expect("Should analyze complex component");
 
     // Should find: ComplexComponent, handleClick, map callback, onClick handlers
     assert!(
@@ -189,7 +190,8 @@ fn test_multiple_functions_in_jsx_file() {
     );
 
     // Verify ComplexComponent exists
-    let main_component = reports.iter()
+    let main_component = reports
+        .iter()
         .find(|r| r.function == "ComplexComponent")
         .expect("Should find ComplexComponent function");
 

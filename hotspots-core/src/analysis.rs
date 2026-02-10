@@ -42,22 +42,20 @@ pub fn analyze_file_with_config(
 
     // Get appropriate parser for this language
     let parser: Box<dyn LanguageParser> = match language {
-        Language::TypeScript | Language::TypeScriptReact |
-        Language::JavaScript | Language::JavaScriptReact => {
+        Language::TypeScript
+        | Language::TypeScriptReact
+        | Language::JavaScript
+        | Language::JavaScriptReact => {
             Box::new(language::ECMAScriptParser::new(source_map.clone()))
         }
-        Language::Go => {
-            Box::new(language::GoParser::new().context("Failed to create Go parser")?)
-        }
+        Language::Go => Box::new(language::GoParser::new().context("Failed to create Go parser")?),
         Language::Java => {
             Box::new(language::JavaParser::new().context("Failed to create Java parser")?)
         }
         Language::Python => {
             Box::new(language::PythonParser::new().context("Failed to create Python parser")?)
         }
-        Language::Rust => {
-            Box::new(language::RustParser)
-        }
+        Language::Rust => Box::new(language::RustParser),
     };
 
     // Parse source file

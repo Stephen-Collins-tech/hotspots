@@ -130,8 +130,7 @@ fn test_suppression_missing_reason_policy() {
     assert_eq!(results.warnings.len(), 1);
     assert_eq!(results.warnings[0].id, PolicyId::SuppressionMissingReason);
     assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-    assert!(results
-        .warnings[0]
+    assert!(results.warnings[0]
         .message
         .contains("suppressed without reason"));
 }

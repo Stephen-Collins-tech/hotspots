@@ -32,7 +32,7 @@ pub mod trends;
 
 pub use config::ResolvedConfig;
 pub use git::GitContext;
-pub use report::{FunctionRiskReport, render_json, render_text, sort_reports};
+pub use report::{render_json, render_text, sort_reports, FunctionRiskReport};
 
 use anyhow::{Context, Result};
 use swc_common::{sync::Lrc, SourceMap};
@@ -43,7 +43,10 @@ pub struct AnalysisOptions {
 }
 
 /// Analyze files at the given path with default configuration
-pub fn analyze(path: &std::path::Path, options: AnalysisOptions) -> anyhow::Result<Vec<FunctionRiskReport>> {
+pub fn analyze(
+    path: &std::path::Path,
+    options: AnalysisOptions,
+) -> anyhow::Result<Vec<FunctionRiskReport>> {
     analyze_with_config(path, options, None)
 }
 
@@ -83,9 +86,14 @@ pub fn analyze_with_config(
         }
 
         let reports = analysis::analyze_file_with_config(
-            &file_path, &cm, file_index, &options,
-            weights.as_ref(), thresholds.as_ref(),
-        ).with_context(|| format!("Failed to analyze file: {}", file_path.display()))?;
+            &file_path,
+            &cm,
+            file_index,
+            &options,
+            weights.as_ref(),
+            thresholds.as_ref(),
+        )
+        .with_context(|| format!("Failed to analyze file: {}", file_path.display()))?;
         all_reports.extend(reports);
         file_index += 1;
     }
@@ -150,7 +158,10 @@ fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf
 }
 
 /// Recursively collect supported source files from a directory
-fn collect_source_files_recursive(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
+fn collect_source_files_recursive(
+    dir: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
     use std::ffi::OsStr;
 
     for entry_result in std::fs::read_dir(dir)
@@ -195,4 +206,3 @@ fn collect_source_files_recursive(dir: &std::path::Path, files: &mut Vec<std::pa
 
     Ok(())
 }
-

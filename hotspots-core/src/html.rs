@@ -3,10 +3,10 @@
 //! Generates self-contained HTML reports with embedded CSS and JavaScript.
 //! Reports are interactive (sorting, filtering) and work offline.
 
-use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot};
 use crate::aggregates::SnapshotAggregates;
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
-use crate::policy::{PolicyResults, PolicyId};
+use crate::policy::{PolicyId, PolicyResults};
+use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot};
 
 /// Render a snapshot as an HTML report
 pub fn render_html_snapshot(snapshot: &Snapshot) -> String {
@@ -72,7 +72,11 @@ pub fn render_html_delta(delta: &Delta) -> String {
         js = inline_javascript(),
         header = render_delta_header(&delta.commit),
         summary = render_delta_summary(delta),
-        policy_section = delta.policy.as_ref().map(|p| render_policy_section(p, delta)).unwrap_or_default(),
+        policy_section = delta
+            .policy
+            .as_ref()
+            .map(|p| render_policy_section(p, delta))
+            .unwrap_or_default(),
         delta_table = render_delta_table(&delta.deltas),
         footer = render_footer(),
     )
@@ -501,8 +505,16 @@ fn render_header(commit: &CommitInfo) -> String {
 /// Render summary section
 fn render_summary(snapshot: &Snapshot) -> String {
     let total_functions = snapshot.functions.len();
-    let critical_count = snapshot.functions.iter().filter(|f| f.band == "critical").count();
-    let high_count = snapshot.functions.iter().filter(|f| f.band == "high").count();
+    let critical_count = snapshot
+        .functions
+        .iter()
+        .filter(|f| f.band == "critical")
+        .count();
+    let high_count = snapshot
+        .functions
+        .iter()
+        .filter(|f| f.band == "high")
+        .count();
     let avg_lrs = if total_functions > 0 {
         snapshot.functions.iter().map(|f| f.lrs).sum::<f64>() / total_functions as f64
     } else {
@@ -625,7 +637,7 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
 
     let rows: String = files
         .iter()
-        .take(20)  // Top 20 files
+        .take(20) // Top 20 files
         .map(|f| {
             format!(
                 r#"<tr>
@@ -674,16 +686,34 @@ fn render_delta_header(commit: &crate::delta::DeltaCommitInfo) -> String {
     </div>
 </header>"#,
         sha = &commit.sha[..8],
-        parent = if commit.parent.is_empty() { "none" } else { &commit.parent[..8] },
+        parent = if commit.parent.is_empty() {
+            "none"
+        } else {
+            &commit.parent[..8]
+        },
     )
 }
 
 /// Render delta summary
 fn render_delta_summary(delta: &Delta) -> String {
-    let new_count = delta.deltas.iter().filter(|d| d.status == FunctionStatus::New).count();
-    let modified_count = delta.deltas.iter().filter(|d| d.status == FunctionStatus::Modified).count();
-    let deleted_count = delta.deltas.iter().filter(|d| d.status == FunctionStatus::Deleted).count();
-    let regressions = delta.deltas.iter()
+    let new_count = delta
+        .deltas
+        .iter()
+        .filter(|d| d.status == FunctionStatus::New)
+        .count();
+    let modified_count = delta
+        .deltas
+        .iter()
+        .filter(|d| d.status == FunctionStatus::Modified)
+        .count();
+    let deleted_count = delta
+        .deltas
+        .iter()
+        .filter(|d| d.status == FunctionStatus::Deleted)
+        .count();
+    let regressions = delta
+        .deltas
+        .iter()
         .filter(|d| d.delta.as_ref().map(|dt| dt.lrs > 0.0).unwrap_or(false))
         .count();
 
@@ -719,19 +749,23 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
 
     // Blocking failures
     if !policy.failed.is_empty() {
-        let rows: String = policy.failed.iter().map(|result| {
-            let function_id = result.function_id.as_deref().unwrap_or("N/A");
-            format!(
-                r#"<tr>
+        let rows: String = policy
+            .failed
+            .iter()
+            .map(|result| {
+                let function_id = result.function_id.as_deref().unwrap_or("N/A");
+                format!(
+                    r#"<tr>
     <td class="monospace">{function}</td>
     <td>{policy}</td>
     <td>{message}</td>
 </tr>"#,
-                function = html_escape(function_id),
-                policy = result.id.as_str(),
-                message = html_escape(&result.message),
-            )
-        }).collect();
+                    function = html_escape(function_id),
+                    policy = result.id.as_str(),
+                    message = html_escape(&result.message),
+                )
+            })
+            .collect();
 
         sections.push(format!(
             r#"<div class="policy-failures">
@@ -755,18 +789,38 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
     }
 
     // Group warnings by policy ID
-    let watch_warnings: Vec<_> = policy.warnings.iter().filter(|w| w.id == PolicyId::WatchThreshold).collect();
-    let attention_warnings: Vec<_> = policy.warnings.iter().filter(|w| w.id == PolicyId::AttentionThreshold).collect();
-    let rapid_growth_warnings: Vec<_> = policy.warnings.iter().filter(|w| w.id == PolicyId::RapidGrowth).collect();
+    let watch_warnings: Vec<_> = policy
+        .warnings
+        .iter()
+        .filter(|w| w.id == PolicyId::WatchThreshold)
+        .collect();
+    let attention_warnings: Vec<_> = policy
+        .warnings
+        .iter()
+        .filter(|w| w.id == PolicyId::AttentionThreshold)
+        .collect();
+    let rapid_growth_warnings: Vec<_> = policy
+        .warnings
+        .iter()
+        .filter(|w| w.id == PolicyId::RapidGrowth)
+        .collect();
 
     if !watch_warnings.is_empty() {
         sections.push(render_warning_group("Watch Level", &watch_warnings, delta));
     }
     if !attention_warnings.is_empty() {
-        sections.push(render_warning_group("Attention Level", &attention_warnings, delta));
+        sections.push(render_warning_group(
+            "Attention Level",
+            &attention_warnings,
+            delta,
+        ));
     }
     if !rapid_growth_warnings.is_empty() {
-        sections.push(render_warning_group("Rapid Growth", &rapid_growth_warnings, delta));
+        sections.push(render_warning_group(
+            "Rapid Growth",
+            &rapid_growth_warnings,
+            delta,
+        ));
     }
 
     if sections.is_empty() {
@@ -782,23 +836,33 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
     )
 }
 
-fn render_warning_group(title: &str, warnings: &[&crate::policy::PolicyResult], delta: &Delta) -> String {
-    let rows: String = warnings.iter().map(|result| {
-        let function_id = result.function_id.as_deref().unwrap_or("N/A");
-        let entry = delta.deltas.iter().find(|e| e.function_id == function_id);
-        let after_lrs = entry.and_then(|e| e.after.as_ref()).map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "N/A".to_string());
+fn render_warning_group(
+    title: &str,
+    warnings: &[&crate::policy::PolicyResult],
+    delta: &Delta,
+) -> String {
+    let rows: String = warnings
+        .iter()
+        .map(|result| {
+            let function_id = result.function_id.as_deref().unwrap_or("N/A");
+            let entry = delta.deltas.iter().find(|e| e.function_id == function_id);
+            let after_lrs = entry
+                .and_then(|e| e.after.as_ref())
+                .map(|a| format!("{:.2}", a.lrs))
+                .unwrap_or_else(|| "N/A".to_string());
 
-        format!(
-            r#"<tr>
+            format!(
+                r#"<tr>
     <td class="monospace">{function}</td>
     <td>{lrs}</td>
     <td>{message}</td>
 </tr>"#,
-            function = html_escape(function_id),
-            lrs = after_lrs,
-            message = html_escape(&result.message),
-        )
-    }).collect();
+                function = html_escape(function_id),
+                lrs = after_lrs,
+                message = html_escape(&result.message),
+            )
+        })
+        .collect();
 
     format!(
         r#"<div class="policy-warnings">
@@ -827,16 +891,43 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
     let rows: String = deltas
         .iter()
         .map(|entry| {
-            let function_name = entry.function_id.split("::").last().unwrap_or(&entry.function_id);
-            let before_lrs = entry.before.as_ref().map(|b| format!("{:.2}", b.lrs)).unwrap_or_else(|| "-".to_string());
-            let after_lrs = entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)).unwrap_or_else(|| "-".to_string());
-            let before_band = entry.before.as_ref().map(|b| b.band.as_str()).unwrap_or("-");
+            let function_name = entry
+                .function_id
+                .split("::")
+                .last()
+                .unwrap_or(&entry.function_id);
+            let before_lrs = entry
+                .before
+                .as_ref()
+                .map(|b| format!("{:.2}", b.lrs))
+                .unwrap_or_else(|| "-".to_string());
+            let after_lrs = entry
+                .after
+                .as_ref()
+                .map(|a| format!("{:.2}", a.lrs))
+                .unwrap_or_else(|| "-".to_string());
+            let before_band = entry
+                .before
+                .as_ref()
+                .map(|b| b.band.as_str())
+                .unwrap_or("-");
             let after_band = entry.after.as_ref().map(|a| a.band.as_str()).unwrap_or("-");
-            let delta_lrs = entry.delta.as_ref().map(|d| format!("{:+.2}", d.lrs)).unwrap_or_else(|| "-".to_string());
+            let delta_lrs = entry
+                .delta
+                .as_ref()
+                .map(|d| format!("{:+.2}", d.lrs))
+                .unwrap_or_else(|| "-".to_string());
 
-            let transition = match (entry.before.as_ref().map(|b| &b.band), entry.after.as_ref().map(|a| &a.band)) {
+            let transition = match (
+                entry.before.as_ref().map(|b| &b.band),
+                entry.after.as_ref().map(|a| &a.band),
+            ) {
                 (Some(b), Some(a)) if b != a => {
-                    if a > b { "↑" } else { "↓" }
+                    if a > b {
+                        "↑"
+                    } else {
+                        "↓"
+                    }
                 }
                 (Some(_), Some(_)) => "→",
                 _ => "-",
@@ -845,7 +936,13 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
             let status_class = match entry.status {
                 FunctionStatus::New => "status-new",
                 FunctionStatus::Deleted => "status-deleted",
-                FunctionStatus::Modified => if entry.delta.as_ref().map(|d| d.lrs > 0.0).unwrap_or(false) { "status-regression" } else { "" },
+                FunctionStatus::Modified => {
+                    if entry.delta.as_ref().map(|d| d.lrs > 0.0).unwrap_or(false) {
+                        "status-regression"
+                    } else {
+                        ""
+                    }
+                }
                 FunctionStatus::Unchanged => "",
             };
 
@@ -908,7 +1005,8 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
 fn render_footer() -> String {
     r#"<footer>
     <p>Generated by Hotspots</p>
-</footer>"#.to_string()
+</footer>"#
+        .to_string()
 }
 
 /// Format Unix timestamp as human-readable string
@@ -919,7 +1017,7 @@ fn format_timestamp(timestamp: i64) -> String {
     let datetime = UNIX_EPOCH + duration;
 
     // Format as YYYY-MM-DD HH:MM:SS (deterministic, no timezone)
-    format!("{:?}", datetime)  // Temporary - will improve later
+    format!("{:?}", datetime) // Temporary - will improve later
 }
 
 /// Escape HTML special characters

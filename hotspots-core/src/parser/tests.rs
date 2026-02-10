@@ -80,7 +80,10 @@ mod parser_tests {
         // Interfaces should parse but won't be analyzed
         let src = "interface Foo { bar: string; }";
         let result = parse_test(src, "test.ts");
-        assert!(result.is_ok(), "Should parse interface (but ignore in analysis)");
+        assert!(
+            result.is_ok(),
+            "Should parse interface (but ignore in analysis)"
+        );
     }
 
     #[test]

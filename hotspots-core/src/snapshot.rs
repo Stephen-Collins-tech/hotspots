@@ -114,7 +114,7 @@ impl Snapshot {
             .map(|report| {
                 // Normalize file path to use `/` separators
                 let normalized_file = report.file.replace('\\', "/");
-                
+
                 // Extract function name for function_id
                 // Use the function name from report, or derive from file/line if needed
                 let function_symbol = if report.function.starts_with("<anonymous>") {
@@ -122,10 +122,10 @@ impl Snapshot {
                 } else {
                     &report.function
                 };
-                
+
                 // Build function_id: <relative_file_path>::<symbol>
                 let function_id = format!("{}::{}", normalized_file, function_symbol);
-                
+
                 FunctionSnapshot {
                     function_id,
                     file: normalized_file,
@@ -138,10 +138,10 @@ impl Snapshot {
                 }
             })
             .collect();
-        
+
         // Sort functions deterministically by function_id (ASCII lexical ordering)
         functions.sort_by(|a, b| a.function_id.cmp(&b.function_id));
-        
+
         Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
             commit: CommitInfo {
@@ -158,21 +158,20 @@ impl Snapshot {
             aggregates: None, // Aggregates are computed on-demand, not stored
         }
     }
-    
+
     /// Serialize snapshot to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
         // Use serde_json with pretty printing for readability
         // Keys are automatically sorted by serde when using BTreeMap-like structures
         // For deterministic ordering, we rely on serde's default behavior with sorted keys
-        serde_json::to_string_pretty(self)
-            .context("failed to serialize snapshot to JSON")
+        serde_json::to_string_pretty(self).context("failed to serialize snapshot to JSON")
     }
-    
+
     /// Deserialize snapshot from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
-        let snapshot: Snapshot = serde_json::from_str(json)
-            .context("failed to deserialize snapshot from JSON")?;
-        
+        let snapshot: Snapshot =
+            serde_json::from_str(json).context("failed to deserialize snapshot from JSON")?;
+
         // Validate schema version
         if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
             anyhow::bail!(
@@ -181,10 +180,10 @@ impl Snapshot {
                 snapshot.schema_version
             );
         }
-        
+
         Ok(snapshot)
     }
-    
+
     /// Get the commit SHA for this snapshot
     pub fn commit_sha(&self) -> &str {
         &self.commit.sha
@@ -200,17 +199,17 @@ impl Index {
             commits: Vec::new(),
         }
     }
-    
+
     /// Get compaction level (defaults to 0 if not set for backward compatibility)
     pub fn compaction_level(&self) -> u32 {
         self.compaction_level.unwrap_or(0)
     }
-    
+
     /// Set compaction level
     pub fn set_compaction_level(&mut self, level: u32) {
         self.compaction_level = Some(level);
     }
-    
+
     /// Load index from JSON file, or create new if file doesn't exist
     pub fn load_or_new(path: &Path) -> Result<Self> {
         if path.exists() {
@@ -221,12 +220,12 @@ impl Index {
             Ok(Self::new())
         }
     }
-    
+
     /// Deserialize index from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
-        let index: Index = serde_json::from_str(json)
-            .context("failed to deserialize index from JSON")?;
-        
+        let index: Index =
+            serde_json::from_str(json).context("failed to deserialize index from JSON")?;
+
         // Validate schema version
         if index.schema_version != INDEX_SCHEMA_VERSION {
             anyhow::bail!(
@@ -235,16 +234,15 @@ impl Index {
                 index.schema_version
             );
         }
-        
+
         Ok(index)
     }
-    
+
     /// Serialize index to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self)
-            .context("failed to serialize index to JSON")
+        serde_json::to_string_pretty(self).context("failed to serialize index to JSON")
     }
-    
+
     /// Add or update a commit entry in the index
     ///
     /// If the commit already exists, this is idempotent (no-op).
@@ -253,7 +251,7 @@ impl Index {
         // Check if entry already exists
         if !self.commits.iter().any(|c| c.sha == entry.sha) {
             self.commits.push(entry);
-            
+
             // Sort deterministically: timestamp ascending, then SHA ASCII ascending
             self.commits.sort_by(|a, b| {
                 a.timestamp
@@ -262,12 +260,12 @@ impl Index {
             });
         }
     }
-    
+
     /// Remove a commit entry by SHA
     pub fn remove_commit(&mut self, sha: &str) {
         self.commits.retain(|c| c.sha != sha);
     }
-    
+
     /// Check if index contains a commit
     pub fn contains(&self, sha: &str) -> bool {
         self.commits.iter().any(|c| c.sha == sha)
@@ -304,16 +302,16 @@ pub fn snapshot_path(repo_root: &Path, commit_sha: &str) -> PathBuf {
 pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     use std::fs;
     use std::io::Write;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create directory: {}", parent.display()))?;
     }
-    
+
     // Create temp file in same directory
     let temp_path = path.with_extension("tmp");
-    
+
     // Write to temp file
     let mut file = fs::File::create(&temp_path)
         .with_context(|| format!("failed to create temp file: {}", temp_path.display()))?;
@@ -322,11 +320,11 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     file.sync_all()
         .with_context(|| format!("failed to sync temp file: {}", temp_path.display()))?;
     drop(file);
-    
+
     // Atomic rename
     fs::rename(&temp_path, path)
         .with_context(|| format!("failed to rename temp file to: {}", path.display()))?;
-    
+
     Ok(())
 }
 
@@ -345,33 +343,41 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 /// - I/O errors during write
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
-    
+
     // Never overwrite existing snapshots (immutability)
     if snapshot_path.exists() {
         // Verify existing snapshot matches (idempotency check)
-        let existing_json = std::fs::read_to_string(&snapshot_path)
-            .with_context(|| format!("failed to read existing snapshot: {}", snapshot_path.display()))?;
-        let existing_snapshot = Snapshot::from_json(&existing_json)
-            .with_context(|| format!("existing snapshot has invalid schema: {}", snapshot_path.display()))?;
-        
+        let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
+            format!(
+                "failed to read existing snapshot: {}",
+                snapshot_path.display()
+            )
+        })?;
+        let existing_snapshot = Snapshot::from_json(&existing_json).with_context(|| {
+            format!(
+                "existing snapshot has invalid schema: {}",
+                snapshot_path.display()
+            )
+        })?;
+
         // If it's byte-for-byte identical, this is idempotent (ok)
         if existing_snapshot.to_json()? == snapshot.to_json()? {
             return Ok(());
         }
-        
+
         anyhow::bail!(
             "snapshot already exists and differs: {} (snapshots are immutable)",
             snapshot_path.display()
         );
     }
-    
+
     // Serialize snapshot
     let json = snapshot.to_json()?;
-    
+
     // Atomic write
     atomic_write(&snapshot_path, &json)
         .with_context(|| format!("failed to persist snapshot: {}", snapshot_path.display()))?;
-    
+
     Ok(())
 }
 
@@ -380,22 +386,22 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
 /// Loads existing index, adds entry, and persists atomically.
 pub fn append_to_index(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
     let index_path = index_path(repo_root);
-    
+
     // Load existing index or create new
     let mut index = Index::load_or_new(&index_path)?;
-    
+
     // Add commit entry
     index.add_commit(IndexEntry {
         sha: snapshot.commit.sha.clone(),
         parents: snapshot.commit.parents.clone(),
         timestamp: snapshot.commit.timestamp,
     });
-    
+
     // Serialize and write atomically
     let json = index.to_json()?;
     atomic_write(&index_path, &json)
         .with_context(|| format!("failed to update index: {}", index_path.display()))?;
-    
+
     Ok(())
 }
 
@@ -410,39 +416,47 @@ pub fn append_to_index(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
 /// ensuring byte-for-byte deterministic output.
 pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
     let snapshots_dir = snapshots_dir(repo_root);
-    
+
     if !snapshots_dir.exists() {
         return Ok(Index::new());
     }
-    
+
     let mut index = Index::new();
-    
+
     // Read all snapshot files
-    let entries = std::fs::read_dir(&snapshots_dir)
-        .with_context(|| format!("failed to read snapshots directory: {}", snapshots_dir.display()))?;
-    
+    let entries = std::fs::read_dir(&snapshots_dir).with_context(|| {
+        format!(
+            "failed to read snapshots directory: {}",
+            snapshots_dir.display()
+        )
+    })?;
+
     for entry_result in entries {
         let entry = entry_result?;
         let path = entry.path();
-        
+
         // Only process .json files
         if path.extension().and_then(|s| s.to_str()) != Some("json") {
             continue;
         }
-        
+
         // Read and parse snapshot
         let json = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read snapshot: {}", path.display()))?;
-        
+
         let snapshot = match Snapshot::from_json(&json) {
             Ok(s) => s,
             Err(e) => {
                 // Log error but continue (some snapshots may be corrupted)
-                eprintln!("Warning: failed to parse snapshot {}: {}", path.display(), e);
+                eprintln!(
+                    "Warning: failed to parse snapshot {}: {}",
+                    path.display(),
+                    e
+                );
                 continue;
             }
         };
-        
+
         // Add to index
         index.add_commit(IndexEntry {
             sha: snapshot.commit.sha,
@@ -450,7 +464,7 @@ pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
             timestamp: snapshot.commit.timestamp,
         });
     }
-    
+
     Ok(index)
 }
 
@@ -458,7 +472,7 @@ pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
 mod tests {
     use super::*;
     use crate::report::MetricsReport;
-    
+
     fn create_test_snapshot() -> Snapshot {
         let git_context = GitContext {
             head_sha: "abc123".to_string(),
@@ -467,7 +481,7 @@ mod tests {
             branch: Some("main".to_string()),
             is_detached: false,
         };
-        
+
         let report = FunctionRiskReport {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
@@ -489,54 +503,54 @@ mod tests {
             band: "moderate".to_string(),
             suppression_reason: None,
         };
-        
+
         Snapshot::new(git_context, vec![report])
     }
-    
+
     #[test]
     fn test_snapshot_serialization() {
         let snapshot = create_test_snapshot();
-        
+
         // Serialize
         let json = snapshot.to_json().expect("should serialize");
         assert!(json.contains("\"schema_version\": 1"));
         assert!(json.contains("\"sha\": \"abc123\""));
         assert!(json.contains("\"function_id\""));
-        
+
         // Deserialize
         let deserialized = Snapshot::from_json(&json).expect("should deserialize");
         assert_eq!(deserialized.commit.sha, snapshot.commit.sha);
         assert_eq!(deserialized.functions.len(), snapshot.functions.len());
     }
-    
+
     #[test]
     fn test_function_id_format() {
         let snapshot = create_test_snapshot();
         assert_eq!(snapshot.functions[0].function_id, "src/foo.ts::handler");
     }
-    
+
     #[test]
     fn test_index_ordering() {
         let mut index = Index::new();
-        
+
         index.add_commit(IndexEntry {
             sha: "zzz".to_string(),
             parents: vec![],
             timestamp: 2000,
         });
-        
+
         index.add_commit(IndexEntry {
             sha: "aaa".to_string(),
             parents: vec![],
             timestamp: 1000,
         });
-        
+
         index.add_commit(IndexEntry {
             sha: "mmm".to_string(),
             parents: vec![],
             timestamp: 2000,
         });
-        
+
         // Should be sorted by timestamp, then SHA
         assert_eq!(index.commits[0].sha, "aaa");
         assert_eq!(index.commits[1].sha, "mmm");

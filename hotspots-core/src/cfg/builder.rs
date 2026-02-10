@@ -60,14 +60,17 @@ impl CfgBuilder {
         for stmt in &body.stmts {
             self.visit_stmt(stmt);
         }
-        
+
         // Connect last node to exit (if not already connected)
         if let Some(last_node) = self.current_node {
             if last_node != self.cfg.exit {
                 // Check if last node already has an edge to exit
-                let has_exit_edge = self.cfg.edges.iter()
+                let has_exit_edge = self
+                    .cfg
+                    .edges
+                    .iter()
                     .any(|e| e.from == last_node && e.to == self.cfg.exit);
-                
+
                 if !has_exit_edge {
                     self.cfg.add_edge(last_node, self.cfg.exit);
                 }
@@ -116,30 +119,30 @@ impl CfgBuilder {
 
     fn visit_if(&mut self, if_stmt: &IfStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+
         // Condition node
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, condition_node);
-        
+
         // Then branch
         let then_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(condition_node, then_start);
-        
+
         self.current_node = Some(then_start);
         self.visit_stmt(&if_stmt.cons);
         let then_end = self.current_node.unwrap_or(then_start);
-        
+
         // Else branch (if exists)
         let join_node = self.cfg.add_node(NodeKind::Join);
-        
+
         if let Some(alt) = &if_stmt.alt {
             let else_start = self.cfg.add_node(NodeKind::Statement);
             self.cfg.add_edge(condition_node, else_start);
-            
+
             self.current_node = Some(else_start);
             self.visit_stmt(alt);
             let else_end = self.current_node.unwrap_or(else_start);
-            
+
             // Connect both branches to join
             // Only connect then branch if it completed normally
             if then_end != self.cfg.exit {
@@ -149,9 +152,11 @@ impl CfgBuilder {
             if else_end != self.cfg.exit && self.current_node.is_some() {
                 self.cfg.add_edge(else_end, join_node);
             }
-            
+
             // Set current_node to join only if at least one branch completed normally
-            if then_end != self.cfg.exit || (else_end != self.cfg.exit && self.current_node.is_some()) {
+            if then_end != self.cfg.exit
+                || (else_end != self.cfg.exit && self.current_node.is_some())
+            {
                 self.current_node = Some(join_node);
             }
         } else {
@@ -448,53 +453,53 @@ impl CfgBuilder {
 
     fn visit_return(&mut self, _return_stmt: &ReturnStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+
         // Return statement - edge directly to exit
         self.cfg.add_edge(from_node, self.cfg.exit);
-        
+
         // No further execution after return
         self.current_node = None;
     }
 
     fn visit_throw(&mut self, _throw_stmt: &ThrowStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+
         // Throw statement - edge directly to exit
         self.cfg.add_edge(from_node, self.cfg.exit);
-        
+
         // No further execution after throw
         self.current_node = None;
     }
 
     fn visit_try(&mut self, try_stmt: &TryStmt) {
         let from_node = self.current_node.expect("Current node should exist");
-        
+
         // Try body
         let try_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(from_node, try_start);
-        
+
         self.current_node = Some(try_start);
         self.build_from_body(&try_stmt.block);
         let try_end = self.current_node.unwrap_or(try_start);
-        
+
         // Catch block (if present - only one in JavaScript/TypeScript)
         let mut catch_end: Option<NodeId> = None;
         if let Some(handler) = &try_stmt.handler {
             let catch_start = self.cfg.add_node(NodeKind::Statement);
             // Try body can flow to catch (on exception)
             self.cfg.add_edge(try_start, catch_start);
-            
+
             self.current_node = Some(catch_start);
             self.build_from_body(&handler.body);
             catch_end = self.current_node;
         }
-        
+
         // If try ended with return/throw, we need to handle finally separately
         let try_completed = self.current_node.is_some();
-        
+
         // Finally block (always executes if present)
         let join_node = self.cfg.add_node(NodeKind::Join);
-        
+
         if let Some(finally_block) = &try_stmt.finalizer {
             let finally_start = self.cfg.add_node(NodeKind::Statement);
             // Try normal completion flows to finally (if completed normally)
@@ -511,11 +516,11 @@ impl CfgBuilder {
             if try_stmt.handler.is_none() || catch_end == Some(self.cfg.exit) {
                 self.cfg.add_edge(try_start, finally_start);
             }
-            
+
             self.current_node = Some(finally_start);
             self.build_from_body(finally_block);
             let finally_end = self.current_node.unwrap_or(finally_start);
-            
+
             // Finally flows to join
             if self.current_node.is_some() {
                 self.cfg.add_edge(finally_end, join_node);
@@ -544,7 +549,9 @@ impl CfgBuilder {
 
         let target = if let Some(label) = &break_stmt.label {
             // Labeled break: find the matching labeled context
-            self.breakable_stack.iter().rev()
+            self.breakable_stack
+                .iter()
+                .rev()
                 .find(|ctx| ctx.label.as_deref() == Some(&*label.sym))
                 .map(|ctx| ctx.break_target)
         } else {
@@ -567,12 +574,18 @@ impl CfgBuilder {
 
         let target = if let Some(label) = &continue_stmt.label {
             // Labeled continue: find the matching labeled loop
-            self.breakable_stack.iter().rev()
-                .find(|ctx| ctx.label.as_deref() == Some(&*label.sym) && ctx.continue_target.is_some())
+            self.breakable_stack
+                .iter()
+                .rev()
+                .find(|ctx| {
+                    ctx.label.as_deref() == Some(&*label.sym) && ctx.continue_target.is_some()
+                })
                 .and_then(|ctx| ctx.continue_target)
         } else {
             // Unlabeled continue: find innermost loop (must have continue_target)
-            self.breakable_stack.iter().rev()
+            self.breakable_stack
+                .iter()
+                .rev()
                 .find(|ctx| ctx.continue_target.is_some())
                 .and_then(|ctx| ctx.continue_target)
         };
@@ -597,8 +610,8 @@ impl Default for CfgBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::parse_source;
     use crate::discover::discover_functions;
+    use crate::parser::parse_source;
     use swc_common::{sync::Lrc, SourceMap};
 
     /// Helper: parse source, discover functions, build CFG for the first function
@@ -612,43 +625,48 @@ mod tests {
 
     #[test]
     fn test_break_routes_to_loop_join() {
-        let cfg = build_cfg_for(
-            "function f() { while (true) { break; } }",
-        );
+        let cfg = build_cfg_for("function f() { while (true) { break; } }");
         cfg.validate().expect("CFG should be valid");
 
         // break should NOT create an edge to exit (NodeId(1))
         // It should route to the loop's join node
-        let break_to_exit = cfg.edges.iter()
-            .any(|e| e.to == cfg.exit && e.from != cfg.entry
-                && !matches!(cfg.nodes[e.from.0].kind, NodeKind::Statement | NodeKind::Join));
+        let break_to_exit = cfg.edges.iter().any(|e| {
+            e.to == cfg.exit
+                && e.from != cfg.entry
+                && !matches!(
+                    cfg.nodes[e.from.0].kind,
+                    NodeKind::Statement | NodeKind::Join
+                )
+        });
         // The only edge to exit should be from the join node (normal flow)
         // or from the final implicit connection in build_from_body
-        assert!(!break_to_exit || cfg.edges.iter().filter(|e| e.to == cfg.exit).count() <= 2,
-            "break should not create extra edges to exit");
+        assert!(
+            !break_to_exit || cfg.edges.iter().filter(|e| e.to == cfg.exit).count() <= 2,
+            "break should not create extra edges to exit"
+        );
     }
 
     #[test]
     fn test_continue_routes_to_loop_header() {
-        let cfg = build_cfg_for(
-            "function f() { while (true) { continue; } }",
-        );
+        let cfg = build_cfg_for("function f() { while (true) { continue; } }");
         cfg.validate().expect("CFG should be valid");
 
         // continue should create an edge to a LoopHeader node
         let has_edge_to_header = cfg.edges.iter().any(|e| {
             matches!(cfg.nodes[e.to.0].kind, NodeKind::LoopHeader)
                 && e.from != cfg.entry
-                && !matches!(cfg.nodes[e.from.0].kind, NodeKind::Entry | NodeKind::LoopHeader | NodeKind::Condition)
+                && !matches!(
+                    cfg.nodes[e.from.0].kind,
+                    NodeKind::Entry | NodeKind::LoopHeader | NodeKind::Condition
+                )
         });
         assert!(has_edge_to_header, "continue should route to loop header");
     }
 
     #[test]
     fn test_labeled_break_routes_to_outer_loop() {
-        let cfg = build_cfg_for(
-            "function f() { outer: while (true) { while (true) { break outer; } } }",
-        );
+        let cfg =
+            build_cfg_for("function f() { outer: while (true) { while (true) { break outer; } } }");
         cfg.validate().expect("CFG should be valid");
     }
 
@@ -662,19 +680,19 @@ mod tests {
 
     #[test]
     fn test_switch_break_routes_to_switch_join() {
-        let cfg = build_cfg_for(
-            "function f(x: number) { switch(x) { case 1: break; case 2: break; } }",
-        );
+        let cfg =
+            build_cfg_for("function f(x: number) { switch(x) { case 1: break; case 2: break; } }");
         cfg.validate().expect("CFG should be valid");
 
         // break in switch should NOT route to cfg.exit
         // Count edges to exit - should only be the final flow-to-exit
-        let exit_edges: Vec<_> = cfg.edges.iter()
-            .filter(|e| e.to == cfg.exit)
-            .collect();
+        let exit_edges: Vec<_> = cfg.edges.iter().filter(|e| e.to == cfg.exit).collect();
         // Only the join node should flow to exit (via build_from_body)
-        assert!(exit_edges.len() <= 1,
-            "switch breaks should route to join, not exit. Exit edges: {:?}", exit_edges);
+        assert!(
+            exit_edges.len() <= 1,
+            "switch breaks should route to join, not exit. Exit edges: {:?}",
+            exit_edges
+        );
     }
 
     #[test]
@@ -687,7 +705,8 @@ mod tests {
 
     #[test]
     fn test_for_of_with_break_and_continue() {
-        let cfg = build_cfg_for(r#"
+        let cfg = build_cfg_for(
+            r#"
             function f(arr: number[]) {
                 let sum = 0;
                 for (const item of arr) {
@@ -697,7 +716,8 @@ mod tests {
                 }
                 return sum;
             }
-        "#);
+        "#,
+        );
         cfg.validate().expect("CFG should be valid");
     }
 }

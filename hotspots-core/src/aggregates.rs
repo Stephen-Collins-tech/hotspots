@@ -77,7 +77,7 @@ fn extract_directory(file_path: &str) -> String {
 /// Returns None if path is outside repo root
 fn normalize_path_relative_to_repo(file_path: &str, repo_root: &std::path::Path) -> Option<String> {
     let file_path_buf = std::path::PathBuf::from(file_path);
-    
+
     // Try to make path relative to repo root
     if let Ok(relative) = file_path_buf.strip_prefix(repo_root) {
         // Convert to string with forward slashes
@@ -99,15 +99,15 @@ pub fn compute_file_aggregates(functions: &[FunctionSnapshot]) -> Vec<FileAggreg
 
     for func in functions {
         let entry = file_data.entry(func.file.clone()).or_insert((0.0, 0.0, 0));
-        
+
         // Sum LRS
         entry.0 += func.lrs;
-        
+
         // Max LRS
         if func.lrs > entry.1 {
             entry.1 = func.lrs;
         }
-        
+
         // Count High+ functions
         if is_high_plus(&func.band) {
             entry.2 += 1;
@@ -116,14 +116,14 @@ pub fn compute_file_aggregates(functions: &[FunctionSnapshot]) -> Vec<FileAggreg
 
     let mut aggregates: Vec<FileAggregates> = file_data
         .into_iter()
-        .map(|(file, (sum_lrs, max_lrs, high_plus_count))| {
-            FileAggregates {
+        .map(
+            |(file, (sum_lrs, max_lrs, high_plus_count))| FileAggregates {
                 file,
                 sum_lrs,
                 max_lrs,
                 high_plus_count,
-            }
-        })
+            },
+        )
         .collect();
 
     // Sort deterministically by file path
@@ -133,12 +133,15 @@ pub fn compute_file_aggregates(functions: &[FunctionSnapshot]) -> Vec<FileAggreg
 }
 
 /// Compute directory aggregates from file aggregates (recursive rollup)
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `file_aggregates` - File aggregates to roll up
 /// * `repo_root` - Repository root path for normalizing absolute paths
-pub fn compute_directory_aggregates(file_aggregates: &[FileAggregates], repo_root: &std::path::Path) -> Vec<DirectoryAggregates> {
+pub fn compute_directory_aggregates(
+    file_aggregates: &[FileAggregates],
+    repo_root: &std::path::Path,
+) -> Vec<DirectoryAggregates> {
     let mut dir_data: HashMap<String, (f64, f64, usize)> = HashMap::new();
 
     for file_agg in file_aggregates {
@@ -147,7 +150,7 @@ pub fn compute_directory_aggregates(file_aggregates: &[FileAggregates], repo_roo
             Some(path) => path,
             None => continue, // Skip files outside repo root
         };
-        
+
         // Recursive rollup: aggregate to all parent directories
         let mut current_path = normalized_file.clone();
         loop {
@@ -156,39 +159,39 @@ pub fn compute_directory_aggregates(file_aggregates: &[FileAggregates], repo_roo
                 // Reached root or empty, stop
                 break;
             }
-            
+
             // Skip if directory is outside repo (starts with / or contains ..)
             if dir.starts_with('/') && !dir.starts_with("./") {
                 break;
             }
-            
+
             let entry = dir_data.entry(dir.clone()).or_insert((0.0, 0.0, 0));
-            
+
             // Sum LRS
             entry.0 += file_agg.sum_lrs;
-            
+
             // Max LRS (max across all files in directory)
             if file_agg.max_lrs > entry.1 {
                 entry.1 = file_agg.max_lrs;
             }
-            
+
             // Sum High+ counts
             entry.2 += file_agg.high_plus_count;
-            
+
             current_path = dir;
         }
     }
 
     let mut aggregates: Vec<DirectoryAggregates> = dir_data
         .into_iter()
-        .map(|(directory, (sum_lrs, max_lrs, high_plus_count))| {
-            DirectoryAggregates {
+        .map(
+            |(directory, (sum_lrs, max_lrs, high_plus_count))| DirectoryAggregates {
                 directory,
                 sum_lrs,
                 max_lrs,
                 high_plus_count,
-            }
-        })
+            },
+        )
         .collect();
 
     // Sort deterministically by directory path
@@ -198,19 +201,19 @@ pub fn compute_directory_aggregates(file_aggregates: &[FileAggregates], repo_roo
 }
 
 /// Compute snapshot aggregates
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `snapshot` - Snapshot to compute aggregates for
 /// * `repo_root` - Repository root path for normalizing directory paths
-pub fn compute_snapshot_aggregates(snapshot: &Snapshot, repo_root: &std::path::Path) -> SnapshotAggregates {
+pub fn compute_snapshot_aggregates(
+    snapshot: &Snapshot,
+    repo_root: &std::path::Path,
+) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
 
-    SnapshotAggregates {
-        files,
-        directories,
-    }
+    SnapshotAggregates { files, directories }
 }
 
 /// Compute delta aggregates from delta entries
@@ -230,7 +233,7 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
         // Compute net LRS delta
         if let Some(delta_val) = &entry.delta {
             file_entry.0 += delta_val.lrs;
-            
+
             // Count regressions (delta.lrs > 0)
             if delta_val.lrs > 0.0 {
                 file_entry.1 += 1;
@@ -255,28 +258,26 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
 
     let mut aggregates: Vec<FileDeltaAggregates> = file_data
         .into_iter()
-        .map(|(file, (net_lrs_delta, regression_count))| {
-            FileDeltaAggregates {
+        .map(
+            |(file, (net_lrs_delta, regression_count))| FileDeltaAggregates {
                 file,
                 net_lrs_delta,
                 regression_count,
-            }
-        })
+            },
+        )
         .collect();
 
     // Sort deterministically by file path
     aggregates.sort_by(|a, b| a.file.cmp(&b.file));
 
-    DeltaAggregates {
-        files: aggregates,
-    }
+    DeltaAggregates { files: aggregates }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::FunctionSnapshot;
     use crate::report::MetricsReport;
+    use crate::snapshot::FunctionSnapshot;
 
     fn create_test_function(file: &str, function: &str, lrs: f64, band: &str) -> FunctionSnapshot {
         FunctionSnapshot {
@@ -284,7 +285,12 @@ mod tests {
             file: file.to_string(),
             line: 1,
             language: "TypeScript".to_string(),
-            metrics: MetricsReport { cc: 1, nd: 0, fo: 0, ns: 0 },
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 0,
+                fo: 0,
+                ns: 0,
+            },
             lrs,
             band: band.to_string(),
             suppression_reason: None,
@@ -301,12 +307,12 @@ mod tests {
 
         let aggregates = compute_file_aggregates(&functions);
         assert_eq!(aggregates.len(), 2);
-        
+
         let foo_agg = aggregates.iter().find(|a| a.file == "src/foo.ts").unwrap();
         assert_eq!(foo_agg.sum_lrs, 13.0);
         assert_eq!(foo_agg.max_lrs, 8.0);
         assert_eq!(foo_agg.high_plus_count, 1);
-        
+
         let bar_agg = aggregates.iter().find(|a| a.file == "src/bar.ts").unwrap();
         assert_eq!(bar_agg.sum_lrs, 3.0);
         assert_eq!(bar_agg.max_lrs, 3.0);
@@ -339,14 +345,20 @@ mod tests {
         // Use a dummy repo root for testing (relative paths)
         let repo_root = std::path::Path::new("/test/repo");
         let dir_aggregates = compute_directory_aggregates(&file_aggregates, repo_root);
-        
-        let api_dir = dir_aggregates.iter().find(|a| a.directory == "src/api").unwrap();
+
+        let api_dir = dir_aggregates
+            .iter()
+            .find(|a| a.directory == "src/api")
+            .unwrap();
         assert_eq!(api_dir.sum_lrs, 15.0);
         assert_eq!(api_dir.max_lrs, 8.0);
         assert_eq!(api_dir.high_plus_count, 1);
-        
+
         // Recursive rollup: "src" directory should include both "src/api" and "src/utils"
-        let src_dir = dir_aggregates.iter().find(|a| a.directory == "src").unwrap();
+        let src_dir = dir_aggregates
+            .iter()
+            .find(|a| a.directory == "src")
+            .unwrap();
         assert_eq!(src_dir.sum_lrs, 18.0); // 15.0 (api) + 3.0 (utils)
         assert_eq!(src_dir.max_lrs, 8.0);
         assert_eq!(src_dir.high_plus_count, 1);

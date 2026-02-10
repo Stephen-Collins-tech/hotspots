@@ -59,8 +59,14 @@ impl FunctionRiskReport {
         band: RiskBand,
         source_map: &swc_common::SourceMap,
     ) -> Self {
-        let function_name = function.name.as_deref()
-            .unwrap_or(&format!("<anonymous>@{}:{}", file, function.start_line(source_map)))
+        let function_name = function
+            .name
+            .as_deref()
+            .unwrap_or(&format!(
+                "<anonymous>@{}:{}",
+                file,
+                function.start_line(source_map)
+            ))
             .to_string();
 
         FunctionRiskReport {
@@ -91,7 +97,8 @@ impl FunctionRiskReport {
 pub fn sort_reports(mut reports: Vec<FunctionRiskReport>) -> Vec<FunctionRiskReport> {
     reports.sort_by(|a, b| {
         // 1. LRS descending
-        b.lrs.partial_cmp(&a.lrs)
+        b.lrs
+            .partial_cmp(&a.lrs)
             .unwrap_or(std::cmp::Ordering::Equal)
             // 2. File path ascending
             .then_with(|| a.file.cmp(&b.file))
@@ -106,10 +113,13 @@ pub fn sort_reports(mut reports: Vec<FunctionRiskReport>) -> Vec<FunctionRiskRep
 /// Render reports as text output
 pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     let mut output = String::new();
-    
+
     // Header
-    output.push_str(&format!("{:<8} {:<20} {:<6} {}\n", "LRS", "File", "Line", "Function"));
-    
+    output.push_str(&format!(
+        "{:<8} {:<20} {:<6} {}\n",
+        "LRS", "File", "Line", "Function"
+    ));
+
     // Reports
     for report in reports {
         let lrs_str = format!("{:.2}", report.lrs);
@@ -121,7 +131,7 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
             report.function
         ));
     }
-    
+
     output
 }
 
@@ -139,4 +149,3 @@ fn truncate_or_pad(s: &str, width: usize) -> String {
         format!("{:<width$}", s, width = width)
     }
 }
-
