@@ -14,13 +14,8 @@ impl CfgBuilder for RustCfgBuilder {
         let source = function.body.as_rust();
 
         // Parse the function source
-        match build_cfg_from_source(source) {
-            Ok(cfg) => cfg,
-            Err(_) => {
-                // On error, return a minimal CFG (entry -> exit)
-                Cfg::new()
-            }
-        }
+        // On error, return a minimal CFG (entry -> exit)
+        build_cfg_from_source(source).unwrap_or_default()
     }
 }
 

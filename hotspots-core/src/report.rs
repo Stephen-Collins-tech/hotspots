@@ -49,6 +49,7 @@ pub struct RiskReport {
 
 impl FunctionRiskReport {
     /// Create a new function risk report
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         function: &FunctionNode,
         file: String,

@@ -470,6 +470,7 @@ fn find_go_function_by_start(
 }
 
 /// Find a child node by kind
+#[allow(clippy::manual_find)]
 fn find_go_child_by_kind<'a>(
     node: tree_sitter::Node<'a>,
     kind: &str,

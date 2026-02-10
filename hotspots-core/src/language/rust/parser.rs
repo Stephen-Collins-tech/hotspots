@@ -102,7 +102,7 @@ impl RustModule {
     ) {
         self.extract_function_common(
             &item_fn.sig,
-            &*item_fn.block,
+            &item_fn.block,
             item_fn,
             name_prefix,
             file_index,
@@ -132,6 +132,7 @@ impl RustModule {
     }
 
     /// Common extraction logic for both functions and methods
+    #[allow(clippy::too_many_arguments)]
     fn extract_function_common<S: Spanned>(
         &self,
         sig: &Signature,
@@ -201,12 +202,10 @@ impl RustModule {
                 let line_text = self.source[line_start..].lines().next().unwrap_or("");
 
                 // Column is 0-indexed in syn
-                let mut col_count = 0;
-                for (char_idx, _) in line_text.char_indices() {
+                for (col_count, (char_idx, _)) in line_text.char_indices().enumerate() {
                     if col_count == column {
                         return line_start + char_idx;
                     }
-                    col_count += 1;
                 }
 
                 // Column is past end of line, return line end

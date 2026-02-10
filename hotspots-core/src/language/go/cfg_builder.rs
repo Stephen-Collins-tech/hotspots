@@ -358,6 +358,7 @@ impl GoCfgBuilderState {
 }
 
 /// Find a child node by kind
+#[allow(clippy::manual_find)]
 fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
