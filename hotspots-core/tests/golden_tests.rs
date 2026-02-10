@@ -324,3 +324,310 @@ fn test_rust_golden_determinism() {
 
     assert_eq!(json1, json2, "Rust output must be byte-for-byte identical across runs");
 }
+
+// Java language golden tests
+
+fn test_java_golden(fixture_name: &str) {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("java")
+        .join(format!("{}.java", fixture_name));
+    let golden = golden_path(&format!("java-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("java-{}.json", fixture_name));
+
+    // Parse both as JSON for comparison (handles formatting differences)
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    // Normalize paths in both JSON values before comparison
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for {}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_java_golden_simple() {
+    test_java_golden("Simple");
+}
+
+#[test]
+fn test_java_golden_loops() {
+    test_java_golden("Loops");
+}
+
+#[test]
+fn test_java_golden_exceptions() {
+    test_java_golden("Exceptions");
+}
+
+#[test]
+fn test_java_golden_classes() {
+    test_java_golden("Classes");
+}
+
+#[test]
+fn test_java_golden_anonymous_class() {
+    // Fixture: AnonymousClass.java, Golden: java-anonymous_class.json
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("java")
+        .join("AnonymousClass.java");
+    let golden = golden_path("java-anonymous_class.json");
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden("java-anonymous_class.json");
+
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for anonymous_class"
+    );
+}
+
+#[test]
+fn test_java_golden_java_specific() {
+    // Fixture: JavaSpecific.java, Golden: java-java_specific.json
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("java")
+        .join("JavaSpecific.java");
+    let golden = golden_path("java-java_specific.json");
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden("java-java_specific.json");
+
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for java_specific"
+    );
+}
+
+#[test]
+fn test_java_golden_switch_and_ternary() {
+    // Fixture: SwitchAndTernary.java, Golden: java-switch_and_ternary.json
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("java")
+        .join("SwitchAndTernary.java");
+    let golden = golden_path("java-switch_and_ternary.json");
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden("java-switch_and_ternary.json");
+
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for switch_and_ternary"
+    );
+}
+
+#[test]
+fn test_java_golden_determinism() {
+    // Test that running Java analysis twice produces identical output
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("java")
+        .join("Simple.java");
+    let options1 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let options2 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports1 = analyze(&fixture, options1).unwrap();
+    let reports2 = analyze(&fixture, options2).unwrap();
+
+    let json1 = render_json(&reports1);
+    let json2 = render_json(&reports2);
+
+    assert_eq!(json1, json2, "Java output must be byte-for-byte identical across runs");
+}
+
+// Python language golden tests
+
+fn test_python_golden(fixture_name: &str) {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("python")
+        .join(format!("{}.py", fixture_name));
+    let golden = golden_path(&format!("python-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("python-{}.json", fixture_name));
+
+    // Parse both as JSON for comparison (handles formatting differences)
+    let mut output_json: serde_json::Value = serde_json::from_str(&output)
+        .unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    // Normalize paths in both JSON values before comparison
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for {}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_python_golden_simple() {
+    test_python_golden("simple");
+}
+
+#[test]
+fn test_python_golden_loops() {
+    test_python_golden("loops");
+}
+
+#[test]
+fn test_python_golden_exceptions() {
+    test_python_golden("exceptions");
+}
+
+#[test]
+fn test_python_golden_classes() {
+    test_python_golden("classes");
+}
+
+#[test]
+fn test_python_golden_boolean_ops() {
+    test_python_golden("boolean_ops");
+}
+
+#[test]
+fn test_python_golden_comprehensions() {
+    test_python_golden("comprehensions");
+}
+
+#[test]
+fn test_python_golden_python_specific() {
+    test_python_golden("python_specific");
+}
+
+#[test]
+fn test_python_golden_determinism() {
+    // Test that running Python analysis twice produces identical output
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("python")
+        .join("simple.py");
+    let options1 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let options2 = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports1 = analyze(&fixture, options1).unwrap();
+    let reports2 = analyze(&fixture, options2).unwrap();
+
+    let json1 = render_json(&reports1);
+    let json2 = render_json(&reports2);
+
+    assert_eq!(json1, json2, "Python output must be byte-for-byte identical across runs");
+}
