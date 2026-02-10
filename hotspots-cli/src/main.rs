@@ -181,11 +181,8 @@ fn main() -> anyhow::Result<()> {
             let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
                 .context("failed to load configuration")?;
 
-            if resolved_config.config_path.is_some() {
-                eprintln!(
-                    "Using config: {}",
-                    resolved_config.config_path.as_ref().unwrap().display()
-                );
+            if let Some(config_path) = &resolved_config.config_path {
+                eprintln!("Using config: {}", config_path.display());
             }
 
             // CLI flags override config file values
