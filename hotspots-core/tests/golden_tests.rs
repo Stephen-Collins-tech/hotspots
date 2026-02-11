@@ -338,7 +338,9 @@ fn test_java_golden(fixture_name: &str) {
         .join("fixtures")
         .join("java")
         .join(format!("{}.java", fixture_name));
-    let golden = golden_path(&format!("java-{}.json", fixture_name));
+    // Golden files use lowercase/snake_case names
+    let golden_name = fixture_name.to_lowercase();
+    let golden = golden_path(&format!("java-{}.json", golden_name));
     let project_root = project_root();
 
     let options = AnalysisOptions {
@@ -350,7 +352,7 @@ fn test_java_golden(fixture_name: &str) {
         .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
 
     let output = render_json(&reports);
-    let expected = read_golden(&format!("java-{}.json", fixture_name));
+    let expected = read_golden(&format!("java-{}.json", golden_name));
 
     // Parse both as JSON for comparison (handles formatting differences)
     let mut output_json: serde_json::Value =
