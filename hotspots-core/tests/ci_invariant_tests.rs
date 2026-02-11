@@ -27,6 +27,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
             nd: 2,
             fo: 3,
             ns: 1,
+            loc: 10,
         },
         risk: RiskReport {
             r_cc: 2.0,
@@ -154,6 +155,7 @@ fn test_delta_single_parent_only() {
             nd: 2,
             fo: 3,
             ns: 1,
+            loc: 10,
         },
         risk: RiskReport {
             r_cc: 2.0,
@@ -227,6 +229,7 @@ fn test_delta_negative_deltas_allowed() {
             nd: 1,
             fo: 1,
             ns: 0,
+            loc: 10,
         }, // Lower than parent
         risk: RiskReport {
             r_cc: 2.0,

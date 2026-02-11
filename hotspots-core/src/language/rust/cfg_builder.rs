@@ -259,7 +259,7 @@ mod tests {
                 local_index: 0,
             },
             name: Some("test".to_string()),
-            span: SourceSpan::new(0, source.len(), 1, 0),
+            span: SourceSpan::new(0, source.len(), 1, 1, 0),
             body: FunctionBody::Rust {
                 source: source.to_string(),
             },

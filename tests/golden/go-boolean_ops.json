@@ -1,0 +1,191 @@
+[
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "PathologicalComplexity",
+    "line": 94,
+    "language": "Go",
+    "metrics": {
+      "cc": 13,
+      "nd": 5,
+      "fo": 0,
+      "ns": 5,
+      "loc": 41
+    },
+    "risk": {
+      "r_cc": 3.807354922057604,
+      "r_nd": 5.0,
+      "r_fo": 0.0,
+      "r_ns": 5.0
+    },
+    "lrs": 11.307354922057604,
+    "band": "critical"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "NestedWithBooleanOps",
+    "line": 39,
+    "language": "Go",
+    "metrics": {
+      "cc": 5,
+      "nd": 3,
+      "fo": 0,
+      "ns": 2,
+      "loc": 10
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 3.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 6.384962500721157,
+    "band": "high"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "DeeplyNested",
+    "line": 77,
+    "language": "Go",
+    "metrics": {
+      "cc": 4,
+      "nd": 5,
+      "fo": 0,
+      "ns": 0,
+      "loc": 14
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 5.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 6.321928094887362,
+    "band": "high"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "MultipleBooleanOps",
+    "line": 21,
+    "language": "Go",
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2,
+      "loc": 6
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.007354922057605,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "ComplexBooleanExpression",
+    "line": 30,
+    "language": "Go",
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2,
+      "loc": 6
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.007354922057605,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "LoopWithBooleanOps",
+    "line": 65,
+    "language": "Go",
+    "metrics": {
+      "cc": 5,
+      "nd": 2,
+      "fo": 0,
+      "ns": 1,
+      "loc": 9
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 4.884962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "SwitchWithBooleanOps",
+    "line": 52,
+    "language": "Go",
+    "metrics": {
+      "cc": 8,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 10
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.969925001442312,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "WithAnd",
+    "line": 5,
+    "language": "Go",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 5
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/boolean_ops.go",
+    "function": "WithOr",
+    "line": 13,
+    "language": "Go",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 5
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.1219280948873624,
+    "band": "moderate"
+  }
+]

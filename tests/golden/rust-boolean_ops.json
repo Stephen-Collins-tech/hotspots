@@ -1,0 +1,233 @@
+[
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "for_with_filter",
+    "line": 53,
+    "language": "Rust",
+    "metrics": {
+      "cc": 6,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0,
+      "loc": 9
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.407354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "nested_conditions",
+    "line": 27,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 7
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.384962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "while_with_boolean",
+    "line": 43,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 9
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.384962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "multiple_and",
+    "line": 11,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.584962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "multiple_or",
+    "line": 15,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.584962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "complex_condition",
+    "line": 23,
+    "language": "Rust",
+    "metrics": {
+      "cc": 5,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.584962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "simple_and",
+    "line": 3,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.321928094887362,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "simple_or",
+    "line": 7,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.321928094887362,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "mixed_operators",
+    "line": 19,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.321928094887362,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "short_circuit_and",
+    "line": 35,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.321928094887362,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/rust/boolean_ops.rs",
+    "function": "short_circuit_or",
+    "line": 39,
+    "language": "Rust",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.321928094887362,
+    "band": "low"
+  }
+]

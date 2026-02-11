@@ -580,6 +580,7 @@ mod tests {
                 nd: 2,
                 fo: 2,
                 ns: 1,
+                loc: 10,
             },
             lrs: 3.9,
             band: band.to_string(),
@@ -591,6 +592,7 @@ mod tests {
                 nd: 3,
                 fo: 3,
                 ns: 1,
+                loc: 15,
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: band.to_string(),
@@ -829,6 +831,7 @@ mod tests {
                 nd: 2,
                 fo: 2,
                 ns: 1,
+                loc: 10,
             },
             lrs,
             band: if lrs >= 9.0 {
@@ -848,6 +851,7 @@ mod tests {
                 nd: 3,
                 fo: 3,
                 ns: 1,
+                loc: 15,
             },
             lrs,
             band: if lrs >= 9.0 {

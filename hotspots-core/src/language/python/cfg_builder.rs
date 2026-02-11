@@ -541,6 +541,7 @@ mod tests {
                 start_byte,
                 func_node.end_byte(),
                 func_node.start_position().row as u32 + 1,
+                func_node.end_position().row as u32 + 1,
                 func_node.start_position().column as u32,
             ),
             body: FunctionBody::Python {

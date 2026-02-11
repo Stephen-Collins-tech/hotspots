@@ -290,6 +290,7 @@ mod tests {
                 nd: 0,
                 fo: 0,
                 ns: 0,
+                loc: 10,
             },
             lrs,
             band: band.to_string(),
