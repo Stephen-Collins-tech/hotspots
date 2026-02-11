@@ -62,7 +62,12 @@ pub struct LrsWeights {
 
 impl Default for LrsWeights {
     fn default() -> Self {
-        LrsWeights { cc: 1.0, nd: 0.8, fo: 0.6, ns: 0.7 }
+        LrsWeights {
+            cc: 1.0,
+            nd: 0.8,
+            fo: 0.6,
+            ns: 0.7,
+        }
     }
 }
 
@@ -76,7 +81,11 @@ pub struct RiskThresholds {
 
 impl Default for RiskThresholds {
     fn default() -> Self {
-        RiskThresholds { moderate: 3.0, high: 6.0, critical: 9.0 }
+        RiskThresholds {
+            moderate: 3.0,
+            high: 6.0,
+            critical: 9.0,
+        }
     }
 }
 
@@ -90,7 +99,10 @@ pub fn calculate_lrs(risk: &RiskComponents) -> f64 {
 
 /// Calculate LRS with custom weights
 pub fn calculate_lrs_with_weights(risk: &RiskComponents, weights: &LrsWeights) -> f64 {
-    weights.cc * risk.r_cc + weights.nd * risk.r_nd + weights.fo * risk.r_fo + weights.ns * risk.r_ns
+    weights.cc * risk.r_cc
+        + weights.nd * risk.r_nd
+        + weights.fo * risk.r_fo
+        + weights.ns * risk.r_ns
 }
 
 /// Assign risk band based on LRS with default thresholds

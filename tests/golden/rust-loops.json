@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "loop_with_break",
     "line": 42,
     "language": "Rust",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "nested_loops",
     "line": 65,
     "language": "Rust",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "simple_loop",
     "line": 3,
     "language": "Rust",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "loop_with_continue",
     "line": 54,
     "language": "Rust",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "while_with_break",
     "line": 77,
     "language": "Rust",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "while_loop",
     "line": 16,
     "language": "Rust",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "for_loop",
     "line": 26,
     "language": "Rust",
@@ -140,7 +140,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/loops.rs",
+    "file": "tests/fixtures/rust/loops.rs",
     "function": "for_range",
     "line": 34,
     "language": "Rust",

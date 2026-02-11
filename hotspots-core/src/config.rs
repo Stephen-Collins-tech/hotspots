@@ -172,12 +172,7 @@ impl HotspotsConfig {
 
         // Validate weights are non-negative
         if let Some(ref w) = self.weights {
-            for (name, val) in [
-                ("cc", w.cc),
-                ("nd", w.nd),
-                ("fo", w.fo),
-                ("ns", w.ns),
-            ] {
+            for (name, val) in [("cc", w.cc), ("nd", w.nd), ("fo", w.fo), ("ns", w.ns)] {
                 if let Some(v) = val {
                     if v < 0.0 {
                         anyhow::bail!("weights.{} must be non-negative (got {})", name, v);
@@ -198,19 +193,34 @@ impl HotspotsConfig {
             let rapid_growth = wt.rapid_growth_percent.unwrap_or(50.0);
 
             if watch_min <= 0.0 {
-                anyhow::bail!("warning_thresholds.watch_min must be positive (got {})", watch_min);
+                anyhow::bail!(
+                    "warning_thresholds.watch_min must be positive (got {})",
+                    watch_min
+                );
             }
             if watch_max <= 0.0 {
-                anyhow::bail!("warning_thresholds.watch_max must be positive (got {})", watch_max);
+                anyhow::bail!(
+                    "warning_thresholds.watch_max must be positive (got {})",
+                    watch_max
+                );
             }
             if attention_min <= 0.0 {
-                anyhow::bail!("warning_thresholds.attention_min must be positive (got {})", attention_min);
+                anyhow::bail!(
+                    "warning_thresholds.attention_min must be positive (got {})",
+                    attention_min
+                );
             }
             if attention_max <= 0.0 {
-                anyhow::bail!("warning_thresholds.attention_max must be positive (got {})", attention_max);
+                anyhow::bail!(
+                    "warning_thresholds.attention_max must be positive (got {})",
+                    attention_max
+                );
             }
             if rapid_growth <= 0.0 {
-                anyhow::bail!("warning_thresholds.rapid_growth_percent must be positive (got {})", rapid_growth);
+                anyhow::bail!(
+                    "warning_thresholds.rapid_growth_percent must be positive (got {})",
+                    rapid_growth
+                );
             }
 
             if watch_min >= watch_max {
@@ -238,12 +248,10 @@ impl HotspotsConfig {
 
         // Validate glob patterns compile
         for pattern in &self.include {
-            Glob::new(pattern)
-                .with_context(|| format!("invalid include pattern: {}", pattern))?;
+            Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
         }
         for pattern in &self.exclude {
-            Glob::new(pattern)
-                .with_context(|| format!("invalid exclude pattern: {}", pattern))?;
+            Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
         }
 
         Ok(())
@@ -399,7 +407,8 @@ pub fn load_config_file(path: &Path) -> Result<HotspotsConfig> {
     let config: HotspotsConfig = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse config file: {}", path.display()))?;
 
-    config.validate()
+    config
+        .validate()
         .with_context(|| format!("invalid config in: {}", path.display()))?;
 
     Ok(config)
@@ -416,10 +425,9 @@ fn load_from_package_json(path: &Path) -> Result<Option<HotspotsConfig>> {
     match pkg.get("hotspots") {
         Some(hotspots_value) => {
             let config: HotspotsConfig = serde_json::from_value(hotspots_value.clone())
-                .with_context(|| {
-                    format!("invalid hotspots config in {}", path.display())
-                })?;
-            config.validate()
+                .with_context(|| format!("invalid hotspots config in {}", path.display()))?;
+            config
+                .validate()
                 .with_context(|| format!("invalid hotspots config in {}", path.display()))?;
             Ok(Some(config))
         }
@@ -560,10 +568,13 @@ mod tests {
 
     #[test]
     fn test_should_include_custom_patterns() {
-        let config: HotspotsConfig = serde_json::from_str(r#"{
+        let config: HotspotsConfig = serde_json::from_str(
+            r#"{
             "include": ["src/**/*.ts"],
             "exclude": ["src/generated/**"]
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
         let resolved = config.resolve().unwrap();
         assert!(resolved.should_include(Path::new("src/api.ts")));
         assert!(!resolved.should_include(Path::new("lib/util.ts")));
@@ -599,14 +610,18 @@ mod tests {
     fn test_discover_package_json() {
         let dir = tempfile::tempdir().unwrap();
         let pkg_path = dir.path().join("package.json");
-        fs::write(&pkg_path, r#"{
+        fs::write(
+            &pkg_path,
+            r#"{
             "name": "my-project",
             "version": "1.0.0",
             "hotspots": {
                 "exclude": ["**/*.test.ts"],
                 "min_lrs": 3.0
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let result = discover_config(dir.path()).unwrap();
         assert!(result.is_some());
@@ -631,11 +646,19 @@ mod tests {
 
         // Create both config files - .hotspotsrc.json should win
         fs::write(dir.path().join(".hotspotsrc.json"), r#"{"min_lrs": 1.0}"#).unwrap();
-        fs::write(dir.path().join("hotspots.config.json"), r#"{"min_lrs": 2.0}"#).unwrap();
+        fs::write(
+            dir.path().join("hotspots.config.json"),
+            r#"{"min_lrs": 2.0}"#,
+        )
+        .unwrap();
 
         let result = discover_config(dir.path()).unwrap();
         let (config, _) = result.unwrap();
-        assert_eq!(config.min_lrs, Some(1.0), ".hotspotsrc.json should take priority");
+        assert_eq!(
+            config.min_lrs,
+            Some(1.0),
+            ".hotspotsrc.json should take priority"
+        );
     }
 
     #[test]
@@ -681,7 +704,7 @@ mod tests {
         let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         let resolved = config.resolve().unwrap();
         assert_eq!(resolved.moderate_threshold, 3.0); // default
-        assert_eq!(resolved.high_threshold, 6.0);     // default
+        assert_eq!(resolved.high_threshold, 6.0); // default
         assert_eq!(resolved.critical_threshold, 12.0);
     }
 

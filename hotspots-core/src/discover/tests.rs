@@ -35,7 +35,10 @@ mod discover_tests {
         let src = "const foo = () => { return 42; };";
         let functions = parse_and_discover(src, 0);
         assert_eq!(functions.len(), 1, "Should discover arrow function");
-        assert_eq!(functions[0].name, None, "Arrow function should have no name");
+        assert_eq!(
+            functions[0].name, None,
+            "Arrow function should have no name"
+        );
     }
 
     #[test]
@@ -59,11 +62,14 @@ mod discover_tests {
         "#;
         let functions1 = parse_and_discover(src, 0);
         let functions2 = parse_and_discover(src, 0);
-        
+
         // Functions should be in same order (sorted by span.start)
         assert_eq!(functions1.len(), functions2.len());
         for (f1, f2) in functions1.iter().zip(functions2.iter()) {
-            assert_eq!(f1.span.start, f2.span.start, "Function order should be deterministic");
+            assert_eq!(
+                f1.span.start, f2.span.start,
+                "Function order should be deterministic"
+            );
         }
     }
 
@@ -94,7 +100,11 @@ mod discover_tests {
     fn test_discover_function_with_arrow_expression_body() {
         let src = "const foo = () => 42;";
         let functions = parse_and_discover(src, 0);
-        assert_eq!(functions.len(), 1, "Should discover arrow with expression body");
+        assert_eq!(
+            functions.len(),
+            1,
+            "Should discover arrow with expression body"
+        );
         // Expression body should be converted to return statement
         assert_eq!(
             functions[0].body.as_ecmascript().stmts.len(),

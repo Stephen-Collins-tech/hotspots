@@ -168,7 +168,10 @@ impl Visit for CatchCounter<'_> {
 /// Walk AST and count maximum depth of control constructs:
 /// - if, loop, switch, try
 fn nesting_depth(body: &BlockStmt) -> usize {
-    let mut visitor = NestingDepthVisitor { max_depth: 0, current_depth: 0 };
+    let mut visitor = NestingDepthVisitor {
+        max_depth: 0,
+        current_depth: 0,
+    };
     body.visit_with(&mut visitor);
     visitor.max_depth
 }
@@ -350,7 +353,9 @@ fn non_structured_exits(body: &BlockStmt) -> usize {
     body.visit_with(&mut visitor);
 
     // Check if last statement is a return (final tail return)
-    let has_final_return = body.stmts.last()
+    let has_final_return = body
+        .stmts
+        .last()
         .map(|s| matches!(s, Stmt::Return(_)))
         .unwrap_or(false);
 
@@ -398,9 +403,13 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     use tree_sitter::Parser;
     let mut parser = Parser::new();
     let language = tree_sitter_go::LANGUAGE;
-    parser.set_language(&language.into()).expect("Failed to set Go language");
+    parser
+        .set_language(&language.into())
+        .expect("Failed to set Go language");
 
-    let tree = parser.parse(source, None).expect("Failed to re-parse Go source");
+    let tree = parser
+        .parse(source, None)
+        .expect("Failed to re-parse Go source");
     let root = tree.root_node();
 
     // Find the function node in the tree
@@ -437,7 +446,10 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
 }
 
 /// Find a Go function node by its start byte position
-fn find_go_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Option<tree_sitter::Node> {
+fn find_go_function_by_start(
+    root: tree_sitter::Node,
+    start_byte: usize,
+) -> Option<tree_sitter::Node> {
     fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
         if (node.kind() == "function_declaration" || node.kind() == "method_declaration")
             && node.start_byte() == start
@@ -458,7 +470,11 @@ fn find_go_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Opti
 }
 
 /// Find a child node by kind
-fn find_go_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+#[allow(clippy::manual_find)]
+fn find_go_child_by_kind<'a>(
+    node: tree_sitter::Node<'a>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == kind {
@@ -474,8 +490,12 @@ fn go_nesting_depth(body_node: &tree_sitter::Node) -> usize {
         // Increment depth for control structures
         let new_depth = if matches!(
             node.kind(),
-            "if_statement" | "for_statement" | "switch_statement" |
-            "expression_switch_statement" | "type_switch_statement" | "select_statement"
+            "if_statement"
+                | "for_statement"
+                | "switch_statement"
+                | "expression_switch_statement"
+                | "type_switch_statement"
+                | "select_statement"
         ) {
             let depth = current_depth + 1;
             if depth > *max_depth {
@@ -620,9 +640,13 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     use tree_sitter::Parser;
     let mut parser = Parser::new();
     let language = tree_sitter_java::LANGUAGE;
-    parser.set_language(&language.into()).expect("Failed to set Java language");
+    parser
+        .set_language(&language.into())
+        .expect("Failed to set Java language");
 
-    let tree = parser.parse(source, None).expect("Failed to re-parse Java source");
+    let tree = parser
+        .parse(source, None)
+        .expect("Failed to re-parse Java source");
     let root = tree.root_node();
 
     // Find the function/method node in the tree
@@ -661,7 +685,10 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
 }
 
 /// Find a Java function/method node by its start byte position
-fn find_java_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Option<tree_sitter::Node> {
+fn find_java_function_by_start(
+    root: tree_sitter::Node,
+    start_byte: usize,
+) -> Option<tree_sitter::Node> {
     fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
         if (node.kind() == "method_declaration" || node.kind() == "constructor_declaration")
             && node.start_byte() == start
@@ -683,7 +710,10 @@ fn find_java_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Op
 
 /// Find a child node by kind
 #[allow(clippy::manual_find)]
-fn find_java_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+fn find_java_child_by_kind<'a>(
+    node: tree_sitter::Node<'a>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == kind {
@@ -699,10 +729,15 @@ fn java_nesting_depth(body_node: &tree_sitter::Node) -> usize {
         // Increment depth for control structures
         let new_depth = if matches!(
             node.kind(),
-            "if_statement" | "while_statement" | "do_statement" |
-            "for_statement" | "enhanced_for_statement" |
-            "switch_statement" | "switch_expression" |
-            "try_statement" | "synchronized_statement"
+            "if_statement"
+                | "while_statement"
+                | "do_statement"
+                | "for_statement"
+                | "enhanced_for_statement"
+                | "switch_statement"
+                | "switch_expression"
+                | "try_statement"
+                | "synchronized_statement"
         ) {
             let depth = current_depth + 1;
             if depth > *max_depth {
@@ -727,7 +762,11 @@ fn java_nesting_depth(body_node: &tree_sitter::Node) -> usize {
 
 /// Count method calls (fan-out) in Java
 fn java_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut std::collections::HashSet<String>) {
+    fn count_calls(
+        node: tree_sitter::Node,
+        source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
         // Java uses "method_invocation" node for method calls
         if node.kind() == "method_invocation" {
             // Extract the method name
@@ -813,9 +852,13 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     use tree_sitter::Parser;
     let mut parser = Parser::new();
     let language = tree_sitter_python::LANGUAGE;
-    parser.set_language(&language.into()).expect("Failed to set Python language");
+    parser
+        .set_language(&language.into())
+        .expect("Failed to set Python language");
 
-    let tree = parser.parse(source, None).expect("Failed to re-parse Python source");
+    let tree = parser
+        .parse(source, None)
+        .expect("Failed to re-parse Python source");
     let root = tree.root_node();
 
     // Find the function node in the tree
@@ -852,7 +895,10 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
 }
 
 /// Find a Python function node by its start byte position
-fn find_python_function_by_start(root: tree_sitter::Node, start_byte: usize) -> Option<tree_sitter::Node> {
+fn find_python_function_by_start(
+    root: tree_sitter::Node,
+    start_byte: usize,
+) -> Option<tree_sitter::Node> {
     fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
         if (node.kind() == "function_definition" || node.kind() == "async_function_definition")
             && node.start_byte() == start
@@ -874,7 +920,10 @@ fn find_python_function_by_start(root: tree_sitter::Node, start_byte: usize) -> 
 
 /// Find a child node by kind
 #[allow(clippy::manual_find)]
-fn find_python_child_by_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
+fn find_python_child_by_kind<'a>(
+    node: tree_sitter::Node<'a>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == kind {
@@ -890,8 +939,12 @@ fn python_nesting_depth(body_node: &tree_sitter::Node) -> usize {
         // Increment depth for control structures
         let new_depth = if matches!(
             node.kind(),
-            "if_statement" | "while_statement" | "for_statement" |
-            "try_statement" | "with_statement" | "match_statement"
+            "if_statement"
+                | "while_statement"
+                | "for_statement"
+                | "try_statement"
+                | "with_statement"
+                | "match_statement"
         ) {
             let depth = current_depth + 1;
             if depth > *max_depth {
@@ -916,7 +969,11 @@ fn python_nesting_depth(body_node: &tree_sitter::Node) -> usize {
 
 /// Count function calls (fan-out) in Python
 fn python_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut std::collections::HashSet<String>) {
+    fn count_calls(
+        node: tree_sitter::Node,
+        source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
         // Python uses "call" node for function calls
         if node.kind() == "call" {
             // Try to extract the function name
@@ -975,8 +1032,10 @@ fn python_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize
                 *count += 1;
             }
             // Comprehensions with if-filters add to CC
-            "list_comprehension" | "dictionary_comprehension" |
-            "set_comprehension" | "generator_expression" => {
+            "list_comprehension"
+            | "dictionary_comprehension"
+            | "set_comprehension"
+            | "generator_expression" => {
                 // Check if it has an if_clause child
                 let mut cursor = node.walk();
                 for child in node.children(&mut cursor) {

@@ -4,7 +4,7 @@ use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
 use anyhow::{Context, Result};
-use syn::{Expr, ExprBlock, ExprIf, ExprLoop, ExprMatch, ExprWhile, ExprForLoop, Stmt, Block};
+use syn::{Block, Expr, ExprBlock, ExprForLoop, ExprIf, ExprLoop, ExprMatch, ExprWhile, Stmt};
 
 /// CFG builder for Rust functions
 pub struct RustCfgBuilder;
@@ -14,21 +14,16 @@ impl CfgBuilder for RustCfgBuilder {
         let source = function.body.as_rust();
 
         // Parse the function source
-        match build_cfg_from_source(source) {
-            Ok(cfg) => cfg,
-            Err(_) => {
-                // On error, return a minimal CFG (entry -> exit)
-                Cfg::new()
-            }
-        }
+        // On error, return a minimal CFG (entry -> exit)
+        build_cfg_from_source(source).unwrap_or_default()
     }
 }
 
 /// Build CFG from Rust source
 fn build_cfg_from_source(source: &str) -> Result<Cfg> {
     // Parse the function source
-    let item_fn: syn::ItemFn = syn::parse_str(source)
-        .context("Failed to parse Rust function for CFG building")?;
+    let item_fn: syn::ItemFn =
+        syn::parse_str(source).context("Failed to parse Rust function for CFG building")?;
 
     let mut cfg = Cfg::new();
     let entry = cfg.entry;
@@ -147,7 +142,12 @@ fn build_if_cfg(cfg: &mut Cfg, expr_if: &ExprIf, entry: NodeId, exit: NodeId) ->
 }
 
 /// Build CFG for match expression
-fn build_match_cfg(cfg: &mut Cfg, expr_match: &ExprMatch, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_match_cfg(
+    cfg: &mut Cfg,
+    expr_match: &ExprMatch,
+    entry: NodeId,
+    exit: NodeId,
+) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
 
@@ -165,7 +165,12 @@ fn build_match_cfg(cfg: &mut Cfg, expr_match: &ExprMatch, entry: NodeId, exit: N
 }
 
 /// Build CFG for loop expression
-fn build_loop_cfg(cfg: &mut Cfg, expr_loop: &ExprLoop, entry: NodeId, _exit: NodeId) -> Result<NodeId> {
+fn build_loop_cfg(
+    cfg: &mut Cfg,
+    expr_loop: &ExprLoop,
+    entry: NodeId,
+    _exit: NodeId,
+) -> Result<NodeId> {
     let header = cfg.add_node(NodeKind::LoopHeader);
     cfg.add_edge(entry, header);
 
@@ -182,7 +187,12 @@ fn build_loop_cfg(cfg: &mut Cfg, expr_loop: &ExprLoop, entry: NodeId, _exit: Nod
 }
 
 /// Build CFG for while loop
-fn build_while_cfg(cfg: &mut Cfg, expr_while: &ExprWhile, entry: NodeId, _exit: NodeId) -> Result<NodeId> {
+fn build_while_cfg(
+    cfg: &mut Cfg,
+    expr_while: &ExprWhile,
+    entry: NodeId,
+    _exit: NodeId,
+) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
 
@@ -202,7 +212,12 @@ fn build_while_cfg(cfg: &mut Cfg, expr_while: &ExprWhile, entry: NodeId, _exit: 
 }
 
 /// Build CFG for for loop
-fn build_for_cfg(cfg: &mut Cfg, expr_for: &ExprForLoop, entry: NodeId, _exit: NodeId) -> Result<NodeId> {
+fn build_for_cfg(
+    cfg: &mut Cfg,
+    expr_for: &ExprForLoop,
+    entry: NodeId,
+    _exit: NodeId,
+) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
 
@@ -222,7 +237,12 @@ fn build_for_cfg(cfg: &mut Cfg, expr_for: &ExprForLoop, entry: NodeId, _exit: No
 }
 
 /// Build CFG for expression block
-fn build_expr_block_cfg(cfg: &mut Cfg, expr_block: &ExprBlock, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_expr_block_cfg(
+    cfg: &mut Cfg,
+    expr_block: &ExprBlock,
+    entry: NodeId,
+    exit: NodeId,
+) -> Result<NodeId> {
     build_block_cfg(cfg, &expr_block.block, entry, exit)
 }
 

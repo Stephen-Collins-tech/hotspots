@@ -28,16 +28,16 @@ fn test_typescript_javascript_parity() {
         };
 
         // Analyze TypeScript version
-        let ts_reports = analyze(&ts_path, options)
-            .unwrap_or_else(|_| panic!("Failed to analyze {}", ts_file));
+        let ts_reports =
+            analyze(&ts_path, options).unwrap_or_else(|_| panic!("Failed to analyze {}", ts_file));
 
         // Analyze JavaScript version
         let options = AnalysisOptions {
             min_lrs: None,
             top_n: None,
         };
-        let js_reports = analyze(&js_path, options)
-            .unwrap_or_else(|_| panic!("Failed to analyze {}", js_file));
+        let js_reports =
+            analyze(&js_path, options).unwrap_or_else(|_| panic!("Failed to analyze {}", js_file));
 
         // Both should have same number of functions
         assert_eq!(
@@ -156,10 +156,8 @@ fn test_javascript_module_extensions() {
     };
 
     // Both should parse and analyze successfully
-    let mjs_reports = analyze(&mjs_file, options1)
-        .expect("Should analyze .mjs files");
-    let cjs_reports = analyze(&cjs_file, options2)
-        .expect("Should analyze .cjs files");
+    let mjs_reports = analyze(&mjs_file, options1).expect("Should analyze .mjs files");
+    let cjs_reports = analyze(&cjs_file, options2).expect("Should analyze .cjs files");
 
     assert_eq!(mjs_reports.len(), 1, "Should find function in .mjs file");
     assert_eq!(cjs_reports.len(), 1, "Should find function in .cjs file");
@@ -193,10 +191,8 @@ fn test_typescript_module_extensions() {
     };
 
     // Both should parse and analyze successfully
-    let mts_reports = analyze(&mts_file, options1)
-        .expect("Should analyze .mts files");
-    let cts_reports = analyze(&cts_file, options2)
-        .expect("Should analyze .cts files");
+    let mts_reports = analyze(&mts_file, options1).expect("Should analyze .mts files");
+    let cts_reports = analyze(&cts_file, options2).expect("Should analyze .cts files");
 
     assert_eq!(mts_reports.len(), 1, "Should find function in .mts file");
     assert_eq!(cts_reports.len(), 1, "Should find function in .cts file");

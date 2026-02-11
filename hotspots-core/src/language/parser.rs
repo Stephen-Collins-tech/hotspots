@@ -44,8 +44,8 @@ pub trait ParsedModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::FunctionId;
     use crate::language::{FunctionBody, SourceSpan};
-    use crate::ast::{FunctionId};
 
     // Test implementation of ParsedModule
     struct TestModule {

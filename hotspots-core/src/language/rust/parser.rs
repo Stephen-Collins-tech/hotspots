@@ -1,12 +1,12 @@
 //! Rust parser implementation using syn
 
 use crate::ast::{FunctionId, FunctionNode};
+use crate::language::function_body::FunctionBody;
 use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::span::SourceSpan;
-use crate::language::function_body::FunctionBody;
 use anyhow::{Context, Result};
 use syn::spanned::Spanned;
-use syn::{File, Item, ItemFn, ImplItem, ImplItemFn, Signature, Block};
+use syn::{Block, File, ImplItem, ImplItemFn, Item, ItemFn, Signature};
 
 /// Rust parser using syn
 pub struct RustParser;
@@ -28,10 +28,7 @@ struct RustModule {
 
 impl RustModule {
     fn new(file: File, source: String) -> Self {
-        Self {
-            file,
-            source,
-        }
+        Self { file, source }
     }
 
     /// Extract function nodes from the module
@@ -78,7 +75,13 @@ impl RustModule {
                 // Visit methods in impl block
                 for impl_item in &item_impl.items {
                     if let ImplItem::Fn(method) = impl_item {
-                        self.extract_impl_fn(method, type_name.as_deref(), file_index, local_index, functions);
+                        self.extract_impl_fn(
+                            method,
+                            type_name.as_deref(),
+                            file_index,
+                            local_index,
+                            functions,
+                        );
                     }
                 }
             }
@@ -99,7 +102,7 @@ impl RustModule {
     ) {
         self.extract_function_common(
             &item_fn.sig,
-            &*item_fn.block,
+            &item_fn.block,
             item_fn,
             name_prefix,
             file_index,
@@ -129,6 +132,7 @@ impl RustModule {
     }
 
     /// Common extraction logic for both functions and methods
+    #[allow(clippy::too_many_arguments)]
     fn extract_function_common<S: Spanned>(
         &self,
         sig: &Signature,
@@ -195,18 +199,13 @@ impl RustModule {
             if current_line == line {
                 // We're on the target line - now count columns
                 let line_start = byte_offset;
-                let line_text = self.source[line_start..]
-                    .lines()
-                    .next()
-                    .unwrap_or("");
+                let line_text = self.source[line_start..].lines().next().unwrap_or("");
 
                 // Column is 0-indexed in syn
-                let mut col_count = 0;
-                for (char_idx, _) in line_text.char_indices() {
+                for (col_count, (char_idx, _)) in line_text.char_indices().enumerate() {
                     if col_count == column {
                         return line_start + char_idx;
                     }
-                    col_count += 1;
                 }
 
                 // Column is past end of line, return line end

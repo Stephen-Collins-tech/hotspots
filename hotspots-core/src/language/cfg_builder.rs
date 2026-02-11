@@ -65,7 +65,10 @@ mod tests {
         let cfg = builder.build(&function);
 
         // Basic CFG should have entry and exit nodes
-        assert!(cfg.node_count() >= 2, "CFG should have at least entry and exit nodes");
+        assert!(
+            cfg.node_count() >= 2,
+            "CFG should have at least entry and exit nodes"
+        );
     }
 
     #[test]

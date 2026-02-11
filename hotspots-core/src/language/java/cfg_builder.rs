@@ -17,9 +17,13 @@ impl CfgBuilder for JavaCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_java::LANGUAGE;
-        parser.set_language(&language.into()).expect("Failed to set Java language");
+        parser
+            .set_language(&language.into())
+            .expect("Failed to set Java language");
 
-        let tree = parser.parse(source, None).expect("Failed to re-parse Java source");
+        let tree = parser
+            .parse(source, None)
+            .expect("Failed to re-parse Java source");
         let root = tree.root_node();
 
         // Find the function/method node in the tree
@@ -80,7 +84,10 @@ impl JavaCfgBuilderState {
         // Connect last node to exit
         if let Some(last_node) = self.current_node {
             if last_node != self.cfg.exit {
-                let has_exit_edge = self.cfg.edges.iter()
+                let has_exit_edge = self
+                    .cfg
+                    .edges
+                    .iter()
                     .any(|e| e.from == last_node && e.to == self.cfg.exit);
 
                 if !has_exit_edge {
@@ -116,7 +123,9 @@ impl JavaCfgBuilderState {
 
     /// Visit if statement
     fn visit_if(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create condition node
         let condition = self.cfg.add_node(NodeKind::Condition);
@@ -177,7 +186,9 @@ impl JavaCfgBuilderState {
 
     /// Visit while loop
     fn visit_while(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create condition node
         let condition = self.cfg.add_node(NodeKind::Condition);
@@ -214,7 +225,9 @@ impl JavaCfgBuilderState {
 
     /// Visit do-while loop
     fn visit_do_while(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create body entry node
         let body_entry = self.cfg.add_node(NodeKind::Statement);
@@ -259,7 +272,9 @@ impl JavaCfgBuilderState {
 
     /// Visit for loop (traditional or enhanced)
     fn visit_for(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create condition node (header)
         let condition = self.cfg.add_node(NodeKind::Condition);
@@ -296,7 +311,9 @@ impl JavaCfgBuilderState {
 
     /// Visit switch statement or switch expression
     fn visit_switch(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create switch node (decision point)
         let switch_node = self.cfg.add_node(NodeKind::Condition);
@@ -312,7 +329,7 @@ impl JavaCfgBuilderState {
         });
 
         // Find switch body
-        if let Some(switch_body) = find_child_by_kind(*node,"switch_block") {
+        if let Some(switch_body) = find_child_by_kind(*node, "switch_block") {
             let mut cursor = switch_body.walk();
             let mut has_default = false;
 
@@ -359,7 +376,9 @@ impl JavaCfgBuilderState {
 
     /// Visit try statement
     fn visit_try(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create try block entry
         let try_entry = self.cfg.add_node(NodeKind::Statement);
@@ -369,7 +388,7 @@ impl JavaCfgBuilderState {
         let mut branch_ends = Vec::new();
 
         // Process try body
-        if let Some(try_body) = find_child_by_kind(*node,"block") {
+        if let Some(try_body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(try_entry);
             self.visit_block(&try_body, source);
 
@@ -408,7 +427,8 @@ impl JavaCfgBuilderState {
         // on all exit paths. For simplicity, we skip modeling finally in the CFG.
 
         // Only create join node if there are branches that don't exit
-        let non_exit_branches: Vec<_> = branch_ends.into_iter()
+        let non_exit_branches: Vec<_> = branch_ends
+            .into_iter()
             .filter(|&end| end != self.cfg.exit)
             .collect();
 
@@ -426,7 +446,9 @@ impl JavaCfgBuilderState {
 
     /// Visit synchronized statement
     fn visit_synchronized(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else { return; };
+        let Some(current) = self.current_node else {
+            return;
+        };
 
         // Create synchronized node (decision point - acquiring lock)
         let sync_node = self.cfg.add_node(NodeKind::Condition);
@@ -575,7 +597,11 @@ public class Test {
     }
 }
 "#;
-        let function = make_test_function(source, source.find("public void test").unwrap(), source.len());
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
         let builder = JavaCfgBuilder;
         let cfg = builder.build(&function);
 
@@ -594,7 +620,11 @@ public class Test {
     }
 }
 "#;
-        let function = make_test_function(source, source.find("public void test").unwrap(), source.len());
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
         let builder = JavaCfgBuilder;
         let cfg = builder.build(&function);
 
@@ -614,7 +644,11 @@ public class Test {
     }
 }
 "#;
-        let function = make_test_function(source, source.find("public void test").unwrap(), source.len());
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
         let builder = JavaCfgBuilder;
         let cfg = builder.build(&function);
 
@@ -633,7 +667,11 @@ public class Test {
     }
 }
 "#;
-        let function = make_test_function(source, source.find("public void test").unwrap(), source.len());
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
         let builder = JavaCfgBuilder;
         let cfg = builder.build(&function);
 
@@ -654,7 +692,11 @@ public class Test {
     }
 }
 "#;
-        let function = make_test_function(source, source.find("public void test").unwrap(), source.len());
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
         let builder = JavaCfgBuilder;
         let cfg = builder.build(&function);
 

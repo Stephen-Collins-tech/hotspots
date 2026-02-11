@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "LoopWithCondition",
     "line": 13,
     "language": "Go",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "NestedLoops",
     "line": 23,
     "language": "Go",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "LoopWithBreak",
     "line": 33,
     "language": "Go",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "LoopWithContinue",
     "line": 43,
     "language": "Go",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "InfiniteLoop",
     "line": 72,
     "language": "Go",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "SimpleLoop",
     "line": 5,
     "language": "Go",
@@ -120,7 +120,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "RangeLoop",
     "line": 54,
     "language": "Go",
@@ -140,7 +140,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/loops.go",
+    "file": "tests/fixtures/go/loops.go",
     "function": "WhileStyleLoop",
     "line": 63,
     "language": "Go",

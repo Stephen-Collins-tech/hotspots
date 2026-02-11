@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "SimpleSwitch",
     "line": 5,
     "language": "Go",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "NestedSwitch",
     "line": 45,
     "language": "Go",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "SwitchWithFallthrough",
     "line": 29,
     "language": "Go",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "TypeSwitch",
     "line": 72,
     "language": "Go",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "SwitchNoDefault",
     "line": 18,
     "language": "Go",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "ExpressionSwitch",
     "line": 61,
     "language": "Go",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/go/switch.go",
+    "file": "tests/fixtures/go/switch.go",
     "function": "SwitchMultipleValues",
     "line": 85,
     "language": "Go",

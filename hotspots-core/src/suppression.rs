@@ -32,7 +32,11 @@ use swc_common::SourceMap;
 /// ```
 ///
 /// Blank lines between the comment and function will cause the comment to be ignored.
-pub fn extract_suppression(source: &str, span: SourceSpan, _source_map: &SourceMap) -> Option<String> {
+pub fn extract_suppression(
+    source: &str,
+    span: SourceSpan,
+    _source_map: &SourceMap,
+) -> Option<String> {
     // Get the line number of the function start (1-indexed)
     let func_line = span.start_line;
 

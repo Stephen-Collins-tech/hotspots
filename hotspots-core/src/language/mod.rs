@@ -15,7 +15,7 @@ pub mod span;
 
 use std::path::Path;
 
-pub use cfg_builder::{CfgBuilder, get_builder_for_function};
+pub use cfg_builder::{get_builder_for_function, CfgBuilder};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
@@ -278,10 +278,7 @@ mod tests {
 
     #[test]
     fn test_extensions() {
-        assert_eq!(
-            Language::TypeScript.extensions(),
-            &["ts", "mts", "cts"]
-        );
+        assert_eq!(Language::TypeScript.extensions(), &["ts", "mts", "cts"]);
         assert_eq!(
             Language::TypeScriptReact.extensions(),
             &["tsx", "mtsx", "ctsx"]

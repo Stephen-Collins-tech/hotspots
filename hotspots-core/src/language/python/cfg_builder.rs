@@ -17,9 +17,13 @@ impl CfgBuilder for PythonCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_python::LANGUAGE;
-        parser.set_language(&language.into()).expect("Failed to set Python language");
+        parser
+            .set_language(&language.into())
+            .expect("Failed to set Python language");
 
-        let tree = parser.parse(source, None).expect("Failed to re-parse Python source");
+        let tree = parser
+            .parse(source, None)
+            .expect("Failed to re-parse Python source");
         let root = tree.root_node();
 
         // Find the function node in the tree
@@ -78,7 +82,10 @@ impl PythonCfgBuilderState {
         // Connect last node to exit
         if let Some(last_node) = self.current_node {
             if last_node != self.cfg.exit {
-                let has_exit_edge = self.cfg.edges.iter()
+                let has_exit_edge = self
+                    .cfg
+                    .edges
+                    .iter()
                     .any(|e| e.from == last_node && e.to == self.cfg.exit);
 
                 if !has_exit_edge {
@@ -333,7 +340,8 @@ impl PythonCfgBuilderState {
         }
 
         // Connect all branch ends to join node (only create if needed)
-        let non_exit_branches: Vec<_> = branch_ends.into_iter()
+        let non_exit_branches: Vec<_> = branch_ends
+            .into_iter()
             .filter(|&end| end != self.cfg.exit)
             .collect();
 
@@ -432,10 +440,16 @@ fn has_control_flow_in_expression(node: &Node, _source: &str) -> bool {
     has_control_flow_recursive(node, &mut cursor)
 }
 
-fn has_control_flow_recursive<'a>(node: &Node<'a>, cursor: &mut tree_sitter::TreeCursor<'a>) -> bool {
+fn has_control_flow_recursive<'a>(
+    node: &Node<'a>,
+    cursor: &mut tree_sitter::TreeCursor<'a>,
+) -> bool {
     match node.kind() {
         // Comprehensions with if clause add to CC
-        "list_comprehension" | "dictionary_comprehension" | "set_comprehension" | "generator_expression" => {
+        "list_comprehension"
+        | "dictionary_comprehension"
+        | "set_comprehension"
+        | "generator_expression" => {
             // Check if it has an if_clause child
             for child in node.children(cursor) {
                 if child.kind() == "if_clause" {
@@ -510,7 +524,8 @@ mod tests {
 
         // Find the function definition node
         let mut cursor = root.walk();
-        let func_node = root.children(&mut cursor)
+        let func_node = root
+            .children(&mut cursor)
             .find(|n| n.kind() == "function_definition" || n.kind() == "async_function_definition")
             .expect("No function found in test source");
 
@@ -522,7 +537,12 @@ mod tests {
                 local_index: 0,
             },
             name: Some("test_func".to_string()),
-            span: SourceSpan::new(start_byte, func_node.end_byte(), func_node.start_position().row as u32 + 1, func_node.start_position().column as u32),
+            span: SourceSpan::new(
+                start_byte,
+                func_node.end_byte(),
+                func_node.start_position().row as u32 + 1,
+                func_node.start_position().column as u32,
+            ),
             body: FunctionBody::Python {
                 body_node: 0,
                 source: source.to_string(),

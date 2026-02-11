@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/loops.py",
+    "file": "tests/fixtures/python/loops.py",
     "function": "nested_loops",
     "line": 29,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/loops.py",
+    "file": "tests/fixtures/python/loops.py",
     "function": "async_for_loop",
     "line": 42,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/loops.py",
+    "file": "tests/fixtures/python/loops.py",
     "function": "for_loop_with_break",
     "line": 9,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/loops.py",
+    "file": "tests/fixtures/python/loops.py",
     "function": "for_loop_with_continue",
     "line": 19,
     "language": "Python",
@@ -80,7 +80,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/loops.py",
+    "file": "tests/fixtures/python/loops.py",
     "function": "while_loop",
     "line": 1,
     "language": "Python",

@@ -17,9 +17,13 @@ impl CfgBuilder for GoCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_go::LANGUAGE;
-        parser.set_language(&language.into()).expect("Failed to set Go language");
+        parser
+            .set_language(&language.into())
+            .expect("Failed to set Go language");
 
-        let tree = parser.parse(source, None).expect("Failed to re-parse Go source");
+        let tree = parser
+            .parse(source, None)
+            .expect("Failed to re-parse Go source");
         let root = tree.root_node();
 
         // Find the function node in the tree
@@ -78,7 +82,10 @@ impl GoCfgBuilderState {
         // Connect last node to exit
         if let Some(last_node) = self.current_node {
             if last_node != self.cfg.exit {
-                let has_exit_edge = self.cfg.edges.iter()
+                let has_exit_edge = self
+                    .cfg
+                    .edges
+                    .iter()
                     .any(|e| e.from == last_node && e.to == self.cfg.exit);
 
                 if !has_exit_edge {
@@ -351,6 +358,7 @@ impl GoCfgBuilderState {
 }
 
 /// Find a child node by kind
+#[allow(clippy::manual_find)]
 fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -403,8 +411,8 @@ fn is_panic_call(node: &Node, source: &str) -> bool {
 mod tests {
     use super::*;
     use crate::ast::{FunctionId, FunctionNode};
-    use crate::language::{FunctionBody, SourceSpan};
     use crate::language::parser::LanguageParser;
+    use crate::language::{FunctionBody, SourceSpan};
 
     fn make_test_go_function(source: &str) -> FunctionNode {
         FunctionNode {
@@ -463,8 +471,16 @@ func test(x int) {
         // Should have at least entry and exit
         // Full CFG would be: entry, condition, then, join, exit (5 nodes)
         // But we verify it's more than just entry->exit (2 nodes)
-        assert!(cfg.node_count() >= 3, "Expected at least 3 nodes for if statement, got {}", cfg.node_count());
-        assert!(cfg.edge_count() >= 2, "Expected at least 2 edges, got {}", cfg.edge_count());
+        assert!(
+            cfg.node_count() >= 3,
+            "Expected at least 3 nodes for if statement, got {}",
+            cfg.node_count()
+        );
+        assert!(
+            cfg.edge_count() >= 2,
+            "Expected at least 2 edges, got {}",
+            cfg.edge_count()
+        );
     }
 
     #[test]
@@ -492,7 +508,15 @@ func test() {
         // Should have at least entry and exit
         // Full CFG would be: entry, loop header, body, join, exit (5 nodes)
         // But we verify it's more than just entry->exit (2 nodes)
-        assert!(cfg.node_count() >= 3, "Expected at least 3 nodes for for loop, got {}", cfg.node_count());
-        assert!(cfg.edge_count() >= 2, "Expected at least 2 edges, got {}", cfg.edge_count());
+        assert!(
+            cfg.node_count() >= 3,
+            "Expected at least 3 nodes for for loop, got {}",
+            cfg.node_count()
+        );
+        assert!(
+            cfg.edge_count() >= 2,
+            "Expected at least 2 edges, got {}",
+            cfg.edge_count()
+        );
     }
 }

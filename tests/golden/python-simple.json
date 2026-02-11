@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/simple.py",
+    "file": "tests/fixtures/python/simple.py",
     "function": "multiple_returns",
     "line": 13,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/simple.py",
+    "file": "tests/fixtures/python/simple.py",
     "function": "with_early_return",
     "line": 6,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/simple.py",
+    "file": "tests/fixtures/python/simple.py",
     "function": "simple_function",
     "line": 1,
     "language": "Python",

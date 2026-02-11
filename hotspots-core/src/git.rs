@@ -82,14 +82,13 @@ pub fn extract_git_context() -> Result<GitContext> {
         anyhow::bail!("not in a git repository");
     }
 
-    let head_sha = git(&["rev-parse", "HEAD"])
-        .context("failed to extract HEAD SHA")?;
+    let head_sha = git(&["rev-parse", "HEAD"]).context("failed to extract HEAD SHA")?;
 
     // Extract parent SHAs
     // Use `rev-list --parents -n 1 HEAD` which outputs: HEAD_SHA PARENT1 PARENT2 ...
     let parents_raw = git(&["rev-list", "--parents", "-n", "1", "HEAD"])
         .context("failed to extract parent SHAs")?;
-    
+
     // Parse parent SHAs (first token is HEAD, rest are parents)
     let mut parts = parents_raw.split_whitespace();
     let _ = parts.next(); // Skip HEAD SHA (we already have it)
@@ -140,13 +139,13 @@ pub fn extract_git_context_at(repo_path: &Path) -> Result<GitContext> {
         anyhow::bail!("not in a git repository at {}", repo_path.display());
     }
 
-    let head_sha = git_at(repo_path, &["rev-parse", "HEAD"])
-        .context("failed to extract HEAD SHA")?;
+    let head_sha =
+        git_at(repo_path, &["rev-parse", "HEAD"]).context("failed to extract HEAD SHA")?;
 
     // Extract parent SHAs
     let parents_raw = git_at(repo_path, &["rev-list", "--parents", "-n", "1", "HEAD"])
         .context("failed to extract parent SHAs")?;
-    
+
     // Parse parent SHAs (first token is HEAD, rest are parents)
     let mut parts = parents_raw.split_whitespace();
     let _ = parts.next(); // Skip HEAD SHA (we already have it)
@@ -186,7 +185,7 @@ pub fn detect_pr_context() -> PrContext {
     // Check GitHub Actions environment variables
     let github_event_name = std::env::var("GITHUB_EVENT_NAME").ok();
     let github_ref = std::env::var("GITHUB_REF").ok();
-    
+
     // Check if this looks like a PR (pull_request event)
     let is_pr = match (&github_event_name, &github_ref) {
         (Some(event), Some(ref_name)) => {
@@ -195,7 +194,7 @@ pub fn detect_pr_context() -> PrContext {
         }
         _ => false,
     };
-    
+
     PrContext {
         is_pr,
         merge_base: None, // Will be computed later if needed
@@ -234,13 +233,13 @@ pub fn resolve_merge_base(target_branch: &str) -> Result<Option<String>> {
 /// Returns first successful merge-base, or None if all fail.
 pub fn resolve_merge_base_auto() -> Option<String> {
     let common_branches = ["main", "master", "develop", "trunk"];
-    
+
     for branch in &common_branches {
         if let Ok(Some(sha)) = resolve_merge_base(branch) {
             return Some(sha);
         }
     }
-    
+
     None
 }
 
@@ -261,10 +260,16 @@ mod tests {
 
         // HEAD SHA should be 40 characters (full SHA) or 7+ characters (short SHA)
         assert!(!context.head_sha.is_empty(), "HEAD SHA should not be empty");
-        
+
         // Timestamp should be reasonable (after 2005-04-07, before year 2100)
-        assert!(context.timestamp > 1112832000, "timestamp should be after 2005");
-        assert!(context.timestamp < 4102444800, "timestamp should be before 2100");
+        assert!(
+            context.timestamp > 1112832000,
+            "timestamp should be after 2005"
+        );
+        assert!(
+            context.timestamp < 4102444800,
+            "timestamp should be before 2100"
+        );
 
         // is_detached should be consistent with branch
         assert_eq!(

@@ -8,9 +8,9 @@
 //! - Function matching by function_id (file moves are delete + add)
 //! - Status based on metrics/LRS/band changes, not file/line movements
 
-use crate::snapshot::{Snapshot, FunctionSnapshot};
-use crate::report::MetricsReport;
 use crate::policy::PolicyResults;
+use crate::report::MetricsReport;
+use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -119,7 +119,7 @@ impl Delta {
                 current.schema_version
             );
         }
-        
+
         if let Some(parent_snapshot) = parent {
             if parent_snapshot.schema_version != crate::snapshot::SNAPSHOT_SCHEMA_VERSION {
                 anyhow::bail!(
@@ -129,17 +129,16 @@ impl Delta {
                 );
             }
         }
-        
+
         // Get parent SHA (use parents[0] only for delta computation)
-        let parent_sha = current.commit.parents.first()
-            .cloned()
-            .unwrap_or_default();
-        
+        let parent_sha = current.commit.parents.first().cloned().unwrap_or_default();
+
         let baseline = parent.is_none();
-        
+
         // If baseline, all functions are new
         if baseline {
-            let deltas: Vec<FunctionDeltaEntry> = current.functions
+            let deltas: Vec<FunctionDeltaEntry> = current
+                .functions
                 .iter()
                 .map(|func| FunctionDeltaEntry {
                     function_id: func.function_id.clone(),
@@ -155,7 +154,7 @@ impl Delta {
                     suppression_reason: func.suppression_reason.clone(),
                 })
                 .collect();
-            
+
             return Ok(Delta {
                 schema_version: DELTA_SCHEMA_VERSION,
                 commit: DeltaCommitInfo {
@@ -168,37 +167,40 @@ impl Delta {
                 aggregates: None, // Aggregates computed on-demand
             });
         }
-        
+
         // Build maps for efficient lookup
-        let parent_funcs: HashMap<&str, &FunctionSnapshot> = parent.unwrap()
+        let parent_funcs: HashMap<&str, &FunctionSnapshot> = parent
+            .unwrap()
             .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-        
-        let current_funcs: HashMap<&str, &FunctionSnapshot> = current.functions
+
+        let current_funcs: HashMap<&str, &FunctionSnapshot> = current
+            .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-        
+
         // Collect all function_ids (union of parent and current)
-        let mut all_function_ids: Vec<&str> = parent_funcs.keys()
+        let mut all_function_ids: Vec<&str> = parent_funcs
+            .keys()
             .chain(current_funcs.keys())
             .copied()
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        
+
         // Sort deterministically by function_id (ASCII lexical ordering)
         all_function_ids.sort();
-        
+
         // Compute deltas
         let mut deltas = Vec::new();
-        
+
         for function_id in all_function_ids {
             let parent_func = parent_funcs.get(function_id);
             let current_func = current_funcs.get(function_id);
-            
+
             match (parent_func, current_func) {
                 (Some(parent), Some(current)) => {
                     // Function exists in both - check if modified
@@ -207,7 +209,7 @@ impl Delta {
                     } else {
                         FunctionStatus::Unchanged
                     };
-                    
+
                     // Only include if modified or if explicitly tracking unchanged
                     // For now, we include modified and unchanged (can filter later)
                     let before = Some(FunctionState {
@@ -215,19 +217,19 @@ impl Delta {
                         lrs: parent.lrs,
                         band: parent.band.clone(),
                     });
-                    
+
                     let after = Some(FunctionState {
                         metrics: current.metrics.clone(),
                         lrs: current.lrs,
                         band: current.band.clone(),
                     });
-                    
+
                     let delta = if status == FunctionStatus::Modified {
                         Some(compute_function_delta(parent, current))
                     } else {
                         None
                     };
-                    
+
                     let band_transition = if parent.band != current.band {
                         Some(BandTransition {
                             from: parent.band.clone(),
@@ -236,7 +238,7 @@ impl Delta {
                     } else {
                         None
                     };
-                    
+
                     deltas.push(FunctionDeltaEntry {
                         function_id: function_id.to_string(),
                         status,
@@ -285,7 +287,7 @@ impl Delta {
                 }
             }
         }
-        
+
         Ok(Delta {
             schema_version: DELTA_SCHEMA_VERSION,
             commit: DeltaCommitInfo {
@@ -298,18 +300,17 @@ impl Delta {
             aggregates: None, // Aggregates computed on-demand
         })
     }
-    
+
     /// Serialize delta to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self)
-            .context("failed to serialize delta to JSON")
+        serde_json::to_string_pretty(self).context("failed to serialize delta to JSON")
     }
-    
+
     /// Deserialize delta from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
-        let delta: Delta = serde_json::from_str(json)
-            .context("failed to deserialize delta from JSON")?;
-        
+        let delta: Delta =
+            serde_json::from_str(json).context("failed to deserialize delta from JSON")?;
+
         // Validate schema version
         if delta.schema_version != DELTA_SCHEMA_VERSION {
             anyhow::bail!(
@@ -318,7 +319,7 @@ impl Delta {
                 delta.schema_version
             );
         }
-        
+
         Ok(delta)
     }
 }
@@ -372,19 +373,27 @@ fn compute_delete_delta(parent: &FunctionSnapshot) -> FunctionDelta {
 /// Returns error if snapshot exists but cannot be read/parsed.
 pub fn load_parent_snapshot(repo_root: &Path, parent_sha: &str) -> Result<Option<Snapshot>> {
     let snapshot_path = crate::snapshot::snapshot_path(repo_root, parent_sha);
-    
+
     if !snapshot_path.exists() {
         // Missing parent snapshot - baseline case
         return Ok(None);
     }
-    
+
     // Load and parse snapshot
-    let json = std::fs::read_to_string(&snapshot_path)
-        .with_context(|| format!("failed to read parent snapshot: {}", snapshot_path.display()))?;
-    
-    let snapshot = Snapshot::from_json(&json)
-        .with_context(|| format!("failed to parse parent snapshot: {}", snapshot_path.display()))?;
-    
+    let json = std::fs::read_to_string(&snapshot_path).with_context(|| {
+        format!(
+            "failed to read parent snapshot: {}",
+            snapshot_path.display()
+        )
+    })?;
+
+    let snapshot = Snapshot::from_json(&json).with_context(|| {
+        format!(
+            "failed to parse parent snapshot: {}",
+            snapshot_path.display()
+        )
+    })?;
+
     Ok(Some(snapshot))
 }
 
@@ -407,13 +416,13 @@ pub fn load_parent_snapshot(repo_root: &Path, parent_sha: &str) -> Result<Option
 pub fn compute_delta(repo_root: &Path, current: &Snapshot) -> Result<Delta> {
     // Get parent SHA (use parents[0] only)
     let parent_sha = current.commit.parents.first();
-    
+
     let parent = if let Some(sha) = parent_sha {
         load_parent_snapshot(repo_root, sha)?
     } else {
         None
     };
-    
+
     Delta::new(current, parent.as_ref())
 }
 
@@ -421,10 +430,16 @@ pub fn compute_delta(repo_root: &Path, current: &Snapshot) -> Result<Delta> {
 mod tests {
     use super::*;
     use crate::git::GitContext;
-    use crate::snapshot::Snapshot;
     use crate::report::{FunctionRiskReport, MetricsReport};
-    
-    fn create_test_snapshot(sha: &str, parent_sha: &str, cc: usize, lrs: f64, band: &str) -> Snapshot {
+    use crate::snapshot::Snapshot;
+
+    fn create_test_snapshot(
+        sha: &str,
+        parent_sha: &str,
+        cc: usize,
+        lrs: f64,
+        band: &str,
+    ) -> Snapshot {
         let git_context = GitContext {
             head_sha: sha.to_string(),
             parent_shas: vec![parent_sha.to_string()],
@@ -432,13 +447,18 @@ mod tests {
             branch: Some("main".to_string()),
             is_detached: false,
         };
-        
+
         let report = FunctionRiskReport {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
             language: "TypeScript".to_string(),
-            metrics: MetricsReport { cc, nd: 2, fo: 3, ns: 1 },
+            metrics: MetricsReport {
+                cc,
+                nd: 2,
+                fo: 3,
+                ns: 1,
+            },
             risk: crate::report::RiskReport {
                 r_cc: 2.0,
                 r_nd: 1.0,
@@ -449,72 +469,72 @@ mod tests {
             band: band.to_string(),
             suppression_reason: None,
         };
-        
+
         Snapshot::new(git_context, vec![report])
     }
-    
+
     #[test]
     fn test_baseline_delta() {
         let current = create_test_snapshot("abc123", "", 5, 4.8, "moderate");
-        
+
         // No parent - should be baseline
         let delta = Delta::new(&current, None).expect("should create baseline delta");
-        
+
         assert!(delta.baseline);
         assert_eq!(delta.deltas.len(), 1);
         assert_eq!(delta.deltas[0].status, FunctionStatus::New);
     }
-    
+
     #[test]
     fn test_modified_delta() {
         let parent = create_test_snapshot("parent123", "grandparent", 4, 3.9, "moderate");
         let current = create_test_snapshot("current123", "parent123", 6, 6.2, "high");
-        
+
         let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
-        
+
         assert!(!delta.baseline);
         assert_eq!(delta.deltas.len(), 1);
         assert_eq!(delta.deltas[0].status, FunctionStatus::Modified);
-        
+
         let delta_values = delta.deltas[0].delta.as_ref().unwrap();
         assert_eq!(delta_values.cc, 2); // 6 - 4 = 2
         assert!((delta_values.lrs - 2.3).abs() < 0.01); // 6.2 - 3.9 ≈ 2.3
-        
+
         // Check band transition
         let transition = delta.deltas[0].band_transition.as_ref().unwrap();
         assert_eq!(transition.from, "moderate");
         assert_eq!(transition.to, "high");
     }
-    
+
     #[test]
     fn test_unchanged_delta() {
         let parent = create_test_snapshot("parent123", "grandparent", 5, 4.8, "moderate");
         let current = create_test_snapshot("current123", "parent123", 5, 4.8, "moderate");
-        
+
         let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
-        
+
         assert_eq!(delta.deltas.len(), 1);
         assert_eq!(delta.deltas[0].status, FunctionStatus::Unchanged);
         assert!(delta.deltas[0].delta.is_none());
         assert!(delta.deltas[0].band_transition.is_none());
     }
-    
+
     #[test]
     fn test_negative_deltas() {
         let parent = create_test_snapshot("parent123", "grandparent", 6, 6.2, "high");
         let current = create_test_snapshot("current123", "parent123", 4, 3.9, "moderate");
-        
+
         let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
-        
+
         let delta_values = delta.deltas[0].delta.as_ref().unwrap();
         assert_eq!(delta_values.cc, -2); // 4 - 6 = -2 (negative allowed)
         assert!(delta_values.lrs < 0.0); // Negative LRS delta allowed
     }
-    
+
     #[test]
     fn test_deleted_function() {
         let parent = create_test_snapshot("parent123", "grandparent", 5, 4.8, "moderate");
-        
+
         // Current has no functions (empty)
         let git_context = GitContext {
             head_sha: "current123".to_string(),
@@ -524,9 +544,9 @@ mod tests {
             is_detached: false,
         };
         let current = Snapshot::new(git_context, vec![]);
-        
+
         let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
-        
+
         assert_eq!(delta.deltas.len(), 1);
         assert_eq!(delta.deltas[0].status, FunctionStatus::Deleted);
         assert!(delta.deltas[0].before.is_some());

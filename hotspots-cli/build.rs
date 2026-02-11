@@ -12,10 +12,8 @@ use std::process::Command;
 
 fn main() {
     // Get version from git describe, fallback to CARGO_PKG_VERSION
-    let version = get_git_version().unwrap_or_else(|| {
-        env!("CARGO_PKG_VERSION").to_string()
-    });
-    
+    let version = get_git_version().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+
     println!("cargo:rustc-env=FAULTLINE_VERSION={}", version);
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
@@ -29,11 +27,11 @@ fn get_git_version() -> Option<String> {
         .args(["describe", "--tags", "--always", "--dirty"])
         .output()
         .ok()?;
-    
+
     if output.status.success() {
         let version = String::from_utf8(output.stdout).ok()?;
         let version = version.trim();
-        
+
         // If it's a clean tag (starts with v and no suffix), use it directly
         if version.starts_with('v') && !version.contains('-') {
             // Clean tag like "v0.1.0"

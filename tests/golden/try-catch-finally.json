@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/try-catch-finally.ts",
+    "file": "tests/fixtures/try-catch-finally.ts",
     "function": "tryCatchFinally",
     "line": 2,
     "language": "TypeScript",
