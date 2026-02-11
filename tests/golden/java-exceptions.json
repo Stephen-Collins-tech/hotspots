@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Exceptions.java",
+    "file": "tests/fixtures/java/Exceptions.java",
     "function": "multipleCatchClauses",
     "line": 6,
     "language": "Java",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Exceptions.java",
+    "file": "tests/fixtures/java/Exceptions.java",
     "function": "tryWithResources",
     "line": 19,
     "language": "Java",

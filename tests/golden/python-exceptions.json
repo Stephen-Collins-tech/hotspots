@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/exceptions.py",
+    "file": "tests/fixtures/python/exceptions.py",
     "function": "except_with_finally",
     "line": 24,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/exceptions.py",
+    "file": "tests/fixtures/python/exceptions.py",
     "function": "multiple_except_clauses",
     "line": 10,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/exceptions.py",
+    "file": "tests/fixtures/python/exceptions.py",
     "function": "nested_try_blocks",
     "line": 40,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/exceptions.py",
+    "file": "tests/fixtures/python/exceptions.py",
     "function": "single_except_clause",
     "line": 1,
     "language": "Python",

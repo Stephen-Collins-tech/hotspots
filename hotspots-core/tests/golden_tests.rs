@@ -35,8 +35,8 @@ fn read_golden(name: &str) -> String {
         .unwrap_or_else(|e| panic!("Failed to read golden file {}: {}", path.display(), e))
 }
 
-/// Normalize paths in JSON to use the actual project root for portability
-/// Strips the project root prefix and reconstructs using the current project root
+/// Normalize paths in JSON to use relative paths for cross-platform portability
+/// Strips the project root prefix to get a relative path that works everywhere
 fn normalize_paths(json: &mut serde_json::Value, project_root: &PathBuf) {
     match json {
         serde_json::Value::Array(arr) => {
@@ -49,8 +49,8 @@ fn normalize_paths(json: &mut serde_json::Value, project_root: &PathBuf) {
                 let path_buf = PathBuf::from(path.as_str());
                 // Strip the project root prefix to get the relative path
                 if let Ok(relative) = path_buf.strip_prefix(project_root) {
-                    // Reconstruct using the current project root
-                    *path = project_root.join(relative).to_string_lossy().to_string();
+                    // Use relative path with forward slashes for cross-platform compatibility
+                    *path = relative.to_string_lossy().replace('\\', "/");
                 }
             }
             for (_, value) in obj {

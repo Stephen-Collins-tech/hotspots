@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "async_method",
     "line": 39,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "method_with_exception_handling",
     "line": 30,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "static_method",
     "line": 22,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "class_method",
     "line": 15,
     "language": "Python",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "instance_method",
     "line": 8,
     "language": "Python",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/classes.py",
+    "file": "tests/fixtures/python/classes.py",
     "function": "__init__",
     "line": 4,
     "language": "Python",

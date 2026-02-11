@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "file": "tests/fixtures/java/Loops.java",
     "function": "nestedLoops",
     "line": 27,
     "language": "Java",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "file": "tests/fixtures/java/Loops.java",
     "function": "forLoopWithBreak",
     "line": 18,
     "language": "Java",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "file": "tests/fixtures/java/Loops.java",
     "function": "whileLoop",
     "line": 2,
     "language": "Java",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/Loops.java",
+    "file": "tests/fixtures/java/Loops.java",
     "function": "doWhileLoop",
     "line": 10,
     "language": "Java",

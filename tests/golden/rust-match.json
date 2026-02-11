@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "nested_match",
     "line": 43,
     "language": "Rust",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "match_with_guards",
     "line": 11,
     "language": "Rust",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "match_with_ranges",
     "line": 20,
     "language": "Rust",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "simple_match",
     "line": 3,
     "language": "Rust",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "match_enum",
     "line": 35,
     "language": "Rust",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "match_option",
     "line": 56,
     "language": "Rust",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/match.rs",
+    "file": "tests/fixtures/rust/match.rs",
     "function": "match_result",
     "line": 64,
     "language": "Rust",

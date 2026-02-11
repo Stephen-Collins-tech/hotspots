@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "mixed_error_handling",
     "line": 49,
     "language": "Rust",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "multiple_question_operators",
     "line": 8,
     "language": "Rust",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "chained_question",
     "line": 63,
     "language": "Rust",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "multiple_panics",
     "line": 40,
     "language": "Rust",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "conditional_panic",
     "line": 34,
     "language": "Rust",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_question_operator",
     "line": 3,
     "language": "Rust",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_unwrap",
     "line": 18,
     "language": "Rust",
@@ -140,7 +140,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_expect",
     "line": 22,
     "language": "Rust",
@@ -160,7 +160,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "result_with_question",
     "line": 58,
     "language": "Rust",
@@ -180,7 +180,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "question_in_expression",
     "line": 14,
     "language": "Rust",
@@ -200,7 +200,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_panic",
     "line": 30,
     "language": "Rust",
@@ -220,7 +220,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/rust_specific.rs",
+    "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "multiple_unwraps",
     "line": 26,
     "language": "Rust",

@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "complex_boolean",
     "line": 22,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "walrus_operator",
     "line": 52,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_and_or",
     "line": 15,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_and",
     "line": 1,
     "language": "Python",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_or",
     "line": 8,
     "language": "Python",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "nested_ternary",
     "line": 36,
     "language": "Python",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_in_return",
     "line": 47,
     "language": "Python",
@@ -140,7 +140,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "ternary_expression",
     "line": 31,
     "language": "Python",
@@ -160,7 +160,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/boolean_ops.py",
+    "file": "tests/fixtures/python/boolean_ops.py",
     "function": "ternary_in_assignment",
     "line": 41,
     "language": "Python",

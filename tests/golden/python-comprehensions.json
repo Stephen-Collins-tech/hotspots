@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "complex_comprehension",
     "line": 31,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "filtered_list_comp",
     "line": 6,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "dict_comprehension_filtered",
     "line": 11,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "set_comprehension_filtered",
     "line": 16,
     "language": "Python",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "nested_comp_with_filter",
     "line": 26,
     "language": "Python",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "generator_expression",
     "line": 42,
     "language": "Python",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "simple_list_comp",
     "line": 1,
     "language": "Python",
@@ -140,7 +140,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/comprehensions.py",
+    "file": "tests/fixtures/python/comprehensions.py",
     "function": "nested_comp",
     "line": 21,
     "language": "Python",

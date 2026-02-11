@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "file": "tests/fixtures/java/JavaSpecific.java",
     "function": "lambdaExpression",
     "line": 5,
     "language": "Java",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "file": "tests/fixtures/java/JavaSpecific.java",
     "function": "streamOperations",
     "line": 13,
     "language": "Java",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "file": "tests/fixtures/java/JavaSpecific.java",
     "function": "switchExpression",
     "line": 20,
     "language": "Java",
@@ -60,7 +60,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/java/JavaSpecific.java",
+    "file": "tests/fixtures/java/JavaSpecific.java",
     "function": "synchronizedMethod",
     "line": 28,
     "language": "Java",

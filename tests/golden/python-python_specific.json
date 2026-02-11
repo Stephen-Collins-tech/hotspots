@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "async_for_with_filter",
     "line": 30,
     "language": "Python",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "match_statement",
     "line": 39,
     "language": "Python",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "match_with_guard",
     "line": 52,
     "language": "Python",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "nested_context_managers",
     "line": 7,
     "language": "Python",
@@ -80,7 +80,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "with_context_manager",
     "line": 1,
     "language": "Python",
@@ -100,7 +100,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "async_function",
     "line": 24,
     "language": "Python",
@@ -120,7 +120,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "list_comprehension_filtered",
     "line": 14,
     "language": "Python",
@@ -140,7 +140,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/python/python_specific.py",
+    "file": "tests/fixtures/python/python_specific.py",
     "function": "list_comprehension_no_filter",
     "line": 19,
     "language": "Python",

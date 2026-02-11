@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "nested_if",
     "line": 35,
     "language": "Rust",
@@ -20,7 +20,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "with_early_return",
     "line": 12,
     "language": "Rust",
@@ -40,7 +40,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "with_if_else",
     "line": 27,
     "language": "Rust",
@@ -60,7 +60,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "multiple_statements",
     "line": 19,
     "language": "Rust",
@@ -80,7 +80,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "async_function",
     "line": 47,
     "language": "Rust",
@@ -100,7 +100,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "simple_calculation",
     "line": 7,
     "language": "Rust",
@@ -120,7 +120,7 @@
     "band": "low"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/rust/simple.rs",
+    "file": "tests/fixtures/rust/simple.rs",
     "function": "empty_function",
     "line": 3,
     "language": "Rust",
