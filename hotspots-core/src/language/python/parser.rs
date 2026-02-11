@@ -112,6 +112,7 @@ fn extract_function(
         node.start_byte(),
         node.end_byte(),
         node.start_position().row as u32 + 1, // tree-sitter uses 0-indexed rows
+        node.end_position().row as u32 + 1,   // tree-sitter uses 0-indexed rows
         node.start_position().column as u32,
     );
 

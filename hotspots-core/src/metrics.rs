@@ -16,6 +16,25 @@ pub struct RawMetrics {
     pub nd: usize,
     pub fo: usize,
     pub ns: usize,
+    pub loc: usize,
+}
+
+/// Calculate lines of code (LOC) from source text
+/// Counts physical lines (including blank lines and comments)
+fn calculate_loc(source: &str) -> usize {
+    if source.is_empty() {
+        return 0;
+    }
+    // Count newlines + 1 for the last line (which may not end with \n)
+    source.lines().count()
+}
+
+/// Calculate LOC from tree-sitter node
+fn calculate_loc_from_node(node: &tree_sitter::Node) -> usize {
+    let start_row = node.start_position().row;
+    let end_row = node.end_position().row;
+    // Rows are 0-indexed, so difference + 1 gives line count
+    end_row.saturating_sub(start_row) + 1
 }
 
 /// Extract all metrics for a function
@@ -23,12 +42,22 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     use crate::language::FunctionBody;
 
     match &function.body {
-        FunctionBody::ECMAScript(body) => RawMetrics {
-            cc: cyclomatic_complexity(cfg, body),
-            nd: nesting_depth(body),
-            fo: fan_out(body),
-            ns: non_structured_exits(body),
-        },
+        FunctionBody::ECMAScript(body) => {
+            // Calculate LOC from span (end_line - start_line + 1)
+            let loc = function
+                .span
+                .end_line
+                .saturating_sub(function.span.start_line)
+                + 1;
+
+            RawMetrics {
+                cc: cyclomatic_complexity(cfg, body),
+                nd: nesting_depth(body),
+                fo: fan_out(body),
+                ns: non_structured_exits(body),
+                loc: loc as usize,
+            }
+        }
         FunctionBody::Go { .. } => {
             // Extract Go-specific metrics from tree-sitter AST
             extract_go_metrics(function, cfg)
@@ -432,6 +461,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 nd,
                 fo,
                 ns,
+                loc: calculate_loc_from_node(&func_node),
             };
         }
     }
@@ -442,6 +472,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         nd: 0,
         fo: 0,
         ns: 0,
+        loc: 0,
     }
 }
 
@@ -671,6 +702,7 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 nd,
                 fo,
                 ns,
+                loc: calculate_loc_from_node(&func_node),
             };
         }
     }
@@ -681,6 +713,7 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         nd: 0,
         fo: 0,
         ns: 0,
+        loc: 0,
     }
 }
 
@@ -881,6 +914,7 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 nd,
                 fo,
                 ns,
+                loc: calculate_loc_from_node(&func_node),
             };
         }
     }
@@ -891,6 +925,7 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         nd: 0,
         fo: 0,
         ns: 0,
+        loc: 0,
     }
 }
 
@@ -1080,6 +1115,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 nd: 0,
                 fo: 0,
                 ns: 0,
+                loc: 0,
             };
         }
     };
@@ -1095,6 +1131,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         nd,
         fo,
         ns,
+        loc: calculate_loc(source),
     }
 }
 

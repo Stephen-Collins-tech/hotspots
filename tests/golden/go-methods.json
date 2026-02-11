@@ -1,0 +1,191 @@
+[
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Process",
+    "line": 43,
+    "language": "Go",
+    "metrics": {
+      "cc": 6,
+      "nd": 3,
+      "fo": 0,
+      "ns": 1,
+      "loc": 20
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 3.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 5.907354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Work",
+    "line": 77,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 2,
+      "ns": 2,
+      "loc": 7
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 2.0
+    },
+    "lrs": 5.150977500432694,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Get",
+    "line": 104,
+    "language": "Go",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 1,
+      "ns": 2,
+      "loc": 7
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Add",
+    "line": 25,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 3,
+      "loc": 9
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 3.0
+    },
+    "lrs": 4.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "SetValue",
+    "line": 16,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1,
+      "loc": 6
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.5,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "GetValue",
+    "line": 10,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.7,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "IsPositive",
+    "line": 37,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.7,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Add",
+    "line": 98,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 1,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.6,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/go/methods.go",
+    "function": "Stop",
+    "line": 87,
+    "language": "Go",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.0,
+    "band": "low"
+  }
+]

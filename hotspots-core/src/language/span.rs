@@ -14,17 +14,20 @@ pub struct SourceSpan {
     pub end: usize,
     /// Line number of the start (1-indexed)
     pub start_line: u32,
+    /// Line number of the end (1-indexed)
+    pub end_line: u32,
     /// Column number of the start (0-indexed, in bytes)
     pub start_col: u32,
 }
 
 impl SourceSpan {
     /// Create a new source span
-    pub fn new(start: usize, end: usize, start_line: u32, start_col: u32) -> Self {
+    pub fn new(start: usize, end: usize, start_line: u32, end_line: u32, start_col: u32) -> Self {
         SourceSpan {
             start,
             end,
             start_line,
+            end_line,
             start_col,
         }
     }
@@ -66,6 +69,7 @@ impl From<swc_common::Span> for SourceSpan {
             start: span.lo.0 as usize,
             end: span.hi.0 as usize,
             start_line: 0, // To be filled in by parser
+            end_line: 0,   // To be filled in by parser
             start_col: 0,  // To be filled in by parser
         }
     }
@@ -76,12 +80,14 @@ pub fn span_with_location(
     span: swc_common::Span,
     source_map: &swc_common::SourceMap,
 ) -> SourceSpan {
-    let loc = source_map.lookup_char_pos(span.lo);
+    let start_loc = source_map.lookup_char_pos(span.lo);
+    let end_loc = source_map.lookup_char_pos(span.hi);
     SourceSpan {
         start: span.lo.0 as usize,
         end: span.hi.0 as usize,
-        start_line: loc.line as u32,
-        start_col: loc.col.0 as u32,
+        start_line: start_loc.line as u32,
+        end_line: end_loc.line as u32,
+        start_col: start_loc.col.0 as u32,
     }
 }
 
@@ -91,39 +97,40 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let span = SourceSpan::new(10, 20, 1, 5);
+        let span = SourceSpan::new(10, 20, 1, 3, 5);
         assert_eq!(span.start, 10);
         assert_eq!(span.end, 20);
         assert_eq!(span.start_line, 1);
+        assert_eq!(span.end_line, 3);
         assert_eq!(span.start_col, 5);
     }
 
     #[test]
     fn test_len() {
-        let span = SourceSpan::new(10, 20, 1, 5);
+        let span = SourceSpan::new(10, 20, 1, 3, 5);
         assert_eq!(span.len(), 10);
 
-        let empty_span = SourceSpan::new(10, 10, 1, 5);
+        let empty_span = SourceSpan::new(10, 10, 1, 1, 5);
         assert_eq!(empty_span.len(), 0);
     }
 
     #[test]
     fn test_is_empty() {
-        let span = SourceSpan::new(10, 20, 1, 5);
+        let span = SourceSpan::new(10, 20, 1, 3, 5);
         assert!(!span.is_empty());
 
-        let empty_span = SourceSpan::new(10, 10, 1, 5);
+        let empty_span = SourceSpan::new(10, 10, 1, 1, 5);
         assert!(empty_span.is_empty());
 
-        let backwards_span = SourceSpan::new(20, 10, 1, 5);
+        let backwards_span = SourceSpan::new(20, 10, 1, 1, 5);
         assert!(backwards_span.is_empty());
     }
 
     #[test]
     fn test_contains() {
-        let outer = SourceSpan::new(10, 30, 1, 5);
-        let inner = SourceSpan::new(15, 25, 1, 10);
-        let outside = SourceSpan::new(5, 15, 1, 0);
+        let outer = SourceSpan::new(10, 30, 1, 5, 5);
+        let inner = SourceSpan::new(15, 25, 2, 4, 10);
+        let outside = SourceSpan::new(5, 15, 1, 2, 0);
 
         assert!(outer.contains(&inner));
         assert!(!inner.contains(&outer));
@@ -135,9 +142,9 @@ mod tests {
 
     #[test]
     fn test_overlaps() {
-        let span1 = SourceSpan::new(10, 20, 1, 5);
-        let span2 = SourceSpan::new(15, 25, 1, 10);
-        let span3 = SourceSpan::new(25, 30, 1, 20);
+        let span1 = SourceSpan::new(10, 20, 1, 3, 5);
+        let span2 = SourceSpan::new(15, 25, 2, 4, 10);
+        let span3 = SourceSpan::new(25, 30, 4, 5, 20);
 
         assert!(span1.overlaps(&span2));
         assert!(span2.overlaps(&span1));
@@ -151,12 +158,12 @@ mod tests {
     #[test]
     fn test_edge_cases() {
         // Adjacent spans don't overlap
-        let span1 = SourceSpan::new(10, 20, 1, 5);
-        let span2 = SourceSpan::new(20, 30, 1, 15);
+        let span1 = SourceSpan::new(10, 20, 1, 3, 5);
+        let span2 = SourceSpan::new(20, 30, 3, 5, 15);
         assert!(!span1.overlaps(&span2));
 
         // Zero-width span
-        let zero_span = SourceSpan::new(15, 15, 1, 10);
+        let zero_span = SourceSpan::new(15, 15, 2, 2, 10);
         assert!(span1.contains(&zero_span));
         assert!(!zero_span.overlaps(&span1)); // Zero-width doesn't overlap
     }

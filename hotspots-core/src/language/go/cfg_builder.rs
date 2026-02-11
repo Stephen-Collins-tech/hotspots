@@ -421,7 +421,7 @@ mod tests {
                 local_index: 0,
             },
             name: Some("test".to_string()),
-            span: SourceSpan::new(0, source.len(), 1, 0),
+            span: SourceSpan::new(0, source.len(), 1, 1, 0),
             body: FunctionBody::Go {
                 body_node: 0,
                 source: source.to_string(),

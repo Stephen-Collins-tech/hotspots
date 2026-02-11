@@ -458,6 +458,7 @@ mod tests {
                 nd: 2,
                 fo: 3,
                 ns: 1,
+                loc: 10,
             },
             risk: crate::report::RiskReport {
                 r_cc: 2.0,

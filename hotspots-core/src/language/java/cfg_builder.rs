@@ -579,7 +579,7 @@ mod tests {
                 local_index: 0,
             },
             name: Some("test".to_string()),
-            span: SourceSpan::new(start_byte, end_byte, 1, 0),
+            span: SourceSpan::new(start_byte, end_byte, 1, 1, 0),
             body: FunctionBody::Java {
                 body_node: 0,
                 source: source.to_string(),

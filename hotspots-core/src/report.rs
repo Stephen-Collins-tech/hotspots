@@ -32,6 +32,7 @@ pub struct MetricsReport {
     pub nd: usize,
     pub fo: usize,
     pub ns: usize,
+    pub loc: usize,
 }
 
 /// Risk components in report format
@@ -80,6 +81,7 @@ impl FunctionRiskReport {
                 nd: metrics.nd,
                 fo: metrics.fo,
                 ns: metrics.ns,
+                loc: metrics.loc,
             },
             risk: RiskReport {
                 r_cc: risk.r_cc,

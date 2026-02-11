@@ -170,6 +170,7 @@ impl RustModule {
             start_byte,
             end_byte,
             span_start.line as u32,
+            span_end.line as u32,
             span_start.column as u32,
         );
 
