@@ -446,11 +446,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
-        message: Some("test commit".to_string()),
-        author: Some("Test Author".to_string()),
-        is_fix_commit: Some(false),
-        is_revert_commit: Some(false),
-        ticket_ids: vec![],
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let report = FunctionRiskReport {
@@ -548,11 +548,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
-        message: Some("test commit".to_string()),
-        author: Some("Test Author".to_string()),
-        is_fix_commit: Some(false),
-        is_revert_commit: Some(false),
-        ticket_ids: vec![],
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
         let current = Snapshot::new(git_context, vec![]);
 

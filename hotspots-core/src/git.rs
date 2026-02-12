@@ -132,7 +132,8 @@ pub fn extract_git_context() -> Result<GitContext> {
     let is_revert_commit = message.as_ref().map(|m| detect_revert_commit(m));
 
     // Extract ticket IDs
-    let ticket_ids = message.as_ref()
+    let ticket_ids = message
+        .as_ref()
         .map(|m| extract_ticket_ids(m, branch.as_deref()))
         .unwrap_or_default();
 
@@ -200,7 +201,8 @@ pub fn extract_git_context_at(repo_path: &Path) -> Result<GitContext> {
     let is_revert_commit = message.as_ref().map(|m| detect_revert_commit(m));
 
     // Extract ticket IDs
-    let ticket_ids = message.as_ref()
+    let ticket_ids = message
+        .as_ref()
         .map(|m| extract_ticket_ids(m, branch.as_deref()))
         .unwrap_or_default();
 
@@ -452,24 +454,37 @@ pub fn count_file_touches_30d(file: &str, as_of_timestamp: i64) -> Result<usize>
     };
 
     // Count non-empty lines
-    let count = output.lines().filter(|line| !line.trim().is_empty()).count();
+    let count = output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
     Ok(count)
 }
 
 /// Count file touches at a specific repository path
-pub fn count_file_touches_30d_at(repo_path: &Path, file: &str, as_of_timestamp: i64) -> Result<usize> {
+pub fn count_file_touches_30d_at(
+    repo_path: &Path,
+    file: &str,
+    as_of_timestamp: i64,
+) -> Result<usize> {
     let thirty_days_ago = as_of_timestamp - (30 * 24 * 60 * 60);
     let since_arg = format!("--since={}", thirty_days_ago);
     let until_arg = format!("--until={}", as_of_timestamp);
 
-    let output = match git_at(repo_path, &["log", &since_arg, &until_arg, "--oneline", "--", file]) {
+    let output = match git_at(
+        repo_path,
+        &["log", &since_arg, &until_arg, "--oneline", "--", file],
+    ) {
         Ok(out) => out,
         Err(_) => {
             return Ok(0);
         }
     };
 
-    let count = output.lines().filter(|line| !line.trim().is_empty()).count();
+    let count = output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
     Ok(count)
 }
 
@@ -497,7 +512,9 @@ pub fn days_since_last_change(file: &str, as_of_timestamp: i64) -> Result<u32> {
         }
     };
 
-    let last_change_timestamp = output.trim().parse::<i64>()
+    let last_change_timestamp = output
+        .trim()
+        .parse::<i64>()
         .context("failed to parse last change timestamp")?;
 
     // Calculate days difference
@@ -508,7 +525,11 @@ pub fn days_since_last_change(file: &str, as_of_timestamp: i64) -> Result<u32> {
 }
 
 /// Calculate days since last change at a specific repository path
-pub fn days_since_last_change_at(repo_path: &Path, file: &str, as_of_timestamp: i64) -> Result<u32> {
+pub fn days_since_last_change_at(
+    repo_path: &Path,
+    file: &str,
+    as_of_timestamp: i64,
+) -> Result<u32> {
     let output = match git_at(repo_path, &["log", "-1", "--format=%ct", "--", file]) {
         Ok(out) => out,
         Err(_) => {
@@ -516,7 +537,9 @@ pub fn days_since_last_change_at(repo_path: &Path, file: &str, as_of_timestamp: 
         }
     };
 
-    let last_change_timestamp = output.trim().parse::<i64>()
+    let last_change_timestamp = output
+        .trim()
+        .parse::<i64>()
         .context("failed to parse last change timestamp")?;
 
     let seconds_diff = as_of_timestamp - last_change_timestamp;
@@ -530,7 +553,10 @@ pub fn days_since_last_change_at(repo_path: &Path, file: &str, as_of_timestamp: 
 /// Looks for common keywords: "fix", "bug", "hotfix", "bugfix", etc.
 pub fn detect_fix_commit(message: &str) -> bool {
     let lower = message.to_lowercase();
-    lower.contains("fix") || lower.contains("bug") || lower.contains("hotfix") || lower.contains("bugfix")
+    lower.contains("fix")
+        || lower.contains("bug")
+        || lower.contains("hotfix")
+        || lower.contains("bugfix")
 }
 
 /// Detect if a commit is a revert

@@ -100,7 +100,8 @@ impl CallGraph {
         }
 
         let initial_rank = 1.0 / n as f64;
-        let mut ranks: HashMap<String, f64> = self.nodes
+        let mut ranks: HashMap<String, f64> = self
+            .nodes
             .iter()
             .map(|node| (node.clone(), initial_rank))
             .collect();
@@ -148,10 +149,8 @@ impl CallGraph {
     ///
     /// Uses Brandes' algorithm for efficient computation.
     pub fn betweenness_centrality(&self) -> HashMap<String, f64> {
-        let mut betweenness: HashMap<String, f64> = self.nodes
-            .iter()
-            .map(|node| (node.clone(), 0.0))
-            .collect();
+        let mut betweenness: HashMap<String, f64> =
+            self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
 
         // For each node, compute shortest paths using BFS
         for source in &self.nodes {
@@ -182,7 +181,9 @@ impl CallGraph {
                         }
 
                         // Shortest path to w via v?
-                        if distance.get(w).copied().unwrap_or(0) == distance.get(&v).copied().unwrap_or(0) + 1 {
+                        if distance.get(w).copied().unwrap_or(0)
+                            == distance.get(&v).copied().unwrap_or(0) + 1
+                        {
                             let sigma_w = sigma.get(w).copied().unwrap_or(0.0);
                             let sigma_v = sigma.get(&v).copied().unwrap_or(0.0);
                             sigma.insert(w.clone(), sigma_w + sigma_v);
@@ -197,10 +198,8 @@ impl CallGraph {
             }
 
             // Accumulation phase
-            let mut delta: HashMap<String, f64> = self.nodes
-                .iter()
-                .map(|node| (node.clone(), 0.0))
-                .collect();
+            let mut delta: HashMap<String, f64> =
+                self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
 
             while let Some(w) = stack.pop() {
                 if let Some(preds) = predecessors.get(&w) {
@@ -236,7 +235,12 @@ impl CallGraph {
     }
 
     /// Calculate all graph metrics for a function
-    pub fn metrics_for(&self, function_id: &str, pagerank_scores: &HashMap<String, f64>, betweenness_scores: &HashMap<String, f64>) -> GraphMetrics {
+    pub fn metrics_for(
+        &self,
+        function_id: &str,
+        pagerank_scores: &HashMap<String, f64>,
+        betweenness_scores: &HashMap<String, f64>,
+    ) -> GraphMetrics {
         GraphMetrics {
             fan_in: self.fan_in(function_id),
             fan_out: self.fan_out(function_id),

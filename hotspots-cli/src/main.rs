@@ -464,9 +464,7 @@ fn handle_mode_output(
                             .into_iter()
                             .map(|c| {
                                 let absolute_path = repo_root.join(&c.file);
-                                let normalized_path = absolute_path
-                                    .to_string_lossy()
-                                    .to_string();
+                                let normalized_path = absolute_path.to_string_lossy().to_string();
                                 (normalized_path, c)
                             })
                             .collect();
@@ -546,9 +544,7 @@ fn handle_mode_output(
                             .into_iter()
                             .map(|c| {
                                 let absolute_path = repo_root.join(&c.file);
-                                let normalized_path = absolute_path
-                                    .to_string_lossy()
-                                    .to_string();
+                                let normalized_path = absolute_path.to_string_lossy().to_string();
                                 (normalized_path, c)
                             })
                             .collect();

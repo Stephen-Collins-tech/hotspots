@@ -213,7 +213,10 @@ impl Snapshot {
     /// # Arguments
     ///
     /// * `file_churns` - Map from file path to churn metrics
-    pub fn populate_churn(&mut self, file_churns: &std::collections::HashMap<String, crate::git::FileChurn>) {
+    pub fn populate_churn(
+        &mut self,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) {
         for function in &mut self.functions {
             // Normalize file path for lookup (already normalized in constructor)
             let file_path = &function.file;
@@ -255,18 +258,21 @@ impl Snapshot {
         // For each unique file, compute metrics once
         for (file_path, function_indices) in unique_files {
             // Convert absolute path back to relative path for git
-            let relative_path = if let Ok(rel) = std::path::Path::new(&file_path).strip_prefix(repo_root) {
-                rel.to_string_lossy().to_string()
-            } else {
-                // If can't make relative, use as-is
-                file_path.clone()
-            };
+            let relative_path =
+                if let Ok(rel) = std::path::Path::new(&file_path).strip_prefix(repo_root) {
+                    rel.to_string_lossy().to_string()
+                } else {
+                    // If can't make relative, use as-is
+                    file_path.clone()
+                };
 
             // Compute touch count (may fail if file is new or git operation fails)
-            let touch_count = crate::git::count_file_touches_30d(&relative_path, self.commit.timestamp).ok();
+            let touch_count =
+                crate::git::count_file_touches_30d(&relative_path, self.commit.timestamp).ok();
 
             // Compute days since last change
-            let days_since = crate::git::days_since_last_change(&relative_path, self.commit.timestamp).ok();
+            let days_since =
+                crate::git::days_since_last_change(&relative_path, self.commit.timestamp).ok();
 
             // Apply to all functions in this file
             for &idx in &function_indices {
