@@ -64,7 +64,7 @@ impl CallGraph {
 
         self.edges
             .entry(caller)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(callee);
     }
 
@@ -112,7 +112,7 @@ impl CallGraph {
             for callee in callees {
                 reverse_edges
                     .entry(callee.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(caller.clone());
             }
         }
@@ -190,7 +190,7 @@ impl CallGraph {
 
                             predecessors
                                 .entry(w.clone())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(v.clone());
                         }
                     }
@@ -265,7 +265,7 @@ impl CallGraph {
         let mut graph = CallGraph::new();
 
         // Add all functions as nodes first
-        for (_file_path, (_source, functions)) in files {
+        for (_source, functions) in files.values() {
             for func in functions {
                 graph.add_node(func.clone());
             }
@@ -275,7 +275,7 @@ impl CallGraph {
         // Pattern matches: functionName(...), object.method(...), etc.
         let call_pattern = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
 
-        for (_file_path, (source, functions)) in files {
+        for (source, functions) in files.values() {
             // For each function, find what it calls
             // This is simplified: we assume each function's code is separable
             // A more sophisticated approach would use AST parsing
