@@ -75,6 +75,8 @@ pub struct CallGraphMetrics {
     pub scc_size: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub neighbor_churn: Option<usize>,
 }
 
 /// Function entry in snapshot
@@ -290,17 +292,29 @@ impl Snapshot {
 
     /// Populate call graph metrics
     ///
-    /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, and dependency depth metrics for all functions.
+    /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, dependency depth,
+    /// and neighbor churn metrics for all functions.
     ///
     /// # Arguments
     ///
     /// * `call_graph` - Pre-computed call graph for the codebase
     pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        use std::collections::HashMap;
+
         // Compute global metrics once
         let pagerank_scores = call_graph.pagerank(0.85, 30);
         let betweenness_scores = call_graph.betweenness_centrality();
         let scc_info = call_graph.find_strongly_connected_components();
         let dependency_depths = call_graph.compute_dependency_depth();
+
+        // Build a map of function_id -> total churn (lines_added + lines_deleted)
+        let mut churn_map: HashMap<String, usize> = HashMap::new();
+        for function in &self.functions {
+            if let Some(ref churn) = function.churn {
+                let total_churn = churn.lines_added + churn.lines_deleted;
+                churn_map.insert(function.function_id.clone(), total_churn);
+            }
+        }
 
         // Populate metrics for each function
         for function in &mut self.functions {
@@ -311,6 +325,21 @@ impl Snapshot {
                 let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
                 let dependency_depth = dependency_depths.get(function_id).copied().flatten();
 
+                // Compute neighbor churn: sum of churn for all callees
+                let neighbor_churn = if let Some(callees) = call_graph.edges.get(function_id) {
+                    let total: usize = callees
+                        .iter()
+                        .filter_map(|callee_id| churn_map.get(callee_id))
+                        .sum();
+                    if total > 0 {
+                        Some(total)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 function.callgraph = Some(CallGraphMetrics {
                     fan_in: call_graph.fan_in(function_id),
                     fan_out: call_graph.fan_out(function_id),
@@ -319,6 +348,7 @@ impl Snapshot {
                     scc_id,
                     scc_size,
                     dependency_depth,
+                    neighbor_churn,
                 });
             }
         }

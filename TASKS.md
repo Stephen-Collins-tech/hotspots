@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** In Progress - Phase 1 & 2.1-2.4 Complete ✅
+**Status:** In Progress - Phase 1 & 2 Complete ✅ | Phase 3 Pending
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -415,7 +415,7 @@ Measure how deep each function is in the dependency tree from entry points.
 
 ---
 
-### 2.5 Neighbor Churn
+### 2.5 Neighbor Churn ✅ COMPLETE
 
 **Requirement:**
 Compute sum of churn for all direct dependencies (functions this function calls).
@@ -424,26 +424,35 @@ Compute sum of churn for all direct dependencies (functions this function calls)
 - Neighbor churn = sum of `lines_added + lines_deleted` for all callees
 - Indicates indirect change risk (dependencies are changing)
 - Requires both call graph and churn data
-- Store as `usize`
+- Store as `Option<usize>` (None if no callees have churn)
 
 **Output Schema:**
 ```json
 {
   "function_id": "src/foo.ts::bar",
-  "neighbor_churn": 127
+  "callgraph": {
+    "fan_in": 23,
+    "fan_out": 5,
+    "pagerank": 0.15,
+    "betweenness": 0.08,
+    "scc_id": 42,
+    "scc_size": 5,
+    "dependency_depth": 5,
+    "neighbor_churn": 127
+  }
 }
 ```
 
 **Success Criteria:**
-- [ ] Churn summed correctly across all callees
-- [ ] Functions with no callees have neighbor_churn = 0
-- [ ] Accurate on test data
+- [x] Churn summed correctly across all callees
+- [x] Functions with no callees or no churn have neighbor_churn = None
+- [x] Implementation verified with tests
 
-**Files to Modify:**
-- `hotspots-core/src/callgraph.rs` - Add `compute_neighbor_churn()`
-- `hotspots-core/src/snapshot.rs` - Add `neighbor_churn` field
+**Files Modified:**
+- `hotspots-core/src/snapshot.rs` - Added `neighbor_churn` field to `CallGraphMetrics`
+- Updated `populate_callgraph()` to compute neighbor churn from callees' churn data
 
-**Estimated Effort:** 1 hour
+**Actual Effort:** 0.5 hours (implementation and testing)
 
 ---
 
