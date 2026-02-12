@@ -490,6 +490,9 @@ fn handle_mode_output(
                 snapshot.populate_callgraph(graph);
             }
 
+            // Compute activity risk scores (combines all metrics)
+            snapshot.compute_activity_risk(None);
+
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
             if is_mainline {
@@ -578,6 +581,9 @@ fn handle_mode_output(
             if let Some(ref graph) = call_graph {
                 snapshot.populate_callgraph(graph);
             }
+
+            // Compute activity risk scores (combines all metrics)
+            snapshot.compute_activity_risk(None);
 
             // Compute delta
             let delta = if pr_context.is_pr {

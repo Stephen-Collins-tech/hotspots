@@ -100,6 +100,10 @@ pub struct FunctionSnapshot {
     pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub callgraph: Option<CallGraphMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_risk: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_factors: Option<crate::scoring::RiskFactors>,
 }
 
 /// Complete snapshot for a commit
@@ -182,6 +186,8 @@ impl Snapshot {
                     touch_count_30d: None, // Touch count will be populated separately if available
                     days_since_last_change: None, // Days since last change will be populated separately if available
                     callgraph: None, // Call graph metrics will be populated separately if available
+                    activity_risk: None, // Activity risk will be computed after all metrics are populated
+                    risk_factors: None, // Risk factors will be computed after all metrics are populated
                 }
             })
             .collect();
@@ -350,6 +356,60 @@ impl Snapshot {
                     dependency_depth,
                     neighbor_churn,
                 });
+            }
+        }
+    }
+
+    /// Compute and populate activity risk scores
+    ///
+    /// Combines LRS with activity metrics and call graph metrics to produce
+    /// a unified risk score. Should be called after populate_churn, populate_touch_metrics,
+    /// and populate_callgraph have been called.
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Optional weights for risk factors (uses defaults if None)
+    pub fn compute_activity_risk(&mut self, weights: Option<&crate::scoring::ScoringWeights>) {
+        let default_weights = crate::scoring::ScoringWeights::default();
+        let weights = weights.unwrap_or(&default_weights);
+
+        for function in &mut self.functions {
+            // Extract churn data
+            let churn = function
+                .churn
+                .as_ref()
+                .map(|c| (c.lines_added, c.lines_deleted));
+
+            // Extract call graph data
+            let (fan_in, scc_size, dependency_depth, neighbor_churn) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.dependency_depth,
+                        cg.neighbor_churn,
+                    )
+                } else {
+                    (None, None, None, None)
+                };
+
+            // Compute activity risk
+            let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
+                function.lrs,
+                churn,
+                function.touch_count_30d,
+                function.days_since_last_change,
+                fan_in,
+                scc_size,
+                dependency_depth,
+                neighbor_churn,
+                weights,
+            );
+
+            // Only populate if there are additional risk factors beyond base LRS
+            if activity_risk > function.lrs || risk_factors.churn > 0.0 {
+                function.activity_risk = Some(activity_risk);
+                function.risk_factors = Some(risk_factors);
             }
         }
     }

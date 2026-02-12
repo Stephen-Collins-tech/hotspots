@@ -497,6 +497,8 @@ mod tests {
                     touch_count_30d: None,
                     days_since_last_change: None,
                     callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                 }],
             ),
             create_test_snapshot(
@@ -521,6 +523,8 @@ mod tests {
                     touch_count_30d: None,
                     days_since_last_change: None,
                     callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                 }],
             ),
         ];
@@ -557,6 +561,8 @@ mod tests {
                     touch_count_30d: None,
                     days_since_last_change: None,
                     callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                 }],
             ),
             create_test_snapshot(
@@ -581,6 +587,8 @@ mod tests {
                     touch_count_30d: None,
                     days_since_last_change: None,
                     callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                 }],
             ),
         ];
@@ -616,6 +624,8 @@ mod tests {
                         touch_count_30d: None,
                         days_since_last_change: None,
                         callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -636,6 +646,8 @@ mod tests {
                         touch_count_30d: None,
                         days_since_last_change: None,
                         callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                     },
                 ],
             ),
@@ -662,6 +674,8 @@ mod tests {
                         touch_count_30d: None,
                         days_since_last_change: None,
                         callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -682,6 +696,8 @@ mod tests {
                         touch_count_30d: None,
                         days_since_last_change: None,
                         callgraph: None,
+                    activity_risk: None,
+                    risk_factors: None,
                     },
                 ],
             ),
