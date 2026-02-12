@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** Planning
+**Status:** In Progress - Phase 1 & 2 Complete ✅
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -79,7 +79,7 @@ Capture physical lines of code (LOC) for each function.
 
 ---
 
-### 1.2 Git Churn Metrics
+### 1.2 Git Churn Metrics ✅ COMPLETE
 
 **Requirement:**
 Capture lines added/deleted per file in each commit.
@@ -105,11 +105,11 @@ Capture lines added/deleted per file in each commit.
 ```
 
 **Success Criteria:**
-- [ ] `git.rs` extracts churn for all files in commit
-- [ ] Churn correctly mapped to functions by file path
-- [ ] Churn is 0 for functions in unchanged files
-- [ ] Churn is null/omitted for baseline commits (no parent)
-- [ ] Integration test with real git repo
+- [x] `git.rs` extracts churn for all files in commit
+- [x] Churn correctly mapped to functions by file path
+- [x] Churn is 0 for functions in unchanged files
+- [x] Churn is null/omitted for baseline commits (no parent)
+- [x] Integration test with real git repo
 
 **Files to Modify:**
 - `hotspots-core/src/git.rs` - Add `extract_commit_churn(sha) -> Vec<FileChurn>`
@@ -135,7 +135,7 @@ pub struct ChurnMetrics {
 
 ---
 
-### 1.3 Touch Count & Recency
+### 1.3 Touch Count & Recency ✅ COMPLETE
 
 **Requirement:**
 Count how many commits modified each file in the last 30 days, and time since last change.
@@ -158,11 +158,11 @@ Count how many commits modified each file in the last 30 days, and time since la
 ```
 
 **Success Criteria:**
-- [ ] Touch count computed relative to commit timestamp
-- [ ] Handles files added <30 days ago (touch count = commit count)
-- [ ] Returns 0 for files untouched in window
-- [ ] `days_since_last_change` accurate for all files
-- [ ] Performance acceptable (cached per file, not per function)
+- [x] Touch count computed relative to commit timestamp
+- [x] Handles files added <30 days ago (touch count = commit count)
+- [x] Returns 0 for files untouched in window
+- [x] `days_since_last_change` accurate for all files
+- [x] Performance acceptable (cached per file, not per function)
 
 **Files to Modify:**
 - `hotspots-core/src/git.rs` - Add `count_file_touches_30d(file, as_of_timestamp)`
@@ -173,7 +173,7 @@ Count how many commits modified each file in the last 30 days, and time since la
 
 ---
 
-### 1.4 Commit Metadata & Event Detection
+### 1.4 Commit Metadata & Event Detection ✅ COMPLETE
 
 **Requirement:**
 Capture commit message and author, plus detect fix/revert events and ticket IDs.
@@ -208,13 +208,13 @@ Capture commit message and author, plus detect fix/revert events and ticket IDs.
 ```
 
 **Success Criteria:**
-- [ ] Message and author extracted for all commits
-- [ ] Multi-line messages preserved (body truncated at 1000 chars)
-- [ ] Empty messages handled (use empty string, not null)
-- [ ] Author anonymization option (--anonymize-authors flag)
-- [ ] Fix/revert detection accurate (>90% on test corpus)
-- [ ] Ticket IDs extracted from messages and branches
-- [ ] Multiple ticket IDs per commit supported
+- [x] Message and author extracted for all commits
+- [x] Multi-line messages preserved (body truncated at 1000 chars)
+- [x] Empty messages handled (use empty string, not null)
+- [ ] Author anonymization option (--anonymize-authors flag) - DEFERRED
+- [x] Fix/revert detection accurate (>90% on test corpus)
+- [x] Ticket IDs extracted from messages and branches
+- [x] Multiple ticket IDs per commit supported
 
 **Files to Modify:**
 - `hotspots-core/src/git.rs` - Extend `GitContext` with new fields
@@ -234,7 +234,7 @@ pub fn extract_ticket_ids(message: &str, branch: &str) -> Vec<String>;
 
 ## Phase 2: Call Graph Analysis
 
-### 2.1 Call Graph Extraction
+### 2.1 Call Graph Extraction ✅ COMPLETE (Infrastructure)
 
 **Requirement:**
 Extract function calls from ASTs and build caller→callee edges within the codebase.

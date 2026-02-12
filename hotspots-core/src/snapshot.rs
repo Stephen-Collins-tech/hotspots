@@ -33,6 +33,16 @@ pub struct CommitInfo {
     pub timestamp: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_fix_commit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_revert_commit: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub ticket_ids: Vec<String>,
 }
 
 /// Analysis metadata in snapshot
@@ -42,6 +52,25 @@ pub struct AnalysisInfo {
     pub scope: String,
     #[serde(rename = "tool_version")]
     pub tool_version: String,
+}
+
+/// Churn metrics for a file/function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChurnMetrics {
+    pub lines_added: usize,
+    pub lines_deleted: usize,
+    pub net_change: i64,
+}
+
+/// Call graph metrics for a function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CallGraphMetrics {
+    pub fan_in: usize,
+    pub fan_out: usize,
+    pub pagerank: f64,
+    pub betweenness: f64,
 }
 
 /// Function entry in snapshot
@@ -57,6 +86,14 @@ pub struct FunctionSnapshot {
     pub band: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub churn: Option<ChurnMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touch_count_30d: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_last_change: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callgraph: Option<CallGraphMetrics>,
 }
 
 /// Complete snapshot for a commit
@@ -135,6 +172,10 @@ impl Snapshot {
                     lrs: report.lrs,
                     band: report.band,
                     suppression_reason: report.suppression_reason,
+                    churn: None, // Churn will be populated separately if available
+                    touch_count_30d: None, // Touch count will be populated separately if available
+                    days_since_last_change: None, // Days since last change will be populated separately if available
+                    callgraph: None, // Call graph metrics will be populated separately if available
                 }
             })
             .collect();
@@ -149,6 +190,11 @@ impl Snapshot {
                 parents: git_context.parent_shas,
                 timestamp: git_context.timestamp,
                 branch: git_context.branch,
+                message: git_context.message,
+                author: git_context.author,
+                is_fix_commit: git_context.is_fix_commit,
+                is_revert_commit: git_context.is_revert_commit,
+                ticket_ids: git_context.ticket_ids,
             },
             analysis: AnalysisInfo {
                 scope: "full".to_string(),
@@ -156,6 +202,113 @@ impl Snapshot {
             },
             functions,
             aggregates: None, // Aggregates are computed on-demand, not stored
+        }
+    }
+
+    /// Populate churn metrics from git data
+    ///
+    /// Maps file-level churn to all functions in each file.
+    /// Files not in the churn map will have churn remain as None.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_churns` - Map from file path to churn metrics
+    pub fn populate_churn(
+        &mut self,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) {
+        for function in &mut self.functions {
+            // Normalize file path for lookup (already normalized in constructor)
+            let file_path = &function.file;
+
+            if let Some(file_churn) = file_churns.get(file_path) {
+                let net_change = file_churn.lines_added as i64 - file_churn.lines_deleted as i64;
+                function.churn = Some(ChurnMetrics {
+                    lines_added: file_churn.lines_added,
+                    lines_deleted: file_churn.lines_deleted,
+                    net_change,
+                });
+            }
+        }
+    }
+
+    /// Populate touch count and recency metrics from git data
+    ///
+    /// For each file, computes:
+    /// - touch_count_30d: number of commits in last 30 days
+    /// - days_since_last_change: days since last modification
+    ///
+    /// These are computed at the file level and applied to all functions in the file.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo_root` - Path to repository root (for git operations)
+    pub fn populate_touch_metrics(&mut self, repo_root: &std::path::Path) -> anyhow::Result<()> {
+        use std::collections::HashMap;
+
+        // Build set of unique files to avoid duplicate git operations
+        let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, function) in self.functions.iter().enumerate() {
+            unique_files
+                .entry(function.file.clone())
+                .or_insert_with(Vec::new)
+                .push(idx);
+        }
+
+        // For each unique file, compute metrics once
+        for (file_path, function_indices) in unique_files {
+            // Convert absolute path back to relative path for git
+            let relative_path =
+                if let Ok(rel) = std::path::Path::new(&file_path).strip_prefix(repo_root) {
+                    rel.to_string_lossy().to_string()
+                } else {
+                    // If can't make relative, use as-is
+                    file_path.clone()
+                };
+
+            // Compute touch count (may fail if file is new or git operation fails)
+            let touch_count =
+                crate::git::count_file_touches_30d(&relative_path, self.commit.timestamp).ok();
+
+            // Compute days since last change
+            let days_since =
+                crate::git::days_since_last_change(&relative_path, self.commit.timestamp).ok();
+
+            // Apply to all functions in this file
+            for &idx in &function_indices {
+                self.functions[idx].touch_count_30d = touch_count;
+                self.functions[idx].days_since_last_change = days_since;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Populate call graph metrics
+    ///
+    /// Computes PageRank, betweenness centrality, fan-in, and fan-out for all functions.
+    ///
+    /// # Arguments
+    ///
+    /// * `call_graph` - Pre-computed call graph for the codebase
+    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        // Compute global metrics once
+        let pagerank_scores = call_graph.pagerank(0.85, 30);
+        let betweenness_scores = call_graph.betweenness_centrality();
+
+        // Populate metrics for each function
+        for function in &mut self.functions {
+            let function_id = &function.function_id;
+
+            // Only populate if function is in the call graph
+            if call_graph.nodes.contains(function_id) {
+                function.callgraph = Some(CallGraphMetrics {
+                    fan_in: call_graph.fan_in(function_id),
+                    fan_out: call_graph.fan_out(function_id),
+                    pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
+                    betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
+                });
+            }
         }
     }
 
@@ -480,6 +633,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let report = FunctionRiskReport {

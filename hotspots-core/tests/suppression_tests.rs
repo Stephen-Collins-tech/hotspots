@@ -118,6 +118,11 @@ fn test_suppression_missing_reason_policy() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);
@@ -180,6 +185,11 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);
@@ -238,6 +248,11 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);
