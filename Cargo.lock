@@ -342,6 +342,7 @@ dependencies = [
  "globset",
  "proc-macro2",
  "quote",
+ "regex",
  "serde",
  "serde_json",
  "swc_common",

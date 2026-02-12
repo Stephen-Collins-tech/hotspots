@@ -295,6 +295,10 @@ mod tests {
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
         }
     }
 
