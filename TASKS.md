@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** In Progress - Phase 1 & 2.1-2.2 Complete ✅
+**Status:** In Progress - Phase 1 & 2.1-2.3 Complete ✅
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -332,7 +332,7 @@ Count how many functions call each function (caller count).
 
 ---
 
-### 2.3 Strongly Connected Components (SCC)
+### 2.3 Strongly Connected Components (SCC) ✅ COMPLETE
 
 **Requirement:**
 Detect cyclic dependencies (functions that call each other directly or transitively).
@@ -347,28 +347,29 @@ Detect cyclic dependencies (functions that call each other directly or transitiv
 ```json
 {
   "function_id": "src/foo.ts::bar",
-  "scc_id": 42,
-  "scc_size": 5
+  "callgraph": {
+    "fan_in": 23,
+    "fan_out": 5,
+    "pagerank": 0.15,
+    "betweenness": 0.08,
+    "scc_id": 42,
+    "scc_size": 5
+  }
 }
 ```
 
 **Success Criteria:**
-- [ ] Tarjan's algorithm implemented correctly
-- [ ] All functions assigned to an SCC (size 1 = no cycle)
-- [ ] Cycles detected accurately (test with known cyclic code)
-- [ ] Performance acceptable (O(V+E) time)
+- [x] Tarjan's algorithm implemented correctly
+- [x] All functions assigned to an SCC (size 1 = no cycle)
+- [x] Cycles detected accurately (test with known cyclic code)
+- [x] Performance acceptable (O(V+E) time)
 
-**Files to Modify:**
-- `hotspots-core/src/callgraph.rs` - Add `find_sccs() -> HashMap<FunctionId, (usize, usize)>`
-- `hotspots-core/src/snapshot.rs` - Add `scc_id` and `scc_size` fields
+**Files Modified:**
+- `hotspots-core/src/callgraph.rs` - Added `find_strongly_connected_components()` and `tarjan_strongconnect()` methods
+- `hotspots-core/src/snapshot.rs` - Added `scc_id` and `scc_size` fields to `CallGraphMetrics`
+- Updated `populate_callgraph()` to compute and populate SCC metrics
 
-**New Functions:**
-```rust
-// Tarjan's algorithm for SCC detection
-pub fn find_strongly_connected_components(graph: &CallGraph) -> Vec<Vec<FunctionId>>;
-```
-
-**Estimated Effort:** 3 hours
+**Actual Effort:** 1.5 hours (implementation and testing)
 
 ---
 

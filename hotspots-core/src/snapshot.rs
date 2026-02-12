@@ -71,6 +71,8 @@ pub struct CallGraphMetrics {
     pub fan_out: usize,
     pub pagerank: f64,
     pub betweenness: f64,
+    pub scc_id: usize,
+    pub scc_size: usize,
 }
 
 /// Function entry in snapshot
@@ -286,7 +288,7 @@ impl Snapshot {
 
     /// Populate call graph metrics
     ///
-    /// Computes PageRank, betweenness centrality, fan-in, and fan-out for all functions.
+    /// Computes PageRank, betweenness centrality, fan-in, fan-out, and SCC metrics for all functions.
     ///
     /// # Arguments
     ///
@@ -295,6 +297,7 @@ impl Snapshot {
         // Compute global metrics once
         let pagerank_scores = call_graph.pagerank(0.85, 30);
         let betweenness_scores = call_graph.betweenness_centrality();
+        let scc_info = call_graph.find_strongly_connected_components();
 
         // Populate metrics for each function
         for function in &mut self.functions {
@@ -302,11 +305,15 @@ impl Snapshot {
 
             // Only populate if function is in the call graph
             if call_graph.nodes.contains(function_id) {
+                let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
+
                 function.callgraph = Some(CallGraphMetrics {
                     fan_in: call_graph.fan_in(function_id),
                     fan_out: call_graph.fan_out(function_id),
                     pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
                     betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
+                    scc_id,
+                    scc_size,
                 });
             }
         }
