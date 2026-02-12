@@ -4,6 +4,19 @@
 //! - Fan-in/fan-out (structural coupling)
 //! - PageRank (importance/centrality)
 //! - Betweenness centrality (critical paths)
+//!
+//! ## Limitations (by design)
+//!
+//! This implementation tracks **internal function calls only** (functions defined
+//! in the analyzed codebase). External calls are intentionally excluded:
+//!
+//! - ❌ External library calls (npm packages, standard libraries)
+//! - ❌ Dynamic/runtime calls (callbacks, reflection, dynamic imports)
+//! - ❌ Indirect calls through function pointers or event handlers
+//!
+//! This keeps analysis fast, deterministic, and focused on the codebase's internal
+//! architecture. Advanced call tracking (including external dependencies and runtime
+//! analysis) is reserved for future cloud/pro versions.
 
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -237,6 +250,10 @@ impl CallGraph {
     /// Extracts function calls using regex patterns (simple but effective).
     /// More sophisticated AST-based extraction can be added later.
     ///
+    /// **Important**: This only tracks internal calls (functions in the analyzed codebase).
+    /// External library calls, dynamic calls, and callbacks are intentionally excluded
+    /// to keep analysis fast and deterministic.
+    ///
     /// # Arguments
     ///
     /// * `files` - Map from file path to (source code, list of function names in that file)
@@ -265,7 +282,9 @@ impl CallGraph {
                     if let Some(called_func) = cap.get(1) {
                         let called_name = called_func.as_str().to_string();
 
-                        // Only add edge if the called function is in our graph
+                        // INTERNAL CALLS ONLY: Only add edge if both caller and callee
+                        // are in our graph (i.e., defined in the analyzed codebase).
+                        // This excludes external libraries, runtime APIs, etc.
                         if graph.nodes.contains(&called_name) && &called_name != func {
                             graph.add_edge(func.clone(), called_name);
                         }
