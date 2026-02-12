@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** In Progress - Phase 1 & 2 Complete ✅
+**Status:** In Progress - Phase 1 & 2.1-2.2 Complete ✅
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -292,7 +292,7 @@ impl CallGraph {
 
 ---
 
-### 2.2 Fan-In Metric
+### 2.2 Fan-In Metric ✅ COMPLETE
 
 **Requirement:**
 Count how many functions call each function (caller count).
@@ -307,21 +307,28 @@ Count how many functions call each function (caller count).
 ```json
 {
   "function_id": "src/foo.ts::bar",
-  "fan_in": 23
+  "callgraph": {
+    "fan_in": 23,
+    "fan_out": 5,
+    "pagerank": 0.15,
+    "betweenness": 0.08
+  }
 }
 ```
 
 **Success Criteria:**
-- [ ] Fan-in computed for all functions
-- [ ] Functions with no callers have fan-in = 0
-- [ ] Recursive calls don't inflate fan-in
-- [ ] Accurate on test codebase (manual verification)
+- [x] Fan-in computed for all functions
+- [x] Functions with no callers have fan-in = 0
+- [x] Recursive calls don't inflate fan-in
+- [x] Accurate on test codebase (manual verification)
 
-**Files to Modify:**
-- `hotspots-core/src/callgraph.rs` - Add `fan_in()` method
-- `hotspots-core/src/snapshot.rs` - Add `fan_in` field to `FunctionSnapshot`
+**Files Modified:**
+- `hotspots-core/src/callgraph.rs` - `fan_in()` method already implemented
+- `hotspots-core/src/snapshot.rs` - `CallGraphMetrics` struct with fan_in field already added
+- `hotspots-core/src/lib.rs` - Added `build_call_graph()` function
+- `hotspots-cli/src/main.rs` - Wired up call graph building and population
 
-**Estimated Effort:** 1 hour
+**Actual Effort:** 2 hours (including implementation and testing)
 
 ---
 

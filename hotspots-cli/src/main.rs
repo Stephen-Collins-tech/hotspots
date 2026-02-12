@@ -451,6 +451,10 @@ fn handle_mode_output(
             let git_context = git::extract_git_context()
                 .context("failed to extract git context (required for snapshot mode)")?;
 
+            // Build call graph before snapshot creation (since snapshot consumes reports)
+            let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config))
+                .ok();
+
             // Create snapshot
             let mut snapshot = Snapshot::new(git_context.clone(), reports);
 
@@ -479,6 +483,11 @@ fn handle_mode_output(
             // Populate touch count and recency metrics
             if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
                 eprintln!("Warning: failed to populate touch metrics: {}", e);
+            }
+
+            // Populate call graph if it was built successfully
+            if let Some(ref graph) = call_graph {
+                snapshot.populate_callgraph(graph);
             }
 
             // Persist snapshot only in mainline mode (not in PR mode)
@@ -532,6 +541,10 @@ fn handle_mode_output(
             let git_context = git::extract_git_context()
                 .context("failed to extract git context (required for delta mode)")?;
 
+            // Build call graph before snapshot creation (since snapshot consumes reports)
+            let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config))
+                .ok();
+
             // Create snapshot
             let mut snapshot = Snapshot::new(git_context.clone(), reports);
 
@@ -559,6 +572,11 @@ fn handle_mode_output(
             // Populate touch count and recency metrics
             if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
                 eprintln!("Warning: failed to populate touch metrics: {}", e);
+            }
+
+            // Populate call graph if it was built successfully
+            if let Some(ref graph) = call_graph {
+                snapshot.populate_callgraph(graph);
             }
 
             // Compute delta
