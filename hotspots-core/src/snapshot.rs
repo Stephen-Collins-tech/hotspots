@@ -251,7 +251,7 @@ impl Snapshot {
         for (idx, function) in self.functions.iter().enumerate() {
             unique_files
                 .entry(function.file.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(idx);
         }
 
