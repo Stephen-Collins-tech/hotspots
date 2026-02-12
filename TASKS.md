@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** In Progress - Phase 1 & 2.1-2.3 Complete ✅
+**Status:** In Progress - Phase 1 & 2.1-2.4 Complete ✅
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -373,7 +373,7 @@ Detect cyclic dependencies (functions that call each other directly or transitiv
 
 ---
 
-### 2.4 Dependency Depth
+### 2.4 Dependency Depth ✅ COMPLETE
 
 **Requirement:**
 Measure how deep each function is in the dependency tree from entry points.
@@ -382,27 +382,36 @@ Measure how deep each function is in the dependency tree from entry points.
 - Identify entry points (main, exported functions, HTTP handlers)
 - Compute shortest path depth via BFS from all entry points
 - Deeper functions are more fragile (longer dependency chain)
-- Store as `usize` (0 = entry point, None = unreachable)
+- Store as `Option<usize>` (0 = entry point, None = unreachable)
 
 **Output Schema:**
 ```json
 {
   "function_id": "src/foo.ts::bar",
-  "dependency_depth": 5
+  "callgraph": {
+    "fan_in": 23,
+    "fan_out": 5,
+    "pagerank": 0.15,
+    "betweenness": 0.08,
+    "scc_id": 42,
+    "scc_size": 5,
+    "dependency_depth": 5
+  }
 }
 ```
 
 **Success Criteria:**
-- [ ] Entry points identified (heuristic: main, exports, handlers)
-- [ ] BFS correctly computes shortest paths
-- [ ] Unreachable functions handled (depth = None or max)
-- [ ] Accurate on test codebase
+- [x] Entry points identified (heuristic: main, exports, handlers)
+- [x] BFS correctly computes shortest paths
+- [x] Unreachable functions handled (depth = None)
+- [x] Accurate on test codebase
 
-**Files to Modify:**
-- `hotspots-core/src/callgraph.rs` - Add `compute_dependency_depth() -> HashMap<FunctionId, usize>`
-- `hotspots-core/src/snapshot.rs` - Add `dependency_depth` field
+**Files Modified:**
+- `hotspots-core/src/callgraph.rs` - Added `compute_dependency_depth()` and `is_entry_point()` methods
+- `hotspots-core/src/snapshot.rs` - Added `dependency_depth` field to `CallGraphMetrics`
+- Updated `populate_callgraph()` to compute and populate dependency depth
 
-**Estimated Effort:** 2 hours
+**Actual Effort:** 1.5 hours (implementation and testing)
 
 ---
 

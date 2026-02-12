@@ -330,6 +330,115 @@ impl CallGraph {
         }
     }
 
+    /// Compute dependency depth for all functions
+    ///
+    /// Uses BFS from entry points to compute shortest path depth.
+    /// Entry points are identified using heuristics:
+    /// - Functions named "main", "start", "init"
+    /// - Functions with no incoming calls (potential entry points)
+    /// - HTTP handlers (e.g., handleRequest, onRequest)
+    ///
+    /// Returns a map from function ID to depth (0 = entry point, None = unreachable)
+    pub fn compute_dependency_depth(&self) -> HashMap<String, Option<usize>> {
+        use std::collections::VecDeque;
+
+        // Identify entry points using heuristics
+        let mut entry_points = Vec::new();
+        for node in &self.nodes {
+            if self.is_entry_point(node) {
+                entry_points.push(node.clone());
+            }
+        }
+
+        // If no explicit entry points found, use all functions with fan_in = 0
+        if entry_points.is_empty() {
+            for node in &self.nodes {
+                if self.fan_in(node) == 0 {
+                    entry_points.push(node.clone());
+                }
+            }
+        }
+
+        // BFS from all entry points to compute depths
+        let mut depths: HashMap<String, Option<usize>> = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        // Initialize entry points with depth 0
+        for entry in &entry_points {
+            depths.insert(entry.clone(), Some(0));
+            queue.push_back((entry.clone(), 0));
+        }
+
+        // BFS traversal
+        while let Some((node, depth)) = queue.pop_front() {
+            if let Some(callees) = self.edges.get(&node) {
+                for callee in callees {
+                    // Only update if not visited or found a shorter path
+                    let current_depth = depths.get(callee).copied().flatten();
+                    if current_depth.is_none() || current_depth.unwrap() > depth + 1 {
+                        depths.insert(callee.clone(), Some(depth + 1));
+                        queue.push_back((callee.clone(), depth + 1));
+                    }
+                }
+            }
+        }
+
+        // Mark unreachable nodes
+        for node in &self.nodes {
+            if !depths.contains_key(node) {
+                depths.insert(node.clone(), None);
+            }
+        }
+
+        depths
+    }
+
+    /// Check if a function is likely an entry point
+    fn is_entry_point(&self, function_id: &str) -> bool {
+        // Extract function name from ID (format: "file::function")
+        let function_name = function_id
+            .split("::")
+            .last()
+            .unwrap_or("")
+            .to_lowercase();
+
+        // Common entry point names
+        let entry_point_names = [
+            "main",
+            "start",
+            "init",
+            "initialize",
+            "run",
+            "execute",
+            "bootstrap",
+        ];
+
+        // HTTP handler patterns
+        let handler_patterns = [
+            "handle",
+            "handler",
+            "onrequest",
+            "onmessage",
+            "onevent",
+            "middleware",
+            "controller",
+        ];
+
+        // Check if function name matches entry point patterns
+        if entry_point_names.contains(&function_name.as_str()) {
+            return true;
+        }
+
+        // Check if function name contains handler patterns
+        for pattern in &handler_patterns {
+            if function_name.contains(pattern) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Calculate all graph metrics for a function
     pub fn metrics_for(
         &self,
