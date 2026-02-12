@@ -63,6 +63,16 @@ pub struct ChurnMetrics {
     pub net_change: i64,
 }
 
+/// Call graph metrics for a function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CallGraphMetrics {
+    pub fan_in: usize,
+    pub fan_out: usize,
+    pub pagerank: f64,
+    pub betweenness: f64,
+}
+
 /// Function entry in snapshot
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -82,6 +92,8 @@ pub struct FunctionSnapshot {
     pub touch_count_30d: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub days_since_last_change: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callgraph: Option<CallGraphMetrics>,
 }
 
 /// Complete snapshot for a commit
@@ -163,6 +175,7 @@ impl Snapshot {
                     churn: None, // Churn will be populated separately if available
                     touch_count_30d: None, // Touch count will be populated separately if available
                     days_since_last_change: None, // Days since last change will be populated separately if available
+                    callgraph: None, // Call graph metrics will be populated separately if available
                 }
             })
             .collect();
@@ -263,6 +276,34 @@ impl Snapshot {
         }
 
         Ok(())
+    }
+
+    /// Populate call graph metrics
+    ///
+    /// Computes PageRank, betweenness centrality, fan-in, and fan-out for all functions.
+    ///
+    /// # Arguments
+    ///
+    /// * `call_graph` - Pre-computed call graph for the codebase
+    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        // Compute global metrics once
+        let pagerank_scores = call_graph.pagerank(0.85, 30);
+        let betweenness_scores = call_graph.betweenness_centrality();
+
+        // Populate metrics for each function
+        for function in &mut self.functions {
+            let function_id = &function.function_id;
+
+            // Only populate if function is in the call graph
+            if call_graph.nodes.contains(function_id) {
+                function.callgraph = Some(CallGraphMetrics {
+                    fan_in: call_graph.fan_in(function_id),
+                    fan_out: call_graph.fan_out(function_id),
+                    pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
+                    betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
+                });
+            }
+        }
     }
 
     /// Serialize snapshot to JSON string (deterministic ordering)
@@ -586,6 +627,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let report = FunctionRiskReport {

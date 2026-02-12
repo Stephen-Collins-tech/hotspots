@@ -442,6 +442,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let reports: Vec<FunctionRiskReport> = functions
@@ -489,6 +494,9 @@ mod tests {
                     band: "low".to_string(),
                     suppression_reason: None,
                     churn: None,
+                    touch_count_30d: None,
+                    days_since_last_change: None,
+                    callgraph: None,
                 }],
             ),
             create_test_snapshot(
@@ -510,6 +518,9 @@ mod tests {
                     band: "moderate".to_string(),
                     suppression_reason: None,
                     churn: None,
+                    touch_count_30d: None,
+                    days_since_last_change: None,
+                    callgraph: None,
                 }],
             ),
         ];
@@ -543,6 +554,9 @@ mod tests {
                     band: "low".to_string(),
                     suppression_reason: None,
                     churn: None,
+                    touch_count_30d: None,
+                    days_since_last_change: None,
+                    callgraph: None,
                 }],
             ),
             create_test_snapshot(
@@ -564,6 +578,9 @@ mod tests {
                     band: "low".to_string(),
                     suppression_reason: None,
                     churn: None,
+                    touch_count_30d: None,
+                    days_since_last_change: None,
+                    callgraph: None,
                 }],
             ),
         ];
@@ -596,6 +613,9 @@ mod tests {
                         band: "high".to_string(),
                         suppression_reason: None,
                         churn: None,
+                        touch_count_30d: None,
+                        days_since_last_change: None,
+                        callgraph: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -613,6 +633,9 @@ mod tests {
                         band: "moderate".to_string(),
                         suppression_reason: None,
                         churn: None,
+                        touch_count_30d: None,
+                        days_since_last_change: None,
+                        callgraph: None,
                     },
                 ],
             ),
@@ -636,6 +659,9 @@ mod tests {
                         band: "high".to_string(),
                         suppression_reason: None,
                         churn: None,
+                        touch_count_30d: None,
+                        days_since_last_change: None,
+                        callgraph: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -653,6 +679,9 @@ mod tests {
                         band: "moderate".to_string(),
                         suppression_reason: None,
                         churn: None,
+                        touch_count_30d: None,
+                        days_since_last_change: None,
+                        callgraph: None,
                     },
                 ],
             ),

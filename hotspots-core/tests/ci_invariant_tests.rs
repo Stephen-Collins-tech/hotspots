@@ -15,6 +15,11 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -143,6 +148,11 @@ fn test_delta_single_parent_only() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -217,6 +227,11 @@ fn test_delta_negative_deltas_allowed() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -268,6 +283,11 @@ fn test_delta_deleted_functions_explicit() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
     let current = snapshot::Snapshot::new(git_context, vec![]);
 
