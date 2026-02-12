@@ -62,10 +62,7 @@ impl CallGraph {
         self.nodes.insert(caller.clone());
         self.nodes.insert(callee.clone());
 
-        self.edges
-            .entry(caller)
-            .or_default()
-            .push(callee);
+        self.edges.entry(caller).or_default().push(callee);
     }
 
     /// Calculate fan-in for a function (number of callers)
@@ -188,10 +185,7 @@ impl CallGraph {
                             let sigma_v = sigma.get(&v).copied().unwrap_or(0.0);
                             sigma.insert(w.clone(), sigma_w + sigma_v);
 
-                            predecessors
-                                .entry(w.clone())
-                                .or_default()
-                                .push(v.clone());
+                            predecessors.entry(w.clone()).or_default().push(v.clone());
                         }
                     }
                 }
