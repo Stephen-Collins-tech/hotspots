@@ -295,6 +295,7 @@ mod tests {
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            churn: None,
         }
     }
 

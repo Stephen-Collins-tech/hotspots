@@ -452,7 +452,36 @@ fn handle_mode_output(
                 .context("failed to extract git context (required for snapshot mode)")?;
 
             // Create snapshot
-            let snapshot = Snapshot::new(git_context, reports);
+            let mut snapshot = Snapshot::new(git_context.clone(), reports);
+
+            // Extract and populate churn metrics if parent exists
+            if !git_context.parent_shas.is_empty() {
+                match git::extract_commit_churn(&git_context.head_sha) {
+                    Ok(churns) => {
+                        // Build map from file path to churn
+                        // Convert relative paths from git to absolute paths to match snapshot
+                        let churn_map: std::collections::HashMap<String, _> = churns
+                            .into_iter()
+                            .map(|c| {
+                                let absolute_path = repo_root.join(&c.file);
+                                let normalized_path = absolute_path
+                                    .to_string_lossy()
+                                    .to_string();
+                                (normalized_path, c)
+                            })
+                            .collect();
+                        snapshot.populate_churn(&churn_map);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: failed to extract churn: {}", e);
+                    }
+                }
+            }
+
+            // Populate touch count and recency metrics
+            if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
+                eprintln!("Warning: failed to populate touch metrics: {}", e);
+            }
 
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
@@ -506,7 +535,35 @@ fn handle_mode_output(
                 .context("failed to extract git context (required for delta mode)")?;
 
             // Create snapshot
-            let snapshot = Snapshot::new(git_context, reports);
+            let mut snapshot = Snapshot::new(git_context.clone(), reports);
+
+            // Extract and populate churn metrics if parent exists
+            if !git_context.parent_shas.is_empty() {
+                match git::extract_commit_churn(&git_context.head_sha) {
+                    Ok(churns) => {
+                        // Convert relative paths from git to absolute paths to match snapshot
+                        let churn_map: std::collections::HashMap<String, _> = churns
+                            .into_iter()
+                            .map(|c| {
+                                let absolute_path = repo_root.join(&c.file);
+                                let normalized_path = absolute_path
+                                    .to_string_lossy()
+                                    .to_string();
+                                (normalized_path, c)
+                            })
+                            .collect();
+                        snapshot.populate_churn(&churn_map);
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: failed to extract churn: {}", e);
+                    }
+                }
+            }
+
+            // Populate touch count and recency metrics
+            if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
+                eprintln!("Warning: failed to populate touch metrics: {}", e);
+            }
 
             // Compute delta
             let delta = if pr_context.is_pr {

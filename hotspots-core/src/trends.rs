@@ -488,6 +488,7 @@ mod tests {
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
+                    churn: None,
                 }],
             ),
             create_test_snapshot(
@@ -508,6 +509,7 @@ mod tests {
                     lrs: 3.0,
                     band: "moderate".to_string(),
                     suppression_reason: None,
+                    churn: None,
                 }],
             ),
         ];
@@ -540,6 +542,7 @@ mod tests {
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
+                    churn: None,
                 }],
             ),
             create_test_snapshot(
@@ -560,6 +563,7 @@ mod tests {
                     lrs: 1.0,
                     band: "low".to_string(),
                     suppression_reason: None,
+                    churn: None,
                 }],
             ),
         ];
@@ -591,6 +595,7 @@ mod tests {
                         lrs: 15.0,
                         band: "high".to_string(),
                         suppression_reason: None,
+                        churn: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -607,6 +612,7 @@ mod tests {
                         lrs: 5.0,
                         band: "moderate".to_string(),
                         suppression_reason: None,
+                        churn: None,
                     },
                 ],
             ),
@@ -629,6 +635,7 @@ mod tests {
                         lrs: 18.0,
                         band: "high".to_string(),
                         suppression_reason: None,
+                        churn: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -645,6 +652,7 @@ mod tests {
                         lrs: 5.0,
                         band: "moderate".to_string(),
                         suppression_reason: None,
+                        churn: None,
                     },
                 ],
             ),
