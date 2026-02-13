@@ -228,6 +228,213 @@ impl CallGraph {
         betweenness
     }
 
+    /// Find strongly connected components using Tarjan's algorithm
+    ///
+    /// Returns a map from function ID to (scc_id, scc_size)
+    /// Functions in the same SCC form a cyclic dependency group.
+    pub fn find_strongly_connected_components(&self) -> HashMap<String, (usize, usize)> {
+        let mut index = 0;
+        let mut stack = Vec::new();
+        let mut indices: HashMap<String, usize> = HashMap::new();
+        let mut lowlinks: HashMap<String, usize> = HashMap::new();
+        let mut on_stack: HashMap<String, bool> = HashMap::new();
+        let mut scc_id = 0;
+        let mut result: HashMap<String, (usize, usize)> = HashMap::new();
+        let mut scc_sizes: HashMap<usize, usize> = HashMap::new();
+
+        for node in &self.nodes {
+            if !indices.contains_key(node) {
+                self.tarjan_strongconnect(
+                    node,
+                    &mut index,
+                    &mut stack,
+                    &mut indices,
+                    &mut lowlinks,
+                    &mut on_stack,
+                    &mut scc_id,
+                    &mut result,
+                    &mut scc_sizes,
+                );
+            }
+        }
+
+        // Add SCC sizes to result
+        let mut final_result: HashMap<String, (usize, usize)> = HashMap::new();
+        for (node, (id, _)) in result {
+            let size = *scc_sizes.get(&id).unwrap_or(&1);
+            final_result.insert(node, (id, size));
+        }
+
+        final_result
+    }
+
+    /// Tarjan's algorithm helper function
+    #[allow(clippy::too_many_arguments)]
+    fn tarjan_strongconnect(
+        &self,
+        v: &str,
+        index: &mut usize,
+        stack: &mut Vec<String>,
+        indices: &mut HashMap<String, usize>,
+        lowlinks: &mut HashMap<String, usize>,
+        on_stack: &mut HashMap<String, bool>,
+        scc_id: &mut usize,
+        result: &mut HashMap<String, (usize, usize)>,
+        scc_sizes: &mut HashMap<usize, usize>,
+    ) {
+        indices.insert(v.to_string(), *index);
+        lowlinks.insert(v.to_string(), *index);
+        *index += 1;
+        stack.push(v.to_string());
+        on_stack.insert(v.to_string(), true);
+
+        // Consider successors of v
+        if let Some(successors) = self.edges.get(v) {
+            for w in successors {
+                if !indices.contains_key(w) {
+                    // Successor w has not yet been visited; recurse on it
+                    self.tarjan_strongconnect(
+                        w, index, stack, indices, lowlinks, on_stack, scc_id, result, scc_sizes,
+                    );
+                    let w_lowlink = *lowlinks.get(w).unwrap_or(&0);
+                    let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
+                    lowlinks.insert(v.to_string(), v_lowlink.min(w_lowlink));
+                } else if *on_stack.get(w).unwrap_or(&false) {
+                    // Successor w is in stack and hence in the current SCC
+                    let w_index = *indices.get(w).unwrap_or(&0);
+                    let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
+                    lowlinks.insert(v.to_string(), v_lowlink.min(w_index));
+                }
+            }
+        }
+
+        // If v is a root node, pop the stack and generate an SCC
+        let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
+        let v_index = *indices.get(v).unwrap_or(&0);
+        if v_lowlink == v_index {
+            let mut scc = Vec::new();
+            loop {
+                if let Some(w) = stack.pop() {
+                    on_stack.insert(w.clone(), false);
+                    scc.push(w.clone());
+                    result.insert(w.clone(), (*scc_id, 0)); // Size will be filled later
+                    if w == v {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            scc_sizes.insert(*scc_id, scc.len());
+            *scc_id += 1;
+        }
+    }
+
+    /// Compute dependency depth for all functions
+    ///
+    /// Uses BFS from entry points to compute shortest path depth.
+    /// Entry points are identified using heuristics:
+    /// - Functions named "main", "start", "init"
+    /// - Functions with no incoming calls (potential entry points)
+    /// - HTTP handlers (e.g., handleRequest, onRequest)
+    ///
+    /// Returns a map from function ID to depth (0 = entry point, None = unreachable)
+    pub fn compute_dependency_depth(&self) -> HashMap<String, Option<usize>> {
+        use std::collections::VecDeque;
+
+        // Identify entry points using heuristics
+        let mut entry_points = Vec::new();
+        for node in &self.nodes {
+            if self.is_entry_point(node) {
+                entry_points.push(node.clone());
+            }
+        }
+
+        // If no explicit entry points found, use all functions with fan_in = 0
+        if entry_points.is_empty() {
+            for node in &self.nodes {
+                if self.fan_in(node) == 0 {
+                    entry_points.push(node.clone());
+                }
+            }
+        }
+
+        // BFS from all entry points to compute depths
+        let mut depths: HashMap<String, Option<usize>> = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        // Initialize entry points with depth 0
+        for entry in &entry_points {
+            depths.insert(entry.clone(), Some(0));
+            queue.push_back((entry.clone(), 0));
+        }
+
+        // BFS traversal
+        while let Some((node, depth)) = queue.pop_front() {
+            if let Some(callees) = self.edges.get(&node) {
+                for callee in callees {
+                    // Only update if not visited or found a shorter path
+                    let current_depth = depths.get(callee).copied().flatten();
+                    if current_depth.is_none() || current_depth.unwrap() > depth + 1 {
+                        depths.insert(callee.clone(), Some(depth + 1));
+                        queue.push_back((callee.clone(), depth + 1));
+                    }
+                }
+            }
+        }
+
+        // Mark unreachable nodes
+        for node in &self.nodes {
+            if !depths.contains_key(node) {
+                depths.insert(node.clone(), None);
+            }
+        }
+
+        depths
+    }
+
+    /// Check if a function is likely an entry point
+    fn is_entry_point(&self, function_id: &str) -> bool {
+        // Extract function name from ID (format: "file::function")
+        let function_name = function_id.split("::").last().unwrap_or("").to_lowercase();
+
+        // Common entry point names
+        let entry_point_names = [
+            "main",
+            "start",
+            "init",
+            "initialize",
+            "run",
+            "execute",
+            "bootstrap",
+        ];
+
+        // HTTP handler patterns
+        let handler_patterns = [
+            "handle",
+            "handler",
+            "onrequest",
+            "onmessage",
+            "onevent",
+            "middleware",
+            "controller",
+        ];
+
+        // Check if function name matches entry point patterns
+        if entry_point_names.contains(&function_name.as_str()) {
+            return true;
+        }
+
+        // Check if function name contains handler patterns
+        for pattern in &handler_patterns {
+            if function_name.contains(pattern) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Calculate all graph metrics for a function
     pub fn metrics_for(
         &self,

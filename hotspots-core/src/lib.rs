@@ -27,10 +27,12 @@ pub mod policy;
 pub mod prune;
 pub mod report;
 pub mod risk;
+pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
 pub mod trends;
 
+pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;
 pub use git::GitContext;
 pub use report::{render_json, render_text, sort_reports, FunctionRiskReport};
@@ -206,4 +208,129 @@ fn collect_source_files_recursive(
     }
 
     Ok(())
+}
+
+/// Build a call graph from source files and function reports
+///
+/// This uses a simple regex-based approach to extract function calls.
+/// It's not perfect but provides a reasonable best-effort approximation.
+pub fn build_call_graph(
+    path: &std::path::Path,
+    reports: &[FunctionRiskReport],
+    resolved_config: Option<&ResolvedConfig>,
+) -> Result<callgraph::CallGraph> {
+    use regex::Regex;
+    use std::collections::HashMap;
+
+    let mut graph = callgraph::CallGraph::new();
+
+    // Add all functions as nodes
+    let mut name_to_id: HashMap<String, Vec<String>> = HashMap::new();
+    for report in reports {
+        let function_id = format!("{}::{}", report.file, report.function);
+        graph.add_node(function_id.clone());
+
+        // Build reverse mapping: simple name -> list of full IDs
+        // This handles name collisions across files
+        name_to_id
+            .entry(report.function.clone())
+            .or_default()
+            .push(function_id);
+    }
+
+    // Collect source files
+    let source_files = collect_source_files(path)?;
+
+    // Regex to match function calls: name(...)
+    let call_pattern = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
+
+    for file_path in source_files {
+        // Apply config include/exclude filter
+        if let Some(config) = resolved_config {
+            if !config.should_include(&file_path) {
+                continue;
+            }
+        }
+
+        // Read source
+        let source = std::fs::read_to_string(&file_path)
+            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+
+        // Normalize file path for matching (use / separators)
+        let normalized_path = file_path.to_string_lossy().replace('\\', "/");
+
+        // Find all functions in this file with their line ranges
+        let mut file_functions: Vec<(String, String, u32)> = Vec::new();
+        for report in reports {
+            let report_file = report.file.replace('\\', "/");
+            if report_file == normalized_path {
+                let function_id = format!("{}::{}", report.file, report.function);
+                file_functions.push((function_id, report.function.clone(), report.line));
+            }
+        }
+
+        // Sort by line number to process in order
+        file_functions.sort_by_key(|(_, _, line)| *line);
+
+        // Split source into lines for per-function analysis
+        let source_lines: Vec<&str> = source.lines().collect();
+
+        // For each function, estimate its source range and find calls
+        for i in 0..file_functions.len() {
+            let (caller_id, _caller_name, start_line) = &file_functions[i];
+
+            // Estimate end line: either the start of the next function, or end of file
+            let end_line = if i + 1 < file_functions.len() {
+                file_functions[i + 1].2
+            } else {
+                source_lines.len() as u32
+            };
+
+            // Extract function source (rough approximation)
+            let function_source = source_lines
+                .iter()
+                .skip((start_line.saturating_sub(1)) as usize)
+                .take((end_line - start_line) as usize)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Find calls in this function's source
+            let mut added_callees = std::collections::HashSet::new();
+            for cap in call_pattern.captures_iter(&function_source) {
+                if let Some(called_name_match) = cap.get(1) {
+                    let called_name = called_name_match.as_str();
+
+                    // Try to resolve the call to a function ID
+                    if let Some(possible_callees) = name_to_id.get(called_name) {
+                        // Prefer functions in the same file
+                        let mut found = false;
+                        for callee_id in possible_callees {
+                            if callee_id.starts_with(&format!("{}::", normalized_path)) {
+                                // Don't add self-calls or duplicates
+                                if callee_id != caller_id && !added_callees.contains(callee_id) {
+                                    graph.add_edge(caller_id.clone(), callee_id.clone());
+                                    added_callees.insert(callee_id.clone());
+                                }
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        // If no same-file match, add edge to first match (cross-file call)
+                        if !found {
+                            if let Some(callee_id) = possible_callees.first() {
+                                if callee_id != caller_id && !added_callees.contains(callee_id) {
+                                    graph.add_edge(caller_id.clone(), callee_id.clone());
+                                    added_callees.insert(callee_id.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(graph)
 }

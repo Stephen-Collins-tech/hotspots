@@ -63,6 +63,15 @@ pub struct ChurnMetrics {
     pub net_change: i64,
 }
 
+/// Per-function percentile flags based on activity_risk
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct PercentileFlags {
+    pub is_top_10_pct: bool,
+    pub is_top_5_pct: bool,
+    pub is_top_1_pct: bool,
+}
+
 /// Call graph metrics for a function
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -71,6 +80,12 @@ pub struct CallGraphMetrics {
     pub fan_out: usize,
     pub pagerank: f64,
     pub betweenness: f64,
+    pub scc_id: usize,
+    pub scc_size: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub neighbor_churn: Option<usize>,
 }
 
 /// Function entry in snapshot
@@ -94,6 +109,44 @@ pub struct FunctionSnapshot {
     pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub callgraph: Option<CallGraphMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_risk: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_factors: Option<crate::scoring::RiskFactors>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentile: Option<PercentileFlags>,
+}
+
+/// Risk distribution by band
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct BandStats {
+    pub count: usize,
+    pub sum_risk: f64,
+}
+
+/// Call graph statistics for the whole repo
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CallGraphStats {
+    pub total_edges: usize,
+    pub avg_fan_in: f64,
+    pub scc_count: usize,
+    pub largest_scc_size: usize,
+}
+
+/// Repo-level summary statistics
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct SnapshotSummary {
+    pub total_functions: usize,
+    pub total_activity_risk: f64,
+    pub top_1_pct_share: f64,
+    pub top_5_pct_share: f64,
+    pub top_10_pct_share: f64,
+    pub by_band: std::collections::HashMap<String, BandStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_graph: Option<CallGraphStats>,
 }
 
 /// Complete snapshot for a commit
@@ -105,6 +158,8 @@ pub struct Snapshot {
     pub commit: CommitInfo,
     pub analysis: AnalysisInfo,
     pub functions: Vec<FunctionSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SnapshotSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
 }
@@ -176,6 +231,9 @@ impl Snapshot {
                     touch_count_30d: None, // Touch count will be populated separately if available
                     days_since_last_change: None, // Days since last change will be populated separately if available
                     callgraph: None, // Call graph metrics will be populated separately if available
+                    activity_risk: None,
+                    risk_factors: None,
+                    percentile: None,
                 }
             })
             .collect();
@@ -201,6 +259,7 @@ impl Snapshot {
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
             },
             functions,
+            summary: None,
             aggregates: None, // Aggregates are computed on-demand, not stored
         }
     }
@@ -286,15 +345,29 @@ impl Snapshot {
 
     /// Populate call graph metrics
     ///
-    /// Computes PageRank, betweenness centrality, fan-in, and fan-out for all functions.
+    /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, dependency depth,
+    /// and neighbor churn metrics for all functions.
     ///
     /// # Arguments
     ///
     /// * `call_graph` - Pre-computed call graph for the codebase
     pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        use std::collections::HashMap;
+
         // Compute global metrics once
         let pagerank_scores = call_graph.pagerank(0.85, 30);
         let betweenness_scores = call_graph.betweenness_centrality();
+        let scc_info = call_graph.find_strongly_connected_components();
+        let dependency_depths = call_graph.compute_dependency_depth();
+
+        // Build a map of function_id -> total churn (lines_added + lines_deleted)
+        let mut churn_map: HashMap<String, usize> = HashMap::new();
+        for function in &self.functions {
+            if let Some(ref churn) = function.churn {
+                let total_churn = churn.lines_added + churn.lines_deleted;
+                churn_map.insert(function.function_id.clone(), total_churn);
+            }
+        }
 
         // Populate metrics for each function
         for function in &mut self.functions {
@@ -302,14 +375,248 @@ impl Snapshot {
 
             // Only populate if function is in the call graph
             if call_graph.nodes.contains(function_id) {
+                let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
+                let dependency_depth = dependency_depths.get(function_id).copied().flatten();
+
+                // Compute neighbor churn: sum of churn for all callees
+                let neighbor_churn = if let Some(callees) = call_graph.edges.get(function_id) {
+                    let total: usize = callees
+                        .iter()
+                        .filter_map(|callee_id| churn_map.get(callee_id))
+                        .sum();
+                    if total > 0 {
+                        Some(total)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 function.callgraph = Some(CallGraphMetrics {
                     fan_in: call_graph.fan_in(function_id),
                     fan_out: call_graph.fan_out(function_id),
                     pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
                     betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
+                    scc_id,
+                    scc_size,
+                    dependency_depth,
+                    neighbor_churn,
                 });
             }
         }
+    }
+
+    /// Compute and populate activity risk scores
+    ///
+    /// Combines LRS with activity metrics and call graph metrics to produce
+    /// a unified risk score. Should be called after populate_churn, populate_touch_metrics,
+    /// and populate_callgraph have been called.
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Optional weights for risk factors (uses defaults if None)
+    pub fn compute_activity_risk(&mut self, weights: Option<&crate::scoring::ScoringWeights>) {
+        let default_weights = crate::scoring::ScoringWeights::default();
+        let weights = weights.unwrap_or(&default_weights);
+
+        for function in &mut self.functions {
+            // Extract churn data
+            let churn = function
+                .churn
+                .as_ref()
+                .map(|c| (c.lines_added, c.lines_deleted));
+
+            // Extract call graph data
+            let (fan_in, scc_size, dependency_depth, neighbor_churn) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.dependency_depth,
+                        cg.neighbor_churn,
+                    )
+                } else {
+                    (None, None, None, None)
+                };
+
+            // Compute activity risk
+            let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
+                function.lrs,
+                churn,
+                function.touch_count_30d,
+                function.days_since_last_change,
+                fan_in,
+                scc_size,
+                dependency_depth,
+                neighbor_churn,
+                weights,
+            );
+
+            // Only populate if there are additional risk factors beyond base LRS
+            if activity_risk > function.lrs || risk_factors.churn > 0.0 {
+                function.activity_risk = Some(activity_risk);
+                function.risk_factors = Some(risk_factors);
+            }
+        }
+    }
+
+    /// Compute and populate percentile flags for all functions
+    ///
+    /// Must be called after compute_activity_risk().
+    /// Flags: is_top_1_pct, is_top_5_pct, is_top_10_pct based on activity_risk.
+    pub fn compute_percentiles(&mut self) {
+        let n = self.functions.len();
+        if n == 0 {
+            return;
+        }
+
+        // Collect all activity_risk scores (falling back to lrs)
+        let mut scores: Vec<f64> = self
+            .functions
+            .iter()
+            .map(|f| f.activity_risk.unwrap_or(f.lrs))
+            .collect();
+        scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Compute threshold values via quantile index
+        let threshold_10 = scores[n.saturating_sub(1) * 90 / 100];
+        let threshold_5 = scores[n.saturating_sub(1) * 95 / 100];
+        let threshold_1 = scores[n.saturating_sub(1) * 99 / 100];
+
+        for function in &mut self.functions {
+            let score = function.activity_risk.unwrap_or(function.lrs);
+            function.percentile = Some(PercentileFlags {
+                is_top_10_pct: score >= threshold_10,
+                is_top_5_pct: score >= threshold_5,
+                is_top_1_pct: score >= threshold_1,
+            });
+        }
+    }
+
+    /// Compute repo-level summary statistics
+    ///
+    /// Must be called after compute_activity_risk() and populate_callgraph().
+    pub fn compute_summary(&mut self) {
+        use std::collections::HashMap;
+
+        let n = self.functions.len();
+        if n == 0 {
+            self.summary = Some(SnapshotSummary {
+                total_functions: 0,
+                total_activity_risk: 0.0,
+                top_1_pct_share: 0.0,
+                top_5_pct_share: 0.0,
+                top_10_pct_share: 0.0,
+                by_band: HashMap::new(),
+                call_graph: None,
+            });
+            return;
+        }
+
+        // Collect scores sorted descending
+        let mut scored: Vec<f64> = self
+            .functions
+            .iter()
+            .map(|f| f.activity_risk.unwrap_or(f.lrs))
+            .collect();
+        scored.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+
+        let total_risk: f64 = scored.iter().sum();
+
+        // Top-K share calculations
+        let top1_n = (n / 100).max(1);
+        let top5_n = (n * 5 / 100).max(1);
+        let top10_n = (n / 10).max(1);
+
+        let top1_sum: f64 = scored.iter().take(top1_n).sum();
+        let top5_sum: f64 = scored.iter().take(top5_n).sum();
+        let top10_sum: f64 = scored.iter().take(top10_n).sum();
+
+        let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+
+        // Band distribution
+        let mut by_band: HashMap<String, BandStats> = HashMap::new();
+        for func in &self.functions {
+            let score = func.activity_risk.unwrap_or(func.lrs);
+            let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
+                count: 0,
+                sum_risk: 0.0,
+            });
+            entry.count += 1;
+            entry.sum_risk += score;
+        }
+
+        // Call graph stats
+        let has_callgraph = self.functions.iter().any(|f| f.callgraph.is_some());
+        let call_graph = if has_callgraph {
+            let total_edges: usize = self
+                .functions
+                .iter()
+                .filter_map(|f| f.callgraph.as_ref())
+                .map(|cg| cg.fan_out)
+                .sum();
+            let total_fan_in: usize = self
+                .functions
+                .iter()
+                .filter_map(|f| f.callgraph.as_ref())
+                .map(|cg| cg.fan_in)
+                .sum();
+            let avg_fan_in = total_fan_in as f64 / n as f64;
+
+            // SCC analysis: group by scc_id, count SCCs with size > 1
+            let mut scc_sizes: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
+            for func in &self.functions {
+                if let Some(ref cg) = func.callgraph {
+                    if cg.scc_size > 1 {
+                        scc_sizes.insert(cg.scc_id, cg.scc_size);
+                    }
+                }
+            }
+            let scc_count = scc_sizes.len();
+            let largest_scc_size = scc_sizes.values().copied().max().unwrap_or(0);
+
+            Some(CallGraphStats {
+                total_edges,
+                avg_fan_in,
+                scc_count,
+                largest_scc_size,
+            })
+        } else {
+            None
+        };
+
+        self.summary = Some(SnapshotSummary {
+            total_functions: n,
+            total_activity_risk: total_risk,
+            top_1_pct_share: safe_div(top1_sum, total_risk),
+            top_5_pct_share: safe_div(top5_sum, total_risk),
+            top_10_pct_share: safe_div(top10_sum, total_risk),
+            by_band,
+            call_graph,
+        });
+    }
+
+    /// Serialize snapshot as JSONL (one JSON object per line, no outer array)
+    ///
+    /// Each line embeds the commit context alongside function data,
+    /// suitable for streaming ingestion (DuckDB, jq -s, etc.)
+    pub fn to_jsonl(&self) -> Result<String> {
+        let commit_json =
+            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
+
+        let mut lines = Vec::with_capacity(self.functions.len());
+        for func in &self.functions {
+            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
+            // Embed commit context in each row
+            obj.as_object_mut()
+                .unwrap()
+                .insert("commit".to_string(), commit_json.clone());
+            lines.push(serde_json::to_string(&obj).context("failed to serialize JSONL line")?);
+        }
+
+        Ok(lines.join("\n"))
     }
 
     /// Serialize snapshot to JSON string (deterministic ordering)

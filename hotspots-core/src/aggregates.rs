@@ -299,6 +299,9 @@ mod tests {
             touch_count_30d: None,
             days_since_last_change: None,
             callgraph: None,
+            activity_risk: None,
+            risk_factors: None,
+            percentile: None,
         }
     }
 
