@@ -313,15 +313,11 @@ impl CallGraph {
         let v_index = *indices.get(v).unwrap_or(&0);
         if v_lowlink == v_index {
             let mut scc = Vec::new();
-            loop {
-                if let Some(w) = stack.pop() {
-                    on_stack.insert(w.clone(), false);
-                    scc.push(w.clone());
-                    result.insert(w.clone(), (*scc_id, 0)); // Size will be filled later
-                    if w == v {
-                        break;
-                    }
-                } else {
+            while let Some(w) = stack.pop() {
+                on_stack.insert(w.clone(), false);
+                scc.push(w.clone());
+                result.insert(w.clone(), (*scc_id, 0)); // Size will be filled later
+                if w == v {
                     break;
                 }
             }
