@@ -499,6 +499,7 @@ mod tests {
                     callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                 }],
             ),
             create_test_snapshot(
@@ -525,6 +526,7 @@ mod tests {
                     callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                 }],
             ),
         ];
@@ -563,6 +565,7 @@ mod tests {
                     callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                 }],
             ),
             create_test_snapshot(
@@ -589,6 +592,7 @@ mod tests {
                     callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                 }],
             ),
         ];
@@ -626,6 +630,7 @@ mod tests {
                         callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -648,6 +653,7 @@ mod tests {
                         callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                     },
                 ],
             ),
@@ -676,6 +682,7 @@ mod tests {
                         callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -698,6 +705,7 @@ mod tests {
                         callgraph: None,
                     activity_risk: None,
                     risk_factors: None,
+                    percentile: None,
                     },
                 ],
             ),

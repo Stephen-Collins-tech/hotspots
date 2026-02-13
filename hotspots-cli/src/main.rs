@@ -134,6 +134,7 @@ enum OutputFormat {
     Text,
     Json,
     Html,
+    Jsonl,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -237,8 +238,8 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Json => {
                     println!("{}", render_json(&reports));
                 }
-                OutputFormat::Html => {
-                    anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
+                OutputFormat::Html | OutputFormat::Jsonl => {
+                    anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
                 }
             }
         }
@@ -426,8 +427,8 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Text => {
                     print_trends_text_output(&trends)?;
                 }
-                OutputFormat::Html => {
-                    anyhow::bail!("HTML format is not supported for trends analysis");
+                OutputFormat::Html | OutputFormat::Jsonl => {
+                    anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
                 }
             }
         }
@@ -513,6 +514,10 @@ fn handle_mode_output(
             // Compute activity risk scores (combines all metrics)
             snapshot.compute_activity_risk(None);
 
+            // Compute percentile flags and summary (must be after activity risk)
+            snapshot.compute_percentiles();
+            snapshot.compute_summary();
+
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
             if is_mainline {
@@ -546,6 +551,10 @@ fn handle_mode_output(
                         ));
                     let json = snapshot_with_aggregates.to_json()?;
                     println!("{}", json);
+                }
+                OutputFormat::Jsonl => {
+                    let jsonl = snapshot.to_jsonl()?;
+                    println!("{}", jsonl);
                 }
                 OutputFormat::Text => {
                     if explain {
@@ -661,6 +670,9 @@ fn handle_mode_output(
                 OutputFormat::Json => {
                     let json = delta_with_extras.to_json()?;
                     println!("{}", json);
+                }
+                OutputFormat::Jsonl => {
+                    anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
                 }
                 OutputFormat::Text => {
                     if policy {

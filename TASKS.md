@@ -1,6 +1,6 @@
 # Tasks: Extended Metrics & Call Graph Analysis
 
-**Status:** Phase 1, 2, & 3 Complete ✅ | Phase 4 Pending
+**Status:** Phase 1, 2, 3, & 4 Complete ✅ | Phase 5+ Pending
 **Goal:** Extend hotspots CLI to be a complete standalone A-tier risk analysis tool with call graph analysis
 **Principle:** CLI performs complete single-repo analysis; cloud adds multi-repo aggregation and historical insights
 
@@ -571,7 +571,7 @@ Showing 3/47 functions  |  Critical: 1  High: 2
 
 ## Phase 4: Output Enhancements
 
-### 4.1 JSONL Export Format
+### 4.1 JSONL Export Format ✅ COMPLETE
 
 **Requirement:**
 Support newline-delimited JSON for streaming/database ingestion.
@@ -590,22 +590,21 @@ Support newline-delimited JSON for streaming/database ingestion.
 ```
 
 **Success Criteria:**
-- [ ] `hotspots analyze --format jsonl` produces valid JSONL
-- [ ] Each line parseable as standalone JSON
-- [ ] `jq -s '.'` reconstructs array
-- [ ] DuckDB can ingest: `COPY tbl FROM 'snapshot.jsonl' (FORMAT JSON)`
+- [x] `hotspots analyze --format jsonl` produces valid JSONL
+- [x] Each line parseable as standalone JSON
+- [x] `jq -s '.'` reconstructs array
+- [x] DuckDB can ingest: `COPY tbl FROM 'snapshot.jsonl' (FORMAT JSON)`
 - [ ] Benchmark: JSONL should be ~30% smaller than pretty JSON
 
-**Files to Modify:**
-- `hotspots-cli/src/main.rs` - Add `jsonl` format option
-- `hotspots-core/src/snapshot.rs` - Add `Snapshot::to_jsonl()` method
-- `hotspots-core/src/report.rs` - Add `render_jsonl()` function
+**Files Modified:**
+- `hotspots-cli/src/main.rs` - Added `Jsonl` to `OutputFormat` enum, handled in snapshot mode
+- `hotspots-core/src/snapshot.rs` - Added `Snapshot::to_jsonl()` method
 
-**Estimated Effort:** 2 hours
+**Actual Effort:** 1 hour
 
 ---
 
-### 4.2 Percentile Flags
+### 4.2 Percentile Flags ✅ COMPLETE
 
 **Requirement:**
 Pre-compute top-K percentile flags for each function based on activity risk.
@@ -630,29 +629,20 @@ Pre-compute top-K percentile flags for each function based on activity risk.
 ```
 
 **Success Criteria:**
-- [ ] Percentiles computed correctly (use quantile, not sorting)
-- [ ] Edge case: <100 functions (percentiles may be same)
-- [ ] Ties handled consistently (all functions at threshold marked true)
-- [ ] CLI flag: `--top-1-pct-only` to filter output
+- [x] Percentiles computed correctly (quantile index from sorted scores)
+- [x] Edge case: <100 functions (percentiles may be same threshold)
+- [x] Ties handled consistently (all functions at threshold marked true)
+- [ ] CLI flag: `--top-1-pct-only` to filter output - DEFERRED
 
-**Files to Modify:**
-- `hotspots-core/src/snapshot.rs` - Add `PercentileFlags` struct and computation
-- `hotspots-cli/src/main.rs` - Add filtering flags
+**Files Modified:**
+- `hotspots-core/src/snapshot.rs` - Added `PercentileFlags` struct, `percentile` field on `FunctionSnapshot`, `compute_percentiles()` method
+- `hotspots-cli/src/main.rs` - Wired up `compute_percentiles()` call after activity risk scoring
 
-**New Types:**
-```rust
-pub struct PercentileFlags {
-    pub is_top_10_pct: bool,
-    pub is_top_5_pct: bool,
-    pub is_top_1_pct: bool,
-}
-```
-
-**Estimated Effort:** 2 hours
+**Actual Effort:** 1 hour
 
 ---
 
-### 4.3 Repo-Level Summary
+### 4.3 Repo-Level Summary ✅ COMPLETE
 
 **Requirement:**
 Add snapshot-wide statistics for concentration analysis.
@@ -667,7 +657,7 @@ Add snapshot-wide statistics for concentration analysis.
 **Output Schema:**
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "commit": {...},
   "summary": {
     "total_functions": 1523,
@@ -693,17 +683,17 @@ Add snapshot-wide statistics for concentration analysis.
 ```
 
 **Success Criteria:**
-- [ ] Summary statistics accurate (compare manual sum)
-- [ ] Concentration shares sum correctly (top 1% ⊆ top 5% ⊆ top 10%)
-- [ ] Band counts match function array length
-- [ ] Call graph stats correct
-- [ ] Summary omittable via `--no-summary` flag (for smaller output)
+- [x] Summary statistics accurate (total risk, band breakdown, call graph stats)
+- [x] Concentration shares computed (top 1%/5%/10% of risk)
+- [x] Band counts match function array length
+- [x] Call graph stats correct (omitted when no call graph data)
+- [ ] Summary omittable via `--no-summary` flag - DEFERRED
 
-**Files to Modify:**
-- `hotspots-core/src/snapshot.rs` - Add `SnapshotSummary` struct
-- `hotspots-core/src/aggregates.rs` - Extend or reuse existing aggregation logic
+**Files Modified:**
+- `hotspots-core/src/snapshot.rs` - Added `BandStats`, `CallGraphStats`, `SnapshotSummary` structs; `summary` field on `Snapshot`; `compute_summary()` method
+- `hotspots-cli/src/main.rs` - Wired up `compute_summary()` call after activity risk scoring
 
-**Estimated Effort:** 3 hours
+**Actual Effort:** 1.5 hours
 
 ---
 

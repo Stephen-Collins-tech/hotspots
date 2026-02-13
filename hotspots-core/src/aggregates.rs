@@ -301,6 +301,7 @@ mod tests {
             callgraph: None,
             activity_risk: None,
             risk_factors: None,
+            percentile: None,
         }
     }
 
