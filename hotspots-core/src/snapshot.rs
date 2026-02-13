@@ -565,7 +565,8 @@ impl Snapshot {
             let avg_fan_in = total_fan_in as f64 / n as f64;
 
             // SCC analysis: group by scc_id, count SCCs with size > 1
-            let mut scc_sizes: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+            let mut scc_sizes: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
             for func in &self.functions {
                 if let Some(ref cg) = func.callgraph {
                     if cg.scc_size > 1 {
@@ -602,13 +603,12 @@ impl Snapshot {
     /// Each line embeds the commit context alongside function data,
     /// suitable for streaming ingestion (DuckDB, jq -s, etc.)
     pub fn to_jsonl(&self) -> Result<String> {
-        let commit_json = serde_json::to_value(&self.commit)
-            .context("failed to serialize commit")?;
+        let commit_json =
+            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
 
         let mut lines = Vec::with_capacity(self.functions.len());
         for func in &self.functions {
-            let mut obj = serde_json::to_value(func)
-                .context("failed to serialize function")?;
+            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
             // Embed commit context in each row
             obj.as_object_mut()
                 .unwrap()

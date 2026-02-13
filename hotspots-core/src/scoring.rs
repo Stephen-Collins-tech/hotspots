@@ -170,7 +170,15 @@ mod tests {
     #[test]
     fn test_compute_activity_risk_base_lrs_only() {
         let (risk, factors) = compute_activity_risk(
-            10.0, None, None, None, None, None, None, None, &ScoringWeights::default(),
+            10.0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &ScoringWeights::default(),
         );
 
         assert_eq!(risk, 10.0);
@@ -202,13 +210,13 @@ mod tests {
     fn test_compute_activity_risk_with_all_factors() {
         let (risk, factors) = compute_activity_risk(
             10.0,
-            Some((50, 50)),    // 100 lines changed
-            Some(20),          // 20 commits in 30d
-            Some(1),           // changed 1 day ago
-            Some(25),          // 25 callers
-            Some(3),           // in a 3-node cycle
-            Some(9),           // depth 9
-            Some(1000),        // 1000 neighbor churn
+            Some((50, 50)), // 100 lines changed
+            Some(20),       // 20 commits in 30d
+            Some(1),        // changed 1 day ago
+            Some(25),       // 25 callers
+            Some(3),        // in a 3-node cycle
+            Some(9),        // depth 9
+            Some(1000),     // 1000 neighbor churn
             &ScoringWeights::default(),
         );
 

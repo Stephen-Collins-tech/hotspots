@@ -473,8 +473,8 @@ fn handle_mode_output(
                 .context("failed to extract git context (required for snapshot mode)")?;
 
             // Build call graph before snapshot creation (since snapshot consumes reports)
-            let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config))
-                .ok();
+            let call_graph =
+                hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
 
             // Create snapshot
             let mut snapshot = Snapshot::new(git_context.clone(), reports);
@@ -533,7 +533,9 @@ fn handle_mode_output(
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
-                    b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+                    b_score
+                        .partial_cmp(&a_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 if let Some(n) = top {
                     snapshot.functions.truncate(n);
@@ -590,8 +592,8 @@ fn handle_mode_output(
                 .context("failed to extract git context (required for delta mode)")?;
 
             // Build call graph before snapshot creation (since snapshot consumes reports)
-            let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config))
-                .ok();
+            let call_graph =
+                hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
 
             // Create snapshot
             let mut snapshot = Snapshot::new(git_context.clone(), reports);
@@ -672,7 +674,9 @@ fn handle_mode_output(
                     println!("{}", json);
                 }
                 OutputFormat::Jsonl => {
-                    anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
+                    anyhow::bail!(
+                        "JSONL format is not supported for delta mode (use --mode snapshot)"
+                    );
                 }
                 OutputFormat::Text => {
                     if policy {
@@ -1037,7 +1041,11 @@ fn print_explain_output(
     // Functions are already sorted by activity_risk before this is called
     for (i, func) in snapshot.functions.iter().take(display_count).enumerate() {
         let score = func.activity_risk.unwrap_or(func.lrs);
-        let func_name = func.function_id.split("::").last().unwrap_or(&func.function_id);
+        let func_name = func
+            .function_id
+            .split("::")
+            .last()
+            .unwrap_or(&func.function_id);
         let file_line = format!("{}:{}", func.file, func.line);
 
         println!("#{} {} [{}]", i + 1, func_name, func.band.to_uppercase());
@@ -1057,10 +1065,7 @@ fn print_explain_output(
             if factors.complexity > 0.0 {
                 factor_lines.push(format!(
                     "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
-                    factors.complexity,
-                    func.metrics.cc,
-                    func.metrics.nd,
-                    func.metrics.fo
+                    factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
                 ));
             }
             if factors.churn > 0.0 {
@@ -1089,22 +1094,14 @@ fn print_explain_output(
                 ));
             }
             if factors.fan_in > 0.0 {
-                let fi = func
-                    .callgraph
-                    .as_ref()
-                    .map(|cg| cg.fan_in)
-                    .unwrap_or(0);
+                let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
                 factor_lines.push(format!(
                     "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
                     factors.fan_in, fi
                 ));
             }
             if factors.cyclic_dependency > 0.0 {
-                let scc = func
-                    .callgraph
-                    .as_ref()
-                    .map(|cg| cg.scc_size)
-                    .unwrap_or(1);
+                let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
                 factor_lines.push(format!(
                     "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
                     factors.cyclic_dependency, scc
@@ -1160,10 +1157,7 @@ fn print_explain_output(
 
     println!(
         "Showing {}/{} functions  |  Critical: {}  High: {}",
-        display_count,
-        total_count,
-        critical_count,
-        high_count
+        display_count, total_count, critical_count, high_count
     );
 
     Ok(())
