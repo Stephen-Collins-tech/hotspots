@@ -396,11 +396,7 @@ impl CallGraph {
     /// Check if a function is likely an entry point
     fn is_entry_point(&self, function_id: &str) -> bool {
         // Extract function name from ID (format: "file::function")
-        let function_name = function_id
-            .split("::")
-            .last()
-            .unwrap_or("")
-            .to_lowercase();
+        let function_name = function_id.split("::").last().unwrap_or("").to_lowercase();
 
         // Common entry point names
         let entry_point_names = [
