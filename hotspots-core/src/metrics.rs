@@ -408,7 +408,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             // Calculate other metrics from AST
             let nd = go_nesting_depth(&body_node);
             let fo = go_fan_out(&body_node, source);
-            let ns = go_non_structured_exits(&body_node);
+            let ns = go_non_structured_exits(&body_node, source);
 
             return RawMetrics {
                 cc: base_cc + extra_cc,
@@ -538,18 +538,31 @@ fn go_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
 }
 
 /// Calculate non-structured exits for Go function
-fn go_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
-    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
+fn go_non_structured_exits(body_node: &tree_sitter::Node, source: &str) -> usize {
+    fn count_exits(node: tree_sitter::Node, source: &str, count: &mut usize) {
         match node.kind() {
             "return_statement" => *count += 1,
             "defer_statement" => *count += 1,
             "expression_statement" => {
-                // Check if this is a panic call
                 if let Some(call) = find_go_child_by_kind(node, "call_expression") {
-                    if let Some(_ident) = find_go_child_by_kind(call, "identifier") {
-                        // Would need source to check if it's "panic", but we can approximate
-                        // by checking node structure
-                        *count += 1;
+                    // Bare panic() call
+                    if let Some(ident) = find_go_child_by_kind(call, "identifier") {
+                        let name = &source[ident.start_byte()..ident.end_byte()];
+                        if name == "panic" {
+                            *count += 1;
+                        }
+                    }
+                    // os.Exit / log.Fatal* via selector_expression
+                    else if let Some(sel) = find_go_child_by_kind(call, "selector_expression") {
+                        if let Some(field) = find_go_child_by_kind(sel, "field_identifier") {
+                            let field_name = &source[field.start_byte()..field.end_byte()];
+                            if matches!(
+                                field_name,
+                                "Exit" | "Fatal" | "Fatalf" | "Fatalln"
+                            ) {
+                                *count += 1;
+                            }
+                        }
                     }
                 }
             }
@@ -559,12 +572,12 @@ fn go_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_exits(child, count);
+            count_exits(child, source, count);
         }
     }
 
     let mut count = 0;
-    count_exits(*body_node, &mut count);
+    count_exits(*body_node, source, &mut count);
 
     // Subtract 1 if the last statement is a return (final tail return)
     // This is an approximation - would need more sophisticated AST analysis
@@ -588,12 +601,15 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
             "expression_case" | "default_case" | "communication_case" | "type_case" => {
                 *count += 1;
             }
-            // Count boolean operators
+            // Count boolean operators — check the operator child directly to
+            // avoid false positives from nested logical operators in sub-expressions
             "binary_expression" => {
-                // Check if it's && or ||
-                let op_text = &source[node.start_byte()..node.end_byte()];
-                if op_text.contains("&&") || op_text.contains("||") {
-                    *count += 1;
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *count += 1;
+                        break;
+                    }
                 }
             }
             _ => {}
