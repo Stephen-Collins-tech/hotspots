@@ -446,12 +446,10 @@ fn build_enriched_snapshot(
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
 ) -> anyhow::Result<Snapshot> {
-    let git_context = git::extract_git_context()
-        .context("failed to extract git context")?;
+    let git_context = git::extract_git_context().context("failed to extract git context")?;
 
     // Build call graph before snapshot creation (snapshot consumes reports)
-    let call_graph =
-        hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
+    let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
 
     let mut snapshot = Snapshot::new(git_context.clone(), reports);
 

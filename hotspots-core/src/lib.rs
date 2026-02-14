@@ -249,9 +249,7 @@ pub fn build_call_graph(
                     let mut found = false;
                     for callee_id in possible_callees {
                         let normalized_callee = callee_id.replace('\\', "/");
-                        if normalized_callee
-                            .starts_with(&format!("{}::", normalized_caller_file))
-                        {
+                        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
                             if callee_id != &caller_id && !added_callees.contains(callee_id) {
                                 graph.add_edge(caller_id.clone(), callee_id.clone());
                                 added_callees.insert(callee_id.clone());

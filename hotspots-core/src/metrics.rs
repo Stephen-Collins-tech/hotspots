@@ -582,10 +582,7 @@ fn go_non_structured_exits(body_node: &tree_sitter::Node, source: &str) -> usize
                     else if let Some(sel) = ts_find_child_by_kind(call, "selector_expression") {
                         if let Some(field) = ts_find_child_by_kind(sel, "field_identifier") {
                             let field_name = &source[field.start_byte()..field.end_byte()];
-                            if matches!(
-                                field_name,
-                                "Exit" | "Fatal" | "Fatalf" | "Fatalln"
-                            ) {
+                            if matches!(field_name, "Exit" | "Fatal" | "Fatalf" | "Fatalln") {
                                 *count += 1;
                             }
                         }
