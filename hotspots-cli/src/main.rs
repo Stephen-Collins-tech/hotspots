@@ -211,13 +211,15 @@ fn main() -> anyhow::Result<()> {
                 return handle_mode_output(
                     &normalized_path,
                     output_mode,
-                    format,
-                    policy,
-                    effective_top,
-                    effective_min_lrs,
                     &resolved_config,
-                    output,
-                    explain,
+                    ModeOutputOptions {
+                        format,
+                        policy,
+                        top: effective_top,
+                        min_lrs: effective_min_lrs,
+                        output,
+                        explain,
+                    },
                 );
             }
 
@@ -487,18 +489,30 @@ fn build_enriched_snapshot(
     Ok(snapshot)
 }
 
-/// Handle snapshot or delta mode output
-fn handle_mode_output(
-    path: &Path,
-    mode: OutputMode,
+struct ModeOutputOptions {
     format: OutputFormat,
     policy: bool,
     top: Option<usize>,
     min_lrs: Option<f64>,
-    resolved_config: &hotspots_core::ResolvedConfig,
     output: Option<PathBuf>,
     explain: bool,
+}
+
+/// Handle snapshot or delta mode output
+fn handle_mode_output(
+    path: &Path,
+    mode: OutputMode,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    opts: ModeOutputOptions,
 ) -> anyhow::Result<()> {
+    let ModeOutputOptions {
+        format,
+        policy,
+        top,
+        min_lrs,
+        output,
+        explain,
+    } = opts;
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
 
