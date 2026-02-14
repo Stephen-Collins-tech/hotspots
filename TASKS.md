@@ -699,41 +699,16 @@ Add snapshot-wide statistics for concentration analysis.
 
 ## Phase 5: CLI Flags & Configuration
 
-### 5.1 Extended Metrics Flag
+### 5.1 Extended Metrics Flag ✅ REMOVED (by design)
 
-**Requirement:**
-Opt-in flag to include all extended metrics in output.
+**Decision:** All extended metrics (LOC, churn, touch count, recency, call graph, activity risk) are always computed. No opt-in flag.
 
-**Specification:**
-- Default: Extended metrics NOT included (backward compatibility)
-- `--extended-metrics`: Include LOC, churn, touch_count, recency, graph metrics
-- `--extended-metrics` includes call graph analysis
-- Performance impact: ~30-40% slower (git operations + call graph)
-
-**Usage:**
-```bash
-# Standard output (LRS only)
-hotspots analyze src/
-
-# Extended output (includes all new metrics)
-hotspots analyze src/ --extended-metrics
-
-# Extended + top 10 functions
-hotspots analyze src/ --extended-metrics --top 10
-```
-
-**Success Criteria:**
-- [ ] Default output unchanged (no new fields for existing users)
-- [ ] `--extended-metrics` includes all new fields
-- [ ] Documentation updated with examples
-- [ ] CI tests both modes
-
-**Files to Modify:**
-- `hotspots-cli/src/main.rs` - Add CLI argument
-- `hotspots-core/src/analysis.rs` - Conditionally compute extended metrics
-- `docs/reference/cli.md` - Document flag
-
-**Estimated Effort:** 1 hour
+**Rationale:**
+- `build_enriched_snapshot()` already unconditionally computes all metrics with graceful fallbacks
+- `--top N` and `--explain` both depend on `activity_risk`, which requires extended metrics — gating them behind a flag would break these features
+- New JSON fields are backward-compatible (consumers ignore unknown fields)
+- Maintaining two code paths adds complexity without meaningful benefit
+- Performance concerns are better addressed by optimizing git calls than adding a mode switch
 
 ---
 
@@ -747,7 +722,6 @@ Support `.hotspots.toml` config file for persistent settings.
 - Override with `--config path/to/config.toml`
 - Supports:
   - Scoring weights
-  - Extended metrics on/off
   - Output format preferences
   - Top N default
   - Ignore patterns (files/functions to exclude)
@@ -765,7 +739,6 @@ weights.neighbor_churn = 0.25
 
 [output]
 format = "json"
-extended_metrics = true
 top_n = 20
 explain = true
 
@@ -795,7 +768,6 @@ patterns = ["tests/**", "vendor/**", "*.generated.ts"]
 Update all golden tests with extended metrics.
 
 **Tasks:**
-- [ ] Regenerate golden files with `--extended-metrics`
 - [ ] Add new golden test: `extended_metrics_determinism.json`
 - [ ] Add call graph golden tests (known call patterns)
 - [ ] Verify LOC values for each language's fixtures
@@ -900,7 +872,7 @@ Increment schema version for extended metrics and call graph.
 
 **Migration:**
 - v1 snapshots: missing fields treated as null/default
-- v2 snapshots: include all extended fields (if `--extended-metrics`)
+- v2 snapshots: always include all extended fields
 
 **Files to Modify:**
 - `hotspots-core/src/snapshot.rs` - Bump version constant
@@ -937,7 +909,7 @@ Increment schema version for extended metrics and call graph.
 - Percentile flags
 - Repo-level summary with call graph stats
 - Configuration file support
-- `--extended-metrics`, `--top N`, `--explain` flags
+- `--top N`, `--explain` flags
 
 **Tests:**
 - Updated golden tests with all new metrics
@@ -961,7 +933,7 @@ Increment schema version for extended metrics and call graph.
 - [ ] Integration tests pass on real repos
 - [ ] Call graph extraction works for all 6 languages
 - [ ] Activity risk scoring correlates with manual assessment
-- [ ] Performance impact <40% with all features enabled
+- [ ] Performance acceptable (all metrics always computed)
 - [ ] Documentation complete and reviewed
 - [ ] Schema v2 backward-compatible with v1
 - [ ] JSONL output validated with DuckDB
@@ -1005,8 +977,7 @@ These will be implemented in `hotspots-cloud`, which will:
 4. **Top N Default:** Should `--top N` have a default (e.g., 20) or require explicit N?
    - Recommendation: Default to showing all, require explicit `--top N`
 
-5. **Performance Target:** Is 40% slowdown acceptable for opt-in `--extended-metrics`?
-   - Recommendation: Yes, measure and optimize hot paths if needed
+5. **Performance Target:** All metrics always computed — no opt-in flag. Monitor and optimize git calls if needed.
 
 6. **Schema v2 Timing:** Bump schema version now or after all phases complete?
    - Recommendation: Bump in Phase 1 to establish contract early
