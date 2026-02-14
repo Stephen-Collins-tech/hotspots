@@ -617,8 +617,8 @@ fn go_non_structured_exits(body_node: &tree_sitter::Node, source: &str) -> usize
 }
 
 /// Count additional cyclomatic complexity contributors for Go
-fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_extras(node: tree_sitter::Node, source: &str, count: &mut usize) {
+fn go_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
         match node.kind() {
             // Count switch/select cases
             "expression_case" | "default_case" | "communication_case" | "type_case" => {
@@ -641,12 +641,12 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_extras(child, source, count);
+            count_extras(child, count);
         }
     }
 
     let mut count = 0;
-    count_extras(*body_node, source, &mut count);
+    count_extras(*body_node, &mut count);
     count
 }
 
@@ -765,8 +765,8 @@ fn java_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<Stri
 
 /// Count additional CC contributors in Java
 /// (ternary expressions, boolean operators)
-fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_extras(node: tree_sitter::Node, source: &str, count: &mut usize) {
+fn java_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
         match node.kind() {
             // Ternary expressions (conditional_expression) add to CC
             "ternary_expression" => {
@@ -789,12 +789,12 @@ fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
         // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_extras(child, source, count);
+            count_extras(child, count);
         }
     }
 
     let mut count = 0;
-    count_extras(*body_node, source, &mut count);
+    count_extras(*body_node, &mut count);
     count
 }
 

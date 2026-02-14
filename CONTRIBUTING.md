@@ -31,6 +31,9 @@ cd hotspots
 # Build the project
 cargo build --release
 
+# Install git hooks (runs fmt + clippy + tests before each commit)
+make install-hooks
+
 # Run tests
 cargo test
 

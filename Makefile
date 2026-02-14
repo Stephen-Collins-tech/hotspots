@@ -1,4 +1,4 @@
-.PHONY: test test-comprehensive build install clean
+.PHONY: test test-comprehensive build install install-hooks clean
 
 # Build the release binary
 build:
@@ -7,6 +7,10 @@ build:
 # Install to user's local bin directory
 install: build
 	./install-dev.sh
+
+# Install git hooks
+install-hooks:
+	git config core.hooksPath .githooks
 
 # Run unit tests
 test:
@@ -29,6 +33,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build              - Build release binary"
 	@echo "  install            - Build and install to ~/.local/bin"
+	@echo "  install-hooks      - Install git hooks (pre-commit)"
 	@echo "  test               - Run unit tests"
 	@echo "  test-comprehensive - Run comprehensive integration tests"
 	@echo "  test-all           - Run all tests"
