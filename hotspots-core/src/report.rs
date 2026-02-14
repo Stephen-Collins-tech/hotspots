@@ -23,6 +23,8 @@ pub struct FunctionRiskReport {
     pub band: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    #[serde(skip, default)]
+    pub callees: Vec<String>,
 }
 
 /// Metrics in report format
@@ -92,6 +94,7 @@ impl FunctionRiskReport {
             lrs,
             band: band.as_str().to_string(),
             suppression_reason: function.suppression_reason.clone(),
+            callees: metrics.callee_names,
         }
     }
 }

@@ -238,11 +238,53 @@ pub fn build_call_graph(
             .push(function_id);
     }
 
-    // Collect source files
+    // First pass: add AST-derived edges for reports that have callee names
+    for report in reports {
+        let caller_id = format!("{}::{}", report.file, report.function);
+        if !report.callees.is_empty() {
+            let mut added_callees = std::collections::HashSet::new();
+            for callee_name in &report.callees {
+                if let Some(possible_callees) = name_to_id.get(callee_name) {
+                    let normalized_caller_file = report.file.replace('\\', "/");
+                    let mut found = false;
+                    for callee_id in possible_callees {
+                        let normalized_callee = callee_id.replace('\\', "/");
+                        if normalized_callee
+                            .starts_with(&format!("{}::", normalized_caller_file))
+                        {
+                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
+                                graph.add_edge(caller_id.clone(), callee_id.clone());
+                                added_callees.insert(callee_id.clone());
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        if let Some(callee_id) = possible_callees.first() {
+                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
+                                graph.add_edge(caller_id.clone(), callee_id.clone());
+                                added_callees.insert(callee_id.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Collect source files for regex-based fallback (ECMAScript/Rust)
     let source_files = collect_source_files(path)?;
 
     // Regex to match function calls: name(...)
     let call_pattern = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
+
+    // Build set of files that already have AST-derived edges
+    let ast_covered_files: std::collections::HashSet<String> = reports
+        .iter()
+        .filter(|r| !r.callees.is_empty())
+        .map(|r| r.file.replace('\\', "/"))
+        .collect();
 
     for file_path in source_files {
         // Apply config include/exclude filter
@@ -252,12 +294,17 @@ pub fn build_call_graph(
             }
         }
 
+        // Normalize file path for matching (use / separators)
+        let normalized_path = file_path.to_string_lossy().replace('\\', "/");
+
+        // Skip files already covered by AST-derived edges
+        if ast_covered_files.contains(&normalized_path) {
+            continue;
+        }
+
         // Read source
         let source = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
-
-        // Normalize file path for matching (use / separators)
-        let normalized_path = file_path.to_string_lossy().replace('\\', "/");
 
         // Find all functions in this file with their line ranges
         let mut file_functions: Vec<(String, String, u32)> = Vec::new();

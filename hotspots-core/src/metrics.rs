@@ -17,6 +17,9 @@ pub struct RawMetrics {
     pub fo: usize,
     pub ns: usize,
     pub loc: usize,
+    /// Callee names extracted from AST (for tree-sitter languages).
+    /// Empty for ECMAScript/Rust (which retain regex-based call graph extraction).
+    pub callee_names: Vec<String>,
 }
 
 /// Calculate lines of code (LOC) from source text
@@ -56,6 +59,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 fo: fan_out(body),
                 ns: non_structured_exits(body),
                 loc: loc as usize,
+                callee_names: vec![],
             }
         }
         FunctionBody::Go { .. } => {
@@ -499,7 +503,8 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                     "select_statement",
                 ],
             );
-            let fo = go_fan_out(&body_node, source);
+            let callee_names = go_extract_callees(&body_node, source);
+            let fo = callee_names.len();
             let ns = go_non_structured_exits(&body_node, source);
 
             return RawMetrics {
@@ -508,6 +513,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 fo,
                 ns,
                 loc: calculate_loc_from_node(&func_node),
+                callee_names,
             };
         }
     }
@@ -519,17 +525,18 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         fo: 0,
         ns: 0,
         loc: 0,
+        callee_names: vec![],
     }
 }
 
-/// Calculate fan-out for Go function (function calls + go statements)
-fn go_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
+/// Extract callee names from a Go function body (function calls + go statements).
+/// Returns the unique set of callee name strings (used for both fo metric and call graph).
+fn go_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
     use std::collections::HashSet;
 
-    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut HashSet<String>) {
+    fn collect(node: tree_sitter::Node, source: &str, calls: &mut HashSet<String>) {
         match node.kind() {
             "call_expression" => {
-                // Extract function name
                 if let Some(func_node) = ts_find_child_by_kind(node, "identifier")
                     .or_else(|| ts_find_child_by_kind(node, "selector_expression"))
                 {
@@ -543,17 +550,17 @@ fn go_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
             }
             _ => {}
         }
-
-        // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Calculate non-structured exits for Go function
@@ -700,7 +707,8 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                     "synchronized_statement",
                 ],
             );
-            let fo = java_fan_out(&body_node, source);
+            let callee_names = java_extract_callees(&body_node, source);
+            let fo = callee_names.len();
             let ns = ts_non_structured_exits(
                 &body_node,
                 &[
@@ -717,6 +725,7 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 fo,
                 ns,
                 loc: calculate_loc_from_node(&func_node),
+                callee_names,
             };
         }
     }
@@ -728,33 +737,33 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         fo: 0,
         ns: 0,
         loc: 0,
+        callee_names: vec![],
     }
 }
 
-/// Count method calls (fan-out) in Java
-fn java_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(
+/// Extract callee names from a Java function body.
+/// Returns the unique set of method invocation strings.
+fn java_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
         node: tree_sitter::Node,
         source: &str,
         calls: &mut std::collections::HashSet<String>,
     ) {
-        // Java uses "method_invocation" node for method calls
         if node.kind() == "method_invocation" {
-            // Extract the method name
             let method_text = &source[node.start_byte()..node.end_byte()];
             calls.insert(method_text.to_string());
         }
-
-        // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = std::collections::HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Count additional CC contributors in Java
@@ -839,7 +848,8 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                     "match_statement",
                 ],
             );
-            let fo = python_fan_out(&body_node, source);
+            let callee_names = python_extract_callees(&body_node, source);
+            let fo = callee_names.len();
             let ns = ts_non_structured_exits(
                 &body_node,
                 &[
@@ -856,6 +866,7 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 fo,
                 ns,
                 loc: calculate_loc_from_node(&func_node),
+                callee_names,
             };
         }
     }
@@ -867,36 +878,36 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         fo: 0,
         ns: 0,
         loc: 0,
+        callee_names: vec![],
     }
 }
 
-/// Count function calls (fan-out) in Python
-fn python_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(
+/// Extract callee names from a Python function body.
+/// Returns the unique set of call target strings.
+fn python_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
         node: tree_sitter::Node,
         source: &str,
         calls: &mut std::collections::HashSet<String>,
     ) {
-        // Python uses "call" node for function calls
         if node.kind() == "call" {
-            // Try to extract the function name
             let mut cursor = node.walk();
             if let Some(func_node) = node.children(&mut cursor).next() {
                 let func_text = &source[func_node.start_byte()..func_node.end_byte()];
                 calls.insert(func_text.to_string());
             };
         }
-
-        // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = std::collections::HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Count additional CC contributors in Python
@@ -962,6 +973,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 fo: 0,
                 ns: 0,
                 loc: 0,
+                callee_names: vec![],
             };
         }
     };
@@ -978,6 +990,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         fo,
         ns,
         loc: calculate_loc(source),
+        callee_names: vec![],
     }
 }
 
