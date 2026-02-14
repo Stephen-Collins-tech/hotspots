@@ -466,6 +466,7 @@ mod tests {
                 lrs: f.lrs,
                 band: f.band.clone(),
                 suppression_reason: None,
+                callees: vec![],
             })
             .collect();
 

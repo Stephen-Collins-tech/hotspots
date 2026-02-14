@@ -30,6 +30,11 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/__mocks__/**",
     "**/dist/**",
     "**/build/**",
+    // Python test file conventions
+    "**/test_*.py",
+    "**/*_test.py",
+    // Go test file convention
+    "**/*_test.go",
 ];
 
 /// Hotspots configuration loaded from a JSON config file

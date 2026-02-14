@@ -474,6 +474,7 @@ mod tests {
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            callees: vec![],
         };
 
         Snapshot::new(git_context, vec![report])

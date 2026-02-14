@@ -1043,7 +1043,288 @@ Each release provides incremental value and can be tested/validated independentl
 
 ---
 
-**Last Updated:** 2026-02-11
+## Phase 8: Code Quality Refactoring
+
+*Tasks derived from the independent codebase analysis in ANALYSIS.md. These address structural duplication and maintenance burden without changing observable behavior.*
+
+**Status:** Pending
+**Goal:** Reduce duplication, improve maintainability, and make the codebase easier to extend
+
+---
+
+### 8.1 Extract Shared Tree-Sitter Metric Logic
+
+**Priority:** 1 — High impact, unblocks new language support
+
+**Problem:**
+`hotspots-core/src/metrics.rs` (~1,450 lines) contains ~600 lines of near-identical code duplicated across Go, Java, and Python metric extractors. Each language reimplements the same six operations using tree-sitter; the only differences are node kind strings.
+
+| Function Pattern | Go | Java | Python |
+|---|---|---|---|
+| `find_*_function_by_start` | Lines 480–501 | Lines 721–742 | Lines 933–954 |
+| `find_*_child_by_kind` | Lines 505–516 | Lines 746–757 | Lines 958–969 |
+| `*_nesting_depth` | Lines 519–550 | Lines 760–794 | Lines 972–1003 |
+| `*_fan_out` | Lines 553–584 | Lines 797–820 | Lines 1006–1032 |
+| `*_non_structured_exits` | Lines 587–627 | Lines 823–842 | Lines 1035–1054 |
+| `*_count_cc_extras` | Lines 630–658 | Lines 846–874 | Lines 1058–1096 |
+
+**Specification:**
+- Extract a generic `TreeSitterMetrics` struct (or module-level functions) parameterized by a language config of node-kind sets
+- Each language provides a `TreeSitterConfig` declaring its node kinds for: if-branches, loops, logical operators, exception handlers, exit calls, function call nodes
+- Shared traversal functions handle depth tracking, counting, and tree walking
+- Per-language logic reduced to ~50 lines of configuration
+
+**Success Criteria:**
+- [ ] ~600 lines of duplicated code replaced by ~150 lines of shared logic + ~50 lines per language config
+- [ ] All existing golden tests pass unchanged
+- [ ] Adding a new language (e.g., C, Ruby) requires only a config struct, not new traversal logic
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/metrics.rs`
+
+---
+
+### 8.2 Extract Snapshot Enrichment Pipeline in CLI
+
+**Priority:** 2 — Medium impact, low effort
+
+**Problem:**
+`hotspots-cli/src/main.rs` `handle_mode_output` (lines 442–722) copy-pastes ~60 lines of snapshot enrichment logic between snapshot and delta modes. Both modes identically perform: git context extraction, call graph building, snapshot creation, churn population, touch metrics population, call graph population, and activity risk computation. Any new enrichment step must be added in two places.
+
+**Specification:**
+- Extract `build_enriched_snapshot(path, repo_root, resolved_config) -> anyhow::Result<Snapshot>` function
+- This function handles the full enrichment pipeline in one place
+- Both snapshot and delta modes call it, then diverge only for mode-specific logic (persistence vs delta computation)
+- Remove `#[allow(clippy::too_many_arguments)]` on `handle_mode_output` (line 441) as a side effect
+
+**Success Criteria:**
+- [ ] Enrichment pipeline defined once, called from both modes
+- [ ] `#[allow(clippy::too_many_arguments)]` removed from `handle_mode_output`
+- [ ] Behavior unchanged; all integration tests pass
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-cli/src/main.rs`
+
+---
+
+### 8.3 Reuse AST-Based Fan-Out for Call Graph Extraction
+
+**Priority:** 3 — Medium impact, eliminates correctness issues
+
+**Problem:**
+`hotspots-core/src/lib.rs` (lines 217–336) builds the call graph by re-reading source files with a regex `([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`. This approach has known correctness issues:
+- String literals containing `foo(` produce false edges
+- Method calls like `obj.method()` are only partially handled
+- Function range estimation uses "start of next function" as end boundary (approximate)
+
+The tool already parses every file into a full AST during analysis. The `FanOutVisitor` (ECMAScript), `go_fan_out`, `java_fan_out`, and equivalent functions already identify function calls with full AST context.
+
+**Specification:**
+- Wire the existing AST-based fan-out data from `metrics.rs` into the call graph builder in `lib.rs` / `callgraph.rs`
+- Eliminate the regex pass and the second file read in `lib.rs:217–336`
+- Eliminate false edges from string literals and approximate range estimation
+
+**Success Criteria:**
+- [ ] Call graph built from AST fan-out data, not regex
+- [ ] No second file read pass during call graph construction
+- [ ] Fewer false edges (no string-literal false positives)
+- [ ] All existing golden tests pass
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/lib.rs`
+- `hotspots-core/src/callgraph.rs`
+- `hotspots-core/src/metrics.rs` (expose fan-out data)
+
+---
+
+### 8.4 Fix Go CC/NS Metric Edge Cases
+
+**Priority:** 4 — Low impact, correctness improvement
+
+**Problem:**
+Two correctness issues in Go metric extraction in `metrics.rs`:
+
+1. `go_count_cc_extras` (lines 640–643) checks `op_text.contains("&&")` on the full binary expression text, which can double-count nested logical operators. Should check the operator node directly, not the full text span.
+
+2. `go_non_structured_exits` (lines 592–601) counts every `expression_statement` containing a `call_expression` as a non-structured exit, not just `panic()`. A comment acknowledges this ("Would need source to check if it's panic") but the code increments unconditionally.
+
+**Specification:**
+- In `go_count_cc_extras`: check the `binary_expression`'s operator child node kind instead of calling `.contains("&&")` on the full expression text
+- In `go_non_structured_exits`: verify the called function name is `panic` (or `log.Fatal`, `os.Exit`) before counting as a non-structured exit
+
+**Success Criteria:**
+- [ ] `go_count_cc_extras` does not double-count nested `&&`/`||` operators
+- [ ] `go_non_structured_exits` only counts `panic()`, `os.Exit()`, and equivalent exit calls
+- [ ] Relevant Go golden tests updated to reflect corrected values
+- [ ] `cargo test` passes
+
+**Files to Modify:**
+- `hotspots-core/src/metrics.rs`
+- `tests/golden/*.json` (Go fixtures may need updating)
+
+---
+
+### 8.5 Add `From<GitContext>` for `CommitInfo`
+
+**Priority:** 5 — Low impact, ergonomic improvement
+
+**Problem:**
+`CommitInfo` (`snapshot.rs:30–46`) and `GitContext` (`git.rs:18–29`) have overlapping fields but no `From` conversion. The manual field-by-field copy in `Snapshot::new()` (lines 247–256) is error-prone and will silently miss new fields added to either struct.
+
+**Specification:**
+- Implement `From<GitContext> for CommitInfo` (or `From<&GitContext>`)
+- Replace the manual field-by-field copy in `Snapshot::new()` with the `From` conversion
+
+**Success Criteria:**
+- [ ] `From<GitContext> for CommitInfo` implemented
+- [ ] `Snapshot::new()` uses the conversion instead of manual field copy
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/snapshot.rs`
+- `hotspots-core/src/git.rs`
+
+---
+
+### 8.6 Add Python and Go Test File Default Excludes
+
+**Priority:** 6 — Low impact, completeness
+
+**Problem:**
+`config.rs` (lines 19–33) default excludes list only includes JS/TS test patterns. Python test files (`test_*.py`, `*_test.py`) and Go test files (`*_test.go`) are not excluded by default, so they are analyzed as production code and can inflate risk scores.
+
+**Specification:**
+- Add `"test_*.py"`, `"*_test.py"` to the default excludes list
+- Add `"*_test.go"` to the default excludes list
+- Verify these patterns use the same glob matching logic as existing JS/TS patterns
+
+**Success Criteria:**
+- [ ] Python test files excluded by default
+- [ ] Go test files excluded by default
+- [ ] Existing JS/TS exclusion behavior unchanged
+- [ ] `cargo test` passes
+
+**Files to Modify:**
+- `hotspots-core/src/config.rs`
+
+---
+
+### 8.7 Macro for ECMAScript Nesting Depth Visitors
+
+**Priority:** 7 — Low impact, readability improvement
+
+**Problem:**
+`hotspots-core/src/metrics.rs` (lines 208–285) has eight `visit_*` methods on `NestingDepthVisitor` that are character-for-character identical except for the type signature:
+
+```rust
+fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
+    self.current_depth += 1;
+    if self.current_depth > self.max_depth {
+        self.max_depth = self.current_depth;
+    }
+    if_stmt.visit_children_with(self);
+    self.current_depth -= 1;
+}
+```
+
+This pattern repeats for `while`, `do_while`, `for`, `for_in`, `for_of`, `switch`, and `try` — 80 lines of identical boilerplate.
+
+**Specification:**
+- Define a declarative macro `impl_nesting_visitor!(visit_if_stmt, IfStmt, if_stmt; ...)` that expands each entry to the above pattern
+- Replace the 8 hand-written methods with a single macro invocation
+
+**Success Criteria:**
+- [ ] ~80 lines of boilerplate replaced by a macro + ~10-line invocation
+- [ ] Generated code is equivalent to the original
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/metrics.rs`
+
+---
+
+### 8.8 Reduce Policy Evaluation Boilerplate
+
+**Priority:** 8 — Low impact, makes adding policies easier
+
+**Problem:**
+`hotspots-core/src/policy.rs` has six policy evaluators that all follow the same pattern:
+
+```
+for entry in deltas {
+    if entry.suppression_reason.is_some() { continue; }
+    if entry.status != <expected_status> { continue; }
+    // ... check condition ...
+    results.<failed|warnings>.push(PolicyResult { ... });
+}
+```
+
+Additionally, `compare_policy_results` (lines 120–158) manually encodes enum ordering through 30+ match arms instead of using `#[derive(PartialOrd, Ord)]` or a simple integer mapping.
+
+**Specification:**
+- Consider a policy trait or table-driven approach where each policy declares its target statuses and condition predicate, and a single evaluator loop dispatches to them
+- Replace the manual `compare_policy_results` match with `#[derive(PartialOrd, Ord)]` on the relevant enum (or an integer priority mapping)
+
+**Success Criteria:**
+- [ ] Loop/suppression/status-filter boilerplate defined once
+- [ ] `compare_policy_results` simplified
+- [ ] Adding a new policy requires only declaring its condition, not copying loop scaffolding
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/policy.rs`
+
+---
+
+### 8.9 Template Engine for HTML Reports
+
+**Priority:** 9 — Low impact now, high effort; defer until reports grow
+
+**Problem:**
+`hotspots-core/src/html.rs` (~1,030 lines) builds HTML via `format!()` with large inline string literals containing CSS and JavaScript. Drawbacks:
+- No compile-time validation of HTML structure
+- CSS and JS are plain string literals with no syntax highlighting or linting in editors
+- XSS injection risk if user-controlled data is ever interpolated without escaping (currently mitigated since all data is internal, but fragile)
+
+**Specification:**
+- Option A (lower effort): Extract embedded CSS and JS to separate files loaded via `include_str!()` for better editor tooling
+- Option B (higher effort): Adopt a compile-time template engine such as `askama` for full type-safe templating
+
+**Recommendation:** Start with Option A (include_str!) as a low-effort improvement. Migrate to Option B only if HTML reports grow significantly in complexity.
+
+**Success Criteria:**
+- [ ] CSS extracted to `hotspots-core/src/assets/report.css` and loaded via `include_str!()`
+- [ ] JS extracted to `hotspots-core/src/assets/report.js` and loaded via `include_str!()`
+- [ ] Report output identical to current output
+- [ ] `cargo test` passes
+
+**Files to Modify:**
+- `hotspots-core/src/html.rs`
+- `hotspots-core/src/assets/report.css` (new)
+- `hotspots-core/src/assets/report.js` (new)
+
+---
+
+### Priority Summary
+
+| # | Task | Impact | Effort |
+|---|---|---|---|
+| 8.1 | Extract shared tree-sitter metric logic | High | Medium |
+| 8.2 | Extract snapshot enrichment pipeline in CLI | Medium | Low |
+| 8.3 | Reuse AST-based fan-out for call graph | Medium | Medium |
+| 8.4 | Fix Go CC/NS metric edge cases | Low | Low |
+| 8.5 | Add `From<GitContext>` for `CommitInfo` | Low | Low |
+| 8.6 | Add Python/Go test file default excludes | Low | Low |
+| 8.7 | Macro for nesting depth visitors | Low | Low |
+| 8.8 | Reduce policy evaluation boilerplate | Low | Low |
+| 8.9 | Template engine for HTML reports | Low | High |
+
+---
+
+**Last Updated:** 2026-02-14
 **Author:** Stephen Collins
 **Reviewers:** [Pending]
 **Architecture:** Revised to include call graph analysis in CLI
