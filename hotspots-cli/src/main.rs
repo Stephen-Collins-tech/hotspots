@@ -437,8 +437,59 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
+///
+/// Both snapshot and delta modes call this, then diverge for their mode-specific output.
+fn build_enriched_snapshot(
+    path: &Path,
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+) -> anyhow::Result<Snapshot> {
+    let git_context = git::extract_git_context()
+        .context("failed to extract git context")?;
+
+    // Build call graph before snapshot creation (snapshot consumes reports)
+    let call_graph =
+        hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
+
+    let mut snapshot = Snapshot::new(git_context.clone(), reports);
+
+    // Populate churn metrics if a parent commit exists
+    if !git_context.parent_shas.is_empty() {
+        match git::extract_commit_churn(&git_context.head_sha) {
+            Ok(churns) => {
+                // Convert relative paths from git to absolute paths to match snapshot
+                let churn_map: std::collections::HashMap<String, _> = churns
+                    .into_iter()
+                    .map(|c| {
+                        let absolute_path = repo_root.join(&c.file);
+                        let normalized_path = absolute_path.to_string_lossy().to_string();
+                        (normalized_path, c)
+                    })
+                    .collect();
+                snapshot.populate_churn(&churn_map);
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to extract churn: {}", e);
+            }
+        }
+    }
+
+    if let Err(e) = snapshot.populate_touch_metrics(repo_root) {
+        eprintln!("Warning: failed to populate touch metrics: {}", e);
+    }
+
+    if let Some(ref graph) = call_graph {
+        snapshot.populate_callgraph(graph);
+    }
+
+    snapshot.compute_activity_risk(None);
+
+    Ok(snapshot)
+}
+
 /// Handle snapshot or delta mode output
-#[allow(clippy::too_many_arguments)]
 fn handle_mode_output(
     path: &Path,
     mode: OutputMode,
@@ -468,51 +519,8 @@ fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            // Extract git context
-            let git_context = git::extract_git_context()
-                .context("failed to extract git context (required for snapshot mode)")?;
-
-            // Build call graph before snapshot creation (since snapshot consumes reports)
-            let call_graph =
-                hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
-
-            // Create snapshot
-            let mut snapshot = Snapshot::new(git_context.clone(), reports);
-
-            // Extract and populate churn metrics if parent exists
-            if !git_context.parent_shas.is_empty() {
-                match git::extract_commit_churn(&git_context.head_sha) {
-                    Ok(churns) => {
-                        // Build map from file path to churn
-                        // Convert relative paths from git to absolute paths to match snapshot
-                        let churn_map: std::collections::HashMap<String, _> = churns
-                            .into_iter()
-                            .map(|c| {
-                                let absolute_path = repo_root.join(&c.file);
-                                let normalized_path = absolute_path.to_string_lossy().to_string();
-                                (normalized_path, c)
-                            })
-                            .collect();
-                        snapshot.populate_churn(&churn_map);
-                    }
-                    Err(e) => {
-                        eprintln!("Warning: failed to extract churn: {}", e);
-                    }
-                }
-            }
-
-            // Populate touch count and recency metrics
-            if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
-                eprintln!("Warning: failed to populate touch metrics: {}", e);
-            }
-
-            // Populate call graph if it was built successfully
-            if let Some(ref graph) = call_graph {
-                snapshot.populate_callgraph(graph);
-            }
-
-            // Compute activity risk scores (combines all metrics)
-            snapshot.compute_activity_risk(None);
+            let mut snapshot = build_enriched_snapshot(path, &repo_root, resolved_config, reports)
+                .context("failed to build enriched snapshot")?;
 
             // Compute percentile flags and summary (must be after activity risk)
             snapshot.compute_percentiles();
@@ -587,50 +595,8 @@ fn handle_mode_output(
             }
         }
         OutputMode::Delta => {
-            // Extract git context
-            let git_context = git::extract_git_context()
-                .context("failed to extract git context (required for delta mode)")?;
-
-            // Build call graph before snapshot creation (since snapshot consumes reports)
-            let call_graph =
-                hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
-
-            // Create snapshot
-            let mut snapshot = Snapshot::new(git_context.clone(), reports);
-
-            // Extract and populate churn metrics if parent exists
-            if !git_context.parent_shas.is_empty() {
-                match git::extract_commit_churn(&git_context.head_sha) {
-                    Ok(churns) => {
-                        // Convert relative paths from git to absolute paths to match snapshot
-                        let churn_map: std::collections::HashMap<String, _> = churns
-                            .into_iter()
-                            .map(|c| {
-                                let absolute_path = repo_root.join(&c.file);
-                                let normalized_path = absolute_path.to_string_lossy().to_string();
-                                (normalized_path, c)
-                            })
-                            .collect();
-                        snapshot.populate_churn(&churn_map);
-                    }
-                    Err(e) => {
-                        eprintln!("Warning: failed to extract churn: {}", e);
-                    }
-                }
-            }
-
-            // Populate touch count and recency metrics
-            if let Err(e) = snapshot.populate_touch_metrics(&repo_root) {
-                eprintln!("Warning: failed to populate touch metrics: {}", e);
-            }
-
-            // Populate call graph if it was built successfully
-            if let Some(ref graph) = call_graph {
-                snapshot.populate_callgraph(graph);
-            }
-
-            // Compute activity risk scores (combines all metrics)
-            snapshot.compute_activity_risk(None);
+            let snapshot = build_enriched_snapshot(path, &repo_root, resolved_config, reports)
+                .context("failed to build enriched snapshot")?;
 
             // Compute delta
             let delta = if pr_context.is_pr {

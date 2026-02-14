@@ -210,78 +210,32 @@ struct NestingDepthVisitor {
     current_depth: usize,
 }
 
+macro_rules! impl_nesting_visitor {
+    ($($method:ident, $ty:ty, $node:ident);* $(;)?) => {
+        $(
+            fn $method(&mut self, $node: &$ty) {
+                self.current_depth += 1;
+                if self.current_depth > self.max_depth {
+                    self.max_depth = self.current_depth;
+                }
+                $node.visit_children_with(self);
+                self.current_depth -= 1;
+            }
+        )*
+    };
+}
+
 impl Visit for NestingDepthVisitor {
-    fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        if_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_while_stmt(&mut self, while_stmt: &WhileStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        while_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_do_while_stmt(&mut self, do_while_stmt: &DoWhileStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        do_while_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_stmt(&mut self, for_stmt: &ForStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_in_stmt(&mut self, for_in_stmt: &ForInStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_in_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_of_stmt(&mut self, for_of_stmt: &ForOfStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_of_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        switch_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_try_stmt(&mut self, try_stmt: &TryStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        try_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
+    impl_nesting_visitor!(
+        visit_if_stmt,     IfStmt,     if_stmt;
+        visit_while_stmt,  WhileStmt,  while_stmt;
+        visit_do_while_stmt, DoWhileStmt, do_while_stmt;
+        visit_for_stmt,    ForStmt,    for_stmt;
+        visit_for_in_stmt, ForInStmt,  for_in_stmt;
+        visit_for_of_stmt, ForOfStmt,  for_of_stmt;
+        visit_switch_stmt, SwitchStmt, switch_stmt;
+        visit_try_stmt,    TryStmt,    try_stmt;
+    );
 }
 
 /// Calculate Fan-Out (FO)

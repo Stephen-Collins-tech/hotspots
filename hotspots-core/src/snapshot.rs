@@ -45,6 +45,22 @@ pub struct CommitInfo {
     pub ticket_ids: Vec<String>,
 }
 
+impl From<GitContext> for CommitInfo {
+    fn from(ctx: GitContext) -> Self {
+        CommitInfo {
+            sha: ctx.head_sha,
+            parents: ctx.parent_shas,
+            timestamp: ctx.timestamp,
+            branch: ctx.branch,
+            message: ctx.message,
+            author: ctx.author,
+            is_fix_commit: ctx.is_fix_commit,
+            is_revert_commit: ctx.is_revert_commit,
+            ticket_ids: ctx.ticket_ids,
+        }
+    }
+}
+
 /// Analysis metadata in snapshot
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -243,17 +259,7 @@ impl Snapshot {
 
         Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
-            commit: CommitInfo {
-                sha: git_context.head_sha,
-                parents: git_context.parent_shas,
-                timestamp: git_context.timestamp,
-                branch: git_context.branch,
-                message: git_context.message,
-                author: git_context.author,
-                is_fix_commit: git_context.is_fix_commit,
-                is_revert_commit: git_context.is_revert_commit,
-                ticket_ids: git_context.ticket_ids,
-            },
+            commit: CommitInfo::from(git_context),
             analysis: AnalysisInfo {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
