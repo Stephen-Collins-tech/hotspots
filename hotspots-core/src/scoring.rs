@@ -197,13 +197,13 @@ mod tests {
         let (risk, factors) = compute_activity_risk(
             &ActivityRiskInput {
                 lrs: 10.0,
-                churn: Some((50, 50)), // 100 lines changed
-                touch_count_30d: Some(20), // 20 commits in 30d
+                churn: Some((50, 50)),           // 100 lines changed
+                touch_count_30d: Some(20),       // 20 commits in 30d
                 days_since_last_change: Some(1), // changed 1 day ago
-                fan_in: Some(25),      // 25 callers
-                scc_size: Some(3),     // in a 3-node cycle
-                dependency_depth: Some(9), // depth 9
-                neighbor_churn: Some(1000), // 1000 neighbor churn
+                fan_in: Some(25),                // 25 callers
+                scc_size: Some(3),               // in a 3-node cycle
+                dependency_depth: Some(9),       // depth 9
+                neighbor_churn: Some(1000),      // 1000 neighbor churn
             },
             &ScoringWeights::default(),
         );

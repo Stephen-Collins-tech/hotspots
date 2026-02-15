@@ -147,7 +147,9 @@ fn extract_function_name(node: Node, source: &str) -> Option<String> {
 /// Find a child node by kind
 fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
-    let result = node.children(&mut cursor).find(|child| child.kind() == kind);
+    let result = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == kind);
     result
 }
 

@@ -288,7 +288,9 @@ impl CallGraph {
                     self.tarjan_strongconnect(&w, state);
                     let w_lowlink = *state.lowlinks.get(&w).unwrap_or(&0);
                     let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
-                    state.lowlinks.insert(v.to_string(), v_lowlink.min(w_lowlink));
+                    state
+                        .lowlinks
+                        .insert(v.to_string(), v_lowlink.min(w_lowlink));
                 } else if *state.on_stack.get(&w).unwrap_or(&false) {
                     // Successor w is in stack and hence in the current SCC
                     let w_index = *state.indices.get(&w).unwrap_or(&0);
