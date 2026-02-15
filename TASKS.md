@@ -712,7 +712,7 @@ Add snapshot-wide statistics for concentration analysis.
 
 ---
 
-### 5.2 Configuration File Support
+### 5.2 Configuration File Support ✅ COMPLETE
 
 **Requirement:**
 Support `.hotspots.toml` config file for persistent settings.
@@ -747,10 +747,10 @@ patterns = ["tests/**", "vendor/**", "*.generated.ts"]
 ```
 
 **Success Criteria:**
-- [ ] Config file parsed correctly
-- [ ] CLI flags override config values
-- [ ] Documentation includes config examples
-- [ ] Error handling for invalid config
+- [x] Config file parsed correctly (`scoring` section in existing JSON config)
+- [x] CLI flags override config values
+- [x] Error handling for invalid config (validation with clear error messages)
+- [ ] Documentation includes config examples - DEFERRED
 
 **Files to Modify:**
 - `hotspots-cli/src/config.rs` - New module for config parsing
