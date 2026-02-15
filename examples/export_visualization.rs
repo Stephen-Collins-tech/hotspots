@@ -69,34 +69,14 @@ struct RiskConcentrationEntry {
 /// Snapshot structure (from hotspots-core)
 #[derive(Debug, Deserialize)]
 struct Snapshot {
-    #[serde(rename = "schema_version")]
-    #[allow(dead_code)]
-    schema_version: u32,
     commit: CommitInfo,
-    #[allow(dead_code)]
-    analysis: AnalysisInfo,
     functions: Vec<FunctionSnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CommitInfo {
     sha: String,
-    #[allow(dead_code)]
-    parents: Vec<String>,
-    #[allow(dead_code)]
     timestamp: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(dead_code)]
-    branch: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AnalysisInfo {
-    #[allow(dead_code)]
-    scope: String,
-    #[serde(rename = "tool_version")]
-    #[allow(dead_code)]
-    tool_version: String,
 }
 
 #[derive(Debug, Deserialize)]

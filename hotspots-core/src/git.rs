@@ -10,8 +10,21 @@
 //! Uses git CLI directly (no libgit2) for portability.
 
 use anyhow::{Context, Result};
+use regex::Regex;
 use std::path::Path;
 use std::process::Command;
+use std::sync::OnceLock;
+
+static JIRA_RE: OnceLock<Regex> = OnceLock::new();
+static GITHUB_RE: OnceLock<Regex> = OnceLock::new();
+
+fn jira_re() -> &'static Regex {
+    JIRA_RE.get_or_init(|| Regex::new(r"([A-Z]+-\d+)").unwrap())
+}
+
+fn github_re() -> &'static Regex {
+    GITHUB_RE.get_or_init(|| Regex::new(r"(?:fixes|closes|fixed|closed)?\s*#(\d+)").unwrap())
+}
 
 /// Git context for the current commit
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -576,13 +589,10 @@ pub fn detect_revert_commit(message: &str) -> bool {
 /// - fixes #123
 /// - closes #123
 pub fn extract_ticket_ids(message: &str, branch: Option<&str>) -> Vec<String> {
-    use regex::Regex;
-
     let mut tickets = Vec::new();
 
     // Pattern for JIRA-style tickets: PROJECT-123
-    let jira_re = Regex::new(r"([A-Z]+-\d+)").unwrap();
-    for cap in jira_re.captures_iter(message) {
+    for cap in jira_re().captures_iter(message) {
         if let Some(ticket) = cap.get(1) {
             let ticket_str = ticket.as_str().to_string();
             if !tickets.contains(&ticket_str) {
@@ -592,8 +602,7 @@ pub fn extract_ticket_ids(message: &str, branch: Option<&str>) -> Vec<String> {
     }
 
     // Pattern for GitHub issues: #123, fixes #123, closes #123
-    let github_re = Regex::new(r"(?:fixes|closes|fixed|closed)?\s*#(\d+)").unwrap();
-    for cap in github_re.captures_iter(message) {
+    for cap in github_re().captures_iter(message) {
         if let Some(number) = cap.get(1) {
             let ticket_str = format!("#{}", number.as_str());
             if !tickets.contains(&ticket_str) {
@@ -604,7 +613,7 @@ pub fn extract_ticket_ids(message: &str, branch: Option<&str>) -> Vec<String> {
 
     // Also extract from branch name if provided
     if let Some(branch_name) = branch {
-        for cap in jira_re.captures_iter(branch_name) {
+        for cap in jira_re().captures_iter(branch_name) {
             if let Some(ticket) = cap.get(1) {
                 let ticket_str = ticket.as_str().to_string();
                 if !tickets.contains(&ticket_str) {
@@ -613,7 +622,7 @@ pub fn extract_ticket_ids(message: &str, branch: Option<&str>) -> Vec<String> {
             }
         }
 
-        for cap in github_re.captures_iter(branch_name) {
+        for cap in github_re().captures_iter(branch_name) {
             if let Some(number) = cap.get(1) {
                 let ticket_str = format!("#{}", number.as_str());
                 if !tickets.contains(&ticket_str) {
