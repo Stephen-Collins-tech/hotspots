@@ -1,6 +1,6 @@
 //! Export visualization data from Hotspots snapshots
 //!
-//! Reads snapshots from a repository's .faultline/ directory and generates
+//! Reads snapshots from a repository's .hotspots/ directory and generates
 //! data.json for use with the Vega-Lite visualizations in visualizations/
 
 use anyhow::{Context, Result};
@@ -66,7 +66,7 @@ struct RiskConcentrationEntry {
     lrs: f64,
 }
 
-/// Snapshot structure (from faultline-core)
+/// Snapshot structure (from hotspots-core)
 #[derive(Debug, Deserialize)]
 struct Snapshot {
     #[serde(rename = "schema_version")]
@@ -117,7 +117,7 @@ struct MetricsReport {
     ns: usize,
 }
 
-/// Index structure (from faultline-core)
+/// Index structure (from hotspots-core)
 #[derive(Debug, Deserialize)]
 struct Index {
     #[serde(rename = "schema_version")]
@@ -136,7 +136,7 @@ struct IndexEntry {
 #[command(name = "export-visualization")]
 #[command(about = "Export visualization data from Hotspots snapshots")]
 struct Args {
-    /// Path to repository with .faultline snapshots
+    /// Path to repository with .hotspots snapshots
     #[arg(long, default_value = ".")]
     repo: String,
 
@@ -174,7 +174,7 @@ fn main() -> Result<()> {
     };
 
     // Load index to get commit order
-    let index_path = repo_path.join(".faultline").join("index.json");
+    let index_path = repo_path.join(".hotspots").join("index.json");
     let index: Index = if index_path.exists() {
         let json = fs::read_to_string(&index_path)
             .context("failed to read index.json")?;
@@ -185,7 +185,7 @@ fn main() -> Result<()> {
     };
 
     // Load all snapshots
-    let snapshots_dir = repo_path.join(".faultline").join("snapshots");
+    let snapshots_dir = repo_path.join(".hotspots").join("snapshots");
     let mut snapshots: Vec<(usize, Snapshot)> = Vec::new();
 
     for (idx, entry) in index.commits.iter().enumerate() {

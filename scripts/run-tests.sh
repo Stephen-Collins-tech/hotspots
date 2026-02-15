@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run all tests for Faultline
+# Run all tests for Hotspots
 # Usage: ./scripts/run-tests.sh [unit|comprehensive|all]
 
 set -e

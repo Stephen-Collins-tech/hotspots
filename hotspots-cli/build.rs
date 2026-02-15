@@ -14,7 +14,7 @@ fn main() {
     // Get version from git describe, fallback to CARGO_PKG_VERSION
     let version = get_git_version().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
-    println!("cargo:rustc-env=FAULTLINE_VERSION={}", version);
+    println!("cargo:rustc-env=HOTSPOTS_VERSION={}", version);
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
     println!("cargo:rerun-if-changed=.git/refs/tags");
