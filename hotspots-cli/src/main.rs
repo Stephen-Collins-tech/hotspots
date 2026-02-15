@@ -484,7 +484,7 @@ fn build_enriched_snapshot(
         snapshot.populate_callgraph(graph);
     }
 
-    snapshot.compute_activity_risk(None);
+    snapshot.compute_activity_risk(Some(&resolved_config.scoring_weights));
 
     Ok(snapshot)
 }
