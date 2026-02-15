@@ -453,7 +453,7 @@ fn build_enriched_snapshot(
     // Build call graph before snapshot creation (snapshot consumes reports)
     let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
 
-    let mut snapshot = Snapshot::new(git_context.clone(), reports);
+    let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
     // Populate churn metrics if a parent commit exists
     if !git_context.parent_shas.is_empty() {
@@ -468,7 +468,7 @@ fn build_enriched_snapshot(
                         (normalized_path, c)
                     })
                     .collect();
-                snapshot.populate_churn(&churn_map);
+                enricher = enricher.with_churn(&churn_map);
             }
             Err(e) => {
                 eprintln!("Warning: failed to extract churn: {}", e);
@@ -476,17 +476,15 @@ fn build_enriched_snapshot(
         }
     }
 
-    if let Err(e) = snapshot.populate_touch_metrics(repo_root) {
-        eprintln!("Warning: failed to populate touch metrics: {}", e);
-    }
+    enricher = enricher.with_touch_metrics(repo_root);
 
     if let Some(ref graph) = call_graph {
-        snapshot.populate_callgraph(graph);
+        enricher = enricher.with_callgraph(graph);
     }
 
-    snapshot.compute_activity_risk(Some(&resolved_config.scoring_weights));
-
-    Ok(snapshot)
+    Ok(enricher
+        .enrich(Some(&resolved_config.scoring_weights))
+        .build())
 }
 
 struct ModeOutputOptions {
@@ -533,10 +531,6 @@ fn handle_mode_output(
         OutputMode::Snapshot => {
             let mut snapshot = build_enriched_snapshot(path, &repo_root, resolved_config, reports)
                 .context("failed to build enriched snapshot")?;
-
-            // Compute percentile flags and summary (must be after activity risk)
-            snapshot.compute_percentiles();
-            snapshot.compute_summary();
 
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)

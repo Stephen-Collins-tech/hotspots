@@ -662,6 +662,61 @@ impl Snapshot {
     }
 }
 
+/// Builder for enriching a snapshot with git, call graph, and risk metrics.
+///
+/// Enforces enrichment step ordering:
+/// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
+pub struct SnapshotEnricher {
+    snapshot: Snapshot,
+}
+
+impl SnapshotEnricher {
+    /// Create a new enricher wrapping the given snapshot.
+    pub fn new(snapshot: Snapshot) -> Self {
+        SnapshotEnricher { snapshot }
+    }
+
+    /// Populate churn metrics from a file churn map.
+    pub fn with_churn(
+        mut self,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) -> Self {
+        self.snapshot.populate_churn(file_churns);
+        self
+    }
+
+    /// Populate touch count and recency metrics from git.
+    ///
+    /// On error, emits a warning to stderr and continues.
+    pub fn with_touch_metrics(mut self, repo_root: &Path) -> Self {
+        if let Err(e) = self.snapshot.populate_touch_metrics(repo_root) {
+            eprintln!("Warning: failed to populate touch metrics: {}", e);
+        }
+        self
+    }
+
+    /// Populate call graph metrics (PageRank, fan-in, SCC, etc).
+    pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
+        self.snapshot.populate_callgraph(call_graph);
+        self
+    }
+
+    /// Compute activity risk, percentile flags, and summary statistics.
+    ///
+    /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
+    pub fn enrich(mut self, weights: Option<&crate::scoring::ScoringWeights>) -> Self {
+        self.snapshot.compute_activity_risk(weights);
+        self.snapshot.compute_percentiles();
+        self.snapshot.compute_summary();
+        self
+    }
+
+    /// Consume the enricher and return the fully enriched snapshot.
+    pub fn build(self) -> Snapshot {
+        self.snapshot
+    }
+}
+
 impl Index {
     /// Create a new empty index (default compaction level 0 - full snapshots)
     pub fn new() -> Self {
@@ -1006,6 +1061,57 @@ mod tests {
     fn test_function_id_format() {
         let snapshot = create_test_snapshot();
         assert_eq!(snapshot.functions[0].function_id, "src/foo.ts::handler");
+    }
+
+    #[test]
+    fn test_snapshot_enricher_with_churn() {
+        use crate::git::FileChurn;
+        let snapshot = create_test_snapshot();
+        let mut churn_map = std::collections::HashMap::new();
+        churn_map.insert(
+            "src/foo.ts".to_string(),
+            FileChurn {
+                file: "src/foo.ts".to_string(),
+                lines_added: 10,
+                lines_deleted: 5,
+            },
+        );
+        let snapshot = SnapshotEnricher::new(snapshot)
+            .with_churn(&churn_map)
+            .build();
+        let churn = snapshot.functions[0]
+            .churn
+            .as_ref()
+            .expect("churn should be set");
+        assert_eq!(churn.lines_added, 10);
+        assert_eq!(churn.lines_deleted, 5);
+        assert_eq!(churn.net_change, 5);
+    }
+
+    #[test]
+    fn test_snapshot_enricher_enrich_computes_summary() {
+        let snapshot = create_test_snapshot();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let summary = snapshot.summary.as_ref().expect("summary should be set");
+        assert_eq!(summary.total_functions, 1);
+    }
+
+    #[test]
+    fn test_snapshot_enricher_enrich_computes_percentiles() {
+        let snapshot = create_test_snapshot();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        assert!(snapshot.functions[0].percentile.is_some());
+    }
+
+    #[test]
+    fn test_snapshot_enricher_build_passthrough() {
+        let snapshot = create_test_snapshot();
+        let built = SnapshotEnricher::new(snapshot.clone()).build();
+        assert_eq!(
+            built.functions[0].function_id,
+            snapshot.functions[0].function_id
+        );
+        assert_eq!(built.commit.sha, snapshot.commit.sha);
     }
 
     #[test]
