@@ -390,11 +390,11 @@ fn test_force_push_does_not_corrupt_history() {
     let snapshot_path2_check = snapshot::snapshot_path(repo_path, &snapshot2_sha);
 
     // Check if .hotspots directory still exists
-    let faultline_dir = repo_path.join(".hotspots");
+    let hotspots_dir = repo_path.join(".hotspots");
     assert!(
-        faultline_dir.exists(),
+        hotspots_dir.exists(),
         ".hotspots directory should still exist after reset: {}",
-        faultline_dir.display()
+        hotspots_dir.display()
     );
 
     // Check if snapshots directory still exists

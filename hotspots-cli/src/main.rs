@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 #[command(
     about = "Multi-language static analysis tool (TypeScript, JavaScript, Go, Java, Python, Rust)"
 )]
-#[command(version = env!("FAULTLINE_VERSION"))]
+#[command(version = env!("HOTSPOTS_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

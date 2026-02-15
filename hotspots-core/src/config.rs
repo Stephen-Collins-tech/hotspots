@@ -701,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_package_json_without_faultline_key() {
+    fn test_discover_package_json_without_hotspots_key() {
         let dir = tempfile::tempdir().unwrap();
         let pkg_path = dir.path().join("package.json");
         fs::write(&pkg_path, r#"{"name": "my-project", "version": "1.0.0"}"#).unwrap();
