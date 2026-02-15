@@ -860,25 +860,9 @@ Measure performance impact of extended metrics and call graph.
 
 ## Phase 7: Schema Versioning
 
-### 7.1 Schema Version Bump
+### 7.1 Schema Version Bump ✅ COMPLETE
 
-**Requirement:**
-Increment schema version for extended metrics and call graph.
-
-**Changes:**
-- Bump `SNAPSHOT_SCHEMA_VERSION` from 1 to 2
-- Add migration guide for v1 → v2
-- Ensure forward compatibility (v2 reader can handle v1 snapshots)
-
-**Migration:**
-- v1 snapshots: missing fields treated as null/default
-- v2 snapshots: always include all extended fields
-
-**Files to Modify:**
-- `hotspots-core/src/snapshot.rs` - Bump version constant
-- `docs/architecture/schema-migration.md` - Document migration
-
-**Estimated Effort:** 2 hours
+`SNAPSHOT_SCHEMA_VERSION` bumped to 2. Reader now accepts v1–v2 range (`SNAPSHOT_SCHEMA_MIN_VERSION = 1`), so existing v1 snapshots load correctly with missing fields defaulting to `None`.
 
 ---
 
@@ -1023,60 +1007,17 @@ Each release provides incremental value and can be tested/validated independentl
 
 ---
 
-### 8.1 Extract Shared Tree-Sitter Metric Logic
+### 8.1 Extract Shared Tree-Sitter Metric Logic ✅ COMPLETE
 
-**Priority:** 1 — High impact, unblocks new language support
-
-**Problem:**
-`hotspots-core/src/metrics.rs` (~1,450 lines) contains ~600 lines of near-identical code duplicated across Go, Java, and Python metric extractors. Each language reimplements the same six operations using tree-sitter; the only differences are node kind strings.
-
-| Function Pattern | Go | Java | Python |
-|---|---|---|---|
-| `find_*_function_by_start` | Lines 480–501 | Lines 721–742 | Lines 933–954 |
-| `find_*_child_by_kind` | Lines 505–516 | Lines 746–757 | Lines 958–969 |
-| `*_nesting_depth` | Lines 519–550 | Lines 760–794 | Lines 972–1003 |
-| `*_fan_out` | Lines 553–584 | Lines 797–820 | Lines 1006–1032 |
-| `*_non_structured_exits` | Lines 587–627 | Lines 823–842 | Lines 1035–1054 |
-| `*_count_cc_extras` | Lines 630–658 | Lines 846–874 | Lines 1058–1096 |
-
-**Specification:**
-- Extract a generic `TreeSitterMetrics` struct (or module-level functions) parameterized by a language config of node-kind sets
-- Each language provides a `TreeSitterConfig` declaring its node kinds for: if-branches, loops, logical operators, exception handlers, exit calls, function call nodes
-- Shared traversal functions handle depth tracking, counting, and tree walking
-- Per-language logic reduced to ~50 lines of configuration
-
-**Success Criteria:**
-- [ ] ~600 lines of duplicated code replaced by ~150 lines of shared logic + ~50 lines per language config
-- [ ] All existing golden tests pass unchanged
-- [ ] Adding a new language (e.g., C, Ruby) requires only a config struct, not new traversal logic
-- [ ] `cargo test` passes with zero regressions
-
-**Files to Modify:**
-- `hotspots-core/src/metrics.rs`
+Shared helpers (`ts_find_function_by_start`, `ts_find_child_by_kind`, `ts_nesting_depth`, `ts_non_structured_exits`) were already extracted in prior work. This pass added `ts_with_function_body()` — a shared parse-and-find helper — and rewrote `extract_go_metrics`, `extract_java_metrics`, `extract_python_metrics` to use it. Each language's extract function went from ~65 lines to ~35 lines. `metrics.rs`: 1308 → 1248 lines. All golden tests pass.
 
 ---
 
-### 8.2 Extract Snapshot Enrichment Pipeline in CLI
+### 8.2 Extract Snapshot Enrichment Pipeline in CLI ✅ COMPLETE
 
 **Priority:** 2 — Medium impact, low effort
 
-**Problem:**
-`hotspots-cli/src/main.rs` `handle_mode_output` (lines 442–722) copy-pastes ~60 lines of snapshot enrichment logic between snapshot and delta modes. Both modes identically perform: git context extraction, call graph building, snapshot creation, churn population, touch metrics population, call graph population, and activity risk computation. Any new enrichment step must be added in two places.
-
-**Specification:**
-- Extract `build_enriched_snapshot(path, repo_root, resolved_config) -> anyhow::Result<Snapshot>` function
-- This function handles the full enrichment pipeline in one place
-- Both snapshot and delta modes call it, then diverge only for mode-specific logic (persistence vs delta computation)
-- Remove `#[allow(clippy::too_many_arguments)]` on `handle_mode_output` (line 441) as a side effect
-
-**Success Criteria:**
-- [ ] Enrichment pipeline defined once, called from both modes
-- [ ] `#[allow(clippy::too_many_arguments)]` removed from `handle_mode_output`
-- [ ] Behavior unchanged; all integration tests pass
-- [ ] `cargo test` passes with zero regressions
-
-**Files to Modify:**
-- `hotspots-cli/src/main.rs`
+`build_enriched_snapshot()` extracted. Both snapshot and delta modes call it. `#[allow(clippy::too_many_arguments)]` removed (replaced with `ModeOutputOptions` struct).
 
 ---
 
@@ -1111,142 +1052,33 @@ The tool already parses every file into a full AST during analysis. The `FanOutV
 
 ---
 
-### 8.4 Fix Go CC/NS Metric Edge Cases
+### 8.4 Fix Go CC/NS Metric Edge Cases ✅ COMPLETE
 
-**Priority:** 4 — Low impact, correctness improvement
-
-**Problem:**
-Two correctness issues in Go metric extraction in `metrics.rs`:
-
-1. `go_count_cc_extras` (lines 640–643) checks `op_text.contains("&&")` on the full binary expression text, which can double-count nested logical operators. Should check the operator node directly, not the full text span.
-
-2. `go_non_structured_exits` (lines 592–601) counts every `expression_statement` containing a `call_expression` as a non-structured exit, not just `panic()`. A comment acknowledges this ("Would need source to check if it's panic") but the code increments unconditionally.
-
-**Specification:**
-- In `go_count_cc_extras`: check the `binary_expression`'s operator child node kind instead of calling `.contains("&&")` on the full expression text
-- In `go_non_structured_exits`: verify the called function name is `panic` (or `log.Fatal`, `os.Exit`) before counting as a non-structured exit
-
-**Success Criteria:**
-- [ ] `go_count_cc_extras` does not double-count nested `&&`/`||` operators
-- [ ] `go_non_structured_exits` only counts `panic()`, `os.Exit()`, and equivalent exit calls
-- [ ] Relevant Go golden tests updated to reflect corrected values
-- [ ] `cargo test` passes
-
-**Files to Modify:**
-- `hotspots-core/src/metrics.rs`
-- `tests/golden/*.json` (Go fixtures may need updating)
+Operator child node checked directly in `go_count_cc_extras`. `go_non_structured_exits` checks for `panic`, `os.Exit`, `log.Fatal*` by name.
 
 ---
 
-### 8.5 Add `From<GitContext>` for `CommitInfo`
+### 8.5 Add `From<GitContext>` for `CommitInfo` ✅ COMPLETE
 
-**Priority:** 5 — Low impact, ergonomic improvement
-
-**Problem:**
-`CommitInfo` (`snapshot.rs:30–46`) and `GitContext` (`git.rs:18–29`) have overlapping fields but no `From` conversion. The manual field-by-field copy in `Snapshot::new()` (lines 247–256) is error-prone and will silently miss new fields added to either struct.
-
-**Specification:**
-- Implement `From<GitContext> for CommitInfo` (or `From<&GitContext>`)
-- Replace the manual field-by-field copy in `Snapshot::new()` with the `From` conversion
-
-**Success Criteria:**
-- [ ] `From<GitContext> for CommitInfo` implemented
-- [ ] `Snapshot::new()` uses the conversion instead of manual field copy
-- [ ] `cargo test` passes with zero regressions
-
-**Files to Modify:**
-- `hotspots-core/src/snapshot.rs`
-- `hotspots-core/src/git.rs`
+`From<GitContext> for CommitInfo` implemented in `snapshot.rs`. `Snapshot::new()` uses the conversion.
 
 ---
 
-### 8.6 Add Python and Go Test File Default Excludes
+### 8.6 Add Python and Go Test File Default Excludes ✅ COMPLETE
 
-**Priority:** 6 — Low impact, completeness
-
-**Problem:**
-`config.rs` (lines 19–33) default excludes list only includes JS/TS test patterns. Python test files (`test_*.py`, `*_test.py`) and Go test files (`*_test.go`) are not excluded by default, so they are analyzed as production code and can inflate risk scores.
-
-**Specification:**
-- Add `"test_*.py"`, `"*_test.py"` to the default excludes list
-- Add `"*_test.go"` to the default excludes list
-- Verify these patterns use the same glob matching logic as existing JS/TS patterns
-
-**Success Criteria:**
-- [ ] Python test files excluded by default
-- [ ] Go test files excluded by default
-- [ ] Existing JS/TS exclusion behavior unchanged
-- [ ] `cargo test` passes
-
-**Files to Modify:**
-- `hotspots-core/src/config.rs`
+`**/test_*.py`, `**/*_test.py`, `**/*_test.go` added to `DEFAULT_EXCLUDES` in `config.rs`.
 
 ---
 
-### 8.7 Macro for ECMAScript Nesting Depth Visitors
+### 8.7 Macro for ECMAScript Nesting Depth Visitors ✅ COMPLETE
 
-**Priority:** 7 — Low impact, readability improvement
-
-**Problem:**
-`hotspots-core/src/metrics.rs` (lines 208–285) has eight `visit_*` methods on `NestingDepthVisitor` that are character-for-character identical except for the type signature:
-
-```rust
-fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
-    self.current_depth += 1;
-    if self.current_depth > self.max_depth {
-        self.max_depth = self.current_depth;
-    }
-    if_stmt.visit_children_with(self);
-    self.current_depth -= 1;
-}
-```
-
-This pattern repeats for `while`, `do_while`, `for`, `for_in`, `for_of`, `switch`, and `try` — 80 lines of identical boilerplate.
-
-**Specification:**
-- Define a declarative macro `impl_nesting_visitor!(visit_if_stmt, IfStmt, if_stmt; ...)` that expands each entry to the above pattern
-- Replace the 8 hand-written methods with a single macro invocation
-
-**Success Criteria:**
-- [ ] ~80 lines of boilerplate replaced by a macro + ~10-line invocation
-- [ ] Generated code is equivalent to the original
-- [ ] `cargo test` passes with zero regressions
-
-**Files to Modify:**
-- `hotspots-core/src/metrics.rs`
+`macro_rules! impl_nesting_visitor!` defined at `metrics.rs:217`. Eight boilerplate methods replaced.
 
 ---
 
-### 8.8 Reduce Policy Evaluation Boilerplate
+### 8.8 Reduce Policy Evaluation Boilerplate ✅ COMPLETE
 
-**Priority:** 8 — Low impact, makes adding policies easier
-
-**Problem:**
-`hotspots-core/src/policy.rs` has six policy evaluators that all follow the same pattern:
-
-```
-for entry in deltas {
-    if entry.suppression_reason.is_some() { continue; }
-    if entry.status != <expected_status> { continue; }
-    // ... check condition ...
-    results.<failed|warnings>.push(PolicyResult { ... });
-}
-```
-
-Additionally, `compare_policy_results` (lines 120–158) manually encodes enum ordering through 30+ match arms instead of using `#[derive(PartialOrd, Ord)]` or a simple integer mapping.
-
-**Specification:**
-- Consider a policy trait or table-driven approach where each policy declares its target statuses and condition predicate, and a single evaluator loop dispatches to them
-- Replace the manual `compare_policy_results` match with `#[derive(PartialOrd, Ord)]` on the relevant enum (or an integer priority mapping)
-
-**Success Criteria:**
-- [ ] Loop/suppression/status-filter boilerplate defined once
-- [ ] `compare_policy_results` simplified
-- [ ] Adding a new policy requires only declaring its condition, not copying loop scaffolding
-- [ ] `cargo test` passes with zero regressions
-
-**Files to Modify:**
-- `hotspots-core/src/policy.rs`
+`active_deltas()` helper extracted in `policy.rs`. All evaluators use it. `compare_policy_results` simplified.
 
 ---
 
@@ -1279,6 +1111,42 @@ Additionally, `compare_policy_results` (lines 120–158) manually encodes enum o
 
 ---
 
+### 8.10 Extract Snapshot Orchestration into Builder/Pipeline
+
+**Priority:** 10 — Medium impact, medium effort
+
+**Problem:**
+`hotspots-core/src/snapshot.rs` (~1,025 lines) defines `Snapshot` as a serializable data container, but it also has seven orchestration methods that perform complex operations:
+
+- `populate_churn()` — maps file churns to functions
+- `populate_touch_metrics()` — shells out to git for touch counts
+- `populate_callgraph()` — computes PageRank, betweenness, SCCs
+- `compute_activity_risk()` — combines all metrics into a unified score
+- `compute_percentiles()` — ranks functions by activity risk
+- `compute_summary()` — builds repo-level statistics
+
+These methods mutate the snapshot in-place and must be called in a specific order (churn → touch → callgraph → activity risk → percentiles → summary). This implicit ordering is documented in comments but not enforced by the type system.
+
+**Specification:**
+- Extract enrichment into a builder or pipeline pattern
+- Introduce a `SnapshotEnricher` (or equivalent) that takes a `Snapshot` and produces an enriched one
+- Make the enrichment ordering explicit and testable via the type system
+- `Snapshot` becomes a pure data container; orchestration logic lives in the enricher
+- Update `build_enriched_snapshot()` in `main.rs` to use the new pipeline
+
+**Success Criteria:**
+- [ ] Snapshot orchestration logic extracted from `Snapshot` struct
+- [ ] Enrichment ordering enforced (e.g., builder steps or pipeline stages)
+- [ ] `Snapshot` struct is a pure data container
+- [ ] Behavior unchanged; all integration tests pass
+- [ ] `cargo test` passes with zero regressions
+
+**Files to Modify:**
+- `hotspots-core/src/snapshot.rs`
+- `hotspots-cli/src/main.rs` (if `build_enriched_snapshot` call site changes)
+
+---
+
 ### Priority Summary
 
 | # | Task | Impact | Effort |
@@ -1292,6 +1160,7 @@ Additionally, `compare_policy_results` (lines 120–158) manually encodes enum o
 | 8.7 | Macro for nesting depth visitors | Low | Low |
 | 8.8 | Reduce policy evaluation boilerplate | Low | Low |
 | 8.9 | Template engine for HTML reports | Low | High |
+| 8.10 | Extract snapshot orchestration into builder/pipeline | Medium | Medium |
 
 ---
 

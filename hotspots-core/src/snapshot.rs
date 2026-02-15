@@ -18,8 +18,11 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use crate::report::RiskReport;
 
-/// Schema version for snapshots
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+/// Schema version for snapshots.
+/// v1: LRS + basic metrics only
+/// v2: adds LOC, git churn/touch, call graph, activity risk, percentiles, summary
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
 /// Schema version for index
 const INDEX_SCHEMA_VERSION: u32 = 1;
@@ -638,12 +641,15 @@ impl Snapshot {
         let snapshot: Snapshot =
             serde_json::from_str(json).context("failed to deserialize snapshot from JSON")?;
 
-        // Validate schema version
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        // Validate schema version (accept v1 snapshots — missing fields default to None)
+        if snapshot.schema_version < SNAPSHOT_SCHEMA_MIN_VERSION
+            || snapshot.schema_version > SNAPSHOT_SCHEMA_VERSION
+        {
             anyhow::bail!(
-                "schema version mismatch: expected {}, got {}",
-                SNAPSHOT_SCHEMA_VERSION,
-                snapshot.schema_version
+                "unsupported schema version: got {}, supported range {}-{}",
+                snapshot.schema_version,
+                SNAPSHOT_SCHEMA_MIN_VERSION,
+                SNAPSHOT_SCHEMA_VERSION
             );
         }
 
@@ -986,7 +992,7 @@ mod tests {
 
         // Serialize
         let json = snapshot.to_json().expect("should serialize");
-        assert!(json.contains("\"schema_version\": 1"));
+        assert!(json.contains("\"schema_version\": 2"));
         assert!(json.contains("\"sha\": \"abc123\""));
         assert!(json.contains("\"function_id\""));
 
