@@ -1021,7 +1021,7 @@ Shared helpers (`ts_find_function_by_start`, `ts_find_child_by_kind`, `ts_nestin
 
 ---
 
-### 8.3 Reuse AST-Based Fan-Out for Call Graph Extraction
+### 8.3 Reuse AST-Based Fan-Out for Call Graph Extraction ✅ COMPLETE
 
 **Priority:** 3 — Medium impact, eliminates correctness issues
 
@@ -1039,11 +1039,11 @@ The tool already parses every file into a full AST during analysis. The `FanOutV
 - Eliminate false edges from string literals and approximate range estimation
 
 **Success Criteria:**
-- [ ] Call graph built from AST fan-out data, not regex
-- [ ] No second file read pass during call graph construction
-- [ ] Fewer false edges (no string-literal false positives)
-- [ ] All existing golden tests pass
-- [ ] `cargo test` passes with zero regressions
+- [x] Call graph built from AST fan-out data, not regex
+- [x] No second file read pass during call graph construction
+- [x] Fewer false edges (no string-literal false positives)
+- [x] All existing golden tests pass
+- [x] `cargo test` passes with zero regressions
 
 **Files to Modify:**
 - `hotspots-core/src/lib.rs`

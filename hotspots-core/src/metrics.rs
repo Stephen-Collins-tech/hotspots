@@ -53,13 +53,14 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 .saturating_sub(function.span.start_line)
                 + 1;
 
+            let callee_names = ecmascript_extract_callees(body);
             RawMetrics {
                 cc: cyclomatic_complexity(cfg, body),
                 nd: nesting_depth(body),
-                fo: fan_out(body),
+                fo: callee_names.len(),
                 ns: non_structured_exits(body),
                 loc: loc as usize,
-                callee_names: vec![],
+                callee_names,
             }
         }
         FunctionBody::Go { .. } => {
@@ -245,12 +246,14 @@ impl Visit for NestingDepthVisitor {
 /// Calculate Fan-Out (FO)
 ///
 /// Count number of unique functions called by this function
-fn fan_out(body: &BlockStmt) -> usize {
+fn ecmascript_extract_callees(body: &BlockStmt) -> Vec<String> {
     let mut visitor = FanOutVisitor {
         calls: std::collections::HashSet::new(),
     };
     body.visit_with(&mut visitor);
-    visitor.calls.len()
+    let mut names: Vec<String> = visitor.calls.into_iter().collect();
+    names.sort();
+    names
 }
 
 struct FanOutVisitor {
@@ -918,16 +921,16 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let base_cc = calculate_cc_from_cfg(cfg);
     let extra_cc = rust_count_cc_extras(&item_fn.block);
     let nd = rust_nesting_depth(&item_fn.block);
-    let fo = rust_fan_out(&item_fn.block);
+    let callee_names = rust_extract_callees(&item_fn.block);
     let ns = rust_non_structured_exits(&item_fn.block);
 
     RawMetrics {
         cc: base_cc + extra_cc,
         nd,
-        fo,
+        fo: callee_names.len(),
         ns,
         loc: calculate_loc(source),
-        callee_names: vec![],
+        callee_names,
     }
 }
 
@@ -995,8 +998,9 @@ fn rust_nesting_depth(block: &syn::Block) -> usize {
     max_depth
 }
 
-/// Calculate fan-out for Rust function
-fn rust_fan_out(block: &syn::Block) -> usize {
+/// Extract callee names from a Rust function body.
+/// Returns the deduplicated, sorted set of called function/method/macro names.
+fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
     use std::collections::HashSet;
     use syn::{Expr, ExprCall, ExprMethodCall, Stmt};
 
@@ -1085,7 +1089,9 @@ fn rust_fan_out(block: &syn::Block) -> usize {
 
     let mut calls = HashSet::new();
     count_calls(&block.stmts, &mut calls);
-    calls.len()
+    let mut names: Vec<String> = calls.into_iter().collect();
+    names.sort();
+    names
 }
 
 /// Calculate non-structured exits for Rust function
@@ -1245,14 +1251,12 @@ fn rust_count_cc_extras(block: &syn::Block) -> usize {
     count
 }
 
-// Note: Rust metrics tests are integrated with parser/cfg_builder tests
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::language::{
-        CfgBuilder, GoCfgBuilder, GoParser, JavaCfgBuilder, JavaParser, LanguageParser,
-        PythonCfgBuilder, PythonParser,
+        CfgBuilder, ECMAScriptCfgBuilder, ECMAScriptParser, GoCfgBuilder, GoParser, JavaCfgBuilder,
+        JavaParser, LanguageParser, PythonCfgBuilder, PythonParser, RustCfgBuilder,
     };
 
     /// Helper: parse Go source, discover functions, return (FunctionNode, Cfg) for the first.
@@ -1288,6 +1292,42 @@ mod tests {
         );
         let func = functions.into_iter().next().unwrap();
         let cfg = PythonCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse TypeScript source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn ecmascript_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        use swc_common::{sync::Lrc, SourceMap};
+        let source_map: Lrc<SourceMap> = Default::default();
+        let parser = ECMAScriptParser::new(source_map);
+        let module = parser.parse(source, "test.ts").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(
+            !functions.is_empty(),
+            "expected at least one ECMAScript function"
+        );
+        let func = functions.into_iter().next().unwrap();
+        let cfg = ECMAScriptCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: build a Rust FunctionNode + Cfg from a function source string.
+    fn rust_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("test".to_string()),
+            span: SourceSpan::new(0, source.len(), 1, 1, 0),
+            body: FunctionBody::Rust {
+                source: source.to_string(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = RustCfgBuilder.build(&func);
         (func, cfg)
     }
 
@@ -1551,5 +1591,123 @@ func withDefer() {
         assert_eq!(m.cc, 1);
         assert_eq!(m.fo, 0);
         assert!(m.callee_names.is_empty());
+    }
+
+    // ── ECMAScript ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_ecmascript_callee_names_direct_call() {
+        let source = r#"function doWork() { foo(); bar(); foo(); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo appears twice but callee_names is deduplicated
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_ecmascript_callee_names_method_call() {
+        let source = r#"function doWork() { obj.method(); console.log("x"); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.fo >= 1, "method calls counted in fo");
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_ecmascript_no_calls() {
+        let source = r#"function pure(x: number) { return x + 1; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.fo, 0, "no calls → fo=0");
+        assert!(m.callee_names.is_empty(), "no calls → empty callee_names");
+    }
+
+    #[test]
+    fn test_extract_ecmascript_computed_callee_filtered() {
+        // Dynamic calls like arr[0]() produce <computed> — should be filtered
+        let source = r#"function dyn(arr: any[]) { arr[0](); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // <computed> should not appear in callee_names
+        assert!(
+            !m.callee_names.iter().any(|n| n == "<computed>"),
+            "computed callees must be filtered: {:?}",
+            m.callee_names
+        );
+    }
+
+    // ── Rust ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_rust_callee_names_function_call() {
+        let source = r#"fn do_work() { foo(); bar(); foo(); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_method_call() {
+        let source = r#"fn do_work(v: Vec<i32>) -> usize { v.len() }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"len".to_string()),
+            "method call in callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_macro_call() {
+        let source = r#"fn greet() { println!("hello"); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"println".to_string()),
+            "macro in callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_no_calls() {
+        let source = r#"fn pure(x: i32) -> i32 { x + 1 }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.fo, 0, "no calls → fo=0");
+        assert!(m.callee_names.is_empty(), "no calls → empty callee_names");
+    }
+
+    #[test]
+    fn test_extract_rust_deduplication() {
+        let source = r#"fn work() { foo(); foo(); foo(); bar(); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo called 3 times, bar once — deduplicated to 2 unique callees
+        assert_eq!(m.fo, 2, "deduplicated: foo+bar = 2");
+        assert_eq!(m.callee_names, vec!["bar", "foo"], "sorted callee_names");
     }
 }
