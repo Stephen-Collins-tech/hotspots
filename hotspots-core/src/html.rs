@@ -633,7 +633,11 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
     }
 
     let mut files = aggregates.files.clone();
-    files.sort_by(|a, b| b.sum_lrs.partial_cmp(&a.sum_lrs).unwrap());
+    files.sort_by(|a, b| {
+        b.sum_lrs
+            .partial_cmp(&a.sum_lrs)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let rows: String = files
         .iter()

@@ -6,7 +6,7 @@ use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::span::SourceSpan;
 use anyhow::{Context, Result};
 use syn::spanned::Spanned;
-use syn::{Block, File, ImplItem, ImplItemFn, Item, ItemFn, Signature};
+use syn::{File, ImplItem, ImplItemFn, Item, ItemFn, Signature};
 
 /// Rust parser using syn
 pub struct RustParser;
@@ -102,7 +102,6 @@ impl RustModule {
     ) {
         self.extract_function_common(
             &item_fn.sig,
-            &item_fn.block,
             item_fn,
             name_prefix,
             file_index,
@@ -122,7 +121,6 @@ impl RustModule {
     ) {
         self.extract_function_common(
             &impl_fn.sig,
-            &impl_fn.block,
             impl_fn,
             name_prefix,
             file_index,
@@ -132,11 +130,9 @@ impl RustModule {
     }
 
     /// Common extraction logic for both functions and methods
-    #[allow(clippy::too_many_arguments)]
     fn extract_function_common<S: Spanned>(
         &self,
         sig: &Signature,
-        _block: &Block,
         item: &S,
         name_prefix: Option<&str>,
         file_index: usize,

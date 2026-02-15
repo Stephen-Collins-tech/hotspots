@@ -451,14 +451,16 @@ impl Snapshot {
 
             // Compute activity risk
             let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
-                function.lrs,
-                churn,
-                function.touch_count_30d,
-                function.days_since_last_change,
-                fan_in,
-                scc_size,
-                dependency_depth,
-                neighbor_churn,
+                &crate::scoring::ActivityRiskInput {
+                    lrs: function.lrs,
+                    churn,
+                    touch_count_30d: function.touch_count_30d,
+                    days_since_last_change: function.days_since_last_change,
+                    fan_in,
+                    scc_size,
+                    dependency_depth,
+                    neighbor_churn,
+                },
                 weights,
             );
 

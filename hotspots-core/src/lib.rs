@@ -1,4 +1,4 @@
-//! Hotspots core library - static analysis for TypeScript, JavaScript, Go, and Rust
+//! Hotspots core library - static analysis for TypeScript, JavaScript, Go, Java, Python, and Rust
 
 #![deny(warnings)]
 
@@ -210,14 +210,8 @@ fn collect_source_files_recursive(
     Ok(())
 }
 
-/// Build a call graph from source files and function reports
-///
 /// Build a call graph from AST-derived callee names in function reports.
-pub fn build_call_graph(
-    _path: &std::path::Path,
-    reports: &[FunctionRiskReport],
-    _resolved_config: Option<&ResolvedConfig>,
-) -> Result<callgraph::CallGraph> {
+pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
     use std::collections::HashMap;
 
     let mut graph = callgraph::CallGraph::new();

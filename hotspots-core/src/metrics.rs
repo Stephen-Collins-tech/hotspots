@@ -389,18 +389,15 @@ impl Visit for NonStructuredExitVisitor {
 // ============================================================================
 
 /// Find the first immediate child of `node` whose kind matches `kind`.
-#[allow(clippy::manual_find)]
 fn ts_find_child_by_kind<'a>(
     node: tree_sitter::Node<'a>,
     kind: &str,
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
+    let result = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == kind);
+    result
 }
 
 /// Find the first descendant that belongs to `func_kinds` at `start_byte`.

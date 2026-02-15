@@ -443,21 +443,21 @@ fn main() -> anyhow::Result<()> {
 ///
 /// Both snapshot and delta modes call this, then diverge for their mode-specific output.
 fn build_enriched_snapshot(
-    path: &Path,
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
 ) -> anyhow::Result<Snapshot> {
-    let git_context = git::extract_git_context().context("failed to extract git context")?;
+    let git_context =
+        git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
     // Build call graph before snapshot creation (snapshot consumes reports)
-    let call_graph = hotspots_core::build_call_graph(path, &reports, Some(resolved_config)).ok();
+    let call_graph = hotspots_core::build_call_graph(&reports).ok();
 
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
     // Populate churn metrics if a parent commit exists
     if !git_context.parent_shas.is_empty() {
-        match git::extract_commit_churn(&git_context.head_sha) {
+        match git::extract_commit_churn_at(repo_root, &git_context.head_sha) {
             Ok(churns) => {
                 // Convert relative paths from git to absolute paths to match snapshot
                 let churn_map: std::collections::HashMap<String, _> = churns
@@ -529,7 +529,7 @@ fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot = build_enriched_snapshot(path, &repo_root, resolved_config, reports)
+            let mut snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
                 .context("failed to build enriched snapshot")?;
 
             // Persist snapshot only in mainline mode (not in PR mode)
@@ -560,12 +560,11 @@ fn handle_mode_output(
             match format {
                 OutputFormat::Json => {
                     // Compute aggregates for output (not persisted)
-                    let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates =
-                        Some(hotspots_core::aggregates::compute_snapshot_aggregates(
-                            &snapshot, &repo_root,
-                        ));
-                    let json = snapshot_with_aggregates.to_json()?;
+                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                        &snapshot, &repo_root,
+                    );
+                    snapshot.aggregates = Some(aggregates);
+                    let json = snapshot.to_json()?;
                     println!("{}", json);
                 }
                 OutputFormat::Jsonl => {
@@ -583,14 +582,13 @@ fn handle_mode_output(
                 }
                 OutputFormat::Html => {
                     // Compute aggregates for output
-                    let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates =
-                        Some(hotspots_core::aggregates::compute_snapshot_aggregates(
-                            &snapshot, &repo_root,
-                        ));
+                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                        &snapshot, &repo_root,
+                    );
+                    snapshot.aggregates = Some(aggregates);
 
                     // Render HTML
-                    let html = hotspots_core::html::render_html_snapshot(&snapshot_with_aggregates);
+                    let html = hotspots_core::html::render_html_snapshot(&snapshot);
 
                     // Write to file
                     let output_path =
@@ -601,7 +599,7 @@ fn handle_mode_output(
             }
         }
         OutputMode::Delta => {
-            let snapshot = build_enriched_snapshot(path, &repo_root, resolved_config, reports)
+            let snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
                 .context("failed to build enriched snapshot")?;
 
             // Compute delta

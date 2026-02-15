@@ -45,77 +45,59 @@ pub struct RiskFactors {
     pub neighbor_churn: f64,
 }
 
+/// Input metrics for activity risk computation
+pub struct ActivityRiskInput {
+    pub lrs: f64,
+    /// Lines added/deleted (optional)
+    pub churn: Option<(usize, usize)>,
+    pub touch_count_30d: Option<usize>,
+    pub days_since_last_change: Option<u32>,
+    pub fan_in: Option<usize>,
+    pub scc_size: Option<usize>,
+    pub dependency_depth: Option<usize>,
+    pub neighbor_churn: Option<usize>,
+}
+
 /// Compute activity-weighted risk score
 ///
-/// Combines LRS (complexity risk) with activity and graph metrics:
-/// - churn_factor: lines changed recently
-/// - touch_factor: frequency of changes
-/// - recency_factor: how recently changed
-/// - fan_in_factor: number of dependents
-/// - scc_penalty: cyclic dependency complexity
-/// - depth_penalty: dependency chain depth
-/// - neighbor_churn_factor: instability of dependencies
-///
-/// # Arguments
-///
-/// * `lrs` - Base complexity risk score
-/// * `churn` - Lines added/deleted (optional)
-/// * `touch_count_30d` - Number of commits in last 30 days (optional)
-/// * `days_since_last_change` - Days since last modification (optional)
-/// * `fan_in` - Number of callers (optional)
-/// * `scc_size` - Size of strongly connected component (optional)
-/// * `dependency_depth` - Depth in dependency tree (optional)
-/// * `neighbor_churn` - Sum of churn in callees (optional)
-/// * `weights` - Weights for each factor
-///
-/// # Returns
-///
-/// Tuple of (activity_risk, risk_factors)
-#[allow(clippy::too_many_arguments)]
+/// Combines LRS (complexity risk) with activity and graph metrics.
 pub fn compute_activity_risk(
-    lrs: f64,
-    churn: Option<(usize, usize)>, // (lines_added, lines_deleted)
-    touch_count_30d: Option<usize>,
-    days_since_last_change: Option<u32>,
-    fan_in: Option<usize>,
-    scc_size: Option<usize>,
-    dependency_depth: Option<usize>,
-    neighbor_churn: Option<usize>,
+    input: &ActivityRiskInput,
     weights: &ScoringWeights,
 ) -> (f64, RiskFactors) {
     // Base complexity score
-    let complexity_score = lrs;
+    let complexity_score = input.lrs;
 
     // Churn factor: (lines_added + lines_deleted) / 100
-    let churn_score = if let Some((added, deleted)) = churn {
+    let churn_score = if let Some((added, deleted)) = input.churn {
         ((added + deleted) as f64 / 100.0) * weights.churn
     } else {
         0.0
     };
 
     // Touch factor: min(touch_count_30d / 10, 5.0)
-    let touch_score = if let Some(touches) = touch_count_30d {
+    let touch_score = if let Some(touches) = input.touch_count_30d {
         ((touches as f64 / 10.0).min(5.0)) * weights.touch
     } else {
         0.0
     };
 
     // Recency factor: max(0, 5.0 - days_since_last_change / 7)
-    let recency_score = if let Some(days) = days_since_last_change {
+    let recency_score = if let Some(days) = input.days_since_last_change {
         ((5.0 - (days as f64 / 7.0)).max(0.0)) * weights.recency
     } else {
         0.0
     };
 
     // Fan-in factor: min(fan_in / 5, 10.0)
-    let fan_in_score = if let Some(fi) = fan_in {
+    let fan_in_score = if let Some(fi) = input.fan_in {
         ((fi as f64 / 5.0).min(10.0)) * weights.fan_in
     } else {
         0.0
     };
 
     // SCC penalty: scc_size if > 1, else 0
-    let scc_score = if let Some(size) = scc_size {
+    let scc_score = if let Some(size) = input.scc_size {
         if size > 1 {
             (size as f64) * weights.scc
         } else {
@@ -126,14 +108,14 @@ pub fn compute_activity_risk(
     };
 
     // Depth penalty: min(dependency_depth / 3, 5.0)
-    let depth_score = if let Some(depth) = dependency_depth {
+    let depth_score = if let Some(depth) = input.dependency_depth {
         ((depth as f64 / 3.0).min(5.0)) * weights.depth
     } else {
         0.0
     };
 
     // Neighbor churn factor: neighbor_churn / 500
-    let neighbor_churn_score = if let Some(nc) = neighbor_churn {
+    let neighbor_churn_score = if let Some(nc) = input.neighbor_churn {
         (nc as f64 / 500.0) * weights.neighbor_churn
     } else {
         0.0
@@ -170,14 +152,16 @@ mod tests {
     #[test]
     fn test_compute_activity_risk_base_lrs_only() {
         let (risk, factors) = compute_activity_risk(
-            10.0,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            &ActivityRiskInput {
+                lrs: 10.0,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                fan_in: None,
+                scc_size: None,
+                dependency_depth: None,
+                neighbor_churn: None,
+            },
             &ScoringWeights::default(),
         );
 
@@ -190,14 +174,16 @@ mod tests {
     #[test]
     fn test_compute_activity_risk_with_churn() {
         let (risk, factors) = compute_activity_risk(
-            10.0,
-            Some((50, 50)), // 100 lines changed
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            &ActivityRiskInput {
+                lrs: 10.0,
+                churn: Some((50, 50)), // 100 lines changed
+                touch_count_30d: None,
+                days_since_last_change: None,
+                fan_in: None,
+                scc_size: None,
+                dependency_depth: None,
+                neighbor_churn: None,
+            },
             &ScoringWeights::default(),
         );
 
@@ -209,14 +195,16 @@ mod tests {
     #[test]
     fn test_compute_activity_risk_with_all_factors() {
         let (risk, factors) = compute_activity_risk(
-            10.0,
-            Some((50, 50)), // 100 lines changed
-            Some(20),       // 20 commits in 30d
-            Some(1),        // changed 1 day ago
-            Some(25),       // 25 callers
-            Some(3),        // in a 3-node cycle
-            Some(9),        // depth 9
-            Some(1000),     // 1000 neighbor churn
+            &ActivityRiskInput {
+                lrs: 10.0,
+                churn: Some((50, 50)),           // 100 lines changed
+                touch_count_30d: Some(20),       // 20 commits in 30d
+                days_since_last_change: Some(1), // changed 1 day ago
+                fan_in: Some(25),                // 25 callers
+                scc_size: Some(3),               // in a 3-node cycle
+                dependency_depth: Some(9),       // depth 9
+                neighbor_churn: Some(1000),      // 1000 neighbor churn
+            },
             &ScoringWeights::default(),
         );
 

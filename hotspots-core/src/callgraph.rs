@@ -30,6 +30,18 @@ pub struct CallGraph {
     pub nodes: HashSet<String>,
 }
 
+/// Mutable state for Tarjan's SCC algorithm
+struct TarjanState {
+    index: usize,
+    stack: Vec<String>,
+    indices: HashMap<String, usize>,
+    lowlinks: HashMap<String, usize>,
+    on_stack: HashMap<String, bool>,
+    scc_id: usize,
+    result: HashMap<String, (usize, usize)>,
+    scc_sizes: HashMap<usize, usize>,
+}
+
 /// Graph metrics for a single function
 #[derive(Debug, Clone, PartialEq)]
 pub struct GraphMetrics {
@@ -233,35 +245,27 @@ impl CallGraph {
     /// Returns a map from function ID to (scc_id, scc_size)
     /// Functions in the same SCC form a cyclic dependency group.
     pub fn find_strongly_connected_components(&self) -> HashMap<String, (usize, usize)> {
-        let mut index = 0;
-        let mut stack = Vec::new();
-        let mut indices: HashMap<String, usize> = HashMap::new();
-        let mut lowlinks: HashMap<String, usize> = HashMap::new();
-        let mut on_stack: HashMap<String, bool> = HashMap::new();
-        let mut scc_id = 0;
-        let mut result: HashMap<String, (usize, usize)> = HashMap::new();
-        let mut scc_sizes: HashMap<usize, usize> = HashMap::new();
+        let mut state = TarjanState {
+            index: 0,
+            stack: Vec::new(),
+            indices: HashMap::new(),
+            lowlinks: HashMap::new(),
+            on_stack: HashMap::new(),
+            scc_id: 0,
+            result: HashMap::new(),
+            scc_sizes: HashMap::new(),
+        };
 
         for node in &self.nodes {
-            if !indices.contains_key(node) {
-                self.tarjan_strongconnect(
-                    node,
-                    &mut index,
-                    &mut stack,
-                    &mut indices,
-                    &mut lowlinks,
-                    &mut on_stack,
-                    &mut scc_id,
-                    &mut result,
-                    &mut scc_sizes,
-                );
+            if !state.indices.contains_key(node) {
+                self.tarjan_strongconnect(node, &mut state);
             }
         }
 
         // Add SCC sizes to result
         let mut final_result: HashMap<String, (usize, usize)> = HashMap::new();
-        for (node, (id, _)) in result {
-            let size = *scc_sizes.get(&id).unwrap_or(&1);
+        for (node, (id, _)) in state.result {
+            let size = *state.scc_sizes.get(&id).unwrap_or(&1);
             final_result.insert(node, (id, size));
         }
 
@@ -269,60 +273,48 @@ impl CallGraph {
     }
 
     /// Tarjan's algorithm helper function
-    #[allow(clippy::too_many_arguments)]
-    fn tarjan_strongconnect(
-        &self,
-        v: &str,
-        index: &mut usize,
-        stack: &mut Vec<String>,
-        indices: &mut HashMap<String, usize>,
-        lowlinks: &mut HashMap<String, usize>,
-        on_stack: &mut HashMap<String, bool>,
-        scc_id: &mut usize,
-        result: &mut HashMap<String, (usize, usize)>,
-        scc_sizes: &mut HashMap<usize, usize>,
-    ) {
-        indices.insert(v.to_string(), *index);
-        lowlinks.insert(v.to_string(), *index);
-        *index += 1;
-        stack.push(v.to_string());
-        on_stack.insert(v.to_string(), true);
+    fn tarjan_strongconnect(&self, v: &str, state: &mut TarjanState) {
+        state.indices.insert(v.to_string(), state.index);
+        state.lowlinks.insert(v.to_string(), state.index);
+        state.index += 1;
+        state.stack.push(v.to_string());
+        state.on_stack.insert(v.to_string(), true);
 
         // Consider successors of v
         if let Some(successors) = self.edges.get(v) {
-            for w in successors {
-                if !indices.contains_key(w) {
+            for w in successors.clone() {
+                if !state.indices.contains_key(&w) {
                     // Successor w has not yet been visited; recurse on it
-                    self.tarjan_strongconnect(
-                        w, index, stack, indices, lowlinks, on_stack, scc_id, result, scc_sizes,
-                    );
-                    let w_lowlink = *lowlinks.get(w).unwrap_or(&0);
-                    let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
-                    lowlinks.insert(v.to_string(), v_lowlink.min(w_lowlink));
-                } else if *on_stack.get(w).unwrap_or(&false) {
+                    self.tarjan_strongconnect(&w, state);
+                    let w_lowlink = *state.lowlinks.get(&w).unwrap_or(&0);
+                    let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
+                    state
+                        .lowlinks
+                        .insert(v.to_string(), v_lowlink.min(w_lowlink));
+                } else if *state.on_stack.get(&w).unwrap_or(&false) {
                     // Successor w is in stack and hence in the current SCC
-                    let w_index = *indices.get(w).unwrap_or(&0);
-                    let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
-                    lowlinks.insert(v.to_string(), v_lowlink.min(w_index));
+                    let w_index = *state.indices.get(&w).unwrap_or(&0);
+                    let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
+                    state.lowlinks.insert(v.to_string(), v_lowlink.min(w_index));
                 }
             }
         }
 
         // If v is a root node, pop the stack and generate an SCC
-        let v_lowlink = *lowlinks.get(v).unwrap_or(&0);
-        let v_index = *indices.get(v).unwrap_or(&0);
+        let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
+        let v_index = *state.indices.get(v).unwrap_or(&0);
         if v_lowlink == v_index {
             let mut scc = Vec::new();
-            while let Some(w) = stack.pop() {
-                on_stack.insert(w.clone(), false);
+            while let Some(w) = state.stack.pop() {
+                state.on_stack.insert(w.clone(), false);
                 scc.push(w.clone());
-                result.insert(w.clone(), (*scc_id, 0)); // Size will be filled later
+                state.result.insert(w.clone(), (state.scc_id, 0)); // Size filled later
                 if w == v {
                     break;
                 }
             }
-            scc_sizes.insert(*scc_id, scc.len());
-            *scc_id += 1;
+            state.scc_sizes.insert(state.scc_id, scc.len());
+            state.scc_id += 1;
         }
     }
 
