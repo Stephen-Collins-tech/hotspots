@@ -762,17 +762,17 @@ patterns = ["tests/**", "vendor/**", "*.generated.ts"]
 
 ## Phase 6: Testing & Documentation
 
-### 6.1 Golden Tests
+### 6.1 Golden Tests ✅ COMPLETE
 
 **Requirement:**
 Update all golden tests with extended metrics.
 
 **Tasks:**
-- [ ] Add new golden test: `extended_metrics_determinism.json`
-- [ ] Add call graph golden tests (known call patterns)
-- [ ] Verify LOC values for each language's fixtures
-- [ ] Test churn computation with synthetic git history
-- [ ] Test fan-in, SCC, depth on test codebase
+- [x] Add new golden test: `extended_metrics_determinism.json`
+- [x] Add call graph golden tests (known call patterns)
+- [x] Verify LOC values for each language's fixtures
+- [ ] Test churn computation with synthetic git history — DEFERRED (covered by ci_invariant_tests)
+- [ ] Test fan-in, SCC, depth on test codebase — DEFERRED (covered by unit tests in snapshot.rs)
 
 **Files to Update:**
 - `tests/golden/*.json` - Add all new fields
@@ -783,10 +783,12 @@ Update all golden tests with extended metrics.
 
 ---
 
-### 6.2 Integration Tests
+### 6.2 Integration Tests — DEFERRED
 
 **Requirement:**
 Test extended metrics and call graph with real repositories.
+Git-based scenarios covered by ci_invariant_tests.rs and git_history_tests.rs.
+Call graph patterns covered by 6.1 golden tests.
 
 **Test Cases:**
 - [ ] Baseline commit (no parent): churn is null, touch_count is 0
@@ -1002,7 +1004,7 @@ Each release provides incremental value and can be tested/validated independentl
 
 *Tasks derived from the independent codebase analysis in ANALYSIS.md. These address structural duplication and maintenance burden without changing observable behavior.*
 
-**Status:** Pending
+**Status:** Mostly Complete (8.9 deferred)
 **Goal:** Reduce duplication, improve maintainability, and make the codebase easier to extend
 
 ---
@@ -1111,7 +1113,7 @@ Operator child node checked directly in `go_count_cc_extras`. `go_non_structured
 
 ---
 
-### 8.10 Extract Snapshot Orchestration into Builder/Pipeline
+### 8.10 Extract Snapshot Orchestration into Builder/Pipeline ✅ COMPLETE
 
 **Priority:** 10 — Medium impact, medium effort
 
@@ -1135,11 +1137,11 @@ These methods mutate the snapshot in-place and must be called in a specific orde
 - Update `build_enriched_snapshot()` in `main.rs` to use the new pipeline
 
 **Success Criteria:**
-- [ ] Snapshot orchestration logic extracted from `Snapshot` struct
-- [ ] Enrichment ordering enforced (e.g., builder steps or pipeline stages)
-- [ ] `Snapshot` struct is a pure data container
-- [ ] Behavior unchanged; all integration tests pass
-- [ ] `cargo test` passes with zero regressions
+- [x] Snapshot orchestration logic extracted from `Snapshot` struct
+- [x] Enrichment ordering enforced (e.g., builder steps or pipeline stages)
+- [x] `Snapshot` struct is a pure data container
+- [x] Behavior unchanged; all integration tests pass
+- [x] `cargo test` passes with zero regressions
 
 **Files to Modify:**
 - `hotspots-core/src/snapshot.rs`

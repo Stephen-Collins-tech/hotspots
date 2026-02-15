@@ -1,0 +1,65 @@
+[
+  {
+    "file": "tests/fixtures/call-graph.ts",
+    "function": "top",
+    "line": 14,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 2,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 1.9509775004326935,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/call-graph.ts",
+    "function": "middle",
+    "line": 10,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 1,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.6,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/call-graph.ts",
+    "function": "helper",
+    "line": 6,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]
