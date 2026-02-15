@@ -456,6 +456,32 @@ fn ts_non_structured_exits(body_node: &tree_sitter::Node, exit_kinds: &[&str]) -
     count
 }
 
+/// Parse `source` with `language`, locate the function starting at `start_byte`,
+/// find the first matching body child, and call `f(func_node, body_node)`.
+/// Returns `None` if the function or body cannot be found.
+fn ts_with_function_body<R>(
+    source: &str,
+    language: tree_sitter::Language,
+    start_byte: usize,
+    func_kinds: &[&str],
+    body_kinds: &[&str],
+    f: impl FnOnce(tree_sitter::Node, tree_sitter::Node) -> R,
+) -> Option<R> {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&language)
+        .expect("Failed to set language");
+    let tree = parser.parse(source, None)?;
+    let root = tree.root_node();
+    let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
+    for kind in body_kinds {
+        if let Some(body_node) = ts_find_child_by_kind(func_node, kind) {
+            return Some(f(func_node, body_node));
+        }
+    }
+    None
+}
+
 // ============================================================================
 // Go Metrics Implementation
 // ============================================================================
@@ -463,70 +489,42 @@ fn ts_non_structured_exits(body_node: &tree_sitter::Node, exit_kinds: &[&str]) -
 /// Extract metrics for Go functions using tree-sitter
 fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_go();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_go::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Go language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Go source");
-    let root = tree.root_node();
-
-    // Find the function node in the tree
-    if let Some(func_node) = ts_find_function_by_start(
-        root,
+    ts_with_function_body(
+        source,
+        tree_sitter_go::LANGUAGE.into(),
         function.span.start,
         &["function_declaration", "method_declaration"],
-    ) {
-        // Find the block (function body)
-        if let Some(body_node) = ts_find_child_by_kind(func_node, "block") {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (switch cases, boolean operators)
-            let extra_cc = go_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = ts_nesting_depth(
-                &body_node,
-                &[
-                    "if_statement",
-                    "for_statement",
-                    "switch_statement",
-                    "expression_switch_statement",
-                    "type_switch_statement",
-                    "select_statement",
-                ],
-            );
+        &["block"],
+        |func_node, body_node| {
             let callee_names = go_extract_callees(&body_node, source);
-            let fo = callee_names.len();
-            let ns = go_non_structured_exits(&body_node, source);
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + go_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "for_statement",
+                        "switch_statement",
+                        "expression_switch_statement",
+                        "type_switch_statement",
+                        "select_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: go_non_structured_exits(&body_node, source),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
         loc: 0,
         callee_names: vec![],
-    }
+    })
 }
 
 /// Extract callee names from a Go function body (function calls + go statements).
@@ -659,83 +657,53 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
 /// Extract metrics for Java functions using tree-sitter
 fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_java();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_java::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Java language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Java source");
-    let root = tree.root_node();
-
-    // Find the function/method node in the tree
-    if let Some(func_node) = ts_find_function_by_start(
-        root,
+    ts_with_function_body(
+        source,
+        tree_sitter_java::LANGUAGE.into(),
         function.span.start,
         &["method_declaration", "constructor_declaration"],
-    ) {
-        // Find the block (method body) or constructor_body
-        if let Some(body_node) = ts_find_child_by_kind(func_node, "block")
-            .or_else(|| ts_find_child_by_kind(func_node, "constructor_body"))
-        {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (ternary, boolean operators, etc.)
-            let extra_cc = java_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = ts_nesting_depth(
-                &body_node,
-                &[
-                    "if_statement",
-                    "while_statement",
-                    "do_statement",
-                    "for_statement",
-                    "enhanced_for_statement",
-                    "switch_statement",
-                    "switch_expression",
-                    "try_statement",
-                    "synchronized_statement",
-                ],
-            );
+        &["block", "constructor_body"],
+        |func_node, body_node| {
             let callee_names = java_extract_callees(&body_node, source);
-            let fo = callee_names.len();
-            let ns = ts_non_structured_exits(
-                &body_node,
-                &[
-                    "return_statement",
-                    "throw_statement",
-                    "break_statement",
-                    "continue_statement",
-                ],
-            );
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + java_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "enhanced_for_statement",
+                        "switch_statement",
+                        "switch_expression",
+                        "try_statement",
+                        "synchronized_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "throw_statement",
+                        "break_statement",
+                        "continue_statement",
+                    ],
+                ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
         loc: 0,
         callee_names: vec![],
-    }
+    })
 }
 
 /// Extract callee names from a Java function body.
@@ -805,78 +773,50 @@ fn java_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
 /// Extract metrics for Python functions using tree-sitter
 fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_python();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_python::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Python language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Python source");
-    let root = tree.root_node();
-
-    // Find the function node in the tree
-    if let Some(func_node) = ts_find_function_by_start(
-        root,
+    ts_with_function_body(
+        source,
+        tree_sitter_python::LANGUAGE.into(),
         function.span.start,
         &["function_definition", "async_function_definition"],
-    ) {
-        // Find the block (function body)
-        if let Some(body_node) = ts_find_child_by_kind(func_node, "block") {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (comprehensions, boolean operators, etc.)
-            let extra_cc = python_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = ts_nesting_depth(
-                &body_node,
-                &[
-                    "if_statement",
-                    "while_statement",
-                    "for_statement",
-                    "try_statement",
-                    "with_statement",
-                    "match_statement",
-                ],
-            );
+        &["block"],
+        |func_node, body_node| {
             let callee_names = python_extract_callees(&body_node, source);
-            let fo = callee_names.len();
-            let ns = ts_non_structured_exits(
-                &body_node,
-                &[
-                    "return_statement",
-                    "raise_statement",
-                    "break_statement",
-                    "continue_statement",
-                ],
-            );
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + python_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "for_statement",
+                        "try_statement",
+                        "with_statement",
+                        "match_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "raise_statement",
+                        "break_statement",
+                        "continue_statement",
+                    ],
+                ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
         loc: 0,
         callee_names: vec![],
-    }
+    })
 }
 
 /// Extract callee names from a Python function body.
@@ -1306,3 +1246,310 @@ fn rust_count_cc_extras(block: &syn::Block) -> usize {
 }
 
 // Note: Rust metrics tests are integrated with parser/cfg_builder tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::{
+        CfgBuilder, GoCfgBuilder, GoParser, JavaCfgBuilder, JavaParser, LanguageParser,
+        PythonCfgBuilder, PythonParser,
+    };
+
+    /// Helper: parse Go source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn go_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = GoParser::new().unwrap();
+        let module = parser.parse(source, "test.go").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(!functions.is_empty(), "expected at least one Go function");
+        let func = functions.into_iter().next().unwrap();
+        let cfg = GoCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse Java source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn java_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = JavaParser::new().unwrap();
+        let module = parser.parse(source, "Test.java").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(!functions.is_empty(), "expected at least one Java function");
+        let func = functions.into_iter().next().unwrap();
+        let cfg = JavaCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse Python source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn python_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = PythonParser::new().unwrap();
+        let module = parser.parse(source, "test.py").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(
+            !functions.is_empty(),
+            "expected at least one Python function"
+        );
+        let func = functions.into_iter().next().unwrap();
+        let cfg = PythonCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    // ── Go ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_go_simple_function() {
+        let source = r#"package main
+func hello() {
+    println("hi")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert_eq!(m.ns, 0, "no non-structured exits");
+        assert!(m.loc >= 3, "at least 3 lines");
+        assert!(m.callee_names.contains(&"println".to_string()));
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_go_if_increments_cc_and_nd() {
+        let source = r#"package main
+func check(x int) string {
+    if x > 0 {
+        if x > 100 {
+            return "big"
+        }
+        return "positive"
+    }
+    return "non-positive"
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_go_callee_names_and_fanout() {
+        let source = r#"package main
+import "fmt"
+func doWork() {
+    fmt.Println("a")
+    fmt.Println("b")
+    len("x")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // callee_names is a deduplicated set
+        assert!(
+            m.callee_names.contains(&"fmt.Println".to_string())
+                || m.callee_names.iter().any(|n| n.contains("Println")),
+            "expected Println in callees: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_go_defer_counts_as_ns() {
+        let source = r#"package main
+func withDefer() {
+    defer cleanup()
+    doWork()
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.ns >= 1,
+            "defer should count as non-structured exit, got {}",
+            m.ns
+        );
+    }
+
+    #[test]
+    fn test_extract_go_fallback_on_bad_source() {
+        // A FunctionNode whose body source is empty/unparseable yields the fallback metrics.
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Go {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "fallback cc");
+        assert_eq!(m.nd, 0);
+        assert_eq!(m.fo, 0);
+        assert_eq!(m.ns, 0);
+        assert_eq!(m.loc, 0);
+        assert!(m.callee_names.is_empty());
+    }
+
+    // ── Java ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_java_simple_method() {
+        let source = r#"class Foo {
+    void greet() {
+        System.out.println("hello");
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert!(m.loc >= 3);
+        assert!(m.fo >= 1, "at least one callee");
+    }
+
+    #[test]
+    fn test_extract_java_if_increments_cc_and_nd() {
+        let source = r#"class Foo {
+    String classify(int x) {
+        if (x > 0) {
+            if (x > 100) {
+                return "big";
+            }
+            return "positive";
+        }
+        return "non-positive";
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_java_ternary_increments_cc() {
+        let source = r#"class Foo {
+    int sign(int x) {
+        return x > 0 ? 1 : -1;
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // ternary adds 1 to CC via java_count_cc_extras
+        assert!(m.cc >= 2, "ternary → CC >= 2, got {}", m.cc);
+    }
+
+    #[test]
+    fn test_extract_java_fallback_on_bad_source() {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Java {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1);
+        assert_eq!(m.fo, 0);
+        assert!(m.callee_names.is_empty());
+    }
+
+    // ── Python ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_python_simple_function() {
+        let source = r#"def greet():
+    print("hello")
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert!(m.loc >= 2);
+        assert!(m.callee_names.contains(&"print".to_string()));
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_python_if_increments_cc_and_nd() {
+        let source = r#"def classify(x):
+    if x > 0:
+        if x > 100:
+            return "big"
+        return "positive"
+    return "non-positive"
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_python_callee_names_and_fanout() {
+        let source = r#"def do_work():
+    foo()
+    bar()
+    foo()
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo appears twice but callee_names is deduplicated
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_python_fallback_on_bad_source() {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Python {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1);
+        assert_eq!(m.fo, 0);
+        assert!(m.callee_names.is_empty());
+    }
+}
