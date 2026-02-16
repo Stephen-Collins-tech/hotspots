@@ -1,8 +1,8 @@
 # Codebase Improvements
 
-**Status:** Pending  
-**Source:** Independent codebase review (2026-02-15)  
-**Last Reassessment:** 2026-02-15  
+**Status:** Pending
+**Source:** Independent codebase review (2026-02-15)
+**Last Reassessment:** 2026-02-15
 **Goal:** Address bugs, duplication, code smells, and incomplete features identified across the codebase
 
 ---
@@ -13,7 +13,7 @@
 |--------|--------|
 | **1.2 ECMAScript/Rust call graph** | ✅ **RESOLVED** — All 6 languages now have AST-based callee extraction (`ecmascript_extract_callees`, `rust_extract_callees` in `metrics.rs`). Call graph edges work for TS/JS/Go/Java/Python/Rust. |
 | **SnapshotEnricher (TASKS 8.10)** | ✅ **IMPLEMENTED** — `SnapshotEnricher` builder pattern in place. 6.2 (snapshot clone for aggregates) still applies to JSON/HTML output formatting. |
-| **1.1 FAULTLINE typo** | ✅ **RESOLVED** — `build.rs` and `main.rs` both use `HOTSPOTS_VERSION`. No action needed. |
+| **1.1 FAULTLINE naming** | ✅ **RESOLVED** — Full rename: `build.rs`/`main.rs` use `HOTSPOTS_VERSION`, `install-dev.sh`/`dev.sh` use `hotspots` binary, `export_visualization.rs` uses `.hotspots/`, all scripts/comments updated. |
 | **1.3 Unused build_call_graph params** | ✅ **RESOLVED** — `_path` and `_resolved_config` params removed; signature is now `build_call_graph(reports)`. |
 | **6.3 Git context CWD** | ✅ **RESOLVED** — `build_enriched_snapshot` now uses `extract_git_context_at(repo_root)` and `extract_commit_churn_at(repo_root, sha)`. |
 
@@ -21,9 +21,9 @@
 
 ## Critical / High Priority
 
-### 1.1 ~~Fix FAULTLINE → HOTSPOTS Version Env Typo~~ ✅ RESOLVED
+### 1.1 ~~Fix FAULTLINE → HOTSPOTS Naming~~ ✅ RESOLVED
 
-`build.rs` already emits `cargo:rustc-env=HOTSPOTS_VERSION={}` and `main.rs` uses `env!("HOTSPOTS_VERSION")`. No action needed.
+Full rename complete: `build.rs` emits `HOTSPOTS_VERSION`, `main.rs` uses `env!("HOTSPOTS_VERSION")`, `install-dev.sh` and `dev.sh` use `hotspots` binary, `export_visualization.rs` reads from `.hotspots/`, all comment/script references updated.
 
 ---
 
@@ -258,7 +258,7 @@ Removed unused struct fields (`schema_version`, `analysis`, `AnalysisInfo` struc
 
 | # | Task | Severity | Effort |
 |---|------|----------|--------|
-| 1.1 | ~~Fix FAULTLINE → HOTSPOTS version env~~ | ✅ Resolved | — |
+| 1.1 | ~~Fix FAULTLINE/faultline → HOTSPOTS/hotspots naming~~ | ✅ Resolved | — |
 | 1.2 | ~~ECMAScript/Rust call graph edges~~ | ✅ Resolved | — |
 | 1.3 | ~~Remove unused build_call_graph params~~ | ✅ Resolved | — |
 | 2.1 | Extract shared tree-sitter helpers | Medium | Low |
