@@ -19,14 +19,5 @@ Derived from `CODEBASE_IMPROVEMENTS.md`. Check off items as completed.
 
 ## Remaining
 
-- [ ] **#3 Extract shared tree-sitter helpers into tree_sitter_utils.rs**
-  `find_child_by_kind` and `find_function_by_start` duplicated across 6 files.
-  - Create `hotspots-core/src/language/tree_sitter_utils.rs`
-  - Register in `language/mod.rs`
-  - Replace copies in: `go/parser.rs`, `java/parser.rs`, `python/parser.rs`, `go/cfg_builder.rs`, `java/cfg_builder.rs`, `python/cfg_builder.rs`
-
-- [ ] **#9 Reduce expect/unwrap panics in production paths**
-  - `metrics.rs:476` — tree-sitter language setup
-  - Go/Java/Python CFG builders — parse/expect on tree-sitter
-  - `trends.rs:195` — `.unwrap()` on `sorted_points.last()`
-  - `html.rs:636` — `.unwrap()` on `partial_cmp`
+- [x] **#3 Extract shared tree-sitter helpers into tree_sitter_utils.rs**
+- [x] **#9 Reduce expect/unwrap panics in production paths**
