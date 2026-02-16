@@ -18,13 +18,12 @@ impl CfgBuilder for PythonCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_python::LANGUAGE;
-        parser
-            .set_language(&language.into())
-            .expect("Failed to set Python language");
-
-        let tree = parser
-            .parse(source, None)
-            .expect("Failed to re-parse Python source");
+        if parser.set_language(&language.into()).is_err() {
+            return Cfg::new();
+        }
+        let Some(tree) = parser.parse(source, None) else {
+            return Cfg::new();
+        };
         let root = tree.root_node();
 
         // Find the function node in the tree

@@ -18,13 +18,12 @@ impl CfgBuilder for JavaCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_java::LANGUAGE;
-        parser
-            .set_language(&language.into())
-            .expect("Failed to set Java language");
-
-        let tree = parser
-            .parse(source, None)
-            .expect("Failed to re-parse Java source");
+        if parser.set_language(&language.into()).is_err() {
+            return Cfg::new();
+        }
+        let Some(tree) = parser.parse(source, None) else {
+            return Cfg::new();
+        };
         let root = tree.root_node();
 
         // Find the function/method node in the tree

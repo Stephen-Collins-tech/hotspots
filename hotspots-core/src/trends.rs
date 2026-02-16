@@ -191,8 +191,10 @@ pub fn compute_risk_velocities(snapshots: &[Snapshot]) -> Vec<RiskVelocity> {
         let mut sorted_points = lrs_points;
         sorted_points.sort_by_key(|(idx, _)| *idx);
 
-        let first_lrs = sorted_points[0].1;
-        let last_lrs = sorted_points.last().unwrap().1;
+        let (first_lrs, last_lrs) = match (sorted_points.first(), sorted_points.last()) {
+            (Some(first), Some(last)) => (first.1, last.1),
+            _ => continue,
+        };
         let commit_count = sorted_points.len();
 
         // Compute velocity: (LRS_last - LRS_first) / (commit_count - 1)

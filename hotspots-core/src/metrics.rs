@@ -468,9 +468,7 @@ fn ts_with_function_body<R>(
     f: impl FnOnce(tree_sitter::Node, tree_sitter::Node) -> R,
 ) -> Option<R> {
     let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(&language)
-        .expect("Failed to set language");
+    parser.set_language(&language).ok()?;
     let tree = parser.parse(source, None)?;
     let root = tree.root_node();
     let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
