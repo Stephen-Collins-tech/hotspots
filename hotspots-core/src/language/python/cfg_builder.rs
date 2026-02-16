@@ -3,6 +3,7 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
+use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
 use tree_sitter::{Node, Parser};
 
 /// Python CFG builder
@@ -27,7 +28,11 @@ impl CfgBuilder for PythonCfgBuilder {
         let root = tree.root_node();
 
         // Find the function node in the tree
-        if let Some(func_node) = find_function_by_start(root, function.span.start) {
+        if let Some(func_node) = find_function_by_start(
+            root,
+            function.span.start,
+            &["function_definition", "async_function_definition"],
+        ) {
             // Find the block (function body)
             if let Some(body_node) = find_child_by_kind(func_node, "block") {
                 let mut builder = PythonCfgBuilderState::new();
@@ -475,33 +480,6 @@ fn has_control_flow_recursive<'a>(
             false
         }
     }
-}
-
-/// Find a function node by start position
-fn find_function_by_start(node: Node, start: usize) -> Option<Node> {
-    if (node.kind() == "function_definition" || node.kind() == "async_function_definition")
-        && node.start_byte() == start
-    {
-        return Some(node);
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_function_by_start(child, start) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
-/// Find a child node by kind
-fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    let result = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == kind);
-    result
 }
 
 #[cfg(test)]

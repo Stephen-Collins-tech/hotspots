@@ -3,6 +3,7 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
+use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
 use tree_sitter::{Node, Parser};
 
 /// Go CFG builder
@@ -27,7 +28,11 @@ impl CfgBuilder for GoCfgBuilder {
         let root = tree.root_node();
 
         // Find the function node in the tree
-        if let Some(func_node) = find_function_by_start(root, function.span.start) {
+        if let Some(func_node) = find_function_by_start(
+            root,
+            function.span.start,
+            &["function_declaration", "method_declaration"],
+        ) {
             // Find the block (function body)
             if let Some(body_node) = find_child_by_kind(func_node, "block") {
                 let mut builder = GoCfgBuilderState::new();
@@ -357,39 +362,9 @@ impl GoCfgBuilderState {
     }
 }
 
-/// Find a child node by kind
-fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    let result = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == kind);
-    result
-}
-
 /// Find a child node by field name
 fn find_child_by_field<'a>(node: Node<'a>, field: &str) -> Option<Node<'a>> {
     node.child_by_field_name(field)
-}
-
-/// Find a function node by its start byte position
-fn find_function_by_start(root: Node, start_byte: usize) -> Option<Node> {
-    fn search_recursive<'a>(node: Node<'a>, start: usize) -> Option<Node<'a>> {
-        if (node.kind() == "function_declaration" || node.kind() == "method_declaration")
-            && node.start_byte() == start
-        {
-            return Some(node);
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = search_recursive(child, start) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    search_recursive(root, start_byte)
 }
 
 /// Check if a node is a panic() call

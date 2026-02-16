@@ -3,6 +3,7 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
+use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
 use tree_sitter::{Node, Parser};
 
 /// Java CFG builder
@@ -27,7 +28,11 @@ impl CfgBuilder for JavaCfgBuilder {
         let root = tree.root_node();
 
         // Find the function/method node in the tree
-        if let Some(func_node) = find_function_by_start(root, function.span.start) {
+        if let Some(func_node) = find_function_by_start(
+            root,
+            function.span.start,
+            &["method_declaration", "constructor_declaration"],
+        ) {
             // Find the block (method body) or constructor_body
             if let Some(body_node) = find_child_by_kind(func_node, "block")
                 .or_else(|| find_child_by_kind(func_node, "constructor_body"))
@@ -534,33 +539,6 @@ impl JavaCfgBuilderState {
             }
         }
     }
-}
-
-/// Find a function/method node by its start byte position
-fn find_function_by_start(node: Node, start_byte: usize) -> Option<Node> {
-    if (node.kind() == "method_declaration" || node.kind() == "constructor_declaration")
-        && node.start_byte() == start_byte
-    {
-        return Some(node);
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_function_by_start(child, start_byte) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
-/// Find a child node by kind
-fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    let result = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == kind);
-    result
 }
 
 #[cfg(test)]

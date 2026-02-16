@@ -12,6 +12,7 @@ pub mod parser;
 pub mod python;
 pub mod rust;
 pub mod span;
+pub mod tree_sitter_utils;
 
 use std::path::Path;
 
