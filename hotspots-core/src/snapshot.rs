@@ -862,19 +862,21 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 /// # Atomic Writes
 ///
 /// Uses temp file + rename pattern for atomic writes.
-/// Never overwrites existing snapshots (fails if snapshot already exists).
+/// Persists a snapshot to disk.
+///
+/// When `force` is false, never overwrites an existing snapshot (fails if one already exists
+/// and differs). When `force` is true, overwrites any existing snapshot.
 ///
 /// # Errors
 ///
 /// Returns error if:
-/// - Snapshot file already exists (immutability enforced)
+/// - `force` is false and snapshot file already exists with different content
 /// - Schema version mismatch (if reading existing file)
 /// - I/O errors during write
-pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
+pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
 
-    // Never overwrite existing snapshots (immutability)
-    if snapshot_path.exists() {
+    if snapshot_path.exists() && !force {
         // Verify existing snapshot matches (idempotency check)
         let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
             format!(
@@ -895,7 +897,7 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
         }
 
         anyhow::bail!(
-            "snapshot already exists and differs: {} (snapshots are immutable)",
+            "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
             snapshot_path.display()
         );
     }

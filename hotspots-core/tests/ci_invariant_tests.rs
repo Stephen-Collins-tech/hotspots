@@ -65,14 +65,14 @@ fn test_snapshot_immutability() {
     let snapshot_path = snapshot::snapshot_path(repo_path, snapshot.commit_sha());
 
     // First persist should succeed
-    snapshot::persist_snapshot(repo_path, &snapshot).expect("first persist should succeed");
+    snapshot::persist_snapshot(repo_path, &snapshot, false).expect("first persist should succeed");
 
     // Read file content after first persist
     let first_content =
         std::fs::read_to_string(&snapshot_path).expect("failed to read snapshot file");
 
     // Second persist with identical snapshot should succeed (idempotency)
-    snapshot::persist_snapshot(repo_path, &snapshot)
+    snapshot::persist_snapshot(repo_path, &snapshot, false)
         .expect("second persist with identical snapshot should succeed (idempotent)");
 
     // File content should be unchanged (immutability)
@@ -122,7 +122,7 @@ fn test_snapshot_filename_equals_commit_sha() {
     let commit_sha = "abc123def456";
     let snapshot = create_test_snapshot(commit_sha, "def456");
 
-    snapshot::persist_snapshot(repo_path, &snapshot).expect("failed to persist snapshot");
+    snapshot::persist_snapshot(repo_path, &snapshot, false).expect("failed to persist snapshot");
 
     // Verify filename equals commit SHA
     let snapshot_path = snapshot::snapshot_path(repo_path, commit_sha);

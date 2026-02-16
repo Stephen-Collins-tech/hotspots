@@ -67,6 +67,10 @@ enum Commands {
         /// Show human-readable risk explanations (only valid with --mode snapshot)
         #[arg(long)]
         explain: bool,
+
+        /// Overwrite existing snapshot if it already exists
+        #[arg(short = 'f', long)]
+        force: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -157,6 +161,7 @@ fn main() -> anyhow::Result<()> {
             config: config_path,
             output,
             explain,
+            force,
         } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
@@ -219,6 +224,7 @@ fn main() -> anyhow::Result<()> {
                         min_lrs: effective_min_lrs,
                         output,
                         explain,
+                        force,
                     },
                 );
             }
@@ -494,6 +500,7 @@ struct ModeOutputOptions {
     min_lrs: Option<f64>,
     output: Option<PathBuf>,
     explain: bool,
+    force: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -510,6 +517,7 @@ fn handle_mode_output(
         min_lrs,
         output,
         explain,
+        force,
     } = opts;
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
@@ -535,7 +543,7 @@ fn handle_mode_output(
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
             if is_mainline {
-                snapshot::persist_snapshot(&repo_root, &snapshot)
+                snapshot::persist_snapshot(&repo_root, &snapshot, force)
                     .context("failed to persist snapshot")?;
                 snapshot::append_to_index(&repo_root, &snapshot)
                     .context("failed to update index")?;

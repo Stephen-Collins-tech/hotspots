@@ -134,7 +134,7 @@ fn test_rebase_creates_new_snapshots() {
 
     // Create snapshot for commit1
     let _snapshot1 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &_snapshot1).expect("failed to persist snapshot1");
+    snapshot::persist_snapshot(repo_path, &_snapshot1, false).expect("failed to persist snapshot1");
 
     // Create branch and make changes
     git_command(repo_path, &["checkout", "-b", "feature"]);
@@ -143,7 +143,7 @@ fn test_rebase_creates_new_snapshots() {
 
     // Create snapshot for commit2
     let _snapshot2 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &_snapshot2).expect("failed to persist snapshot2");
+    snapshot::persist_snapshot(repo_path, &_snapshot2, false).expect("failed to persist snapshot2");
 
     // Rebase onto main (use different file to avoid conflicts)
     git_command(repo_path, &["checkout", "main"]);
@@ -179,7 +179,7 @@ fn test_merge_uses_parent0() {
 
     // Create snapshot for commit1
     let snapshot1 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &snapshot1).expect("failed to persist snapshot1");
+    snapshot::persist_snapshot(repo_path, &snapshot1, false).expect("failed to persist snapshot1");
 
     // Create branch and make changes (different file to avoid conflicts)
     git_command(repo_path, &["checkout", "-b", "feature"]);
@@ -188,7 +188,7 @@ fn test_merge_uses_parent0() {
 
     // Create snapshot for commit2
     let _snapshot2 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &_snapshot2).expect("failed to persist snapshot2");
+    snapshot::persist_snapshot(repo_path, &_snapshot2, false).expect("failed to persist snapshot2");
 
     // Create merge commit (different file on main to avoid conflicts but ensure non-fast-forward)
     git_command(repo_path, &["checkout", "main"]);
@@ -239,7 +239,7 @@ fn test_cherry_pick_creates_new_snapshot() {
 
     // Create snapshot for commit2
     let snapshot2 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &snapshot2).expect("failed to persist snapshot2");
+    snapshot::persist_snapshot(repo_path, &snapshot2, false).expect("failed to persist snapshot2");
 
     // Cherry-pick commit2 onto another branch (use different file to avoid conflicts)
     git_command(repo_path, &["checkout", "main"]);
@@ -283,7 +283,7 @@ fn test_revert_produces_negative_deltas() {
 
     // Create snapshot for commit1
     let snapshot1 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &snapshot1).expect("failed to persist snapshot1");
+    snapshot::persist_snapshot(repo_path, &snapshot1, false).expect("failed to persist snapshot1");
 
     // Make change that increases complexity (more nesting = higher complexity)
     create_ts_file(
@@ -295,7 +295,7 @@ fn test_revert_produces_negative_deltas() {
 
     // Create snapshot for commit2
     let snapshot2 = create_snapshot_for_commit(repo_path);
-    snapshot::persist_snapshot(repo_path, &snapshot2).expect("failed to persist snapshot2");
+    snapshot::persist_snapshot(repo_path, &snapshot2, false).expect("failed to persist snapshot2");
 
     // Revert commit2 (this should reduce complexity back)
     git_command(repo_path, &["revert", "--no-edit", "HEAD"]);
@@ -349,7 +349,7 @@ fn test_force_push_does_not_corrupt_history() {
         snapshot1_sha, commit1
     );
 
-    snapshot::persist_snapshot(repo_path, &snapshot1).expect("failed to persist snapshot1");
+    snapshot::persist_snapshot(repo_path, &snapshot1, false).expect("failed to persist snapshot1");
 
     // Verify snapshot file exists using snapshot's SHA (which should match commit1)
     let snapshot_path1 = snapshot::snapshot_path(repo_path, &snapshot1_sha);
@@ -370,7 +370,7 @@ fn test_force_push_does_not_corrupt_history() {
     // Create snapshot for commit2
     let snapshot2 = create_snapshot_for_commit(repo_path);
     let snapshot2_sha = snapshot2.commit_sha().to_string();
-    snapshot::persist_snapshot(repo_path, &snapshot2).expect("failed to persist snapshot2");
+    snapshot::persist_snapshot(repo_path, &snapshot2, false).expect("failed to persist snapshot2");
 
     // Verify snapshot2 exists
     let snapshot_path2 = snapshot::snapshot_path(repo_path, &snapshot2_sha);
