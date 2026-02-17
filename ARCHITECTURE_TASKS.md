@@ -11,7 +11,7 @@
 | ID   | Finding                                    | Severity   | Category           | Status      |
 |------|--------------------------------------------|------------|--------------------|-------------|
 | F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [ ] Research |
-| F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [ ] Research |
+| F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [x] Research — no change needed |
 | F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure  |
 | F-4  | Tree-sitter re-parse is O(n×m)             | Medium     | Performance        | [x] Doc done / [x] Implement|
 | F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [ ] Research |
@@ -58,12 +58,45 @@ connected hub functions are systematically penalized more than the formula impli
 - [ ] **F-2a (doc):** Add note to `ARCHITECTURE.md` §6 (Activity-Weighted Risk Scoring)
   documenting the fan-in/fan-out correlation and its effect on hub function scores.
 
-- [ ] **F-2b (research):** On the hotspots self-analysis output, identify the top 10 functions
+- [x] **F-2b (research):** On the hotspots self-analysis output, identify the top 10 functions
   by fan-in+fan-out. Check whether their activity_risk scores seem calibrated or inflated
   relative to their actual maintenance burden. Record findings.
 
-- [ ] **F-2c (optional):** If F-2b shows systematic over-scoring of hubs, consider reducing
-  `fan_in_factor` weight or adding a normalization term. Requires golden test updates.
+  **Results (2026-02-16, hotspots self-analysis):**
+
+  | Function | fan_in | fan_out | hub_score | cc | lrs | activity_risk | band |
+  |---|---|---|---|---|---|---|---|
+  | render_json | 14 | 0 | 14 | 3 | 3.30 | 5.51 | moderate |
+  | test_golden | 6 | 6 | 12 | 3 | 6.00 | 7.57 | high |
+  | test_python_golden | 7 | 5 | 12 | 3 | 6.00 | 7.65 | high |
+  | test_go_golden | 5 | 5 | 10 | 3 | 6.00 | 7.49 | high |
+  | golden_path | 9 | 0 | 9 | 3 | 2.60 | 4.41 | low |
+  | read_golden | 8 | 1 | 9 | 3 | 3.65 | 5.38 | moderate |
+  | test_java_golden | 4 | 5 | 9 | 3 | 6.09 | 7.50 | high |
+  | test_rust_golden | 4 | 5 | 9 | 3 | 6.00 | 7.41 | high |
+  | git_command | 8 | 0 | 8 | 4 | 5.02 | 6.75 | moderate |
+  | normalize_paths | 8 | 0 | 8 | 12 | 7.05 | 8.78 | high |
+
+  **Findings:**
+  - Maximum hub_score in this codebase is 14 — a modest scale that limits the multiplicative
+    effect of the formula.
+  - 8 of 10 top hubs are test infrastructure (`golden_tests.rs`, `git_history_tests.rs`),
+    not production code.
+  - Scores appear **well-calibrated**: simple high-fan-in functions (`render_json` cc=3 → moderate;
+    `golden_path` cc=3 → low) score appropriately low. Complex high-fan-in functions
+    (`normalize_paths` cc=12 → high) score higher, as expected.
+  - No hub function was pushed into CRITICAL by fan-in/fan-out alone.
+  - The fan-in boost is proportional: `render_json` (fi=14) → moderate vs `normalize_paths`
+    (fi=8, cc=12) → high. The cc=3 cap on simple functions keeps scores in check.
+
+  **Decision: No code change needed (F-2c not warranted).** The double-penalty is theoretically
+  present but does not produce visible over-scoring at this codebase's connectivity scale.
+  The concern is more relevant for very large codebases where hub functions routinely have
+  fan_in+fan_out > 50. Document as a known formula property but do not adjust weights.
+
+- [ ] **F-2c (optional):** ~~If F-2b shows systematic over-scoring of hubs, consider reducing
+  `fan_in_factor` weight or adding a normalization term.~~ **Skipped — F-2b showed no
+  systematic over-scoring at this scale.**
 
 **Acceptance for F-2a:** ARCHITECTURE.md updated.
 **Acceptance for F-2b:** Research note written with examples.
