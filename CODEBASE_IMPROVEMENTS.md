@@ -13,9 +13,17 @@
 |--------|--------|
 | **1.2 ECMAScript/Rust call graph** | ✅ **RESOLVED** — All 6 languages now have AST-based callee extraction (`ecmascript_extract_callees`, `rust_extract_callees` in `metrics.rs`). Call graph edges work for TS/JS/Go/Java/Python/Rust. |
 | **SnapshotEnricher (TASKS 8.10)** | ✅ **IMPLEMENTED** — `SnapshotEnricher` builder pattern in place. 6.2 (snapshot clone for aggregates) still applies to JSON/HTML output formatting. |
-| **1.1 FAULTLINE naming** | ✅ **RESOLVED** — Full rename: `build.rs`/`main.rs` use `HOTSPOTS_VERSION`, `install-dev.sh`/`dev.sh` use `hotspots` binary, `export_visualization.rs` uses `.hotspots/`, all scripts/comments updated. |
-| **1.3 Unused build_call_graph params** | ✅ **RESOLVED** — `_path` and `_resolved_config` params removed; signature is now `build_call_graph(reports)`. |
-| **6.3 Git context CWD** | ✅ **RESOLVED** — `build_enriched_snapshot` now uses `extract_git_context_at(repo_root)` and `extract_commit_churn_at(repo_root, sha)`. |
+| **1.1 FAULTLINE naming** | ✅ **RESOLVED** — Full rename complete. |
+| **1.3 Unused build_call_graph params** | ✅ **RESOLVED** — Signature simplified to `build_call_graph(reports)`. |
+| **2.1 tree_sitter_utils** | ✅ **RESOLVED** — `tree_sitter_utils.rs` module created; all parsers/CFG builders use shared helpers. |
+| **3.1 too_many_arguments** | ✅ **RESOLVED** — Parameter structs introduced. |
+| **3.2 manual_find** | ✅ **RESOLVED** — All use `.find()` iterator. |
+| **4.2 NaN handling** | ✅ **RESOLVED** — `unwrap_or(Ordering::Equal)` used. |
+| **5.1 lib.rs docs** | ⚠️ **PARTIAL** — Crate docstring fixed; line 79 comment and `collect_source_files` doc still omit Java/Python. |
+| **6.2 Snapshot clone** | ✅ **RESOLVED** — Aggregates set directly, no clone. |
+| **6.3 Git context CWD** | ✅ **RESOLVED** — Uses `extract_git_context_at(repo_root)`. |
+| **7.1 export_visualization** | ✅ **RESOLVED** — Dead code removed. |
+| **7.2 Lazy regex** | ✅ **RESOLVED** — `OnceLock` used. |
 
 ---
 
@@ -41,39 +49,9 @@ Signature simplified to `build_call_graph(reports) -> Result<CallGraph>`. The `b
 
 ## Duplication
 
-### 2.1 Extract Shared Tree-Sitter Helpers (find_child_by_kind, find_function_by_start)
+### 2.1 ~~Extract Shared Tree-Sitter Helpers~~ ✅ RESOLVED
 
-**Priority:** 4 — Medium impact, reduces duplication
-
-**Problem:**
-`find_child_by_kind` and `find_function_by_start` are duplicated across six files:
-- `go/parser.rs`, `java/parser.rs`, `python/parser.rs`
-- `go/cfg_builder.rs`, `java/cfg_builder.rs`, `python/cfg_builder.rs`
-
-Each is nearly identical; only node kind strings differ.
-
-**Specification:**
-- Create `hotspots-core/src/language/tree_sitter_utils.rs`
-- Add `pub fn find_child_by_kind(node: Node, kind: &str) -> Option<Node>`
-- Add `pub fn find_function_by_start(root: Node, start_byte: usize, func_kinds: &[&str]) -> Option<Node>` (or per-language wrappers that pass their kinds)
-- Replace all 6+ copies with calls to shared module
-
-**Success Criteria:**
-- [ ] Single implementation of each helper
-- [ ] All language parsers and CFG builders use shared module
-- [ ] `cargo test` passes
-
-**Files to Modify:**
-- `hotspots-core/src/language/mod.rs` (add `pub mod tree_sitter_utils`)
-- `hotspots-core/src/language/tree_sitter_utils.rs` (new)
-- `hotspots-core/src/language/go/parser.rs`
-- `hotspots-core/src/language/go/cfg_builder.rs`
-- `hotspots-core/src/language/java/parser.rs`
-- `hotspots-core/src/language/java/cfg_builder.rs`
-- `hotspots-core/src/language/python/parser.rs`
-- `hotspots-core/src/language/python/cfg_builder.rs`
-
-**Estimated Effort:** 1–2 hours
+**Status:** `tree_sitter_utils.rs` module created with `find_child_by_kind` and `find_function_by_start`. All 6 files (go/java/python parsers and CFG builders) now import and use the shared helpers. Duplication eliminated.
 
 ---
 
@@ -168,9 +146,22 @@ Several production paths use `.expect()` or `.unwrap()`:
 
 ## Documentation / Consistency
 
-### 5.1 ~~Update lib.rs Crate Description~~ ✅ RESOLVED
+### 5.1 Update lib.rs Crate Description ⚠️ PARTIAL
 
-`hotspots-core/src/lib.rs` crate description updated to list all 6 supported languages: TypeScript, JavaScript, Go, Java, Python, and Rust.
+**Priority:** 10 — Trivial
+
+**Status:** Crate docstring (line 1) ✅ fixed — lists all 6 languages. However:
+- Line 79 comment: "Collect source files (TypeScript, JavaScript, Go, Rust)" — still missing Java/Python
+- Lines 137–143: `collect_source_files` doc lists "Go: .go" and "Rust: .rs" but omits Java (.java) and Python (.py, .pyw)
+
+**Specification:**
+- Update line 79 comment to include Java and Python
+- Add Java and Python entries to `collect_source_files` doc comment
+
+**Files to Modify:**
+- `hotspots-core/src/lib.rs`
+
+**Estimated Effort:** 2 minutes
 
 ---
 
@@ -261,13 +252,13 @@ Removed unused struct fields (`schema_version`, `analysis`, `AnalysisInfo` struc
 | 1.1 | ~~Fix FAULTLINE/faultline → HOTSPOTS/hotspots naming~~ | ✅ Resolved | — |
 | 1.2 | ~~ECMAScript/Rust call graph edges~~ | ✅ Resolved | — |
 | 1.3 | ~~Remove unused build_call_graph params~~ | ✅ Resolved | — |
-| 2.1 | Extract shared tree-sitter helpers | Medium | Low |
+| 2.1 | ~~Extract shared tree-sitter helpers~~ | ✅ Resolved | — |
 | 2.2 | Tree-sitter CFG builder boilerplate | Medium | Medium |
 | 3.1 | ~~Replace too_many_arguments with structs~~ | ✅ Resolved | — |
 | 3.2 | ~~Replace manual_find with .find()~~ | ✅ Resolved | — |
 | 4.1 | Reduce expect/unwrap in production | Medium | Low–Medium |
 | 4.2 | ~~Handle NaN in partial_cmp~~ | ✅ Resolved | — |
-| 5.1 | ~~Update lib.rs crate description~~ | ✅ Resolved | — |
+| 5.1 | Update lib.rs crate description (partial) | Trivial | Trivial |
 | 5.2 | Address CFG builder TODOs | Low | Low–Medium |
 | 6.1 | Implement or document Compact | Low | Medium |
 | 6.2 | ~~Avoid snapshot clone for aggregates~~ | ✅ Resolved | — |
@@ -277,5 +268,5 @@ Removed unused struct fields (`schema_version`, `analysis`, `AnalysisInfo` struc
 
 ---
 
-**Last Updated:** 2026-02-15
-**Last Reassessment:** 2026-02-15
+**Last Updated:** 2026-02-15  
+**Last Reassessment:** 2026-02-15 (Latest: 2026-02-15)
