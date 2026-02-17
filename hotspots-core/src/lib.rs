@@ -231,12 +231,16 @@ pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::Cal
     }
 
     // First pass: add AST-derived edges for reports that have callee names
+    let mut total_callee_names: usize = 0;
+    let mut resolved_callee_names: usize = 0;
     for report in reports {
         let caller_id = format!("{}::{}", report.file, report.function);
         if !report.callees.is_empty() {
             let mut added_callees = std::collections::HashSet::new();
             for callee_name in &report.callees {
+                total_callee_names += 1;
                 if let Some(possible_callees) = name_to_id.get(callee_name) {
+                    resolved_callee_names += 1;
                     let normalized_caller_file = report.file.replace('\\', "/");
                     let mut found = false;
                     for callee_id in possible_callees {
@@ -262,6 +266,9 @@ pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::Cal
             }
         }
     }
+
+    graph.total_callee_names = total_callee_names;
+    graph.resolved_callee_names = resolved_callee_names;
 
     Ok(graph)
 }

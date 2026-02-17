@@ -28,6 +28,10 @@ pub struct CallGraph {
     pub edges: HashMap<String, Vec<String>>,
     /// All functions in the graph
     pub nodes: HashSet<String>,
+    /// Total callee names found in ASTs across all functions
+    pub total_callee_names: usize,
+    /// Callee names that resolved to a known internal function ID
+    pub resolved_callee_names: usize,
 }
 
 /// Mutable state for Tarjan's SCC algorithm
@@ -61,6 +65,8 @@ impl CallGraph {
         CallGraph {
             edges: HashMap::new(),
             nodes: HashSet::new(),
+            total_callee_names: 0,
+            resolved_callee_names: 0,
         }
     }
 

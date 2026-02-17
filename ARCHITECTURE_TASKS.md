@@ -12,7 +12,7 @@
 |------|--------------------------------------------|------------|--------------------|-------------|
 | F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [ ] Research |
 | F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [ ] Research |
-| F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [ ] Measure  |
+| F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure  |
 | F-4  | Tree-sitter re-parse is O(n×m)             | Medium     | Performance        | [x] Doc done / [x] Implement|
 | F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [ ] Research |
 | F-6  | Schema migration strategy undefined        | Low-Medium | Operational risk   | [x] Code done / [x] Doc done|

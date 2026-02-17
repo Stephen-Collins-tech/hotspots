@@ -458,6 +458,17 @@ fn build_enriched_snapshot(
 
     // Build call graph before snapshot creation (snapshot consumes reports)
     let call_graph = hotspots_core::build_call_graph(&reports).ok();
+    if let Some(ref cg) = call_graph {
+        let total = cg.total_callee_names;
+        let resolved = cg.resolved_callee_names;
+        if total > 0 {
+            let pct = (resolved as f64 / total as f64) * 100.0;
+            eprintln!(
+                "call graph: resolved {}/{} callee references ({:.0}% internal)",
+                resolved, total, pct
+            );
+        }
+    }
 
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
