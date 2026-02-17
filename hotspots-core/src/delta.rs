@@ -446,6 +446,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let report = FunctionRiskReport {
@@ -458,6 +463,7 @@ mod tests {
                 nd: 2,
                 fo: 3,
                 ns: 1,
+                loc: 10,
             },
             risk: crate::report::RiskReport {
                 r_cc: 2.0,
@@ -468,6 +474,7 @@ mod tests {
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            callees: vec![],
         };
 
         Snapshot::new(git_context, vec![report])
@@ -542,6 +549,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
         let current = Snapshot::new(git_context, vec![]);
 

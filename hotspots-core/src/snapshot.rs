@@ -18,8 +18,11 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use crate::report::RiskReport;
 
-/// Schema version for snapshots
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+/// Schema version for snapshots.
+/// v1: LRS + basic metrics only
+/// v2: adds LOC, git churn/touch, call graph, activity risk, percentiles, summary
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
 /// Schema version for index
 const INDEX_SCHEMA_VERSION: u32 = 1;
@@ -33,6 +36,32 @@ pub struct CommitInfo {
     pub timestamp: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_fix_commit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_revert_commit: Option<bool>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub ticket_ids: Vec<String>,
+}
+
+impl From<GitContext> for CommitInfo {
+    fn from(ctx: GitContext) -> Self {
+        CommitInfo {
+            sha: ctx.head_sha,
+            parents: ctx.parent_shas,
+            timestamp: ctx.timestamp,
+            branch: ctx.branch,
+            message: ctx.message,
+            author: ctx.author,
+            is_fix_commit: ctx.is_fix_commit,
+            is_revert_commit: ctx.is_revert_commit,
+            ticket_ids: ctx.ticket_ids,
+        }
+    }
 }
 
 /// Analysis metadata in snapshot
@@ -42,6 +71,40 @@ pub struct AnalysisInfo {
     pub scope: String,
     #[serde(rename = "tool_version")]
     pub tool_version: String,
+}
+
+/// Churn metrics for a file/function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChurnMetrics {
+    pub lines_added: usize,
+    pub lines_deleted: usize,
+    pub net_change: i64,
+}
+
+/// Per-function percentile flags based on activity_risk
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct PercentileFlags {
+    pub is_top_10_pct: bool,
+    pub is_top_5_pct: bool,
+    pub is_top_1_pct: bool,
+}
+
+/// Call graph metrics for a function
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CallGraphMetrics {
+    pub fan_in: usize,
+    pub fan_out: usize,
+    pub pagerank: f64,
+    pub betweenness: f64,
+    pub scc_id: usize,
+    pub scc_size: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_depth: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub neighbor_churn: Option<usize>,
 }
 
 /// Function entry in snapshot
@@ -57,6 +120,52 @@ pub struct FunctionSnapshot {
     pub band: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub churn: Option<ChurnMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touch_count_30d: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_last_change: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callgraph: Option<CallGraphMetrics>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_risk: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk_factors: Option<crate::scoring::RiskFactors>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentile: Option<PercentileFlags>,
+}
+
+/// Risk distribution by band
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct BandStats {
+    pub count: usize,
+    pub sum_risk: f64,
+}
+
+/// Call graph statistics for the whole repo
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CallGraphStats {
+    pub total_edges: usize,
+    pub avg_fan_in: f64,
+    pub scc_count: usize,
+    pub largest_scc_size: usize,
+}
+
+/// Repo-level summary statistics
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct SnapshotSummary {
+    pub total_functions: usize,
+    pub total_activity_risk: f64,
+    pub top_1_pct_share: f64,
+    pub top_5_pct_share: f64,
+    pub top_10_pct_share: f64,
+    pub by_band: std::collections::HashMap<String, BandStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_graph: Option<CallGraphStats>,
 }
 
 /// Complete snapshot for a commit
@@ -68,6 +177,8 @@ pub struct Snapshot {
     pub commit: CommitInfo,
     pub analysis: AnalysisInfo,
     pub functions: Vec<FunctionSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SnapshotSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
 }
@@ -135,6 +246,13 @@ impl Snapshot {
                     lrs: report.lrs,
                     band: report.band,
                     suppression_reason: report.suppression_reason,
+                    churn: None, // Churn will be populated separately if available
+                    touch_count_30d: None, // Touch count will be populated separately if available
+                    days_since_last_change: None, // Days since last change will be populated separately if available
+                    callgraph: None, // Call graph metrics will be populated separately if available
+                    activity_risk: None,
+                    risk_factors: None,
+                    percentile: None,
                 }
             })
             .collect();
@@ -144,19 +262,372 @@ impl Snapshot {
 
         Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
-            commit: CommitInfo {
-                sha: git_context.head_sha,
-                parents: git_context.parent_shas,
-                timestamp: git_context.timestamp,
-                branch: git_context.branch,
-            },
+            commit: CommitInfo::from(git_context),
             analysis: AnalysisInfo {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
             },
             functions,
+            summary: None,
             aggregates: None, // Aggregates are computed on-demand, not stored
         }
+    }
+
+    /// Populate churn metrics from git data
+    ///
+    /// Maps file-level churn to all functions in each file.
+    /// Files not in the churn map will have churn remain as None.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_churns` - Map from file path to churn metrics
+    pub fn populate_churn(
+        &mut self,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) {
+        for function in &mut self.functions {
+            // Normalize file path for lookup (already normalized in constructor)
+            let file_path = &function.file;
+
+            if let Some(file_churn) = file_churns.get(file_path) {
+                let net_change = file_churn.lines_added as i64 - file_churn.lines_deleted as i64;
+                function.churn = Some(ChurnMetrics {
+                    lines_added: file_churn.lines_added,
+                    lines_deleted: file_churn.lines_deleted,
+                    net_change,
+                });
+            }
+        }
+    }
+
+    /// Populate touch count and recency metrics from git data
+    ///
+    /// For each file, computes:
+    /// - touch_count_30d: number of commits in last 30 days
+    /// - days_since_last_change: days since last modification
+    ///
+    /// These are computed at the file level and applied to all functions in the file.
+    ///
+    /// # Arguments
+    ///
+    /// * `repo_root` - Path to repository root (for git operations)
+    pub fn populate_touch_metrics(&mut self, repo_root: &std::path::Path) -> anyhow::Result<()> {
+        use std::collections::HashMap;
+
+        // Build set of unique files to avoid duplicate git operations
+        let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, function) in self.functions.iter().enumerate() {
+            unique_files
+                .entry(function.file.clone())
+                .or_default()
+                .push(idx);
+        }
+
+        // For each unique file, compute metrics once
+        for (file_path, function_indices) in unique_files {
+            // Convert absolute path back to relative path for git
+            let relative_path =
+                if let Ok(rel) = std::path::Path::new(&file_path).strip_prefix(repo_root) {
+                    rel.to_string_lossy().to_string()
+                } else {
+                    // If can't make relative, use as-is
+                    file_path.clone()
+                };
+
+            // Compute touch count (may fail if file is new or git operation fails)
+            let touch_count =
+                crate::git::count_file_touches_30d(&relative_path, self.commit.timestamp).ok();
+
+            // Compute days since last change
+            let days_since =
+                crate::git::days_since_last_change(&relative_path, self.commit.timestamp).ok();
+
+            // Apply to all functions in this file
+            for &idx in &function_indices {
+                self.functions[idx].touch_count_30d = touch_count;
+                self.functions[idx].days_since_last_change = days_since;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Populate call graph metrics
+    ///
+    /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, dependency depth,
+    /// and neighbor churn metrics for all functions.
+    ///
+    /// # Arguments
+    ///
+    /// * `call_graph` - Pre-computed call graph for the codebase
+    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        use std::collections::HashMap;
+
+        // Compute global metrics once
+        let pagerank_scores = call_graph.pagerank(0.85, 30);
+        let betweenness_scores = call_graph.betweenness_centrality();
+        let scc_info = call_graph.find_strongly_connected_components();
+        let dependency_depths = call_graph.compute_dependency_depth();
+
+        // Build a map of function_id -> total churn (lines_added + lines_deleted)
+        let mut churn_map: HashMap<String, usize> = HashMap::new();
+        for function in &self.functions {
+            if let Some(ref churn) = function.churn {
+                let total_churn = churn.lines_added + churn.lines_deleted;
+                churn_map.insert(function.function_id.clone(), total_churn);
+            }
+        }
+
+        // Populate metrics for each function
+        for function in &mut self.functions {
+            let function_id = &function.function_id;
+
+            // Only populate if function is in the call graph
+            if call_graph.nodes.contains(function_id) {
+                let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
+                let dependency_depth = dependency_depths.get(function_id).copied().flatten();
+
+                // Compute neighbor churn: sum of churn for all callees
+                let neighbor_churn = if let Some(callees) = call_graph.edges.get(function_id) {
+                    let total: usize = callees
+                        .iter()
+                        .filter_map(|callee_id| churn_map.get(callee_id))
+                        .sum();
+                    if total > 0 {
+                        Some(total)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                function.callgraph = Some(CallGraphMetrics {
+                    fan_in: call_graph.fan_in(function_id),
+                    fan_out: call_graph.fan_out(function_id),
+                    pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
+                    betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
+                    scc_id,
+                    scc_size,
+                    dependency_depth,
+                    neighbor_churn,
+                });
+            }
+        }
+    }
+
+    /// Compute and populate activity risk scores
+    ///
+    /// Combines LRS with activity metrics and call graph metrics to produce
+    /// a unified risk score. Should be called after populate_churn, populate_touch_metrics,
+    /// and populate_callgraph have been called.
+    ///
+    /// # Arguments
+    ///
+    /// * `weights` - Optional weights for risk factors (uses defaults if None)
+    pub fn compute_activity_risk(&mut self, weights: Option<&crate::scoring::ScoringWeights>) {
+        let default_weights = crate::scoring::ScoringWeights::default();
+        let weights = weights.unwrap_or(&default_weights);
+
+        for function in &mut self.functions {
+            // Extract churn data
+            let churn = function
+                .churn
+                .as_ref()
+                .map(|c| (c.lines_added, c.lines_deleted));
+
+            // Extract call graph data
+            let (fan_in, scc_size, dependency_depth, neighbor_churn) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.dependency_depth,
+                        cg.neighbor_churn,
+                    )
+                } else {
+                    (None, None, None, None)
+                };
+
+            // Compute activity risk
+            let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
+                &crate::scoring::ActivityRiskInput {
+                    lrs: function.lrs,
+                    churn,
+                    touch_count_30d: function.touch_count_30d,
+                    days_since_last_change: function.days_since_last_change,
+                    fan_in,
+                    scc_size,
+                    dependency_depth,
+                    neighbor_churn,
+                },
+                weights,
+            );
+
+            // Only populate if there are additional risk factors beyond base LRS
+            if activity_risk > function.lrs || risk_factors.churn > 0.0 {
+                function.activity_risk = Some(activity_risk);
+                function.risk_factors = Some(risk_factors);
+            }
+        }
+    }
+
+    /// Compute and populate percentile flags for all functions
+    ///
+    /// Must be called after compute_activity_risk().
+    /// Flags: is_top_1_pct, is_top_5_pct, is_top_10_pct based on activity_risk.
+    pub fn compute_percentiles(&mut self) {
+        let n = self.functions.len();
+        if n == 0 {
+            return;
+        }
+
+        // Collect all activity_risk scores (falling back to lrs)
+        let mut scores: Vec<f64> = self
+            .functions
+            .iter()
+            .map(|f| f.activity_risk.unwrap_or(f.lrs))
+            .collect();
+        scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Compute threshold values via quantile index
+        let threshold_10 = scores[n.saturating_sub(1) * 90 / 100];
+        let threshold_5 = scores[n.saturating_sub(1) * 95 / 100];
+        let threshold_1 = scores[n.saturating_sub(1) * 99 / 100];
+
+        for function in &mut self.functions {
+            let score = function.activity_risk.unwrap_or(function.lrs);
+            function.percentile = Some(PercentileFlags {
+                is_top_10_pct: score >= threshold_10,
+                is_top_5_pct: score >= threshold_5,
+                is_top_1_pct: score >= threshold_1,
+            });
+        }
+    }
+
+    /// Compute repo-level summary statistics
+    ///
+    /// Must be called after compute_activity_risk() and populate_callgraph().
+    pub fn compute_summary(&mut self) {
+        use std::collections::HashMap;
+
+        let n = self.functions.len();
+        if n == 0 {
+            self.summary = Some(SnapshotSummary {
+                total_functions: 0,
+                total_activity_risk: 0.0,
+                top_1_pct_share: 0.0,
+                top_5_pct_share: 0.0,
+                top_10_pct_share: 0.0,
+                by_band: HashMap::new(),
+                call_graph: None,
+            });
+            return;
+        }
+
+        // Collect scores sorted descending
+        let mut scored: Vec<f64> = self
+            .functions
+            .iter()
+            .map(|f| f.activity_risk.unwrap_or(f.lrs))
+            .collect();
+        scored.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+
+        let total_risk: f64 = scored.iter().sum();
+
+        // Top-K share calculations
+        let top1_n = (n / 100).max(1);
+        let top5_n = (n * 5 / 100).max(1);
+        let top10_n = (n / 10).max(1);
+
+        let top1_sum: f64 = scored.iter().take(top1_n).sum();
+        let top5_sum: f64 = scored.iter().take(top5_n).sum();
+        let top10_sum: f64 = scored.iter().take(top10_n).sum();
+
+        let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+
+        // Band distribution
+        let mut by_band: HashMap<String, BandStats> = HashMap::new();
+        for func in &self.functions {
+            let score = func.activity_risk.unwrap_or(func.lrs);
+            let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
+                count: 0,
+                sum_risk: 0.0,
+            });
+            entry.count += 1;
+            entry.sum_risk += score;
+        }
+
+        // Call graph stats
+        let has_callgraph = self.functions.iter().any(|f| f.callgraph.is_some());
+        let call_graph = if has_callgraph {
+            let total_edges: usize = self
+                .functions
+                .iter()
+                .filter_map(|f| f.callgraph.as_ref())
+                .map(|cg| cg.fan_out)
+                .sum();
+            let total_fan_in: usize = self
+                .functions
+                .iter()
+                .filter_map(|f| f.callgraph.as_ref())
+                .map(|cg| cg.fan_in)
+                .sum();
+            let avg_fan_in = total_fan_in as f64 / n as f64;
+
+            // SCC analysis: group by scc_id, count SCCs with size > 1
+            let mut scc_sizes: std::collections::HashMap<usize, usize> =
+                std::collections::HashMap::new();
+            for func in &self.functions {
+                if let Some(ref cg) = func.callgraph {
+                    if cg.scc_size > 1 {
+                        scc_sizes.insert(cg.scc_id, cg.scc_size);
+                    }
+                }
+            }
+            let scc_count = scc_sizes.len();
+            let largest_scc_size = scc_sizes.values().copied().max().unwrap_or(0);
+
+            Some(CallGraphStats {
+                total_edges,
+                avg_fan_in,
+                scc_count,
+                largest_scc_size,
+            })
+        } else {
+            None
+        };
+
+        self.summary = Some(SnapshotSummary {
+            total_functions: n,
+            total_activity_risk: total_risk,
+            top_1_pct_share: safe_div(top1_sum, total_risk),
+            top_5_pct_share: safe_div(top5_sum, total_risk),
+            top_10_pct_share: safe_div(top10_sum, total_risk),
+            by_band,
+            call_graph,
+        });
+    }
+
+    /// Serialize snapshot as JSONL (one JSON object per line, no outer array)
+    ///
+    /// Each line embeds the commit context alongside function data,
+    /// suitable for streaming ingestion (DuckDB, jq -s, etc.)
+    pub fn to_jsonl(&self) -> Result<String> {
+        let commit_json =
+            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
+
+        let mut lines = Vec::with_capacity(self.functions.len());
+        for func in &self.functions {
+            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
+            // Embed commit context in each row
+            obj.as_object_mut()
+                .unwrap()
+                .insert("commit".to_string(), commit_json.clone());
+            lines.push(serde_json::to_string(&obj).context("failed to serialize JSONL line")?);
+        }
+
+        Ok(lines.join("\n"))
     }
 
     /// Serialize snapshot to JSON string (deterministic ordering)
@@ -172,12 +643,15 @@ impl Snapshot {
         let snapshot: Snapshot =
             serde_json::from_str(json).context("failed to deserialize snapshot from JSON")?;
 
-        // Validate schema version
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        // Validate schema version (accept v1 snapshots — missing fields default to None)
+        if snapshot.schema_version < SNAPSHOT_SCHEMA_MIN_VERSION
+            || snapshot.schema_version > SNAPSHOT_SCHEMA_VERSION
+        {
             anyhow::bail!(
-                "schema version mismatch: expected {}, got {}",
-                SNAPSHOT_SCHEMA_VERSION,
-                snapshot.schema_version
+                "unsupported schema version: got {}, supported range {}-{}",
+                snapshot.schema_version,
+                SNAPSHOT_SCHEMA_MIN_VERSION,
+                SNAPSHOT_SCHEMA_VERSION
             );
         }
 
@@ -187,6 +661,61 @@ impl Snapshot {
     /// Get the commit SHA for this snapshot
     pub fn commit_sha(&self) -> &str {
         &self.commit.sha
+    }
+}
+
+/// Builder for enriching a snapshot with git, call graph, and risk metrics.
+///
+/// Enforces enrichment step ordering:
+/// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
+pub struct SnapshotEnricher {
+    snapshot: Snapshot,
+}
+
+impl SnapshotEnricher {
+    /// Create a new enricher wrapping the given snapshot.
+    pub fn new(snapshot: Snapshot) -> Self {
+        SnapshotEnricher { snapshot }
+    }
+
+    /// Populate churn metrics from a file churn map.
+    pub fn with_churn(
+        mut self,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) -> Self {
+        self.snapshot.populate_churn(file_churns);
+        self
+    }
+
+    /// Populate touch count and recency metrics from git.
+    ///
+    /// On error, emits a warning to stderr and continues.
+    pub fn with_touch_metrics(mut self, repo_root: &Path) -> Self {
+        if let Err(e) = self.snapshot.populate_touch_metrics(repo_root) {
+            eprintln!("Warning: failed to populate touch metrics: {}", e);
+        }
+        self
+    }
+
+    /// Populate call graph metrics (PageRank, fan-in, SCC, etc).
+    pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
+        self.snapshot.populate_callgraph(call_graph);
+        self
+    }
+
+    /// Compute activity risk, percentile flags, and summary statistics.
+    ///
+    /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
+    pub fn enrich(mut self, weights: Option<&crate::scoring::ScoringWeights>) -> Self {
+        self.snapshot.compute_activity_risk(weights);
+        self.snapshot.compute_percentiles();
+        self.snapshot.compute_summary();
+        self
+    }
+
+    /// Consume the enricher and return the fully enriched snapshot.
+    pub fn build(self) -> Snapshot {
+        self.snapshot
     }
 }
 
@@ -333,19 +862,21 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 /// # Atomic Writes
 ///
 /// Uses temp file + rename pattern for atomic writes.
-/// Never overwrites existing snapshots (fails if snapshot already exists).
+/// Persists a snapshot to disk.
+///
+/// When `force` is false, never overwrites an existing snapshot (fails if one already exists
+/// and differs). When `force` is true, overwrites any existing snapshot.
 ///
 /// # Errors
 ///
 /// Returns error if:
-/// - Snapshot file already exists (immutability enforced)
+/// - `force` is false and snapshot file already exists with different content
 /// - Schema version mismatch (if reading existing file)
 /// - I/O errors during write
-pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
+pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
 
-    // Never overwrite existing snapshots (immutability)
-    if snapshot_path.exists() {
+    if snapshot_path.exists() && !force {
         // Verify existing snapshot matches (idempotency check)
         let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
             format!(
@@ -366,7 +897,7 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot) -> Result<()> {
         }
 
         anyhow::bail!(
-            "snapshot already exists and differs: {} (snapshots are immutable)",
+            "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
             snapshot_path.display()
         );
     }
@@ -480,6 +1011,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
 
         let report = FunctionRiskReport {
@@ -492,6 +1028,7 @@ mod tests {
                 nd: 2,
                 fo: 3,
                 ns: 1,
+                loc: 10,
             },
             risk: RiskReport {
                 r_cc: 2.0,
@@ -502,6 +1039,7 @@ mod tests {
             lrs: 4.8,
             band: "moderate".to_string(),
             suppression_reason: None,
+            callees: vec![],
         };
 
         Snapshot::new(git_context, vec![report])
@@ -513,7 +1051,7 @@ mod tests {
 
         // Serialize
         let json = snapshot.to_json().expect("should serialize");
-        assert!(json.contains("\"schema_version\": 1"));
+        assert!(json.contains("\"schema_version\": 2"));
         assert!(json.contains("\"sha\": \"abc123\""));
         assert!(json.contains("\"function_id\""));
 
@@ -527,6 +1065,57 @@ mod tests {
     fn test_function_id_format() {
         let snapshot = create_test_snapshot();
         assert_eq!(snapshot.functions[0].function_id, "src/foo.ts::handler");
+    }
+
+    #[test]
+    fn test_snapshot_enricher_with_churn() {
+        use crate::git::FileChurn;
+        let snapshot = create_test_snapshot();
+        let mut churn_map = std::collections::HashMap::new();
+        churn_map.insert(
+            "src/foo.ts".to_string(),
+            FileChurn {
+                file: "src/foo.ts".to_string(),
+                lines_added: 10,
+                lines_deleted: 5,
+            },
+        );
+        let snapshot = SnapshotEnricher::new(snapshot)
+            .with_churn(&churn_map)
+            .build();
+        let churn = snapshot.functions[0]
+            .churn
+            .as_ref()
+            .expect("churn should be set");
+        assert_eq!(churn.lines_added, 10);
+        assert_eq!(churn.lines_deleted, 5);
+        assert_eq!(churn.net_change, 5);
+    }
+
+    #[test]
+    fn test_snapshot_enricher_enrich_computes_summary() {
+        let snapshot = create_test_snapshot();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let summary = snapshot.summary.as_ref().expect("summary should be set");
+        assert_eq!(summary.total_functions, 1);
+    }
+
+    #[test]
+    fn test_snapshot_enricher_enrich_computes_percentiles() {
+        let snapshot = create_test_snapshot();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        assert!(snapshot.functions[0].percentile.is_some());
+    }
+
+    #[test]
+    fn test_snapshot_enricher_build_passthrough() {
+        let snapshot = create_test_snapshot();
+        let built = SnapshotEnricher::new(snapshot.clone()).build();
+        assert_eq!(
+            built.functions[0].function_id,
+            snapshot.functions[0].function_id
+        );
+        assert_eq!(built.commit.sha, snapshot.commit.sha);
     }
 
     #[test]

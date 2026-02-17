@@ -290,10 +290,18 @@ mod tests {
                 nd: 0,
                 fo: 0,
                 ns: 0,
+                loc: 10,
             },
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
+            activity_risk: None,
+            risk_factors: None,
+            percentile: None,
         }
     }
 

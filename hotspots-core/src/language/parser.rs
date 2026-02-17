@@ -62,7 +62,7 @@ mod tests {
                         local_index: i,
                     },
                     name: Some(format!("test_fn_{}", i)),
-                    span: SourceSpan::new(i * 10, (i + 1) * 10, (i + 1) as u32, 0),
+                    span: SourceSpan::new(i * 10, (i + 1) * 10, (i + 1) as u32, (i + 1) as u32, 0),
                     body: FunctionBody::ecmascript(swc_ecma_ast::BlockStmt {
                         span: swc_common::DUMMY_SP,
                         ctxt: Default::default(),

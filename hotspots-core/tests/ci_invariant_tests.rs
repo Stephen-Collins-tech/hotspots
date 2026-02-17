@@ -15,6 +15,11 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -27,6 +32,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
             nd: 2,
             fo: 3,
             ns: 1,
+            loc: 10,
         },
         risk: RiskReport {
             r_cc: 2.0,
@@ -37,6 +43,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         lrs: 4.8,
         band: "moderate".to_string(),
         suppression_reason: None,
+        callees: vec![],
     };
 
     snapshot::Snapshot::new(git_context, vec![report])
@@ -58,14 +65,14 @@ fn test_snapshot_immutability() {
     let snapshot_path = snapshot::snapshot_path(repo_path, snapshot.commit_sha());
 
     // First persist should succeed
-    snapshot::persist_snapshot(repo_path, &snapshot).expect("first persist should succeed");
+    snapshot::persist_snapshot(repo_path, &snapshot, false).expect("first persist should succeed");
 
     // Read file content after first persist
     let first_content =
         std::fs::read_to_string(&snapshot_path).expect("failed to read snapshot file");
 
     // Second persist with identical snapshot should succeed (idempotency)
-    snapshot::persist_snapshot(repo_path, &snapshot)
+    snapshot::persist_snapshot(repo_path, &snapshot, false)
         .expect("second persist with identical snapshot should succeed (idempotent)");
 
     // File content should be unchanged (immutability)
@@ -115,7 +122,7 @@ fn test_snapshot_filename_equals_commit_sha() {
     let commit_sha = "abc123def456";
     let snapshot = create_test_snapshot(commit_sha, "def456");
 
-    snapshot::persist_snapshot(repo_path, &snapshot).expect("failed to persist snapshot");
+    snapshot::persist_snapshot(repo_path, &snapshot, false).expect("failed to persist snapshot");
 
     // Verify filename equals commit SHA
     let snapshot_path = snapshot::snapshot_path(repo_path, commit_sha);
@@ -142,6 +149,11 @@ fn test_delta_single_parent_only() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -154,6 +166,7 @@ fn test_delta_single_parent_only() {
             nd: 2,
             fo: 3,
             ns: 1,
+            loc: 10,
         },
         risk: RiskReport {
             r_cc: 2.0,
@@ -164,6 +177,7 @@ fn test_delta_single_parent_only() {
         lrs: 4.8,
         band: "moderate".to_string(),
         suppression_reason: None,
+        callees: vec![],
     };
 
     let merge_snapshot = snapshot::Snapshot::new(git_context, vec![report]);
@@ -215,6 +229,11 @@ fn test_delta_negative_deltas_allowed() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let report = FunctionRiskReport {
@@ -227,6 +246,7 @@ fn test_delta_negative_deltas_allowed() {
             nd: 1,
             fo: 1,
             ns: 0,
+            loc: 10,
         }, // Lower than parent
         risk: RiskReport {
             r_cc: 2.0,
@@ -237,6 +257,7 @@ fn test_delta_negative_deltas_allowed() {
         lrs: 2.5, // Lower than parent
         band: "low".to_string(),
         suppression_reason: None,
+        callees: vec![],
     };
 
     let current = snapshot::Snapshot::new(git_context, vec![report]);
@@ -265,6 +286,11 @@ fn test_delta_deleted_functions_explicit() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
     let current = snapshot::Snapshot::new(git_context, vec![]);
 

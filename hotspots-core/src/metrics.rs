@@ -16,6 +16,28 @@ pub struct RawMetrics {
     pub nd: usize,
     pub fo: usize,
     pub ns: usize,
+    pub loc: usize,
+    /// Callee names extracted from AST (for tree-sitter languages).
+    /// Empty for ECMAScript/Rust (which retain regex-based call graph extraction).
+    pub callee_names: Vec<String>,
+}
+
+/// Calculate lines of code (LOC) from source text
+/// Counts physical lines (including blank lines and comments)
+fn calculate_loc(source: &str) -> usize {
+    if source.is_empty() {
+        return 0;
+    }
+    // Count newlines + 1 for the last line (which may not end with \n)
+    source.lines().count()
+}
+
+/// Calculate LOC from tree-sitter node
+fn calculate_loc_from_node(node: &tree_sitter::Node) -> usize {
+    let start_row = node.start_position().row;
+    let end_row = node.end_position().row;
+    // Rows are 0-indexed, so difference + 1 gives line count
+    end_row.saturating_sub(start_row) + 1
 }
 
 /// Extract all metrics for a function
@@ -23,12 +45,24 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     use crate::language::FunctionBody;
 
     match &function.body {
-        FunctionBody::ECMAScript(body) => RawMetrics {
-            cc: cyclomatic_complexity(cfg, body),
-            nd: nesting_depth(body),
-            fo: fan_out(body),
-            ns: non_structured_exits(body),
-        },
+        FunctionBody::ECMAScript(body) => {
+            // Calculate LOC from span (end_line - start_line + 1)
+            let loc = function
+                .span
+                .end_line
+                .saturating_sub(function.span.start_line)
+                + 1;
+
+            let callee_names = ecmascript_extract_callees(body);
+            RawMetrics {
+                cc: cyclomatic_complexity(cfg, body),
+                nd: nesting_depth(body),
+                fo: callee_names.len(),
+                ns: non_structured_exits(body),
+                loc: loc as usize,
+                callee_names,
+            }
+        }
         FunctionBody::Go { .. } => {
             // Extract Go-specific metrics from tree-sitter AST
             extract_go_metrics(function, cfg)
@@ -181,89 +215,45 @@ struct NestingDepthVisitor {
     current_depth: usize,
 }
 
+macro_rules! impl_nesting_visitor {
+    ($($method:ident, $ty:ty, $node:ident);* $(;)?) => {
+        $(
+            fn $method(&mut self, $node: &$ty) {
+                self.current_depth += 1;
+                if self.current_depth > self.max_depth {
+                    self.max_depth = self.current_depth;
+                }
+                $node.visit_children_with(self);
+                self.current_depth -= 1;
+            }
+        )*
+    };
+}
+
 impl Visit for NestingDepthVisitor {
-    fn visit_if_stmt(&mut self, if_stmt: &IfStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        if_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_while_stmt(&mut self, while_stmt: &WhileStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        while_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_do_while_stmt(&mut self, do_while_stmt: &DoWhileStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        do_while_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_stmt(&mut self, for_stmt: &ForStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_in_stmt(&mut self, for_in_stmt: &ForInStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_in_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_for_of_stmt(&mut self, for_of_stmt: &ForOfStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        for_of_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        switch_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
-
-    fn visit_try_stmt(&mut self, try_stmt: &TryStmt) {
-        self.current_depth += 1;
-        if self.current_depth > self.max_depth {
-            self.max_depth = self.current_depth;
-        }
-        try_stmt.visit_children_with(self);
-        self.current_depth -= 1;
-    }
+    impl_nesting_visitor!(
+        visit_if_stmt,     IfStmt,     if_stmt;
+        visit_while_stmt,  WhileStmt,  while_stmt;
+        visit_do_while_stmt, DoWhileStmt, do_while_stmt;
+        visit_for_stmt,    ForStmt,    for_stmt;
+        visit_for_in_stmt, ForInStmt,  for_in_stmt;
+        visit_for_of_stmt, ForOfStmt,  for_of_stmt;
+        visit_switch_stmt, SwitchStmt, switch_stmt;
+        visit_try_stmt,    TryStmt,    try_stmt;
+    );
 }
 
 /// Calculate Fan-Out (FO)
 ///
 /// Count number of unique functions called by this function
-fn fan_out(body: &BlockStmt) -> usize {
+fn ecmascript_extract_callees(body: &BlockStmt) -> Vec<String> {
     let mut visitor = FanOutVisitor {
         calls: std::collections::HashSet::new(),
     };
     body.visit_with(&mut visitor);
-    visitor.calls.len()
+    let mut names: Vec<String> = visitor.calls.into_iter().collect();
+    names.sort();
+    names
 }
 
 struct FanOutVisitor {
@@ -392,142 +382,159 @@ impl Visit for NonStructuredExitVisitor {
 }
 
 // ============================================================================
+// Shared Tree-Sitter Metric Utilities
+//
+// Generic tree-sitter traversals parameterised by language-specific node-kind
+// sets. Per-language code is reduced to providing the right kind lists.
+// ============================================================================
+
+/// Find the first immediate child of `node` whose kind matches `kind`.
+fn ts_find_child_by_kind<'a>(
+    node: tree_sitter::Node<'a>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    let result = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == kind);
+    result
+}
+
+/// Find the first descendant that belongs to `func_kinds` at `start_byte`.
+fn ts_find_function_by_start<'a>(
+    root: tree_sitter::Node<'a>,
+    start_byte: usize,
+    func_kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    if func_kinds.contains(&root.kind()) && root.start_byte() == start_byte {
+        return Some(root);
+    }
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if let Some(found) = ts_find_function_by_start(child, start_byte, func_kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Calculate maximum nesting depth for the given control-structure node kinds.
+fn ts_nesting_depth(body_node: &tree_sitter::Node, nesting_kinds: &[&str]) -> usize {
+    fn recurse(node: tree_sitter::Node, kinds: &[&str], current: usize, max: &mut usize) {
+        let next = if kinds.contains(&node.kind()) {
+            let d = current + 1;
+            if d > *max {
+                *max = d;
+            }
+            d
+        } else {
+            current
+        };
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            recurse(child, kinds, next, max);
+        }
+    }
+    let mut max_depth = 0;
+    recurse(*body_node, nesting_kinds, 0, &mut max_depth);
+    max_depth
+}
+
+/// Count exits whose node kind appears in `exit_kinds`.
+fn ts_non_structured_exits(body_node: &tree_sitter::Node, exit_kinds: &[&str]) -> usize {
+    fn recurse(node: tree_sitter::Node, kinds: &[&str], count: &mut usize) {
+        if kinds.contains(&node.kind()) {
+            *count += 1;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            recurse(child, kinds, count);
+        }
+    }
+    let mut count = 0;
+    recurse(*body_node, exit_kinds, &mut count);
+    count
+}
+
+/// Parse `source` with `language`, locate the function starting at `start_byte`,
+/// find the first matching body child, and call `f(func_node, body_node)`.
+/// Returns `None` if the function or body cannot be found.
+fn ts_with_function_body<R>(
+    source: &str,
+    language: tree_sitter::Language,
+    start_byte: usize,
+    func_kinds: &[&str],
+    body_kinds: &[&str],
+    f: impl FnOnce(tree_sitter::Node, tree_sitter::Node) -> R,
+) -> Option<R> {
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(source, None)?;
+    let root = tree.root_node();
+    let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
+    for kind in body_kinds {
+        if let Some(body_node) = ts_find_child_by_kind(func_node, kind) {
+            return Some(f(func_node, body_node));
+        }
+    }
+    None
+}
+
+// ============================================================================
 // Go Metrics Implementation
 // ============================================================================
 
 /// Extract metrics for Go functions using tree-sitter
 fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_go();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_go::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Go language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Go source");
-    let root = tree.root_node();
-
-    // Find the function node in the tree
-    if let Some(func_node) = find_go_function_by_start(root, function.span.start) {
-        // Find the block (function body)
-        if let Some(body_node) = find_go_child_by_kind(func_node, "block") {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (switch cases, boolean operators)
-            let extra_cc = go_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = go_nesting_depth(&body_node);
-            let fo = go_fan_out(&body_node, source);
-            let ns = go_non_structured_exits(&body_node);
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+    ts_with_function_body(
+        source,
+        tree_sitter_go::LANGUAGE.into(),
+        function.span.start,
+        &["function_declaration", "method_declaration"],
+        &["block"],
+        |func_node, body_node| {
+            let callee_names = go_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + go_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "for_statement",
+                        "switch_statement",
+                        "expression_switch_statement",
+                        "type_switch_statement",
+                        "select_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: go_non_structured_exits(&body_node, source),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
-    }
+        loc: 0,
+        callee_names: vec![],
+    })
 }
 
-/// Find a Go function node by its start byte position
-fn find_go_function_by_start(
-    root: tree_sitter::Node,
-    start_byte: usize,
-) -> Option<tree_sitter::Node> {
-    fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
-        if (node.kind() == "function_declaration" || node.kind() == "method_declaration")
-            && node.start_byte() == start
-        {
-            return Some(node);
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = search_recursive(child, start) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    search_recursive(root, start_byte)
-}
-
-/// Find a child node by kind
-#[allow(clippy::manual_find)]
-fn find_go_child_by_kind<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
-}
-
-/// Calculate nesting depth for Go function
-fn go_nesting_depth(body_node: &tree_sitter::Node) -> usize {
-    fn calculate_depth(node: tree_sitter::Node, current_depth: usize, max_depth: &mut usize) {
-        // Increment depth for control structures
-        let new_depth = if matches!(
-            node.kind(),
-            "if_statement"
-                | "for_statement"
-                | "switch_statement"
-                | "expression_switch_statement"
-                | "type_switch_statement"
-                | "select_statement"
-        ) {
-            let depth = current_depth + 1;
-            if depth > *max_depth {
-                *max_depth = depth;
-            }
-            depth
-        } else {
-            current_depth
-        };
-
-        // Recurse into children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            calculate_depth(child, new_depth, max_depth);
-        }
-    }
-
-    let mut max_depth = 0;
-    calculate_depth(*body_node, 0, &mut max_depth);
-    max_depth
-}
-
-/// Calculate fan-out for Go function (function calls + go statements)
-fn go_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
+/// Extract callee names from a Go function body (function calls + go statements).
+/// Returns the unique set of callee name strings (used for both fo metric and call graph).
+fn go_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
     use std::collections::HashSet;
 
-    fn count_calls(node: tree_sitter::Node, source: &str, calls: &mut HashSet<String>) {
+    fn collect(node: tree_sitter::Node, source: &str, calls: &mut HashSet<String>) {
         match node.kind() {
             "call_expression" => {
-                // Extract function name
-                if let Some(func_node) = find_go_child_by_kind(node, "identifier")
-                    .or_else(|| find_go_child_by_kind(node, "selector_expression"))
+                if let Some(func_node) = ts_find_child_by_kind(node, "identifier")
+                    .or_else(|| ts_find_child_by_kind(node, "selector_expression"))
                 {
                     let func_text = &source[func_node.start_byte()..func_node.end_byte()];
                     calls.insert(func_text.to_string());
@@ -539,32 +546,42 @@ fn go_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
             }
             _ => {}
         }
-
-        // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Calculate non-structured exits for Go function
-fn go_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
-    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
+fn go_non_structured_exits(body_node: &tree_sitter::Node, source: &str) -> usize {
+    fn count_exits(node: tree_sitter::Node, source: &str, count: &mut usize) {
         match node.kind() {
             "return_statement" => *count += 1,
             "defer_statement" => *count += 1,
             "expression_statement" => {
-                // Check if this is a panic call
-                if let Some(call) = find_go_child_by_kind(node, "call_expression") {
-                    if let Some(_ident) = find_go_child_by_kind(call, "identifier") {
-                        // Would need source to check if it's "panic", but we can approximate
-                        // by checking node structure
-                        *count += 1;
+                if let Some(call) = ts_find_child_by_kind(node, "call_expression") {
+                    // Bare panic() call
+                    if let Some(ident) = ts_find_child_by_kind(call, "identifier") {
+                        let name = &source[ident.start_byte()..ident.end_byte()];
+                        if name == "panic" {
+                            *count += 1;
+                        }
+                    }
+                    // os.Exit / log.Fatal* via selector_expression
+                    else if let Some(sel) = ts_find_child_by_kind(call, "selector_expression") {
+                        if let Some(field) = ts_find_child_by_kind(sel, "field_identifier") {
+                            let field_name = &source[field.start_byte()..field.end_byte()];
+                            if matches!(field_name, "Exit" | "Fatal" | "Fatalf" | "Fatalln") {
+                                *count += 1;
+                            }
+                        }
                     }
                 }
             }
@@ -574,12 +591,12 @@ fn go_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_exits(child, count);
+            count_exits(child, source, count);
         }
     }
 
     let mut count = 0;
-    count_exits(*body_node, &mut count);
+    count_exits(*body_node, source, &mut count);
 
     // Subtract 1 if the last statement is a return (final tail return)
     // This is an approximation - would need more sophisticated AST analysis
@@ -596,19 +613,22 @@ fn go_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
 }
 
 /// Count additional cyclomatic complexity contributors for Go
-fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_extras(node: tree_sitter::Node, source: &str, count: &mut usize) {
+fn go_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
         match node.kind() {
             // Count switch/select cases
             "expression_case" | "default_case" | "communication_case" | "type_case" => {
                 *count += 1;
             }
-            // Count boolean operators
+            // Count boolean operators — check the operator child directly to
+            // avoid false positives from nested logical operators in sub-expressions
             "binary_expression" => {
-                // Check if it's && or ||
-                let op_text = &source[node.start_byte()..node.end_byte()];
-                if op_text.contains("&&") || op_text.contains("||") {
-                    *count += 1;
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *count += 1;
+                        break;
+                    }
                 }
             }
             _ => {}
@@ -617,12 +637,12 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
         // Recurse into children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_extras(child, source, count);
+            count_extras(child, count);
         }
     }
 
     let mut count = 0;
-    count_extras(*body_node, source, &mut count);
+    count_extras(*body_node, &mut count);
     count
 }
 
@@ -635,194 +655,98 @@ fn go_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
 /// Extract metrics for Java functions using tree-sitter
 fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_java();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_java::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Java language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Java source");
-    let root = tree.root_node();
-
-    // Find the function/method node in the tree
-    if let Some(func_node) = find_java_function_by_start(root, function.span.start) {
-        // Find the block (method body) or constructor_body
-        if let Some(body_node) = find_java_child_by_kind(func_node, "block")
-            .or_else(|| find_java_child_by_kind(func_node, "constructor_body"))
-        {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (ternary, boolean operators, etc.)
-            let extra_cc = java_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = java_nesting_depth(&body_node);
-            let fo = java_fan_out(&body_node, source);
-            let ns = java_non_structured_exits(&body_node);
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+    ts_with_function_body(
+        source,
+        tree_sitter_java::LANGUAGE.into(),
+        function.span.start,
+        &["method_declaration", "constructor_declaration"],
+        &["block", "constructor_body"],
+        |func_node, body_node| {
+            let callee_names = java_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + java_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "enhanced_for_statement",
+                        "switch_statement",
+                        "switch_expression",
+                        "try_statement",
+                        "synchronized_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "throw_statement",
+                        "break_statement",
+                        "continue_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
-    }
+        loc: 0,
+        callee_names: vec![],
+    })
 }
 
-/// Find a Java function/method node by its start byte position
-fn find_java_function_by_start(
-    root: tree_sitter::Node,
-    start_byte: usize,
-) -> Option<tree_sitter::Node> {
-    fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
-        if (node.kind() == "method_declaration" || node.kind() == "constructor_declaration")
-            && node.start_byte() == start
-        {
-            return Some(node);
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = search_recursive(child, start) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    search_recursive(root, start_byte)
-}
-
-/// Find a child node by kind
-#[allow(clippy::manual_find)]
-fn find_java_child_by_kind<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
-}
-
-/// Calculate nesting depth for Java function
-fn java_nesting_depth(body_node: &tree_sitter::Node) -> usize {
-    fn calculate_depth(node: tree_sitter::Node, current_depth: usize, max_depth: &mut usize) {
-        // Increment depth for control structures
-        let new_depth = if matches!(
-            node.kind(),
-            "if_statement"
-                | "while_statement"
-                | "do_statement"
-                | "for_statement"
-                | "enhanced_for_statement"
-                | "switch_statement"
-                | "switch_expression"
-                | "try_statement"
-                | "synchronized_statement"
-        ) {
-            let depth = current_depth + 1;
-            if depth > *max_depth {
-                *max_depth = depth;
-            }
-            depth
-        } else {
-            current_depth
-        };
-
-        // Recursively check children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            calculate_depth(child, new_depth, max_depth);
-        }
-    }
-
-    let mut max_depth = 0;
-    calculate_depth(*body_node, 0, &mut max_depth);
-    max_depth
-}
-
-/// Count method calls (fan-out) in Java
-fn java_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(
+/// Extract callee names from a Java function body.
+/// Returns the unique set of method invocation strings.
+fn java_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
         node: tree_sitter::Node,
         source: &str,
         calls: &mut std::collections::HashSet<String>,
     ) {
-        // Java uses "method_invocation" node for method calls
         if node.kind() == "method_invocation" {
-            // Extract the method name
             let method_text = &source[node.start_byte()..node.end_byte()];
             calls.insert(method_text.to_string());
         }
-
-        // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = std::collections::HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
-}
-
-/// Count non-structured exits in Java (return, throw, break, continue)
-fn java_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
-    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
-        match node.kind() {
-            "return_statement" | "throw_statement" | "break_statement" | "continue_statement" => {
-                *count += 1;
-            }
-            _ => {}
-        }
-
-        // Recursively check children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            count_exits(child, count);
-        }
-    }
-
-    let mut count = 0;
-    count_exits(*body_node, &mut count);
-    count
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Count additional CC contributors in Java
 /// (ternary expressions, boolean operators)
-fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_extras(node: tree_sitter::Node, source: &str, count: &mut usize) {
+fn java_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
         match node.kind() {
             // Ternary expressions (conditional_expression) add to CC
             "ternary_expression" => {
                 *count += 1;
             }
-            // Binary expressions with && or || add to CC
+            // Binary expressions with && or || add to CC — check the operator
+            // child directly to avoid false positives from nested sub-expressions
             "binary_expression" => {
-                // Check if operator is && or ||
-                let text = &source[node.start_byte()..node.end_byte()];
-                if text.contains("&&") || text.contains("||") {
-                    *count += 1;
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *count += 1;
+                        break;
+                    }
                 }
             }
             _ => {}
@@ -831,12 +755,12 @@ fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
         // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_extras(child, source, count);
+            count_extras(child, count);
         }
     }
 
     let mut count = 0;
-    count_extras(*body_node, source, &mut count);
+    count_extras(*body_node, &mut count);
     count
 }
 
@@ -847,175 +771,78 @@ fn java_count_cc_extras(body_node: &tree_sitter::Node, source: &str) -> usize {
 /// Extract metrics for Python functions using tree-sitter
 fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let (_body_node_id, source) = function.body.as_python();
-
-    // Re-parse the source to get the tree
-    use tree_sitter::Parser;
-    let mut parser = Parser::new();
-    let language = tree_sitter_python::LANGUAGE;
-    parser
-        .set_language(&language.into())
-        .expect("Failed to set Python language");
-
-    let tree = parser
-        .parse(source, None)
-        .expect("Failed to re-parse Python source");
-    let root = tree.root_node();
-
-    // Find the function node in the tree
-    if let Some(func_node) = find_python_function_by_start(root, function.span.start) {
-        // Find the block (function body)
-        if let Some(body_node) = find_python_child_by_kind(func_node, "block") {
-            // Calculate base CC from CFG
-            let base_cc = calculate_cc_from_cfg(cfg);
-
-            // Count additional CC contributors (comprehensions, boolean operators, etc.)
-            let extra_cc = python_count_cc_extras(&body_node, source);
-
-            // Calculate other metrics from AST
-            let nd = python_nesting_depth(&body_node);
-            let fo = python_fan_out(&body_node, source);
-            let ns = python_non_structured_exits(&body_node);
-
-            return RawMetrics {
-                cc: base_cc + extra_cc,
-                nd,
-                fo,
-                ns,
-            };
-        }
-    }
-
-    // Fallback: return minimal metrics
-    RawMetrics {
+    ts_with_function_body(
+        source,
+        tree_sitter_python::LANGUAGE.into(),
+        function.span.start,
+        &["function_definition", "async_function_definition"],
+        &["block"],
+        |func_node, body_node| {
+            let callee_names = python_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + python_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "for_statement",
+                        "try_statement",
+                        "with_statement",
+                        "match_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "raise_statement",
+                        "break_statement",
+                        "continue_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
         cc: 1,
         nd: 0,
         fo: 0,
         ns: 0,
-    }
+        loc: 0,
+        callee_names: vec![],
+    })
 }
 
-/// Find a Python function node by its start byte position
-fn find_python_function_by_start(
-    root: tree_sitter::Node,
-    start_byte: usize,
-) -> Option<tree_sitter::Node> {
-    fn search_recursive(node: tree_sitter::Node, start: usize) -> Option<tree_sitter::Node> {
-        if (node.kind() == "function_definition" || node.kind() == "async_function_definition")
-            && node.start_byte() == start
-        {
-            return Some(node);
-        }
-
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if let Some(found) = search_recursive(child, start) {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    search_recursive(root, start_byte)
-}
-
-/// Find a child node by kind
-#[allow(clippy::manual_find)]
-fn find_python_child_by_kind<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
-}
-
-/// Calculate nesting depth for Python function
-fn python_nesting_depth(body_node: &tree_sitter::Node) -> usize {
-    fn calculate_depth(node: tree_sitter::Node, current_depth: usize, max_depth: &mut usize) {
-        // Increment depth for control structures
-        let new_depth = if matches!(
-            node.kind(),
-            "if_statement"
-                | "while_statement"
-                | "for_statement"
-                | "try_statement"
-                | "with_statement"
-                | "match_statement"
-        ) {
-            let depth = current_depth + 1;
-            if depth > *max_depth {
-                *max_depth = depth;
-            }
-            depth
-        } else {
-            current_depth
-        };
-
-        // Recursively check children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            calculate_depth(child, new_depth, max_depth);
-        }
-    }
-
-    let mut max_depth = 0;
-    calculate_depth(*body_node, 0, &mut max_depth);
-    max_depth
-}
-
-/// Count function calls (fan-out) in Python
-fn python_fan_out(body_node: &tree_sitter::Node, source: &str) -> usize {
-    fn count_calls(
+/// Extract callee names from a Python function body.
+/// Returns the unique set of call target strings.
+fn python_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
         node: tree_sitter::Node,
         source: &str,
         calls: &mut std::collections::HashSet<String>,
     ) {
-        // Python uses "call" node for function calls
         if node.kind() == "call" {
-            // Try to extract the function name
             let mut cursor = node.walk();
             if let Some(func_node) = node.children(&mut cursor).next() {
                 let func_text = &source[func_node.start_byte()..func_node.end_byte()];
                 calls.insert(func_text.to_string());
             };
         }
-
-        // Recursively check children
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            count_calls(child, source, calls);
+            collect(child, source, calls);
         }
     }
 
     let mut calls = std::collections::HashSet::new();
-    count_calls(*body_node, source, &mut calls);
-    calls.len()
-}
-
-/// Count non-structured exits in Python (return, raise, break, continue)
-fn python_non_structured_exits(body_node: &tree_sitter::Node) -> usize {
-    fn count_exits(node: tree_sitter::Node, count: &mut usize) {
-        match node.kind() {
-            "return_statement" | "raise_statement" | "break_statement" | "continue_statement" => {
-                *count += 1;
-            }
-            _ => {}
-        }
-
-        // Recursively check children
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            count_exits(child, count);
-        }
-    }
-
-    let mut count = 0;
-    count_exits(*body_node, &mut count);
-    count
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Count additional CC contributors in Python
@@ -1080,6 +907,8 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 nd: 0,
                 fo: 0,
                 ns: 0,
+                loc: 0,
+                callee_names: vec![],
             };
         }
     };
@@ -1087,14 +916,16 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
     let base_cc = calculate_cc_from_cfg(cfg);
     let extra_cc = rust_count_cc_extras(&item_fn.block);
     let nd = rust_nesting_depth(&item_fn.block);
-    let fo = rust_fan_out(&item_fn.block);
+    let callee_names = rust_extract_callees(&item_fn.block);
     let ns = rust_non_structured_exits(&item_fn.block);
 
     RawMetrics {
         cc: base_cc + extra_cc,
         nd,
-        fo,
+        fo: callee_names.len(),
         ns,
+        loc: calculate_loc(source),
+        callee_names,
     }
 }
 
@@ -1162,8 +993,9 @@ fn rust_nesting_depth(block: &syn::Block) -> usize {
     max_depth
 }
 
-/// Calculate fan-out for Rust function
-fn rust_fan_out(block: &syn::Block) -> usize {
+/// Extract callee names from a Rust function body.
+/// Returns the deduplicated, sorted set of called function/method/macro names.
+fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
     use std::collections::HashSet;
     use syn::{Expr, ExprCall, ExprMethodCall, Stmt};
 
@@ -1252,7 +1084,9 @@ fn rust_fan_out(block: &syn::Block) -> usize {
 
     let mut calls = HashSet::new();
     count_calls(&block.stmts, &mut calls);
-    calls.len()
+    let mut names: Vec<String> = calls.into_iter().collect();
+    names.sort();
+    names
 }
 
 /// Calculate non-structured exits for Rust function
@@ -1412,4 +1246,463 @@ fn rust_count_cc_extras(block: &syn::Block) -> usize {
     count
 }
 
-// Note: Rust metrics tests are integrated with parser/cfg_builder tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::{
+        CfgBuilder, ECMAScriptCfgBuilder, ECMAScriptParser, GoCfgBuilder, GoParser, JavaCfgBuilder,
+        JavaParser, LanguageParser, PythonCfgBuilder, PythonParser, RustCfgBuilder,
+    };
+
+    /// Helper: parse Go source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn go_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = GoParser::new().unwrap();
+        let module = parser.parse(source, "test.go").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(!functions.is_empty(), "expected at least one Go function");
+        let func = functions.into_iter().next().unwrap();
+        let cfg = GoCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse Java source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn java_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = JavaParser::new().unwrap();
+        let module = parser.parse(source, "Test.java").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(!functions.is_empty(), "expected at least one Java function");
+        let func = functions.into_iter().next().unwrap();
+        let cfg = JavaCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse Python source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn python_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = PythonParser::new().unwrap();
+        let module = parser.parse(source, "test.py").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(
+            !functions.is_empty(),
+            "expected at least one Python function"
+        );
+        let func = functions.into_iter().next().unwrap();
+        let cfg = PythonCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse TypeScript source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn ecmascript_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        use swc_common::{sync::Lrc, SourceMap};
+        let source_map: Lrc<SourceMap> = Default::default();
+        let parser = ECMAScriptParser::new(source_map);
+        let module = parser.parse(source, "test.ts").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(
+            !functions.is_empty(),
+            "expected at least one ECMAScript function"
+        );
+        let func = functions.into_iter().next().unwrap();
+        let cfg = ECMAScriptCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: build a Rust FunctionNode + Cfg from a function source string.
+    fn rust_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("test".to_string()),
+            span: SourceSpan::new(0, source.len(), 1, 1, 0),
+            body: FunctionBody::Rust {
+                source: source.to_string(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = RustCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    // ── Go ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_go_simple_function() {
+        let source = r#"package main
+func hello() {
+    println("hi")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert_eq!(m.ns, 0, "no non-structured exits");
+        assert!(m.loc >= 3, "at least 3 lines");
+        assert!(m.callee_names.contains(&"println".to_string()));
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_go_if_increments_cc_and_nd() {
+        let source = r#"package main
+func check(x int) string {
+    if x > 0 {
+        if x > 100 {
+            return "big"
+        }
+        return "positive"
+    }
+    return "non-positive"
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_go_callee_names_and_fanout() {
+        let source = r#"package main
+import "fmt"
+func doWork() {
+    fmt.Println("a")
+    fmt.Println("b")
+    len("x")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // callee_names is a deduplicated set
+        assert!(
+            m.callee_names.contains(&"fmt.Println".to_string())
+                || m.callee_names.iter().any(|n| n.contains("Println")),
+            "expected Println in callees: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_go_defer_counts_as_ns() {
+        let source = r#"package main
+func withDefer() {
+    defer cleanup()
+    doWork()
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.ns >= 1,
+            "defer should count as non-structured exit, got {}",
+            m.ns
+        );
+    }
+
+    #[test]
+    fn test_extract_go_fallback_on_bad_source() {
+        // A FunctionNode whose body source is empty/unparseable yields the fallback metrics.
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Go {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "fallback cc");
+        assert_eq!(m.nd, 0);
+        assert_eq!(m.fo, 0);
+        assert_eq!(m.ns, 0);
+        assert_eq!(m.loc, 0);
+        assert!(m.callee_names.is_empty());
+    }
+
+    // ── Java ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_java_simple_method() {
+        let source = r#"class Foo {
+    void greet() {
+        System.out.println("hello");
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert!(m.loc >= 3);
+        assert!(m.fo >= 1, "at least one callee");
+    }
+
+    #[test]
+    fn test_extract_java_if_increments_cc_and_nd() {
+        let source = r#"class Foo {
+    String classify(int x) {
+        if (x > 0) {
+            if (x > 100) {
+                return "big";
+            }
+            return "positive";
+        }
+        return "non-positive";
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_java_ternary_increments_cc() {
+        let source = r#"class Foo {
+    int sign(int x) {
+        return x > 0 ? 1 : -1;
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // ternary adds 1 to CC via java_count_cc_extras
+        assert!(m.cc >= 2, "ternary → CC >= 2, got {}", m.cc);
+    }
+
+    #[test]
+    fn test_extract_java_fallback_on_bad_source() {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Java {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1);
+        assert_eq!(m.fo, 0);
+        assert!(m.callee_names.is_empty());
+    }
+
+    // ── Python ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_python_simple_function() {
+        let source = r#"def greet():
+    print("hello")
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 1, "CC must be at least 1, got {}", m.cc);
+        assert_eq!(m.nd, 0, "no nesting");
+        assert!(m.loc >= 2);
+        assert!(m.callee_names.contains(&"print".to_string()));
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_python_if_increments_cc_and_nd() {
+        let source = r#"def classify(x):
+    if x > 0:
+        if x > 100:
+            return "big"
+        return "positive"
+    return "non-positive"
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.cc >= 2, "two branches → CC >= 2, got {}", m.cc);
+        assert!(m.nd >= 2, "nested ifs → ND >= 2, got {}", m.nd);
+        assert!(m.ns >= 2, "multiple returns → NS >= 2, got {}", m.ns);
+    }
+
+    #[test]
+    fn test_extract_python_callee_names_and_fanout() {
+        let source = r#"def do_work():
+    foo()
+    bar()
+    foo()
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo appears twice but callee_names is deduplicated
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_python_fallback_on_bad_source() {
+        use crate::ast::FunctionId;
+        use crate::language::{FunctionBody, SourceSpan};
+        let func = crate::ast::FunctionNode {
+            id: FunctionId {
+                file_index: 0,
+                local_index: 0,
+            },
+            name: Some("bad".to_string()),
+            span: SourceSpan::new(0, 0, 1, 1, 0),
+            body: FunctionBody::Python {
+                body_node: 0,
+                source: String::new(),
+            },
+            suppression_reason: None,
+        };
+        let cfg = crate::cfg::Cfg::new();
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1);
+        assert_eq!(m.fo, 0);
+        assert!(m.callee_names.is_empty());
+    }
+
+    // ── ECMAScript ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_ecmascript_callee_names_direct_call() {
+        let source = r#"function doWork() { foo(); bar(); foo(); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo appears twice but callee_names is deduplicated
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_ecmascript_callee_names_method_call() {
+        let source = r#"function doWork() { obj.method(); console.log("x"); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(m.fo >= 1, "method calls counted in fo");
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_ecmascript_no_calls() {
+        let source = r#"function pure(x: number) { return x + 1; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.fo, 0, "no calls → fo=0");
+        assert!(m.callee_names.is_empty(), "no calls → empty callee_names");
+    }
+
+    #[test]
+    fn test_extract_ecmascript_computed_callee_filtered() {
+        // Dynamic calls like arr[0]() produce <computed> — should be filtered
+        let source = r#"function dyn(arr: any[]) { arr[0](); }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // <computed> should not appear in callee_names
+        assert!(
+            !m.callee_names.iter().any(|n| n == "<computed>"),
+            "computed callees must be filtered: {:?}",
+            m.callee_names
+        );
+    }
+
+    // ── Rust ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_rust_callee_names_function_call() {
+        let source = r#"fn do_work() { foo(); bar(); foo(); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"foo".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert!(
+            m.callee_names.contains(&"bar".to_string()),
+            "callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len(), "fo == callee_names.len()");
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_method_call() {
+        let source = r#"fn do_work(v: Vec<i32>) -> usize { v.len() }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"len".to_string()),
+            "method call in callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_macro_call() {
+        let source = r#"fn greet() { println!("hello"); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert!(
+            m.callee_names.contains(&"println".to_string()),
+            "macro in callee_names: {:?}",
+            m.callee_names
+        );
+        assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_no_calls() {
+        let source = r#"fn pure(x: i32) -> i32 { x + 1 }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.fo, 0, "no calls → fo=0");
+        assert!(m.callee_names.is_empty(), "no calls → empty callee_names");
+    }
+
+    #[test]
+    fn test_extract_rust_deduplication() {
+        let source = r#"fn work() { foo(); foo(); foo(); bar(); }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        // foo called 3 times, bar once — deduplicated to 2 unique callees
+        assert_eq!(m.fo, 2, "deduplicated: foo+bar = 2");
+        assert_eq!(m.callee_names, vec!["bar", "foo"], "sorted callee_names");
+    }
+}

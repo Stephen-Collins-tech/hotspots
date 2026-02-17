@@ -43,6 +43,19 @@ impl PolicyId {
             PolicyId::SuppressionMissingReason => "suppression-missing-reason",
         }
     }
+
+    /// Deterministic sort priority (lower = earlier in output)
+    fn sort_order(self) -> u8 {
+        match self {
+            PolicyId::CriticalIntroduction => 0,
+            PolicyId::ExcessiveRiskRegression => 1,
+            PolicyId::WatchThreshold => 2,
+            PolicyId::AttentionThreshold => 3,
+            PolicyId::RapidGrowth => 4,
+            PolicyId::SuppressionMissingReason => 5,
+            PolicyId::NetRepoRegression => 6,
+        }
+    }
 }
 
 /// Policy severity
@@ -118,45 +131,8 @@ impl Default for PolicyResults {
 
 /// Compare policy results for deterministic ordering
 fn compare_policy_results(a: &PolicyResult, b: &PolicyResult) -> Ordering {
-    use PolicyId::*;
-
-    // Primary: by id (enum discriminant order)
-    // Order: CriticalIntroduction → ExcessiveRiskRegression → WatchThreshold → AttentionThreshold → RapidGrowth → SuppressionMissingReason → NetRepoRegression
-    let id_order = match (a.id, b.id) {
-        // Same IDs are equal
-        (CriticalIntroduction, CriticalIntroduction) => Ordering::Equal,
-        (ExcessiveRiskRegression, ExcessiveRiskRegression) => Ordering::Equal,
-        (WatchThreshold, WatchThreshold) => Ordering::Equal,
-        (AttentionThreshold, AttentionThreshold) => Ordering::Equal,
-        (RapidGrowth, RapidGrowth) => Ordering::Equal,
-        (SuppressionMissingReason, SuppressionMissingReason) => Ordering::Equal,
-        (NetRepoRegression, NetRepoRegression) => Ordering::Equal,
-
-        // CriticalIntroduction is always first
-        (CriticalIntroduction, _) => Ordering::Less,
-        (_, CriticalIntroduction) => Ordering::Greater,
-
-        // ExcessiveRiskRegression is second
-        (ExcessiveRiskRegression, _) => Ordering::Less,
-        (_, ExcessiveRiskRegression) => Ordering::Greater,
-
-        // WatchThreshold is third
-        (WatchThreshold, _) => Ordering::Less,
-        (_, WatchThreshold) => Ordering::Greater,
-
-        // AttentionThreshold is fourth
-        (AttentionThreshold, _) => Ordering::Less,
-        (_, AttentionThreshold) => Ordering::Greater,
-
-        // RapidGrowth is fifth
-        (RapidGrowth, _) => Ordering::Less,
-        (_, RapidGrowth) => Ordering::Greater,
-
-        // SuppressionMissingReason is sixth
-        (SuppressionMissingReason, _) => Ordering::Less,
-        (_, SuppressionMissingReason) => Ordering::Greater,
-    };
-
+    // Primary: by id priority
+    let id_order = a.id.sort_order().cmp(&b.id.sort_order());
     if id_order != Ordering::Equal {
         return id_order;
     }
@@ -168,6 +144,11 @@ fn compare_policy_results(a: &PolicyResult, b: &PolicyResult) -> Ordering {
         (Some(_), None) => Ordering::Less,
         (Some(a_id), Some(b_id)) => a_id.cmp(b_id),
     }
+}
+
+/// Iterate over delta entries that have not been suppressed
+fn active_deltas(deltas: &[FunctionDeltaEntry]) -> impl Iterator<Item = &FunctionDeltaEntry> {
+    deltas.iter().filter(|e| e.suppression_reason.is_none())
 }
 
 /// Evaluate all policies on a delta
@@ -222,12 +203,7 @@ pub fn evaluate_policies(
 fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
     const CRITICAL_BAND: &str = "critical";
 
-    for entry in deltas {
-        // Skip suppressed functions
-        if entry.suppression_reason.is_some() {
-            continue;
-        }
-
+    for entry in active_deltas(deltas) {
         // Check if function becomes Critical
         let becomes_critical = if let Some(after) = &entry.after {
             after.band == CRITICAL_BAND
@@ -269,12 +245,7 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
 fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
     const REGRESSION_THRESHOLD: f64 = 1.0;
 
-    for entry in deltas {
-        // Skip suppressed functions
-        if entry.suppression_reason.is_some() {
-            continue;
-        }
-
+    for entry in active_deltas(deltas) {
         // Only check Modified functions
         if entry.status != FunctionStatus::Modified {
             continue;
@@ -313,12 +284,7 @@ fn evaluate_watch_threshold(
     config: &ResolvedConfig,
     results: &mut PolicyResults,
 ) {
-    for entry in deltas {
-        // Skip suppressed functions
-        if entry.suppression_reason.is_some() {
-            continue;
-        }
-
+    for entry in active_deltas(deltas) {
         // Only check New or Modified functions
         if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
             continue;
@@ -375,12 +341,7 @@ fn evaluate_attention_threshold(
     config: &ResolvedConfig,
     results: &mut PolicyResults,
 ) {
-    for entry in deltas {
-        // Skip suppressed functions
-        if entry.suppression_reason.is_some() {
-            continue;
-        }
-
+    for entry in active_deltas(deltas) {
         // Only check New or Modified functions
         if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
             continue;
@@ -438,12 +399,7 @@ fn evaluate_rapid_growth(
     config: &ResolvedConfig,
     results: &mut PolicyResults,
 ) {
-    for entry in deltas {
-        // Skip suppressed functions
-        if entry.suppression_reason.is_some() {
-            continue;
-        }
-
+    for entry in active_deltas(deltas) {
         // Only check Modified functions
         if entry.status != FunctionStatus::Modified {
             continue;
@@ -580,6 +536,7 @@ mod tests {
                 nd: 2,
                 fo: 2,
                 ns: 1,
+                loc: 10,
             },
             lrs: 3.9,
             band: band.to_string(),
@@ -591,6 +548,7 @@ mod tests {
                 nd: 3,
                 fo: 3,
                 ns: 1,
+                loc: 15,
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: band.to_string(),
@@ -808,6 +766,11 @@ mod tests {
             timestamp: 1705600000,
             branch: Some("main".to_string()),
             is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
         };
         let snapshot = Snapshot::new(git_context, vec![]);
 
@@ -829,6 +792,7 @@ mod tests {
                 nd: 2,
                 fo: 2,
                 ns: 1,
+                loc: 10,
             },
             lrs,
             band: if lrs >= 9.0 {
@@ -848,6 +812,7 @@ mod tests {
                 nd: 3,
                 fo: 3,
                 ns: 1,
+                loc: 15,
             },
             lrs,
             band: if lrs >= 9.0 {

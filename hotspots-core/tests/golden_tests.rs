@@ -642,3 +642,109 @@ fn test_python_golden_determinism() {
         "Python output must be byte-for-byte identical across runs"
     );
 }
+
+// Call graph golden tests — verify fan-out deduplication and LOC
+
+#[test]
+fn test_golden_call_graph() {
+    test_golden("call-graph");
+}
+
+/// Verify that `fo` reflects deduplicated unique callees (helper called twice → fo=1)
+#[test]
+fn test_golden_call_graph_deduplication() {
+    let fixture = fixture_path("call-graph.ts");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports = analyze(&fixture, options).expect("analysis should succeed");
+
+    let helper = reports.iter().find(|r| r.function == "helper").unwrap();
+    let middle = reports.iter().find(|r| r.function == "middle").unwrap();
+    let top = reports.iter().find(|r| r.function == "top").unwrap();
+
+    // helper has no calls
+    assert_eq!(helper.metrics.fo, 0, "helper fo should be 0");
+    // middle calls helper() twice — deduplicated to 1 unique callee
+    assert_eq!(middle.metrics.fo, 1, "middle fo should be 1 (deduplicated)");
+    // top calls helper() + middle() = 2 unique callees
+    assert_eq!(top.metrics.fo, 2, "top fo should be 2");
+
+    // LOC: each 3-line function body (open brace, body, close brace)
+    assert_eq!(helper.metrics.loc, 3);
+    assert_eq!(middle.metrics.loc, 3);
+    assert_eq!(top.metrics.loc, 3);
+}
+
+#[test]
+fn test_go_golden_call_graph() {
+    test_go_golden("call_graph");
+}
+
+/// Verify Go fan-out deduplication mirrors TypeScript behavior
+#[test]
+fn test_go_golden_call_graph_deduplication() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("go")
+        .join("call_graph.go");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports = analyze(&fixture, options).expect("analysis should succeed");
+
+    let helper = reports.iter().find(|r| r.function == "helper").unwrap();
+    let middle = reports.iter().find(|r| r.function == "middle").unwrap();
+    let top = reports.iter().find(|r| r.function == "top").unwrap();
+
+    assert_eq!(helper.metrics.fo, 0);
+    assert_eq!(
+        middle.metrics.fo, 1,
+        "Go middle fo should be 1 (deduplicated)"
+    );
+    assert_eq!(top.metrics.fo, 2);
+}
+
+/// Cross-language extended metrics determinism: LOC and fo must be identical across runs
+#[test]
+fn test_extended_metrics_determinism() {
+    let fixtures: &[(&str, &str)] = &[
+        ("simple.ts", "ts"),
+        ("nested-branching.ts", "ts"),
+        ("loop-breaks.ts", "ts"),
+    ];
+
+    for (fixture_name, _lang) in fixtures {
+        let fixture = fixture_path(fixture_name);
+        let options1 = AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        };
+        let options2 = AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        };
+        let reports1 = analyze(&fixture, options1)
+            .unwrap_or_else(|e| panic!("failed to analyze {}: {}", fixture_name, e));
+        let reports2 = analyze(&fixture, options2)
+            .unwrap_or_else(|e| panic!("failed to analyze {}: {}", fixture_name, e));
+
+        for (r1, r2) in reports1.iter().zip(reports2.iter()) {
+            assert_eq!(
+                r1.metrics.loc, r2.metrics.loc,
+                "LOC not deterministic for {} in {}",
+                r1.function, fixture_name
+            );
+            assert_eq!(
+                r1.metrics.fo, r2.metrics.fo,
+                "fan-out not deterministic for {} in {}",
+                r1.function, fixture_name
+            );
+        }
+    }
+}

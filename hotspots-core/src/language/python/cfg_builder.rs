@@ -3,6 +3,7 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
+use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
 use tree_sitter::{Node, Parser};
 
 /// Python CFG builder
@@ -17,17 +18,20 @@ impl CfgBuilder for PythonCfgBuilder {
         // Re-parse the source to get the tree
         let mut parser = Parser::new();
         let language = tree_sitter_python::LANGUAGE;
-        parser
-            .set_language(&language.into())
-            .expect("Failed to set Python language");
-
-        let tree = parser
-            .parse(source, None)
-            .expect("Failed to re-parse Python source");
+        if parser.set_language(&language.into()).is_err() {
+            return Cfg::new();
+        }
+        let Some(tree) = parser.parse(source, None) else {
+            return Cfg::new();
+        };
         let root = tree.root_node();
 
         // Find the function node in the tree
-        if let Some(func_node) = find_function_by_start(root, function.span.start) {
+        if let Some(func_node) = find_function_by_start(
+            root,
+            function.span.start,
+            &["function_definition", "async_function_definition"],
+        ) {
             // Find the block (function body)
             if let Some(body_node) = find_child_by_kind(func_node, "block") {
                 let mut builder = PythonCfgBuilderState::new();
@@ -477,36 +481,6 @@ fn has_control_flow_recursive<'a>(
     }
 }
 
-/// Find a function node by start position
-fn find_function_by_start(node: Node, start: usize) -> Option<Node> {
-    if (node.kind() == "function_definition" || node.kind() == "async_function_definition")
-        && node.start_byte() == start
-    {
-        return Some(node);
-    }
-
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_function_by_start(child, start) {
-            return Some(found);
-        }
-    }
-
-    None
-}
-
-/// Find a child node by kind
-#[allow(clippy::manual_find)]
-fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,6 +515,7 @@ mod tests {
                 start_byte,
                 func_node.end_byte(),
                 func_node.start_position().row as u32 + 1,
+                func_node.end_position().row as u32 + 1,
                 func_node.start_position().column as u32,
             ),
             body: FunctionBody::Python {

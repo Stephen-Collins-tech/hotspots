@@ -90,6 +90,7 @@ fn test_suppression_missing_reason_policy() {
                 nd: 0,
                 fo: 0,
                 ns: 0,
+                loc: 10,
             },
             lrs: 1.0,
             band: "low".to_string(),
@@ -117,6 +118,11 @@ fn test_suppression_missing_reason_policy() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);
@@ -151,6 +157,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
                 nd: 10,
                 fo: 5,
                 ns: 3,
+                loc: 50,
             },
             lrs: 50.0,
             band: "critical".to_string(),
@@ -178,6 +185,11 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);
@@ -208,6 +220,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
                 nd: 10,
                 fo: 5,
                 ns: 3,
+                loc: 50,
             },
             lrs: 50.0,
             band: "critical".to_string(),
@@ -235,6 +248,11 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
         timestamp: 1705600000,
         branch: Some("main".to_string()),
         is_detached: false,
+        message: Some("test commit".to_string()),
+        author: Some("Test Author".to_string()),
+        is_fix_commit: Some(false),
+        is_revert_commit: Some(false),
+        ticket_ids: vec![],
     };
 
     let snapshot = Snapshot::new(git_context, vec![]);

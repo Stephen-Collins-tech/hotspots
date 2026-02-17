@@ -2,6 +2,7 @@
 
 use crate::ast::FunctionNode;
 use crate::language::parser::{LanguageParser, ParsedModule};
+use crate::language::tree_sitter_utils::find_child_by_kind;
 use anyhow::{Context, Result};
 use tree_sitter::{Node, Parser, Tree};
 
@@ -116,6 +117,7 @@ fn extract_function(
         node.start_byte(),
         node.end_byte(),
         node.start_position().row as u32 + 1, // tree-sitter uses 0-indexed rows
+        node.end_position().row as u32 + 1,   // tree-sitter uses 0-indexed rows
         node.start_position().column as u32,
     );
 
@@ -144,18 +146,6 @@ fn extract_function_name(node: Node, source: &str) -> Option<String> {
     if let Some(name_node) = find_child_by_kind(node, "identifier") {
         let name = &source[name_node.start_byte()..name_node.end_byte()];
         return Some(name.to_string());
-    }
-    None
-}
-
-/// Find a child node by kind
-#[allow(clippy::manual_find)]
-fn find_child_by_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
     }
     None
 }

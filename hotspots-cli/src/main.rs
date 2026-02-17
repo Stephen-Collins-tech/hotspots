@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 #[command(
     about = "Multi-language static analysis tool (TypeScript, JavaScript, Go, Java, Python, Rust)"
 )]
-#[command(version = env!("FAULTLINE_VERSION"))]
+#[command(version = env!("HOTSPOTS_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -63,6 +63,14 @@ enum Commands {
         /// Output file path (for HTML format, default: .hotspots/report.html)
         #[arg(long)]
         output: Option<PathBuf>,
+
+        /// Show human-readable risk explanations (only valid with --mode snapshot)
+        #[arg(long)]
+        explain: bool,
+
+        /// Overwrite existing snapshot if it already exists
+        #[arg(short = 'f', long)]
+        force: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -130,6 +138,7 @@ enum OutputFormat {
     Text,
     Json,
     Html,
+    Jsonl,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -151,6 +160,8 @@ fn main() -> anyhow::Result<()> {
             min_lrs,
             config: config_path,
             output,
+            explain,
+            force,
         } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
@@ -189,17 +200,32 @@ fn main() -> anyhow::Result<()> {
             let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
             let effective_top = top.or(resolved_config.top_n);
 
+            // Validate --explain flag (only valid with --mode snapshot)
+            if explain {
+                if let Some(m) = mode {
+                    if m != OutputMode::Snapshot {
+                        anyhow::bail!("--explain flag is only valid with --mode snapshot");
+                    }
+                } else {
+                    anyhow::bail!("--explain flag is only valid with --mode snapshot");
+                }
+            }
+
             // If mode is specified, use snapshot/delta mode
             if let Some(output_mode) = mode {
                 return handle_mode_output(
                     &normalized_path,
                     output_mode,
-                    format,
-                    policy,
-                    effective_top,
-                    effective_min_lrs,
                     &resolved_config,
-                    output,
+                    ModeOutputOptions {
+                        format,
+                        policy,
+                        top: effective_top,
+                        min_lrs: effective_min_lrs,
+                        output,
+                        explain,
+                        force,
+                    },
                 );
             }
 
@@ -220,8 +246,8 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Json => {
                     println!("{}", render_json(&reports));
                 }
-                OutputFormat::Html => {
-                    anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
+                OutputFormat::Html | OutputFormat::Jsonl => {
+                    anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
                 }
             }
         }
@@ -409,8 +435,8 @@ fn main() -> anyhow::Result<()> {
                 OutputFormat::Text => {
                     print_trends_text_output(&trends)?;
                 }
-                OutputFormat::Html => {
-                    anyhow::bail!("HTML format is not supported for trends analysis");
+                OutputFormat::Html | OutputFormat::Jsonl => {
+                    anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
                 }
             }
         }
@@ -419,25 +445,89 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Handle snapshot or delta mode output
-#[allow(clippy::too_many_arguments)]
-fn handle_mode_output(
-    path: &Path,
-    mode: OutputMode,
+/// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
+///
+/// Both snapshot and delta modes call this, then diverge for their mode-specific output.
+fn build_enriched_snapshot(
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+) -> anyhow::Result<Snapshot> {
+    let git_context =
+        git::extract_git_context_at(repo_root).context("failed to extract git context")?;
+
+    // Build call graph before snapshot creation (snapshot consumes reports)
+    let call_graph = hotspots_core::build_call_graph(&reports).ok();
+
+    let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
+
+    // Populate churn metrics if a parent commit exists
+    if !git_context.parent_shas.is_empty() {
+        match git::extract_commit_churn_at(repo_root, &git_context.head_sha) {
+            Ok(churns) => {
+                // Convert relative paths from git to absolute paths to match snapshot
+                let churn_map: std::collections::HashMap<String, _> = churns
+                    .into_iter()
+                    .map(|c| {
+                        let absolute_path = repo_root.join(&c.file);
+                        let normalized_path = absolute_path.to_string_lossy().to_string();
+                        (normalized_path, c)
+                    })
+                    .collect();
+                enricher = enricher.with_churn(&churn_map);
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to extract churn: {}", e);
+            }
+        }
+    }
+
+    enricher = enricher.with_touch_metrics(repo_root);
+
+    if let Some(ref graph) = call_graph {
+        enricher = enricher.with_callgraph(graph);
+    }
+
+    Ok(enricher
+        .enrich(Some(&resolved_config.scoring_weights))
+        .build())
+}
+
+struct ModeOutputOptions {
     format: OutputFormat,
     policy: bool,
     top: Option<usize>,
     min_lrs: Option<f64>,
-    resolved_config: &hotspots_core::ResolvedConfig,
     output: Option<PathBuf>,
+    explain: bool,
+    force: bool,
+}
+
+/// Handle snapshot or delta mode output
+fn handle_mode_output(
+    path: &Path,
+    mode: OutputMode,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    opts: ModeOutputOptions,
 ) -> anyhow::Result<()> {
+    let ModeOutputOptions {
+        format,
+        policy,
+        top,
+        min_lrs,
+        output,
+        explain,
+        force,
+    } = opts;
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
 
     // Analyze codebase
+    // Note: top_n is NOT applied here for snapshot/delta modes - it's applied post-scoring
+    // so that functions are ranked by activity_risk (not just LRS) before truncation
     let options = AnalysisOptions {
         min_lrs,
-        top_n: top,
+        top_n: None,
     };
     let reports = analyze_with_config(path, options, Some(resolved_config))?;
 
@@ -447,50 +537,66 @@ fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            // Extract git context
-            let git_context = git::extract_git_context()
-                .context("failed to extract git context (required for snapshot mode)")?;
-
-            // Create snapshot
-            let snapshot = Snapshot::new(git_context, reports);
+            let mut snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
+                .context("failed to build enriched snapshot")?;
 
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
             if is_mainline {
-                snapshot::persist_snapshot(&repo_root, &snapshot)
+                snapshot::persist_snapshot(&repo_root, &snapshot, force)
                     .context("failed to persist snapshot")?;
                 snapshot::append_to_index(&repo_root, &snapshot)
                     .context("failed to update index")?;
             }
 
-            // Emit snapshot JSON
+            // Sort by activity_risk descending when using --explain or --top N
+            let total_function_count = snapshot.functions.len();
+            if explain || top.is_some() {
+                snapshot.functions.sort_by(|a, b| {
+                    let a_score = a.activity_risk.unwrap_or(a.lrs);
+                    let b_score = b.activity_risk.unwrap_or(b.lrs);
+                    b_score
+                        .partial_cmp(&a_score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                if let Some(n) = top {
+                    snapshot.functions.truncate(n);
+                }
+            }
+
+            // Emit snapshot output
             match format {
                 OutputFormat::Json => {
                     // Compute aggregates for output (not persisted)
-                    let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates =
-                        Some(hotspots_core::aggregates::compute_snapshot_aggregates(
-                            &snapshot, &repo_root,
-                        ));
-                    let json = snapshot_with_aggregates.to_json()?;
+                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                        &snapshot, &repo_root,
+                    );
+                    snapshot.aggregates = Some(aggregates);
+                    let json = snapshot.to_json()?;
                     println!("{}", json);
                 }
+                OutputFormat::Jsonl => {
+                    let jsonl = snapshot.to_jsonl()?;
+                    println!("{}", jsonl);
+                }
                 OutputFormat::Text => {
-                    // Text format not supported for snapshot initially
-                    anyhow::bail!(
-                        "text format is not supported for snapshot mode (use --format json)"
-                    );
+                    if explain {
+                        print_explain_output(&snapshot, total_function_count)?;
+                    } else {
+                        anyhow::bail!(
+                            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+                        );
+                    }
                 }
                 OutputFormat::Html => {
                     // Compute aggregates for output
-                    let mut snapshot_with_aggregates = snapshot.clone();
-                    snapshot_with_aggregates.aggregates =
-                        Some(hotspots_core::aggregates::compute_snapshot_aggregates(
-                            &snapshot, &repo_root,
-                        ));
+                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                        &snapshot, &repo_root,
+                    );
+                    snapshot.aggregates = Some(aggregates);
 
                     // Render HTML
-                    let html = hotspots_core::html::render_html_snapshot(&snapshot_with_aggregates);
+                    let html = hotspots_core::html::render_html_snapshot(&snapshot);
 
                     // Write to file
                     let output_path =
@@ -501,12 +607,8 @@ fn handle_mode_output(
             }
         }
         OutputMode::Delta => {
-            // Extract git context
-            let git_context = git::extract_git_context()
-                .context("failed to extract git context (required for delta mode)")?;
-
-            // Create snapshot
-            let snapshot = Snapshot::new(git_context, reports);
+            let snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
+                .context("failed to build enriched snapshot")?;
 
             // Compute delta
             let delta = if pr_context.is_pr {
@@ -548,6 +650,11 @@ fn handle_mode_output(
                 OutputFormat::Json => {
                     let json = delta_with_extras.to_json()?;
                     println!("{}", json);
+                }
+                OutputFormat::Jsonl => {
+                    anyhow::bail!(
+                        "JSONL format is not supported for delta mode (use --mode snapshot)"
+                    );
                 }
                 OutputFormat::Text => {
                     if policy {
@@ -885,6 +992,188 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
     }
 
     Ok(())
+}
+
+/// Print human-readable risk explanations for top functions
+fn print_explain_output(
+    snapshot: &hotspots_core::snapshot::Snapshot,
+    total_count: usize,
+) -> anyhow::Result<()> {
+    let display_count = snapshot.functions.len();
+
+    if display_count == 0 {
+        println!("No functions to display.");
+        return Ok(());
+    }
+
+    let title = if display_count < total_count {
+        format!("Top {} Functions by Activity Risk", display_count)
+    } else {
+        "All Functions by Activity Risk".to_string()
+    };
+
+    println!("{}", title);
+    println!("{}", "=".repeat(80));
+    println!();
+
+    // Functions are already sorted by activity_risk before this is called
+    for (i, func) in snapshot.functions.iter().take(display_count).enumerate() {
+        let score = func.activity_risk.unwrap_or(func.lrs);
+        let func_name = func
+            .function_id
+            .split("::")
+            .last()
+            .unwrap_or(&func.function_id);
+        let file_line = format!("{}:{}", func.file, func.line);
+
+        println!("#{} {} [{}]", i + 1, func_name, func.band.to_uppercase());
+        println!("   File: {}", file_line);
+        println!(
+            "   Risk Score: {:.2} (complexity base: {:.2})",
+            score, func.lrs
+        );
+
+        // Print risk factor breakdown if available
+        if let Some(ref factors) = func.risk_factors {
+            println!("   Risk Breakdown:");
+
+            // Collect non-zero factors with their explanations
+            let mut factor_lines = Vec::new();
+
+            if factors.complexity > 0.0 {
+                factor_lines.push(format!(
+                    "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
+                    factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
+                ));
+            }
+            if factors.churn > 0.0 {
+                let churn_lines = func
+                    .churn
+                    .as_ref()
+                    .map(|c| c.lines_added + c.lines_deleted)
+                    .unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Churn:           {:>6.2}  ({} lines changed recently)",
+                    factors.churn, churn_lines
+                ));
+            }
+            if factors.activity > 0.0 {
+                let touches = func.touch_count_30d.unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
+                    factors.activity, touches
+                ));
+            }
+            if factors.recency > 0.0 {
+                let days = func.days_since_last_change.unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Recency:         {:>6.2}  (last changed {} days ago)",
+                    factors.recency, days
+                ));
+            }
+            if factors.fan_in > 0.0 {
+                let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
+                    factors.fan_in, fi
+                ));
+            }
+            if factors.cyclic_dependency > 0.0 {
+                let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
+                factor_lines.push(format!(
+                    "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
+                    factors.cyclic_dependency, scc
+                ));
+            }
+            if factors.depth > 0.0 {
+                let depth = func
+                    .callgraph
+                    .as_ref()
+                    .and_then(|cg| cg.dependency_depth)
+                    .unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Depth:           {:>6.2}  ({} levels from entry point)",
+                    factors.depth, depth
+                ));
+            }
+            if factors.neighbor_churn > 0.0 {
+                let nc = func
+                    .callgraph
+                    .as_ref()
+                    .and_then(|cg| cg.neighbor_churn)
+                    .unwrap_or(0);
+                factor_lines.push(format!(
+                    "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
+                    factors.neighbor_churn, nc
+                ));
+            }
+
+            for line in factor_lines {
+                println!("{}", line);
+            }
+        }
+
+        // Print a recommendation
+        println!("   Action: {}", get_recommendation(func));
+        println!();
+    }
+
+    // Summary
+    println!("{}", "-".repeat(80));
+    let critical_count = snapshot
+        .functions
+        .iter()
+        .take(display_count)
+        .filter(|f| f.band == "critical")
+        .count();
+    let high_count = snapshot
+        .functions
+        .iter()
+        .take(display_count)
+        .filter(|f| f.band == "high")
+        .count();
+
+    println!(
+        "Showing {}/{} functions  |  Critical: {}  High: {}",
+        display_count, total_count, critical_count, high_count
+    );
+
+    Ok(())
+}
+
+/// Generate a human-readable action recommendation based on risk factors
+fn get_recommendation(func: &hotspots_core::snapshot::FunctionSnapshot) -> &'static str {
+    let score = func.activity_risk.unwrap_or(func.lrs);
+    let in_cycle = func
+        .callgraph
+        .as_ref()
+        .map(|cg| cg.scc_size > 1)
+        .unwrap_or(false);
+    let high_fan_in = func
+        .callgraph
+        .as_ref()
+        .map(|cg| cg.fan_in > 10)
+        .unwrap_or(false);
+
+    if func.band == "critical" || score > 20.0 {
+        if in_cycle {
+            "URGENT: Break cyclic dependency and refactor this function"
+        } else if high_fan_in {
+            "URGENT: Stabilize or split this high-dependency function"
+        } else {
+            "URGENT: Reduce complexity - extract sub-functions"
+        }
+    } else if func.band == "high" || score > 10.0 {
+        if in_cycle {
+            "Refactor: Break cyclic dependency in this function cluster"
+        } else {
+            "Refactor: Reduce complexity and improve test coverage"
+        }
+    } else if func.band == "moderate" {
+        "Watch: Monitor for complexity growth on next change"
+    } else {
+        "OK: Low risk - consider refactoring only if modifying"
+    }
 }
 
 /// Truncate string to max length

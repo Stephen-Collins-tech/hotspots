@@ -93,10 +93,12 @@ pub fn analyze_file_with_config(
             function,
             path.to_string_lossy().to_string(),
             language.name().to_string(),
-            raw_metrics,
-            risk_components,
-            lrs,
-            band,
+            report::FunctionAnalysis {
+                metrics: raw_metrics,
+                risk: risk_components,
+                lrs,
+                band,
+            },
             source_map,
         );
 

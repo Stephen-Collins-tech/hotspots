@@ -23,6 +23,8 @@ pub struct FunctionRiskReport {
     pub band: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    #[serde(skip, default)]
+    pub callees: Vec<String>,
 }
 
 /// Metrics in report format
@@ -32,6 +34,7 @@ pub struct MetricsReport {
     pub nd: usize,
     pub fo: usize,
     pub ns: usize,
+    pub loc: usize,
 }
 
 /// Risk components in report format
@@ -47,49 +50,52 @@ pub struct RiskReport {
     pub r_ns: f64,
 }
 
+/// Grouped analysis results for constructing a FunctionRiskReport
+pub struct FunctionAnalysis {
+    pub metrics: RawMetrics,
+    pub risk: RiskComponents,
+    pub lrs: f64,
+    pub band: RiskBand,
+}
+
 impl FunctionRiskReport {
     /// Create a new function risk report
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         function: &FunctionNode,
         file: String,
         language: String,
-        metrics: RawMetrics,
-        risk: RiskComponents,
-        lrs: f64,
-        band: RiskBand,
+        analysis: FunctionAnalysis,
         source_map: &swc_common::SourceMap,
     ) -> Self {
+        let line = function.start_line(source_map);
         let function_name = function
             .name
             .as_deref()
-            .unwrap_or(&format!(
-                "<anonymous>@{}:{}",
-                file,
-                function.start_line(source_map)
-            ))
+            .unwrap_or(&format!("<anonymous>@{}:{}", file, line))
             .to_string();
 
         FunctionRiskReport {
             file,
             function: function_name,
-            line: function.start_line(source_map),
+            line,
             language,
             metrics: MetricsReport {
-                cc: metrics.cc,
-                nd: metrics.nd,
-                fo: metrics.fo,
-                ns: metrics.ns,
+                cc: analysis.metrics.cc,
+                nd: analysis.metrics.nd,
+                fo: analysis.metrics.fo,
+                ns: analysis.metrics.ns,
+                loc: analysis.metrics.loc,
             },
             risk: RiskReport {
-                r_cc: risk.r_cc,
-                r_nd: risk.r_nd,
-                r_fo: risk.r_fo,
-                r_ns: risk.r_ns,
+                r_cc: analysis.risk.r_cc,
+                r_nd: analysis.risk.r_nd,
+                r_fo: analysis.risk.r_fo,
+                r_ns: analysis.risk.r_ns,
             },
-            lrs,
-            band: band.as_str().to_string(),
+            lrs: analysis.lrs,
+            band: analysis.band.as_str().to_string(),
             suppression_reason: function.suppression_reason.clone(),
+            callees: analysis.metrics.callee_names,
         }
     }
 }

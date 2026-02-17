@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install faultline to user's local bin directory
+# Install hotspots to user's local bin directory
 # Usage: ./install-dev.sh
 
 set -e
@@ -19,23 +19,23 @@ fi
 # Create local bin directory if it doesn't exist
 mkdir -p "$LOCAL_BIN"
 
-echo "Building faultline..."
+echo "Building hotspots..."
 cargo build --release
 
-if [ ! -f "target/release/faultline" ]; then
+if [ ! -f "target/release/hotspots" ]; then
     echo "Error: Build failed - binary not found"
     exit 1
 fi
 
-echo "Installing faultline to ${LOCAL_BIN}..."
+echo "Installing hotspots to ${LOCAL_BIN}..."
 
 # Remove existing binary if it exists
-if [ -f "${LOCAL_BIN}/faultline" ]; then
-    rm -f "${LOCAL_BIN}/faultline"
+if [ -f "${LOCAL_BIN}/hotspots" ]; then
+    rm -f "${LOCAL_BIN}/hotspots"
 fi
 
-cp target/release/faultline "${LOCAL_BIN}/faultline"
-chmod +x "${LOCAL_BIN}/faultline"
+cp target/release/hotspots "${LOCAL_BIN}/hotspots"
+chmod +x "${LOCAL_BIN}/hotspots"
 
 # Check if LOCAL_BIN is in PATH
 if [[ ":$PATH:" != *":${LOCAL_BIN}:"* ]]; then
@@ -56,14 +56,14 @@ echo "✓ Installation complete!"
 echo ""
 
 # Try to verify installation
-if command -v faultline >/dev/null 2>&1; then
-    INSTALLED_PATH=$(which faultline)
-    echo "✓ faultline is available at: ${INSTALLED_PATH}"
+if command -v hotspots >/dev/null 2>&1; then
+    INSTALLED_PATH=$(which hotspots)
+    echo "✓ hotspots is available at: ${INSTALLED_PATH}"
     echo ""
     echo "Verify installation:"
-    echo "  faultline --version"
+    echo "  hotspots --version"
 else
-    echo "⚠️  Note: faultline installed but not in current PATH"
-    echo "   Location: ${LOCAL_BIN}/faultline"
+    echo "⚠️  Note: hotspots installed but not in current PATH"
+    echo "   Location: ${LOCAL_BIN}/hotspots"
     echo "   You may need to restart your shell or run: source ~/.zshrc"
 fi

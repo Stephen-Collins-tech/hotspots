@@ -481,6 +481,8 @@ impl CfgBuilder {
         self.current_node = Some(try_start);
         self.build_from_body(&try_stmt.block);
         let try_end = self.current_node.unwrap_or(try_start);
+        // Capture here — before catch — so a throw/return in catch doesn't corrupt it
+        let try_completed = self.current_node.is_some();
 
         // Catch block (if present - only one in JavaScript/TypeScript)
         let mut catch_end: Option<NodeId> = None;
@@ -494,15 +496,11 @@ impl CfgBuilder {
             catch_end = self.current_node;
         }
 
-        // If try ended with return/throw, we need to handle finally separately
-        let try_completed = self.current_node.is_some();
-
-        // Finally block (always executes if present)
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
         if let Some(finally_block) = &try_stmt.finalizer {
+            // Finally always executes; create join after finally
+            let join_node = self.cfg.add_node(NodeKind::Join);
             let finally_start = self.cfg.add_node(NodeKind::Statement);
-            // Try normal completion flows to finally (if completed normally)
+            // Try normal completion flows to finally
             if try_completed {
                 self.cfg.add_edge(try_end, finally_start);
             }
@@ -512,7 +510,7 @@ impl CfgBuilder {
                     self.cfg.add_edge(catch, finally_start);
                 }
             }
-            // Exception path (if no catch or catch didn't return)
+            // Exception path (if no catch or catch terminated)
             if try_stmt.handler.is_none() || catch_end == Some(self.cfg.exit) {
                 self.cfg.add_edge(try_start, finally_start);
             }
@@ -527,20 +525,31 @@ impl CfgBuilder {
             }
             self.current_node = Some(join_node);
         } else {
-            // No finally - join after try/catch
-            if try_completed {
-                self.cfg.add_edge(try_end, join_node);
-            }
-            if let Some(catch) = catch_end {
-                if catch != self.cfg.exit {
-                    self.cfg.add_edge(catch, join_node);
+            // No finally: only create join if at least one path reaches it
+            let catch_completed = catch_end.map(|c| c != self.cfg.exit).unwrap_or(false);
+
+            if try_completed || catch_completed {
+                let join_node = self.cfg.add_node(NodeKind::Join);
+                if try_completed {
+                    self.cfg.add_edge(try_end, join_node);
                 }
+                if let Some(catch) = catch_end {
+                    if catch != self.cfg.exit {
+                        self.cfg.add_edge(catch, join_node);
+                    }
+                }
+                // Exception path without catch goes to exit
+                if try_stmt.handler.is_none() {
+                    self.cfg.add_edge(try_start, self.cfg.exit);
+                }
+                self.current_node = Some(join_node);
+            } else {
+                // Both try and catch terminated (return/throw) — no continuation
+                if try_stmt.handler.is_none() {
+                    self.cfg.add_edge(try_start, self.cfg.exit);
+                }
+                self.current_node = None;
             }
-            // Exception path without catch goes to exit
-            if try_stmt.handler.is_none() {
-                self.cfg.add_edge(try_start, self.cfg.exit);
-            }
-            self.current_node = Some(join_node);
         }
     }
 

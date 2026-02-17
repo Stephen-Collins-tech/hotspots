@@ -1,9 +1,9 @@
 #!/bin/bash
-# Local development wrapper for faultline
+# Local development wrapper for hotspots
 # Uses `cargo run` instead of installing globally
-# Usage: ./dev.sh [faultline arguments...]
+# Usage: ./dev.sh [hotspots arguments...]
 #
-# This script uses Cargo workspace features to find and run the faultline binary.
+# This script uses Cargo workspace features to find and run the hotspots binary.
 # It preserves the original working directory so relative paths work correctly.
 
 set -e
@@ -17,4 +17,4 @@ ORIGINAL_DIR="$(pwd)"
 # This allows:
 # 1. Cargo to find the workspace correctly (from project root)
 # 2. The binary to execute with original CWD (for relative path resolution)
-(cd "$ORIGINAL_DIR" && cargo run --manifest-path "$SCRIPT_DIR/Cargo.toml" --release --bin faultline -- "$@")
+(cd "$ORIGINAL_DIR" && cargo run --manifest-path "$SCRIPT_DIR/Cargo.toml" --release --bin hotspots -- "$@")

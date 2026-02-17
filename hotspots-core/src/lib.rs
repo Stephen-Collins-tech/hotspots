@@ -1,4 +1,4 @@
-//! Hotspots core library - static analysis for TypeScript, JavaScript, Go, and Rust
+//! Hotspots core library - static analysis for TypeScript, JavaScript, Go, Java, Python, and Rust
 
 #![deny(warnings)]
 
@@ -13,6 +13,7 @@
 pub mod aggregates;
 pub mod analysis;
 pub mod ast;
+pub mod callgraph;
 pub mod cfg;
 pub mod config;
 pub mod delta;
@@ -26,10 +27,12 @@ pub mod policy;
 pub mod prune;
 pub mod report;
 pub mod risk;
+pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
 pub mod trends;
 
+pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;
 pub use git::GitContext;
 pub use report::{render_json, render_text, sort_reports, FunctionRiskReport};
@@ -205,4 +208,60 @@ fn collect_source_files_recursive(
     }
 
     Ok(())
+}
+
+/// Build a call graph from AST-derived callee names in function reports.
+pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
+    use std::collections::HashMap;
+
+    let mut graph = callgraph::CallGraph::new();
+
+    // Add all functions as nodes
+    let mut name_to_id: HashMap<String, Vec<String>> = HashMap::new();
+    for report in reports {
+        let function_id = format!("{}::{}", report.file, report.function);
+        graph.add_node(function_id.clone());
+
+        // Build reverse mapping: simple name -> list of full IDs
+        // This handles name collisions across files
+        name_to_id
+            .entry(report.function.clone())
+            .or_default()
+            .push(function_id);
+    }
+
+    // First pass: add AST-derived edges for reports that have callee names
+    for report in reports {
+        let caller_id = format!("{}::{}", report.file, report.function);
+        if !report.callees.is_empty() {
+            let mut added_callees = std::collections::HashSet::new();
+            for callee_name in &report.callees {
+                if let Some(possible_callees) = name_to_id.get(callee_name) {
+                    let normalized_caller_file = report.file.replace('\\', "/");
+                    let mut found = false;
+                    for callee_id in possible_callees {
+                        let normalized_callee = callee_id.replace('\\', "/");
+                        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
+                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
+                                graph.add_edge(caller_id.clone(), callee_id.clone());
+                                added_callees.insert(callee_id.clone());
+                            }
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        if let Some(callee_id) = possible_callees.first() {
+                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
+                                graph.add_edge(caller_id.clone(), callee_id.clone());
+                                added_callees.insert(callee_id.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(graph)
 }

@@ -30,6 +30,11 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/__mocks__/**",
     "**/dist/**",
     "**/build/**",
+    // Python test file conventions
+    "**/test_*.py",
+    "**/*_test.py",
+    // Go test file convention
+    "**/*_test.go",
 ];
 
 /// Hotspots configuration loaded from a JSON config file
@@ -63,6 +68,10 @@ pub struct HotspotsConfig {
     /// Maximum number of results to show
     #[serde(default)]
     pub top: Option<usize>,
+
+    /// Activity risk scoring weights
+    #[serde(default)]
+    pub scoring: Option<ScoringWeightsConfig>,
 }
 
 /// Custom risk band thresholds
@@ -89,6 +98,26 @@ pub struct WeightConfig {
     pub fo: Option<f64>,
     /// Weight for non-structured exits (default: 0.7)
     pub ns: Option<f64>,
+}
+
+/// Weights for activity-weighted risk scoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScoringWeightsConfig {
+    /// Weight for churn factor (default: 0.5)
+    pub churn: Option<f64>,
+    /// Weight for touch frequency factor (default: 0.3)
+    pub touch: Option<f64>,
+    /// Weight for recency factor (default: 0.2)
+    pub recency: Option<f64>,
+    /// Weight for fan-in factor (default: 0.4)
+    pub fan_in: Option<f64>,
+    /// Weight for SCC penalty (default: 0.3)
+    pub scc: Option<f64>,
+    /// Weight for dependency depth penalty (default: 0.1)
+    pub depth: Option<f64>,
+    /// Weight for neighbor churn factor (default: 0.2)
+    pub neighbor_churn: Option<f64>,
 }
 
 /// Warning thresholds for proactive alerts
@@ -132,6 +161,8 @@ pub struct ResolvedConfig {
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
+    /// Activity risk scoring weights
+    pub scoring_weights: crate::scoring::ScoringWeights,
     /// Path the config was loaded from (None if defaults)
     pub config_path: Option<PathBuf>,
 }
@@ -239,6 +270,28 @@ impl HotspotsConfig {
             }
         }
 
+        // Validate scoring weights are non-negative
+        if let Some(ref s) = self.scoring {
+            for (name, val) in [
+                ("churn", s.churn),
+                ("touch", s.touch),
+                ("recency", s.recency),
+                ("fan_in", s.fan_in),
+                ("scc", s.scc),
+                ("depth", s.depth),
+                ("neighbor_churn", s.neighbor_churn),
+            ] {
+                if let Some(v) = val {
+                    if v < 0.0 {
+                        anyhow::bail!("scoring.{} must be non-negative (got {})", name, v);
+                    }
+                    if v > 10.0 {
+                        anyhow::bail!("scoring.{} must be at most 10.0 (got {})", name, v);
+                    }
+                }
+            }
+        }
+
         // Validate min_lrs is non-negative
         if let Some(min) = self.min_lrs {
             if min < 0.0 {
@@ -319,6 +372,22 @@ impl HotspotsConfig {
                 None => (2.5, 3.0, 5.5, 6.0, 50.0),
             };
 
+        let scoring_weights = match &self.scoring {
+            Some(s) => {
+                let defaults = crate::scoring::ScoringWeights::default();
+                crate::scoring::ScoringWeights {
+                    churn: s.churn.unwrap_or(defaults.churn),
+                    touch: s.touch.unwrap_or(defaults.touch),
+                    recency: s.recency.unwrap_or(defaults.recency),
+                    fan_in: s.fan_in.unwrap_or(defaults.fan_in),
+                    scc: s.scc.unwrap_or(defaults.scc),
+                    depth: s.depth.unwrap_or(defaults.depth),
+                    neighbor_churn: s.neighbor_churn.unwrap_or(defaults.neighbor_churn),
+                }
+            }
+            None => crate::scoring::ScoringWeights::default(),
+        };
+
         Ok(ResolvedConfig {
             include,
             exclude,
@@ -336,6 +405,7 @@ impl HotspotsConfig {
             rapid_growth_percent,
             min_lrs: self.min_lrs,
             top_n: self.top,
+            scoring_weights,
             config_path: None,
         })
     }
@@ -631,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn test_discover_package_json_without_faultline_key() {
+    fn test_discover_package_json_without_hotspots_key() {
         let dir = tempfile::tempdir().unwrap();
         let pkg_path = dir.path().join("package.json");
         fs::write(&pkg_path, r#"{"name": "my-project", "version": "1.0.0"}"#).unwrap();
@@ -804,5 +874,57 @@ mod tests {
         assert_eq!(resolved.attention_min, 5.5);
         assert_eq!(resolved.attention_max, 6.0);
         assert_eq!(resolved.rapid_growth_percent, 50.0);
+    }
+
+    #[test]
+    fn test_scoring_weights_defaults() {
+        let config = HotspotsConfig::default();
+        let resolved = config.resolve().unwrap();
+        let defaults = crate::scoring::ScoringWeights::default();
+        assert_eq!(resolved.scoring_weights.churn, defaults.churn);
+        assert_eq!(resolved.scoring_weights.touch, defaults.touch);
+        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
+        assert_eq!(resolved.scoring_weights.fan_in, defaults.fan_in);
+        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
+        assert_eq!(resolved.scoring_weights.depth, defaults.depth);
+        assert_eq!(
+            resolved.scoring_weights.neighbor_churn,
+            defaults.neighbor_churn
+        );
+    }
+
+    #[test]
+    fn test_scoring_weights_from_config() {
+        let json = r#"{
+            "scoring": {
+                "churn": 0.8,
+                "touch": 0.5,
+                "fan_in": 0.6
+            }
+        }"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.scoring_weights.churn, 0.8);
+        assert_eq!(resolved.scoring_weights.touch, 0.5);
+        assert_eq!(resolved.scoring_weights.fan_in, 0.6);
+        // Unspecified fields fall back to defaults
+        let defaults = crate::scoring::ScoringWeights::default();
+        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
+        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
+    }
+
+    #[test]
+    fn test_reject_negative_scoring_weight() {
+        let json = r#"{"scoring": {"churn": -0.1}}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_reject_scoring_weight_over_10() {
+        let json = r#"{"scoring": {"fan_in": 11.0}}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
     }
 }

@@ -48,7 +48,7 @@ mod tests {
                 local_index: 0,
             },
             name: Some("test".to_string()),
-            span: SourceSpan::new(0, 10, 1, 0),
+            span: SourceSpan::new(0, 10, 1, 1, 0),
             body: FunctionBody::ecmascript(swc_ecma_ast::BlockStmt {
                 span: swc_common::DUMMY_SP,
                 ctxt: Default::default(),
