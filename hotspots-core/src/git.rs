@@ -517,6 +517,79 @@ pub fn batch_touch_metrics_at(
     })
 }
 
+/// Per-function touch metrics using `git log -L start,end:file`.
+///
+/// Returns `(touch_count_30d, days_since_last_change)` for the specific line range.
+/// More accurate than file-level metrics but ~50× slower per function.
+///
+/// # Arguments
+///
+/// * `repo_path` - Path to git repository
+/// * `file` - Relative path to file from repository root
+/// * `start_line` - First line of function (1-based)
+/// * `end_line` - Last line of function (1-based)
+/// * `as_of_timestamp` - Unix timestamp to use as "now"
+pub fn function_touch_metrics_at(
+    repo_path: &Path,
+    file: &str,
+    start_line: u32,
+    end_line: u32,
+    as_of_timestamp: i64,
+) -> Result<(usize, Option<u32>)> {
+    let thirty_days_ago = as_of_timestamp - (30 * 24 * 60 * 60);
+    let since_arg = format!("--since={}", thirty_days_ago);
+    let until_arg = format!("--until={}", as_of_timestamp);
+    let range_arg = format!("-L{},{}:{}", start_line, end_line, file);
+
+    // Count touches in 30-day window; filter diff output by looking for "COMMIT <ts>" markers
+    let window_output = git_at(
+        repo_path,
+        &[
+            "log",
+            &range_arg,
+            "--format=COMMIT %ct",
+            &since_arg,
+            &until_arg,
+        ],
+    )
+    .unwrap_or_default();
+
+    let window_timestamps: Vec<i64> = window_output
+        .lines()
+        .filter_map(|l| l.strip_prefix("COMMIT "))
+        .filter_map(|ts| ts.trim().parse::<i64>().ok())
+        .collect();
+
+    let touch_count = window_timestamps.len();
+
+    let days_since = if let Some(&ts) = window_timestamps.first() {
+        Some(((as_of_timestamp - ts).max(0) / (24 * 60 * 60)) as u32)
+    } else {
+        // Not in 30-day window: find most recent commit touching this range
+        let recent_until = format!("--until={}", as_of_timestamp);
+        let recent_output = git_at(
+            repo_path,
+            &[
+                "log",
+                &range_arg,
+                "--format=COMMIT %ct",
+                "-1",
+                &recent_until,
+            ],
+        )
+        .unwrap_or_default();
+
+        recent_output
+            .lines()
+            .filter_map(|l| l.strip_prefix("COMMIT "))
+            .filter_map(|ts| ts.trim().parse::<i64>().ok())
+            .next()
+            .map(|ts| ((as_of_timestamp - ts).max(0) / (24 * 60 * 60)) as u32)
+    };
+
+    Ok((touch_count, days_since))
+}
+
 /// Count how many commits touched a file in the last 30 days
 ///
 /// Counts commits relative to a specific timestamp (typically the commit timestamp),

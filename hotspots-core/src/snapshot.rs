@@ -302,18 +302,59 @@ impl Snapshot {
 
     /// Populate touch count and recency metrics from git data
     ///
-    /// For each file, computes:
+    /// For each file (or function when `per_function` is true), computes:
     /// - touch_count_30d: number of commits in last 30 days
     /// - days_since_last_change: days since last modification
     ///
-    /// These are computed at the file level and applied to all functions in the file.
+    /// When `per_function` is false (default), metrics are file-level and applied to all
+    /// functions in the file (fast, O(1) git calls via batching).
+    /// When `per_function` is true, metrics use `git log -L` per function (accurate but slow,
+    /// O(functions) subprocess calls — ~50× slower than file-level).
     ///
     /// # Arguments
     ///
     /// * `repo_root` - Path to repository root (for git operations)
-    pub fn populate_touch_metrics(&mut self, repo_root: &std::path::Path) -> anyhow::Result<()> {
+    /// * `per_function` - Use per-function `git log -L` instead of file-level batching
+    pub fn populate_touch_metrics(
+        &mut self,
+        repo_root: &std::path::Path,
+        per_function: bool,
+    ) -> anyhow::Result<()> {
         use std::collections::HashMap;
 
+        if per_function {
+            // Per-function mode: one git log -L subprocess per function (~9 ms each)
+            for function in &mut self.functions {
+                let rel =
+                    if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
+                        r.to_string_lossy().replace('\\', "/")
+                    } else {
+                        function.file.replace('\\', "/")
+                    };
+
+                let start_line = function.line;
+                let end_line = start_line + (function.metrics.loc as u32).saturating_sub(1);
+
+                match crate::git::function_touch_metrics_at(
+                    repo_root,
+                    &rel,
+                    start_line,
+                    end_line.max(start_line),
+                    self.commit.timestamp,
+                ) {
+                    Ok((count, days)) => {
+                        function.touch_count_30d = Some(count);
+                        function.days_since_last_change = days;
+                    }
+                    Err(_) => {
+                        function.touch_count_30d = Some(0);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // File-level mode (default): one batched git log call for the 30-day window
         // Build map of absolute path -> function indices, and absolute -> relative path
         let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, function) in self.functions.iter().enumerate() {
@@ -709,9 +750,13 @@ impl SnapshotEnricher {
 
     /// Populate touch count and recency metrics from git.
     ///
+    /// When `per_function` is true, uses `git log -L` per function (accurate, slow).
     /// On error, emits a warning to stderr and continues.
-    pub fn with_touch_metrics(mut self, repo_root: &Path) -> Self {
-        if let Err(e) = self.snapshot.populate_touch_metrics(repo_root) {
+    pub fn with_touch_metrics(mut self, repo_root: &Path, per_function: bool) -> Self {
+        if let Err(e) = self
+            .snapshot
+            .populate_touch_metrics(repo_root, per_function)
+        {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
         self

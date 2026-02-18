@@ -73,6 +73,10 @@ pub struct FunctionDeltaEntry {
     pub band_transition: Option<BandTransition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    /// Fuzzy-matched new function_id when this Deleted entry is likely a rename/move.
+    /// Set by second-pass heuristic; absent when exact match was found or no match possible.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rename_hint: Option<String>,
 }
 
 /// Commit info in delta
@@ -152,6 +156,7 @@ impl Delta {
                     delta: None,
                     band_transition: None,
                     suppression_reason: func.suppression_reason.clone(),
+                    rename_hint: None,
                 })
                 .collect();
 
@@ -247,6 +252,7 @@ impl Delta {
                         delta,
                         band_transition,
                         suppression_reason: current.suppression_reason.clone(),
+                        rename_hint: None,
                     });
                 }
                 (Some(parent), None) => {
@@ -263,6 +269,7 @@ impl Delta {
                         delta: Some(compute_delete_delta(parent)),
                         band_transition: None,
                         suppression_reason: parent.suppression_reason.clone(),
+                        rename_hint: None,
                     });
                 }
                 (None, Some(current)) => {
@@ -279,11 +286,84 @@ impl Delta {
                         delta: None,
                         band_transition: None,
                         suppression_reason: current.suppression_reason.clone(),
+                        rename_hint: None,
                     });
                 }
                 (None, None) => {
                     // Should not happen
                     unreachable!("function_id should exist in at least one snapshot");
+                }
+            }
+        }
+
+        // Second pass: fuzzy match unmatched Deleted+New pairs as likely renames/moves.
+        // Heuristics (applied in order, first match wins):
+        //   1. Same function name, different file → likely file rename
+        //   2. Same file, start line within ±10 → likely function move within file
+        // Only sets rename_hint on the Deleted entry; does not change status.
+        {
+            let deleted_ids: Vec<String> = deltas
+                .iter()
+                .filter(|e| e.status == FunctionStatus::Deleted)
+                .map(|e| e.function_id.clone())
+                .collect();
+            let new_ids: Vec<String> = deltas
+                .iter()
+                .filter(|e| e.status == FunctionStatus::New)
+                .map(|e| e.function_id.clone())
+                .collect();
+
+            if !deleted_ids.is_empty() && !new_ids.is_empty() {
+                let mut matched_new: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut hints: Vec<(String, String)> = Vec::new();
+
+                'outer: for del_id in &deleted_ids {
+                    let del_func = match parent_funcs.get(del_id.as_str()) {
+                        Some(f) => f,
+                        None => continue,
+                    };
+                    let del_name = del_id
+                        .strip_prefix(&format!("{}::", del_func.file))
+                        .unwrap_or(del_id.as_str());
+
+                    for new_id in &new_ids {
+                        if matched_new.contains(new_id) {
+                            continue;
+                        }
+                        let new_func = match current_funcs.get(new_id.as_str()) {
+                            Some(f) => f,
+                            None => continue,
+                        };
+                        let new_name = new_id
+                            .strip_prefix(&format!("{}::", new_func.file))
+                            .unwrap_or(new_id.as_str());
+
+                        // Case 1: same name, different file → file rename
+                        if del_name == new_name && del_func.file != new_func.file {
+                            hints.push((del_id.clone(), new_id.clone()));
+                            matched_new.insert(new_id.clone());
+                            continue 'outer;
+                        }
+
+                        // Case 2: same file, line within ±10 → function move
+                        if del_func.file == new_func.file
+                            && del_func.line.abs_diff(new_func.line) <= 10
+                        {
+                            hints.push((del_id.clone(), new_id.clone()));
+                            matched_new.insert(new_id.clone());
+                            continue 'outer;
+                        }
+                    }
+                }
+
+                for (del_id, new_id) in hints {
+                    for entry in &mut deltas {
+                        if entry.function_id == del_id {
+                            entry.rename_hint = Some(new_id);
+                            break;
+                        }
+                    }
                 }
             }
         }

@@ -570,6 +570,7 @@ mod tests {
             delta,
             band_transition: None,
             suppression_reason: None,
+            rename_hint: None,
         }
     }
 
@@ -845,6 +846,7 @@ mod tests {
             delta,
             band_transition: None,
             suppression_reason: None,
+            rename_hint: None,
         }
     }
 

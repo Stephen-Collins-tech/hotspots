@@ -71,6 +71,10 @@ enum Commands {
         /// Overwrite existing snapshot if it already exists
         #[arg(short = 'f', long)]
         force: bool,
+
+        /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
+        #[arg(long)]
+        per_function_touches: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -162,6 +166,7 @@ fn main() -> anyhow::Result<()> {
             output,
             explain,
             force,
+            per_function_touches,
         } => {
             // Normalize path to absolute
             let normalized_path = if path.is_relative() {
@@ -211,6 +216,13 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
+            if per_function_touches && mode.is_none() {
+                anyhow::bail!(
+                    "--per-function-touches is only valid with --mode snapshot or --mode delta"
+                );
+            }
+
             // If mode is specified, use snapshot/delta mode
             if let Some(output_mode) = mode {
                 return handle_mode_output(
@@ -225,6 +237,7 @@ fn main() -> anyhow::Result<()> {
                         output,
                         explain,
                         force,
+                        per_function_touches,
                     },
                 );
             }
@@ -452,6 +465,7 @@ fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
+    per_function_touches: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
@@ -493,7 +507,10 @@ fn build_enriched_snapshot(
         }
     }
 
-    enricher = enricher.with_touch_metrics(repo_root);
+    if per_function_touches {
+        eprintln!("Warning: --per-function-touches enabled; analysis will be significantly slower");
+    }
+    enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(graph);
@@ -512,6 +529,7 @@ struct ModeOutputOptions {
     output: Option<PathBuf>,
     explain: bool,
     force: bool,
+    per_function_touches: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -529,6 +547,7 @@ fn handle_mode_output(
         output,
         explain,
         force,
+        per_function_touches,
     } = opts;
     // Find repository root (search up from current path)
     let repo_root = find_repo_root(path)?;
@@ -548,8 +567,9 @@ fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
-                .context("failed to build enriched snapshot")?;
+            let mut snapshot =
+                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
+                    .context("failed to build enriched snapshot")?;
 
             // Persist snapshot only in mainline mode (not in PR mode)
             // Note: Aggregates are NOT persisted (they're derived, computed on output)
@@ -618,8 +638,9 @@ fn handle_mode_output(
             }
         }
         OutputMode::Delta => {
-            let snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
-                .context("failed to build enriched snapshot")?;
+            let snapshot =
+                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
+                    .context("failed to build enriched snapshot")?;
 
             // Compute delta
             let delta = if pr_context.is_pr {

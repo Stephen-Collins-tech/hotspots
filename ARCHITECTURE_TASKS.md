@@ -10,11 +10,11 @@
 
 | ID   | Finding                                    | Severity   | Category           | Status      |
 |------|--------------------------------------------|------------|--------------------|-------------|
-| F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [x] Research — flag impl pending |
+| F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [x] Research / [x] Implemented |
 | F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [x] Research — no change needed |
 | F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure  |
 | F-4  | Tree-sitter re-parse is O(n×m)             | Medium     | Performance        | [x] Doc done / [x] Implement|
-| F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [x] Research — fuzzy fallback viable |
+| F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [x] Research / [x] Implemented |
 | F-6  | Schema migration strategy undefined        | Low-Medium | Operational risk   | [x] Code done / [x] Doc done|
 | F-7  | PR detection is CI-only                    | Low        | Documentation gap  | [x] Doc done                |
 | F-8  | Trends module mis-documented as future     | Low        | Documentation gap  | [x] Doc done                |
@@ -63,10 +63,15 @@ attributes the same touch score to all 50.
   real but cost is O(n) subprocess invocations. Acceptable for small repos (<200 functions,
   ~1.8 s) but prohibitive at scale. Default remains file-level.
 
-- [ ] **F-1c (implement, blocked by F-1b):** Implement per-function touch metrics behind
+- [x] **F-1c (implement, blocked by F-1b):** Implement per-function touch metrics behind
   `--per-function-touches` flag. Warn in output when flag is active that analysis will be
   significantly slower. No schema changes needed (same `touch_count_30d` / `days_since_last_change`
   fields, just populated from function line range instead of whole file).
+
+  **Implemented (2026-02-17):** Added `--per-function-touches` flag to `hotspots analyze`.
+  Uses `git::function_touch_metrics_at()` (new fn, `git log -L start,end:file`) per function.
+  End line derived as `line + loc - 1`. Flag only valid with `--mode snapshot` or `--mode delta`.
+  Emits stderr warning when active. File-level batching remains the default.
 
 **Acceptance for F-1a:** ARCHITECTURE.md updated.
 **Acceptance for F-1b:** Research note written, decision recorded here.
@@ -230,12 +235,18 @@ especially problematic for refactoring commits — the ones where accurate histo
   **Risks:** False positives possible when two functions are both added/deleted at nearby
   lines. Must be clearly labeled as "likely renamed" in delta output, not asserted as certain.
 
-- [ ] **F-5c (optional, blocked by F-5b):** Implement fuzzy delta matching as a second-pass
+- [x] **F-5c (optional, blocked by F-5b):** Implement fuzzy delta matching as a second-pass
   heuristic in `delta.rs`. After exact-match pass, pair unmatched deletes+adds by:
   1. Same name, different file path → file-rename match
   2. Same file, line number within ±10 → function-move match
-  Label matched pairs as `status: "likely_renamed"` rather than delete+add.
   Additive and backward-compatible — existing exact matches are unchanged.
+
+  **Implemented (2026-02-17):** Added `rename_hint: Option<String>` field to `FunctionDeltaEntry`
+  (serialized, skip-if-None). After the exact-match loop in `Delta::new()`, a second pass
+  collects unmatched Deleted+New pairs, applies the two heuristics (first match wins), and
+  sets `rename_hint` on the Deleted entry to the matched New `function_id`. Does not change
+  `status` — the entry remains `deleted`. Seven call sites updated (delta.rs ×4, policy.rs ×2,
+  suppression_tests.rs ×3) with `rename_hint: None`.
 
 **Acceptance for F-5a:** ARCHITECTURE.md updated.
 **Acceptance for F-5b:** Research note written, decision recorded here.
