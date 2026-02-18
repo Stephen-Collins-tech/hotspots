@@ -314,7 +314,7 @@ impl Snapshot {
     pub fn populate_touch_metrics(&mut self, repo_root: &std::path::Path) -> anyhow::Result<()> {
         use std::collections::HashMap;
 
-        // Build set of unique files to avoid duplicate git operations
+        // Build map of absolute path -> function indices, and absolute -> relative path
         let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, function) in self.functions.iter().enumerate() {
             unique_files
@@ -323,27 +323,47 @@ impl Snapshot {
                 .push(idx);
         }
 
-        // For each unique file, compute metrics once
-        for (file_path, function_indices) in unique_files {
-            // Convert absolute path back to relative path for git
-            let relative_path =
-                if let Ok(rel) = std::path::Path::new(&file_path).strip_prefix(repo_root) {
-                    rel.to_string_lossy().to_string()
+        // Convert all absolute paths to relative paths for git
+        let abs_to_rel: HashMap<String, String> = unique_files
+            .keys()
+            .map(|abs| {
+                let rel = if let Ok(r) = std::path::Path::new(abs).strip_prefix(repo_root) {
+                    r.to_string_lossy().to_string()
                 } else {
-                    // If can't make relative, use as-is
-                    file_path.clone()
+                    abs.clone()
                 };
+                (abs.clone(), rel)
+            })
+            .collect();
 
-            // Compute touch count (may fail if file is new or git operation fails)
-            let touch_count =
-                crate::git::count_file_touches_30d(&relative_path, self.commit.timestamp).ok();
+        // One batched call for the 30-day window (replaces N×2 individual calls)
+        let batched = crate::git::batch_touch_metrics_at(repo_root, self.commit.timestamp)
+            .unwrap_or_else(|_| crate::git::BatchedTouchMetrics {
+                touch_count_30d: HashMap::new(),
+                days_since_last_change: HashMap::new(),
+            });
 
-            // Compute days since last change
-            let days_since =
-                crate::git::days_since_last_change(&relative_path, self.commit.timestamp).ok();
+        // Apply batched results; fall back per-file for anything not in the window
+        for (abs_path, function_indices) in &unique_files {
+            let rel = abs_to_rel
+                .get(abs_path)
+                .map(|s| s.as_str())
+                .unwrap_or(abs_path);
 
-            // Apply to all functions in this file
-            for &idx in &function_indices {
+            // File not touched in window — count is 0 (not an error)
+            let touch_count = batched.touch_count_30d.get(rel).copied().or(Some(0));
+
+            let days_since = batched
+                .days_since_last_change
+                .get(rel)
+                .copied()
+                .or_else(|| {
+                    // File not in 30-day window: fall back to individual git call
+                    crate::git::days_since_last_change_at(repo_root, rel, self.commit.timestamp)
+                        .ok()
+                });
+
+            for &idx in function_indices {
                 self.functions[idx].touch_count_30d = touch_count;
                 self.functions[idx].days_since_last_change = days_since;
             }

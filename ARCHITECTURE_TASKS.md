@@ -10,11 +10,11 @@
 
 | ID   | Finding                                    | Severity   | Category           | Status      |
 |------|--------------------------------------------|------------|--------------------|-------------|
-| F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [ ] Research |
+| F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [x] Research — flag impl pending |
 | F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [x] Research — no change needed |
 | F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure  |
 | F-4  | Tree-sitter re-parse is O(n×m)             | Medium     | Performance        | [x] Doc done / [x] Implement|
-| F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [ ] Research |
+| F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [x] Research — fuzzy fallback viable |
 | F-6  | Schema migration strategy undefined        | Low-Medium | Operational risk   | [x] Code done / [x] Doc done|
 | F-7  | PR detection is CI-only                    | Low        | Documentation gap  | [x] Doc done                |
 | F-8  | Trends module mis-documented as future     | Low        | Documentation gap  | [x] Doc done                |
@@ -33,14 +33,40 @@ attributes the same touch score to all 50.
   documenting that touch metrics are file-granularity approximations and what that means for
   large files with many functions.
 
-- [ ] **F-1b (research):** Evaluate feasibility of per-function touch metrics using
+- [x] **F-1b (research):** Evaluate feasibility of per-function touch metrics using
   `git log -L <start>,<end>:<file>`. Prototype on hotspots repo and measure:
   - Accuracy improvement vs file-level
   - Performance cost (expected: significant, may need caching or opt-in flag)
   - Output schema changes required
 
-- [ ] **F-1c (implement, blocked by F-1b):** If F-1b shows acceptable cost, implement
-  function-level touch metrics. Gate behind a flag if expensive.
+  **Results (2026-02-16, benchmarked with hyperfine on hotspots repo):**
+
+  **Accuracy:** Demonstrably better. Example — `populate_callgraph` in `snapshot.rs`:
+  - File-level: 3 touches (entire file touched in 3 commits)
+  - Function-level (`git log -L 363,417:snapshot.rs`): 1 touch (function added in 1 commit)
+  - The file-level approach over-attributes 2 phantom touches to this function.
+
+  **Performance cost:**
+
+  | Approach | Time | Scale |
+  |---|---|---|
+  | File-level `git log -- <file>` | ~7.5 ms/file | O(files) |
+  | Per-function `git log -L <start>,<end>:<file>` | ~8.5 ms/function | O(functions) |
+  | 44 functions in snapshot.rs | ~402 ms | 50× slower than file-level |
+
+  Each `git log -L` invocation costs ~9 ms regardless of line range size (subprocess overhead
+  dominates). With 767 functions in the hotspots repo, per-function mode would take ~6.9 s
+  vs ~0.7 s for file-level — a 10× wall-clock penalty on a small repo. On a 10,000-function
+  codebase this becomes ~90 s, which is unacceptable for CI.
+
+  **Decision: Gate behind opt-in flag (`--per-function-touches`).** Accuracy improvement is
+  real but cost is O(n) subprocess invocations. Acceptable for small repos (<200 functions,
+  ~1.8 s) but prohibitive at scale. Default remains file-level.
+
+- [ ] **F-1c (implement, blocked by F-1b):** Implement per-function touch metrics behind
+  `--per-function-touches` flag. Warn in output when flag is active that analysis will be
+  significantly slower. No schema changes needed (same `touch_count_30d` / `days_since_last_change`
+  fields, just populated from function line range instead of whole file).
 
 **Acceptance for F-1a:** ARCHITECTURE.md updated.
 **Acceptance for F-1b:** Research note written, decision recorded here.
@@ -170,16 +196,46 @@ especially problematic for refactoring commits — the ones where accurate histo
   `function_id` stability depends on stable file paths and function names. Note that
   refactoring commits will appear as delete+add pairs and that this is a known limitation.
 
-- [ ] **F-5b (research):** Evaluate alternative identity schemes:
+- [x] **F-5b (research):** Evaluate alternative identity schemes:
   - **Content hash:** Hash of function body (detects moves/renames but breaks on any edit)
   - **Signature hash:** Hash of function signature only (stable across body changes)
   - **Hybrid:** Fuzzy match by signature + structural similarity when exact ID not found
   Record the trade-offs. A hybrid fallback in delta matching (try exact ID first, then
   signature match) may be achievable without breaking existing snapshots.
 
-- [ ] **F-5c (optional, blocked by F-5b):** If research shows a viable path, implement
-  fuzzy delta matching as a fallback for unmatched deletes/adds. This is additive and
-  backward-compatible if done as a heuristic on top of the existing exact match.
+  **Results (2026-02-16):**
+
+  **Current state:** `function_id = file::function_name`. Delta matching is exact HashMap
+  lookup — no fuzzy logic exists anywhere. 176 references across 11 files depend on the
+  current format; changing the format would require snapshot migration and break all existing
+  history.
+
+  **Identity scheme trade-offs:**
+
+  | Scheme | Survives body edit | Survives rename | Survives file move | Complexity |
+  |---|---|---|---|---|
+  | `file::name` (current) | ✓ | ✗ | ✗ | zero |
+  | Content hash | ✗ | ✓ | ✓ | low |
+  | Signature hash | ✓ | ✗ | ✓ | medium |
+  | `file + line` | ✓ | ✓ | ✗ | low |
+  | Hybrid fuzzy fallback | ✓ | ~✓ | ~✓ | high |
+
+  **Decision: Hybrid fuzzy fallback is the right path for F-5c.** Key insight: don't change
+  `function_id` format (too disruptive). Instead, add a second-pass heuristic in delta
+  matching: after exact-match, for each unmatched delete+add pair within the same commit,
+  attempt to pair them by `(same file + line within ±10)` or `(same name + different file)`.
+  This handles the two most common refactoring patterns (file rename, function move within
+  file) without touching serialized data or 176 existing references.
+
+  **Risks:** False positives possible when two functions are both added/deleted at nearby
+  lines. Must be clearly labeled as "likely renamed" in delta output, not asserted as certain.
+
+- [ ] **F-5c (optional, blocked by F-5b):** Implement fuzzy delta matching as a second-pass
+  heuristic in `delta.rs`. After exact-match pass, pair unmatched deletes+adds by:
+  1. Same name, different file path → file-rename match
+  2. Same file, line number within ±10 → function-move match
+  Label matched pairs as `status: "likely_renamed"` rather than delete+add.
+  Additive and backward-compatible — existing exact matches are unchanged.
 
 **Acceptance for F-5a:** ARCHITECTURE.md updated.
 **Acceptance for F-5b:** Research note written, decision recorded here.
