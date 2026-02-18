@@ -13,7 +13,7 @@
 | A-1 | `from_sources()` dead code in callgraph.rs     | Low      | Trivial    | [x] Done    |
 | A-2 | `to_jsonl()` `.unwrap()` in production path    | Low      | Trivial    | [x] Done    |
 | A-3 | lib.rs docs missing Java and Python            | Trivial  | Trivial    | [x] Done    |
-| A-4 | `compact` subcommand incomplete (UX)           | Low      | Low        | [ ] Pending |
+| A-4 | `compact` subcommand incomplete (UX)           | Low      | Low        | [x] Done    |
 | A-5 | CFG builder TODOs untracked                    | Low      | Low-Medium | [ ] Pending |
 | A-6 | `policy.rs` repetitive evaluation pattern      | Medium   | Medium     | [ ] Pending |
 | A-7 | `main.rs` emit_* extraction                    | Medium   | Low        | [ ] Pending |
@@ -82,7 +82,7 @@ Track actual implementation as a separate feature task.
 
 **Acceptance:** `hotspots compact --level 1` exits non-zero with a clear "not implemented" message.
 
-**Status:** [ ] Pending
+**Status:** [x] Done (2026-02-17)
 
 ---
 
