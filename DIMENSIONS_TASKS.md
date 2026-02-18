@@ -155,13 +155,19 @@ low instability (hard to change AND everything depends on them).
 
 **Tasks:**
 
-- [ ] **D-3a (research):** Verify the existing call graph has enough inter-file edge coverage to
-  make module-level coupling meaningful. If resolution is too low (<30% at file level), this
-  metric will be too noisy to be useful. Gate on D-2a research findings.
-- [ ] **D-3b:** Add `compute_module_aggregates()` to `aggregates.rs` — group files by parent
-  directory, sum call graph edges, compute instability.
-- [ ] **D-3c:** Add `modules` array to snapshot JSON output.
-- [ ] **D-3d:** Add module view to text output.
+- [x] **D-3a (research):** Resolution is **insufficient** — gating D-3b-d.
+  Findings (measured on this repo, 818 functions):
+  - Only 20.8% of functions have any `fan_out > 0` (170/818)
+  - `hotspots-core/src`: 16% fan_out coverage (67/409) — well below the 30% gate
+  - Root cause: name-based resolution fails for Rust trait methods (`new`, `fmt`, `into`, etc.)
+    and any overloaded/common short names. Import-based resolution would be required.
+  - Remaining inter-file edges are dominated by test→source (expected, non-informative)
+  - Conclusion: module instability scores would be noise, not signal. Requires import-aware
+    resolution (e.g. parsing `use` statements + resolving to crate paths) — a separate feature.
+- [ ] **D-3b:** *(blocked by D-3a — gated until import-aware call graph resolution is added)*
+  Add `compute_module_aggregates()` to `aggregates.rs`.
+- [ ] **D-3c:** *(blocked)* Add `modules` array to snapshot JSON output.
+- [ ] **D-3d:** *(blocked)* Add module view to text output.
 
 **Effort:** Medium. Depends on call graph quality (D-3a must validate first).
 **Risk:** Low-Medium. Call graph resolution limits may make the output misleading if not gated.
