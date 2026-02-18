@@ -98,7 +98,15 @@ impl Cfg {
     ///
     /// Returns Ok(()) if valid, or an error describing the violation
     pub fn validate(&self) -> Result<(), String> {
-        // Exactly one entry node
+        self.validate_entry_exit_counts()?;
+        // Empty functions (only entry + exit, no edges) have implicit flow to exit
+        let is_empty = self.nodes.len() == 2 && self.edges.is_empty();
+        self.validate_forward_reachability(is_empty)?;
+        self.validate_backward_reachability(is_empty)?;
+        Ok(())
+    }
+
+    fn validate_entry_exit_counts(&self) -> Result<(), String> {
         let entry_count = self
             .nodes
             .iter()
@@ -110,8 +118,6 @@ impl Cfg {
                 entry_count
             ));
         }
-
-        // Exactly one exit node
         let exit_count = self
             .nodes
             .iter()
@@ -123,62 +129,37 @@ impl Cfg {
                 exit_count
             ));
         }
+        Ok(())
+    }
 
-        // All nodes reachable from entry
-        // Exception: Empty functions have no edges, so exit is unreachable from entry
-        // but this is valid (implicit flow to exit)
+    fn validate_forward_reachability(&self, is_empty: bool) -> Result<(), String> {
         let reachable = self.reachable_from(self.entry);
         let all_node_ids: BTreeSet<NodeId> = self.nodes.iter().map(|n| n.id).collect();
         let unreachable: Vec<_> = all_node_ids.difference(&reachable).copied().collect();
-
-        // Check if this is an empty function (only entry and exit nodes, no edges)
-        let is_empty_function = self.nodes.len() == 2 && self.edges.is_empty();
-
-        if !unreachable.is_empty() {
-            // In empty functions, exit may be unreachable (that's expected)
-            if is_empty_function && unreachable == vec![self.exit] {
-                // This is okay - empty function with entry and exit only
-            } else {
-                return Err(format!("Nodes not reachable from entry: {:?}", unreachable));
-            }
+        // In empty functions, exit is unreachable from entry — that's expected
+        if !(unreachable.is_empty() || is_empty && unreachable == vec![self.exit]) {
+            return Err(format!("Nodes not reachable from entry: {:?}", unreachable));
         }
+        Ok(())
+    }
 
-        // Exit reachable from all paths (or via explicit return/throw edges)
-        // This is checked by ensuring all nodes can reach exit through some path
-        // Note: Some nodes may have edges directly to exit (returns, throws)
-        let can_reach_exit: BTreeSet<NodeId> = self.reachable_to(self.exit);
+    fn validate_backward_reachability(&self, is_empty: bool) -> Result<(), String> {
+        let can_reach_exit = self.reachable_to(self.exit);
+        let all_node_ids: BTreeSet<NodeId> = self.nodes.iter().map(|n| n.id).collect();
         let cannot_reach_exit: Vec<_> = all_node_ids.difference(&can_reach_exit).copied().collect();
-
-        // Entry node must be able to reach exit (even if empty function)
-        // Empty functions have no edges - entry and exit are the only nodes
-        // This represents a valid empty function (implicit return)
-        if !can_reach_exit.contains(&self.entry) {
-            // Check if this is an empty function (only entry and exit nodes)
-            let is_empty_function = self.nodes.len() == 2 && self.edges.is_empty();
-            if is_empty_function {
-                // Empty function is valid - entry implicitly flows to exit
-            } else {
-                // Non-empty function must have path from entry to exit
-                let has_direct_edge = self
-                    .edges
-                    .iter()
-                    .any(|e| e.from == self.entry && e.to == self.exit);
-                if !has_direct_edge {
-                    return Err("Entry node cannot reach exit node".to_string());
-                }
+        if !can_reach_exit.contains(&self.entry) && !is_empty {
+            let has_direct_edge = self
+                .edges
+                .iter()
+                .any(|e| e.from == self.entry && e.to == self.exit);
+            if !has_direct_edge {
+                return Err("Entry node cannot reach exit node".to_string());
             }
         }
-
-        // Nodes that can't reach exit must have explicit return/throw edges to exit
-        // Exception: Empty functions have no edges, entry implicitly flows to exit
-        let is_empty_function = self.nodes.len() == 2 && self.edges.is_empty();
-
         for node_id in cannot_reach_exit {
-            // Skip entry node in empty functions (implicit flow to exit)
-            if is_empty_function && node_id == self.entry {
+            if is_empty && node_id == self.entry {
                 continue;
             }
-
             let has_exit_edge = self
                 .edges
                 .iter()
@@ -190,7 +171,6 @@ impl Cfg {
                 ));
             }
         }
-
         Ok(())
     }
 
