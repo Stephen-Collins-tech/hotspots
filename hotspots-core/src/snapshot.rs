@@ -163,7 +163,7 @@ pub struct SnapshotSummary {
     pub top_1_pct_share: f64,
     pub top_5_pct_share: f64,
     pub top_10_pct_share: f64,
-    pub by_band: std::collections::HashMap<String, BandStats>,
+    pub by_band: std::collections::BTreeMap<String, BandStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_graph: Option<CallGraphStats>,
 }
@@ -580,8 +580,6 @@ impl Snapshot {
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
     pub fn compute_summary(&mut self) {
-        use std::collections::HashMap;
-
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -590,7 +588,7 @@ impl Snapshot {
                 top_1_pct_share: 0.0,
                 top_5_pct_share: 0.0,
                 top_10_pct_share: 0.0,
-                by_band: HashMap::new(),
+                by_band: std::collections::BTreeMap::new(),
                 call_graph: None,
             });
             return;
@@ -618,7 +616,7 @@ impl Snapshot {
         let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
 
         // Band distribution
-        let mut by_band: HashMap<String, BandStats> = HashMap::new();
+        let mut by_band: std::collections::BTreeMap<String, BandStats> = std::collections::BTreeMap::new();
         for func in &self.functions {
             let score = func.activity_risk.unwrap_or(func.lrs);
             let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
@@ -951,6 +949,16 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
 
+    // Normalize through a parse-reserialize cycle to produce a canonical form.
+    // This handles float serialization quirks where serde_json may parse a float
+    // string to a slightly different f64 than what was computed (e.g. a 1-ULP
+    // difference due to the float parser's rounding). Both the on-disk snapshot
+    // (already round-tripped once) and the freshly-computed snapshot are brought
+    // to the same canonical representation before comparing.
+    let canonical_json = Snapshot::from_json(&snapshot.to_json()?)
+        .context("failed to normalize snapshot for canonical form")?
+        .to_json()?;
+
     if snapshot_path.exists() && !force {
         // Verify existing snapshot matches (idempotency check)
         let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
@@ -966,8 +974,8 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> R
             )
         })?;
 
-        // If it's byte-for-byte identical, this is idempotent (ok)
-        if existing_snapshot.to_json()? == snapshot.to_json()? {
+        // Compare canonical forms (both normalized through one parse-reserialize cycle)
+        if existing_snapshot.to_json()? == canonical_json {
             return Ok(());
         }
 
@@ -977,11 +985,8 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> R
         );
     }
 
-    // Serialize snapshot
-    let json = snapshot.to_json()?;
-
-    // Atomic write
-    atomic_write(&snapshot_path, &json)
+    // Atomic write (use canonical form so future round-trips are stable)
+    atomic_write(&snapshot_path, &canonical_json)
         .with_context(|| format!("failed to persist snapshot: {}", snapshot_path.display()))?;
 
     Ok(())
