@@ -588,21 +588,19 @@ fn handle_mode_output(
         force,
         per_function_touches,
     } = opts;
-    // Find repository root (search up from current path)
+
     let repo_root = find_repo_root(path)?;
-
-    // Analyze codebase
-    // Note: top_n is NOT applied here for snapshot/delta modes - it's applied post-scoring
-    // so that functions are ranked by activity_risk (not just LRS) before truncation
-    let options = AnalysisOptions {
-        min_lrs,
-        top_n: None,
-    };
-    let reports = analyze_with_config(path, options, Some(resolved_config))?;
-
-    // Detect PR context (best-effort, CI env vars only)
+    // top_n is NOT applied here — applied post-scoring so functions are ranked by
+    // activity_risk (not just LRS) before truncation
+    let reports = analyze_with_config(
+        path,
+        AnalysisOptions {
+            min_lrs,
+            top_n: None,
+        },
+        Some(resolved_config),
+    )?;
     let pr_context = git::detect_pr_context();
-    let is_mainline = !pr_context.is_pr;
 
     match mode {
         OutputMode::Snapshot => {
@@ -610,16 +608,14 @@ fn handle_mode_output(
                 build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
                     .context("failed to build enriched snapshot")?;
 
-            // Persist snapshot only in mainline mode (not in PR mode)
-            // Note: Aggregates are NOT persisted (they're derived, computed on output)
-            if is_mainline {
+            // Persist only in mainline mode; aggregates are not persisted (computed on output)
+            if !pr_context.is_pr {
                 snapshot::persist_snapshot(&repo_root, &snapshot, force)
                     .context("failed to persist snapshot")?;
                 snapshot::append_to_index(&repo_root, &snapshot)
                     .context("failed to update index")?;
             }
 
-            // Sort by activity_risk descending when using --explain or --top N
             let total_function_count = snapshot.functions.len();
             if explain || top.is_some() {
                 snapshot.functions.sort_by(|a, b| {
@@ -634,63 +630,26 @@ fn handle_mode_output(
                 }
             }
 
-            // Emit snapshot output
-            match format {
-                OutputFormat::Json => {
-                    // Compute aggregates for output (not persisted)
-                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                        &snapshot, &repo_root,
-                    );
-                    snapshot.aggregates = Some(aggregates);
-                    let json = snapshot.to_json()?;
-                    println!("{}", json);
-                }
-                OutputFormat::Jsonl => {
-                    let jsonl = snapshot.to_jsonl()?;
-                    println!("{}", jsonl);
-                }
-                OutputFormat::Text => {
-                    if explain {
-                        print_explain_output(&snapshot, total_function_count)?;
-                    } else {
-                        anyhow::bail!(
-                            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
-                        );
-                    }
-                }
-                OutputFormat::Html => {
-                    // Compute aggregates for output
-                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                        &snapshot, &repo_root,
-                    );
-                    snapshot.aggregates = Some(aggregates);
-
-                    // Render HTML
-                    let html = hotspots_core::html::render_html_snapshot(&snapshot);
-
-                    // Write to file
-                    let output_path =
-                        output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-                    write_html_report(&output_path, &html)?;
-                    eprintln!("HTML report written to: {}", output_path.display());
-                }
-            }
+            emit_snapshot_output(
+                &mut snapshot,
+                format,
+                explain,
+                total_function_count,
+                output,
+                &repo_root,
+            )?;
         }
         OutputMode::Delta => {
             let snapshot =
                 build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
                     .context("failed to build enriched snapshot")?;
 
-            // Compute delta
             let delta = if pr_context.is_pr {
-                // PR mode: compare vs merge-base
                 compute_pr_delta(&repo_root, &snapshot)?
             } else {
-                // Mainline mode: compare vs direct parent (parents[0])
                 delta::compute_delta(&repo_root, &snapshot)?
             };
 
-            // Evaluate policies if requested
             let mut delta_with_extras = delta.clone();
             if policy {
                 let policy_results = hotspots_core::policy::evaluate_policies(
@@ -700,74 +659,107 @@ fn handle_mode_output(
                     resolved_config,
                 )
                 .context("failed to evaluate policies")?;
-
                 if let Some(results) = policy_results {
-                    delta_with_extras.policy = Some(results.clone());
+                    delta_with_extras.policy = Some(results);
                 }
             }
-
-            // Compute aggregates for output (not stored in delta computation)
             delta_with_extras.aggregates =
                 Some(hotspots_core::aggregates::compute_delta_aggregates(&delta));
 
-            // Emit delta output
-            let has_blocking_failures = delta_with_extras
-                .policy
-                .as_ref()
-                .map(|p| p.has_blocking_failures())
-                .unwrap_or(false);
-
-            match format {
-                OutputFormat::Json => {
-                    let json = delta_with_extras.to_json()?;
-                    println!("{}", json);
-                }
-                OutputFormat::Jsonl => {
-                    anyhow::bail!(
-                        "JSONL format is not supported for delta mode (use --mode snapshot)"
-                    );
-                }
-                OutputFormat::Text => {
-                    if policy {
-                        // Text output for delta mode is only supported with --policy
-                        if let Some(ref policy_results) = delta_with_extras.policy {
-                            print_policy_text_output(&delta_with_extras, policy_results)?;
-                        } else {
-                            // Baseline delta - no policies evaluated, but still show delta info
-                            println!("Delta Analysis");
-                            println!("{}", "=".repeat(80));
-                            println!(
-                                "Baseline delta (no parent snapshot) - policy evaluation skipped."
-                            );
-                            println!(
-                                "\nDelta contains {} function changes.",
-                                delta_with_extras.deltas.len()
-                            );
-                        }
-                    } else {
-                        anyhow::bail!("text format is not supported for delta mode without --policy (use --format json)");
-                    }
-                }
-                OutputFormat::Html => {
-                    // Render HTML
-                    let html = hotspots_core::html::render_html_delta(&delta_with_extras);
-
-                    // Write to file
-                    let output_path =
-                        output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-                    write_html_report(&output_path, &html)?;
-                    eprintln!("HTML report written to: {}", output_path.display());
-                }
-            }
-
-            // Exit with error code if there are blocking failures
-            if has_blocking_failures {
+            if emit_delta_output(&delta_with_extras, format, policy, output)? {
                 std::process::exit(1);
             }
         }
     }
 
     Ok(())
+}
+
+fn emit_snapshot_output(
+    snapshot: &mut Snapshot,
+    format: OutputFormat,
+    explain: bool,
+    total_function_count: usize,
+    output: Option<PathBuf>,
+    repo_root: &Path,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => {
+            let aggregates =
+                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            snapshot.aggregates = Some(aggregates);
+            println!("{}", snapshot.to_json()?);
+        }
+        OutputFormat::Jsonl => {
+            println!("{}", snapshot.to_jsonl()?);
+        }
+        OutputFormat::Text => {
+            if explain {
+                print_explain_output(snapshot, total_function_count)?;
+            } else {
+                anyhow::bail!(
+                    "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+                );
+            }
+        }
+        OutputFormat::Html => {
+            let aggregates =
+                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            snapshot.aggregates = Some(aggregates);
+            let html = hotspots_core::html::render_html_snapshot(snapshot);
+            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+            write_html_report(&output_path, &html)?;
+            eprintln!("HTML report written to: {}", output_path.display());
+        }
+    }
+    Ok(())
+}
+
+/// Returns true if there are blocking policy failures (caller should exit non-zero).
+fn emit_delta_output(
+    delta: &Delta,
+    format: OutputFormat,
+    policy: bool,
+    output: Option<PathBuf>,
+) -> anyhow::Result<bool> {
+    let has_blocking_failures = delta
+        .policy
+        .as_ref()
+        .map(|p| p.has_blocking_failures())
+        .unwrap_or(false);
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", delta.to_json()?);
+        }
+        OutputFormat::Jsonl => {
+            anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
+        }
+        OutputFormat::Text => {
+            if policy {
+                if let Some(ref policy_results) = delta.policy {
+                    print_policy_text_output(delta, policy_results)?;
+                } else {
+                    println!("Delta Analysis");
+                    println!("{}", "=".repeat(80));
+                    println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
+                    println!("\nDelta contains {} function changes.", delta.deltas.len());
+                }
+            } else {
+                anyhow::bail!(
+                    "text format is not supported for delta mode without --policy (use --format json)"
+                );
+            }
+        }
+        OutputFormat::Html => {
+            let html = hotspots_core::html::render_html_delta(delta);
+            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+            write_html_report(&output_path, &html)?;
+            eprintln!("HTML report written to: {}", output_path.display());
+        }
+    }
+
+    Ok(has_blocking_failures)
 }
 
 /// Compute delta for PR mode (compares vs merge-base)
