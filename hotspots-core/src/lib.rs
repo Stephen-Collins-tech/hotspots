@@ -162,51 +162,60 @@ fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf
     Ok(files)
 }
 
+/// Returns true for directory names that should not be traversed
+fn is_skipped_dir(name: &str) -> bool {
+    name.starts_with('.')
+        || name == "node_modules"
+        || name == "dist"
+        || name == "build"
+        || name == "out"
+        || name == "coverage"
+        || name == "target"
+}
+
+/// Process one directory entry, pushing source files or recursing into dirs
+fn process_dir_entry(
+    path: std::path::PathBuf,
+    metadata: std::fs::Metadata,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    use std::ffi::OsStr;
+
+    if metadata.is_symlink() {
+        return Ok(());
+    }
+
+    if metadata.is_dir() {
+        if let Some(name) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
+            if is_skipped_dir(name) {
+                return Ok(());
+            }
+        }
+        collect_source_files_recursive(&path, files)?;
+    } else if metadata.is_file() {
+        if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
+            if is_supported_source_file(filename) {
+                files.push(path);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Recursively collect supported source files from a directory
 fn collect_source_files_recursive(
     dir: &std::path::Path,
     files: &mut Vec<std::path::PathBuf>,
 ) -> Result<()> {
-    use std::ffi::OsStr;
-
     for entry_result in std::fs::read_dir(dir)
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?
     {
-        let entry: std::fs::DirEntry = entry_result?;
+        let entry = entry_result?;
         let path = entry.path();
-
-        // Use symlink_metadata to detect symlinks without following them
         let metadata = std::fs::symlink_metadata(&path)
             .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
-
-        // Skip symlinks to prevent infinite loops
-        if metadata.is_symlink() {
-            continue;
-        }
-
-        if metadata.is_dir() {
-            // Skip common non-source directories
-            if let Some(name) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
-                // Skip hidden directories, node_modules, and build artifacts
-                if name.starts_with('.')
-                    || name == "node_modules"
-                    || name == "dist"
-                    || name == "build"
-                    || name == "out"
-                    || name == "coverage"
-                    || name == "target"
-                {
-                    continue;
-                }
-            }
-            collect_source_files_recursive(&path, files)?;
-        } else if metadata.is_file() {
-            if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
-                if is_supported_source_file(filename) {
-                    files.push(path);
-                }
-            }
-        }
+        process_dir_entry(path, metadata, files)?;
     }
 
     Ok(())
