@@ -319,6 +319,52 @@ fn compute_function_deltas(
     deltas
 }
 
+/// Find the best rename match for a deleted function among new functions.
+///
+/// Returns the new function ID if a match is found (first match wins).
+fn find_rename_match<'a>(
+    del_id: &str,
+    del_func: &FunctionSnapshot,
+    new_ids: &'a [String],
+    current_funcs: &HashMap<&str, &FunctionSnapshot>,
+    matched_new: &std::collections::HashSet<String>,
+) -> Option<&'a str> {
+    let del_name = del_id
+        .strip_prefix(&format!("{}::", del_func.file))
+        .unwrap_or(del_id);
+    for new_id in new_ids {
+        if matched_new.contains(new_id) {
+            continue;
+        }
+        let new_func = match current_funcs.get(new_id.as_str()) {
+            Some(f) => f,
+            None => continue,
+        };
+        let new_name = new_id
+            .strip_prefix(&format!("{}::", new_func.file))
+            .unwrap_or(new_id.as_str());
+        if del_name == new_name && del_func.file != new_func.file {
+            return Some(new_id.as_str());
+        }
+        if del_func.file == new_func.file && del_func.line.abs_diff(new_func.line) <= 10 {
+            return Some(new_id.as_str());
+        }
+    }
+    None
+}
+
+/// Write rename_hint onto each Deleted entry that was matched
+fn apply_hints(deltas: &mut [FunctionDeltaEntry], hints: &[(String, String)]) {
+    for (del_id, new_id) in hints {
+        for entry in deltas.iter_mut() {
+            if entry.function_id == *del_id {
+                entry.rename_hint = Some(new_id.clone());
+                break;
+            }
+        }
+    }
+}
+
 /// Second pass: fuzzy match Deleted+New pairs as likely renames/moves.
 ///
 /// Heuristics (applied in order, first match wins):
@@ -346,47 +392,19 @@ fn apply_rename_hints(
     }
     let mut matched_new: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut hints: Vec<(String, String)> = Vec::new();
-    'outer: for del_id in &deleted_ids {
+    for del_id in &deleted_ids {
         let del_func = match parent_funcs.get(del_id.as_str()) {
             Some(f) => f,
             None => continue,
         };
-        let del_name = del_id
-            .strip_prefix(&format!("{}::", del_func.file))
-            .unwrap_or(del_id.as_str());
-        for new_id in &new_ids {
-            if matched_new.contains(new_id) {
-                continue;
-            }
-            let new_func = match current_funcs.get(new_id.as_str()) {
-                Some(f) => f,
-                None => continue,
-            };
-            let new_name = new_id
-                .strip_prefix(&format!("{}::", new_func.file))
-                .unwrap_or(new_id.as_str());
-            // Case 1: same name, different file → file rename
-            if del_name == new_name && del_func.file != new_func.file {
-                hints.push((del_id.clone(), new_id.clone()));
-                matched_new.insert(new_id.clone());
-                continue 'outer;
-            }
-            // Case 2: same file, line within ±10 → function move
-            if del_func.file == new_func.file && del_func.line.abs_diff(new_func.line) <= 10 {
-                hints.push((del_id.clone(), new_id.clone()));
-                matched_new.insert(new_id.clone());
-                continue 'outer;
-            }
+        if let Some(new_id) =
+            find_rename_match(del_id, del_func, &new_ids, current_funcs, &matched_new)
+        {
+            hints.push((del_id.clone(), new_id.to_string()));
+            matched_new.insert(new_id.to_string());
         }
     }
-    for (del_id, new_id) in hints {
-        for entry in deltas.iter_mut() {
-            if entry.function_id == del_id {
-                entry.rename_hint = Some(new_id);
-                break;
-            }
-        }
-    }
+    apply_hints(deltas, &hints);
 }
 
 /// Check if two functions differ (based on metrics, LRS, or band)
