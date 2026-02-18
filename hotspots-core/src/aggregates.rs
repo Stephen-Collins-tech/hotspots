@@ -32,6 +32,25 @@ pub struct DirectoryAggregates {
     pub high_plus_count: usize,
 }
 
+/// File-level risk view
+///
+/// Richer than `FileAggregates` — includes CC, LOC, function density, and a composite
+/// file_risk_score derived from:
+///   max_cc × 0.4 + avg_cc × 0.3 + log2(function_count + 1) × 0.2 + churn_factor × 0.1
+/// where churn_factor = (file_churn / 100).min(10.0)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct FileRiskView {
+    pub file: String,
+    pub function_count: usize,
+    pub loc: usize,
+    pub max_cc: usize,
+    pub avg_cc: f64,
+    pub critical_count: usize,
+    pub file_churn: u64,
+    pub file_risk_score: f64,
+}
+
 /// Snapshot aggregates container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +59,8 @@ pub struct SnapshotAggregates {
     pub files: Vec<FileAggregates>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub directories: Vec<DirectoryAggregates>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_risk: Vec<FileRiskView>,
 }
 
 /// Delta aggregates for a file
@@ -200,6 +221,68 @@ pub fn compute_directory_aggregates(
     aggregates
 }
 
+/// Compute file risk views from snapshot functions
+///
+/// Ranked descending by `file_risk_score`. Score formula:
+///   max_cc × 0.4 + avg_cc × 0.3 + log2(function_count + 1) × 0.2 + churn_factor × 0.1
+pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskView> {
+    // Accumulate (sum_cc, max_cc, count, critical_count, loc, file_churn) per file
+    let mut file_data: HashMap<String, (usize, usize, usize, usize, usize, u64)> = HashMap::new();
+    for func in functions {
+        let e = file_data
+            .entry(func.file.clone())
+            .or_insert((0, 0, 0, 0, 0, 0));
+        e.0 += func.metrics.cc;
+        e.1 = e.1.max(func.metrics.cc);
+        e.2 += 1;
+        if func.band == "critical" {
+            e.3 += 1;
+        }
+        e.4 += func.metrics.loc;
+        if let Some(churn) = &func.churn {
+            let lines = (churn.lines_added + churn.lines_deleted) as u64;
+            e.5 = e.5.max(lines);
+        }
+    }
+
+    let mut views: Vec<FileRiskView> = file_data
+        .into_iter()
+        .map(
+            |(file, (sum_cc, max_cc, function_count, critical_count, loc, file_churn))| {
+                let avg_cc = if function_count > 0 {
+                    sum_cc as f64 / function_count as f64
+                } else {
+                    0.0
+                };
+                let churn_factor = (file_churn as f64 / 100.0).min(10.0);
+                let score = max_cc as f64 * 0.4
+                    + avg_cc * 0.3
+                    + (function_count as f64 + 1.0).log2() * 0.2
+                    + churn_factor * 0.1;
+                FileRiskView {
+                    file,
+                    function_count,
+                    loc,
+                    max_cc,
+                    avg_cc: (avg_cc * 100.0).round() / 100.0,
+                    critical_count,
+                    file_churn,
+                    file_risk_score: (score * 100.0).round() / 100.0,
+                }
+            },
+        )
+        .collect();
+
+    views.sort_by(|a, b| {
+        b.file_risk_score
+            .partial_cmp(&a.file_risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
+
+    views
+}
+
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -212,8 +295,13 @@ pub fn compute_snapshot_aggregates(
 ) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
+    let file_risk = compute_file_risk_views(&snapshot.functions);
 
-    SnapshotAggregates { files, directories }
+    SnapshotAggregates {
+        files,
+        directories,
+        file_risk,
+    }
 }
 
 /// Compute delta aggregates from delta entries

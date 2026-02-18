@@ -57,12 +57,14 @@ hotspots analyze . --mode snapshot --format text --level file  # new: ranked fil
 
 **Tasks:**
 
-- [ ] **D-1a:** Add `FileSnapshot` struct to `hotspots-core/src/snapshot.rs` with the fields above.
-- [ ] **D-1b:** Add `compute_file_aggregates()` to `hotspots-core/src/aggregates.rs` — fold
-  per-function data into `FileSnapshot` entries, one per unique file path.
-- [ ] **D-1c:** Include `files` array in snapshot JSON output (alongside existing `functions`).
-- [ ] **D-1d:** Add `--level file` text output mode to `print_explain_output` (or a new
-  `print_file_output` function) that prints a ranked file table.
+- [x] **D-1a:** Add `FileRiskView` struct to `hotspots-core/src/aggregates.rs` with the fields above.
+- [x] **D-1b:** Add `compute_file_risk_views()` to `hotspots-core/src/aggregates.rs` — fold
+  per-function data into `FileRiskView` entries, one per unique file path.
+- [x] **D-1c:** Include `file_risk` array in snapshot JSON output (via `SnapshotAggregates`).
+  Key is `aggregates.file_risk` in JSON output.
+- [x] **D-1d:** Add `--level file` text output mode (`print_file_risk_output`) that prints
+  a ranked file table. Usage: `hotspots analyze . --mode snapshot --format text --level file`.
+  Supports `--top N` for limiting output. Mutually exclusive with `--explain`.
 - [ ] **D-1e:** Add file-level aggregates to delta output — which files got worse/better.
 
 **Effort:** Low-Medium. Builds entirely on existing per-function data — no new git calls needed.

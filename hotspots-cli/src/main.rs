@@ -76,6 +76,10 @@ enum Commands {
         #[arg(long)]
         no_persist: bool,
 
+        /// Output level for text format: file shows a ranked file risk table (only valid with --mode snapshot --format text)
+        #[arg(long, value_name = "LEVEL")]
+        level: Option<OutputLevel>,
+
         /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
         #[arg(long)]
         per_function_touches: bool,
@@ -155,6 +159,11 @@ enum OutputMode {
     Delta,
 }
 
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum OutputLevel {
+    File,
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -171,6 +180,7 @@ fn main() -> anyhow::Result<()> {
             explain,
             force,
             no_persist,
+            level,
             per_function_touches,
         } => handle_analyze(AnalyzeArgs {
             path,
@@ -184,6 +194,7 @@ fn main() -> anyhow::Result<()> {
             explain,
             force,
             no_persist,
+            level,
             per_function_touches,
         })?,
         Commands::Prune {
@@ -216,6 +227,7 @@ struct AnalyzeArgs {
     explain: bool,
     force: bool,
     no_persist: bool,
+    level: Option<OutputLevel>,
     per_function_touches: bool,
 }
 
@@ -232,6 +244,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         explain,
         force,
         no_persist,
+        level,
         per_function_touches,
     } = args;
 
@@ -297,6 +310,19 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         }
     }
 
+    // Validate --level (only valid with --mode snapshot --format text)
+    if level.is_some() {
+        if mode != Some(OutputMode::Snapshot) {
+            anyhow::bail!("--level is only valid with --mode snapshot");
+        }
+        if !matches!(format, OutputFormat::Text) {
+            anyhow::bail!("--level is only valid with --format text");
+        }
+        if explain {
+            anyhow::bail!("--level and --explain are mutually exclusive");
+        }
+    }
+
     // If mode is specified, use snapshot/delta mode
     if let Some(output_mode) = mode {
         return handle_mode_output(
@@ -312,6 +338,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain,
                 force,
                 no_persist,
+                level,
                 per_function_touches,
             },
         );
@@ -588,6 +615,7 @@ struct ModeOutputOptions {
     explain: bool,
     force: bool,
     no_persist: bool,
+    level: Option<OutputLevel>,
     per_function_touches: bool,
 }
 
@@ -607,6 +635,7 @@ fn handle_mode_output(
         explain,
         force,
         no_persist,
+        level,
         per_function_touches,
     } = opts;
 
@@ -638,7 +667,9 @@ fn handle_mode_output(
             }
 
             let total_function_count = snapshot.functions.len();
-            if explain || top.is_some() {
+            // For file-level view, keep all functions so aggregation is over the full set
+            let is_file_level = level == Some(OutputLevel::File);
+            if (explain || top.is_some()) && !is_file_level {
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -653,10 +684,14 @@ fn handle_mode_output(
 
             emit_snapshot_output(
                 &mut snapshot,
-                format,
-                explain,
-                total_function_count,
-                output,
+                SnapshotOutputOpts {
+                    format,
+                    explain,
+                    level,
+                    top,
+                    total_function_count,
+                    output,
+                },
                 &repo_root,
             )?;
         }
@@ -696,14 +731,28 @@ fn handle_mode_output(
     Ok(())
 }
 
-fn emit_snapshot_output(
-    snapshot: &mut Snapshot,
+struct SnapshotOutputOpts {
     format: OutputFormat,
     explain: bool,
+    level: Option<OutputLevel>,
+    top: Option<usize>,
     total_function_count: usize,
     output: Option<PathBuf>,
+}
+
+fn emit_snapshot_output(
+    snapshot: &mut Snapshot,
+    opts: SnapshotOutputOpts,
     repo_root: &Path,
 ) -> anyhow::Result<()> {
+    let SnapshotOutputOpts {
+        format,
+        explain,
+        level,
+        top,
+        total_function_count,
+        output,
+    } = opts;
     match format {
         OutputFormat::Json => {
             let aggregates =
@@ -715,7 +764,11 @@ fn emit_snapshot_output(
             println!("{}", snapshot.to_jsonl()?);
         }
         OutputFormat::Text => {
-            if explain {
+            if level == Some(OutputLevel::File) {
+                let aggregates =
+                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                print_file_risk_output(&aggregates.file_risk, top)?;
+            } else if explain {
                 print_explain_output(snapshot, total_function_count)?;
             } else {
                 anyhow::bail!(
@@ -1040,6 +1093,50 @@ fn print_policy_summary(policy_results: &PolicyResults) {
     if other_count > 0 {
         println!("  Other warnings: {}", other_count);
     }
+}
+
+/// Print ranked file risk table
+fn print_file_risk_output(
+    file_risk: &[hotspots_core::aggregates::FileRiskView],
+    top: Option<usize>,
+) -> anyhow::Result<()> {
+    if file_risk.is_empty() {
+        println!("No files to display.");
+        return Ok(());
+    }
+
+    let total = file_risk.len();
+    let display_count = top.map(|n| n.min(total)).unwrap_or(total);
+    let title = if display_count < total {
+        format!("Top {} Files by Risk Score", display_count)
+    } else {
+        "All Files by Risk Score".to_string()
+    };
+
+    println!("{}", title);
+    println!("{}", "=".repeat(80));
+    println!();
+
+    for (i, view) in file_risk.iter().take(display_count).enumerate() {
+        println!("#{} {}", i + 1, view.file);
+        println!(
+            "   Functions: {} | LOC: {} | Max CC: {} | Avg CC: {:.1}",
+            view.function_count, view.loc, view.max_cc, view.avg_cc
+        );
+        println!("   Risk Score: {:.2}", view.file_risk_score);
+        if view.file_churn > 0 {
+            println!("   Churn: {} lines changed (30 days)", view.file_churn);
+        }
+        if view.critical_count > 0 {
+            println!("   Critical functions: {}", view.critical_count);
+        }
+        println!();
+    }
+
+    println!("{}", "-".repeat(80));
+    println!("Showing {}/{} files", display_count, total);
+
+    Ok(())
 }
 
 /// Print human-readable risk explanations for top functions
