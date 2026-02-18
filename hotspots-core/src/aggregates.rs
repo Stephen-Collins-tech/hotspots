@@ -61,6 +61,8 @@ pub struct SnapshotAggregates {
     pub directories: Vec<DirectoryAggregates>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_risk: Vec<FileRiskView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub co_change: Vec<crate::git::CoChangePair>,
 }
 
 /// Delta aggregates for a file
@@ -70,6 +72,7 @@ pub struct FileDeltaAggregates {
     pub file: String,
     pub net_lrs_delta: f64,
     pub regression_count: usize,
+    pub improvement_count: usize,
 }
 
 /// Delta aggregates container
@@ -296,17 +299,23 @@ pub fn compute_snapshot_aggregates(
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
     let file_risk = compute_file_risk_views(&snapshot.functions);
+    let co_change = crate::git::extract_co_change_pairs(repo_root, 90, 3).unwrap_or_default();
 
     SnapshotAggregates {
         files,
         directories,
         file_risk,
+        co_change,
     }
 }
 
 /// Compute delta aggregates from delta entries
+///
+/// Sorted by `net_lrs_delta` descending (worst regressions first).
+/// Ties broken by file path for determinism.
 pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
-    let mut file_data: HashMap<String, (f64, usize)> = HashMap::new();
+    // (net_lrs_delta, regression_count, improvement_count)
+    let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
 
     for entry in &delta.deltas {
         // Extract file path from function_id (format: "path/to/file.ts::function")
@@ -316,27 +325,26 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
             continue; // Skip malformed function_id
         };
 
-        let file_entry = file_data.entry(file).or_insert((0.0, 0));
+        let e = file_data.entry(file).or_insert((0.0, 0, 0));
 
-        // Compute net LRS delta
         if let Some(delta_val) = &entry.delta {
-            file_entry.0 += delta_val.lrs;
-
-            // Count regressions (delta.lrs > 0)
+            e.0 += delta_val.lrs;
             if delta_val.lrs > 0.0 {
-                file_entry.1 += 1;
+                e.1 += 1; // regression
+            } else if delta_val.lrs < 0.0 {
+                e.2 += 1; // improvement
             }
         } else {
-            // For New/Deleted functions, compute delta from before/after states
             match entry.status {
                 crate::delta::FunctionStatus::New => {
                     if let Some(after) = &entry.after {
-                        file_entry.0 += after.lrs;
+                        e.0 += after.lrs;
                     }
                 }
                 crate::delta::FunctionStatus::Deleted => {
                     if let Some(before) = &entry.before {
-                        file_entry.0 -= before.lrs;
+                        e.0 -= before.lrs;
+                        e.2 += 1; // deleted function = improvement
                     }
                 }
                 _ => {}
@@ -347,16 +355,22 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
     let mut aggregates: Vec<FileDeltaAggregates> = file_data
         .into_iter()
         .map(
-            |(file, (net_lrs_delta, regression_count))| FileDeltaAggregates {
+            |(file, (net_lrs_delta, regression_count, improvement_count))| FileDeltaAggregates {
                 file,
                 net_lrs_delta,
                 regression_count,
+                improvement_count,
             },
         )
         .collect();
 
-    // Sort deterministically by file path
-    aggregates.sort_by(|a, b| a.file.cmp(&b.file));
+    // Sort by net_lrs_delta descending (worst regressions first), then file path
+    aggregates.sort_by(|a, b| {
+        b.net_lrs_delta
+            .partial_cmp(&a.net_lrs_delta)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
 
     DeltaAggregates { files: aggregates }
 }

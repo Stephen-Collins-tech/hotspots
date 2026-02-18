@@ -65,7 +65,9 @@ hotspots analyze . --mode snapshot --format text --level file  # new: ranked fil
 - [x] **D-1d:** Add `--level file` text output mode (`print_file_risk_output`) that prints
   a ranked file table. Usage: `hotspots analyze . --mode snapshot --format text --level file`.
   Supports `--top N` for limiting output. Mutually exclusive with `--explain`.
-- [ ] **D-1e:** Add file-level aggregates to delta output — which files got worse/better.
+- [x] **D-1e:** Add file-level aggregates to delta output — which files got worse/better.
+  Added `improvement_count` to `FileDeltaAggregates`; sort order changed to descending
+  `net_lrs_delta` (worst regression first).
 
 **Effort:** Low-Medium. Builds entirely on existing per-function data — no new git calls needed.
 **Risk:** Low. Additive change; existing function output is unchanged.
@@ -104,15 +106,20 @@ hotspots coupling .                                 # new subcommand (optional)
 
 **Tasks:**
 
-- [ ] **D-2a (research):** Prototype co-change mining on this repo. Validate that the coupling
-  ratio formula surfaces real hidden dependencies (not just test+source pairs for the same module).
-  Record findings and calibrate threshold.
-- [ ] **D-2b:** Add `git::extract_co_change_pairs(repo, window_days, min_count)` to `git.rs`.
-  Returns `Vec<CoChangePair>`.
-- [ ] **D-2c:** Add `CoChangePair` struct and integrate into snapshot output.
+- [x] **D-2a (research):** Implemented directly in Rust and validated on this repo.
+  Findings: signal is good for source files with `min_count >= 3`; noise sources are
+  (1) ghost files from renames (filtered: only emit pairs where both files currently exist),
+  (2) config/workflow files in large setup commits (non-issue at min_count=3),
+  (3) trivially expected test+source pairs (filtered by `is_trivial_pair`).
+  Top Rust pairs are legitimate: `hotspots-cli/src/main.rs` ↔ `hotspots-core/src/aggregates.rs`,
+  `cfg/builder.rs` ↔ language-specific builders. Threshold calibrated: high > 0.5, moderate > 0.25.
+- [x] **D-2b:** Add `git::extract_co_change_pairs(repo, window_days, min_count)` to `git.rs`.
+  Returns `Vec<CoChangePair>`. Default: 90-day window, min_count=3.
+- [x] **D-2c:** Add `CoChangePair` struct and integrate into snapshot output.
+  Key is `aggregates.co_change` in JSON output.
 - [ ] **D-2d:** Add co-change section to `--explain` text output.
-- [ ] **D-2e:** Filter out trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`,
-  `mod.rs` + any sibling) to reduce noise.
+- [x] **D-2e:** Filter out trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`,
+  `mod.rs` + any sibling) to reduce noise. Also filters ghost files (renamed/deleted).
 
 **Effort:** Medium. Requires new git log analysis but no AST/parsing work.
 **Risk:** Low. Additive; no existing analysis is modified.
