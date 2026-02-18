@@ -170,146 +170,153 @@ pub struct ResolvedConfig {
 impl HotspotsConfig {
     /// Validate the configuration for logical errors
     pub fn validate(&self) -> Result<()> {
-        // Validate thresholds are positive and ordered
         if let Some(ref t) = self.thresholds {
-            let moderate = t.moderate.unwrap_or(3.0);
-            let high = t.high.unwrap_or(6.0);
-            let critical = t.critical.unwrap_or(9.0);
-
-            if moderate <= 0.0 {
-                anyhow::bail!("thresholds.moderate must be positive (got {})", moderate);
-            }
-            if high <= 0.0 {
-                anyhow::bail!("thresholds.high must be positive (got {})", high);
-            }
-            if critical <= 0.0 {
-                anyhow::bail!("thresholds.critical must be positive (got {})", critical);
-            }
-            if moderate >= high {
-                anyhow::bail!(
-                    "thresholds.moderate ({}) must be less than thresholds.high ({})",
-                    moderate,
-                    high
-                );
-            }
-            if high >= critical {
-                anyhow::bail!(
-                    "thresholds.high ({}) must be less than thresholds.critical ({})",
-                    high,
-                    critical
-                );
-            }
+            validate_thresholds(t)?;
         }
-
-        // Validate weights are non-negative
         if let Some(ref w) = self.weights {
-            for (name, val) in [("cc", w.cc), ("nd", w.nd), ("fo", w.fo), ("ns", w.ns)] {
-                if let Some(v) = val {
-                    if v < 0.0 {
-                        anyhow::bail!("weights.{} must be non-negative (got {})", name, v);
-                    }
-                    if v > 10.0 {
-                        anyhow::bail!("weights.{} must be at most 10.0 (got {})", name, v);
-                    }
-                }
-            }
+            validate_weights(w)?;
         }
-
-        // Validate warning thresholds
         if let Some(ref wt) = self.warning_thresholds {
-            let watch_min = wt.watch_min.unwrap_or(2.5);
-            let watch_max = wt.watch_max.unwrap_or(3.0);
-            let attention_min = wt.attention_min.unwrap_or(5.5);
-            let attention_max = wt.attention_max.unwrap_or(6.0);
-            let rapid_growth = wt.rapid_growth_percent.unwrap_or(50.0);
-
-            if watch_min <= 0.0 {
-                anyhow::bail!(
-                    "warning_thresholds.watch_min must be positive (got {})",
-                    watch_min
-                );
-            }
-            if watch_max <= 0.0 {
-                anyhow::bail!(
-                    "warning_thresholds.watch_max must be positive (got {})",
-                    watch_max
-                );
-            }
-            if attention_min <= 0.0 {
-                anyhow::bail!(
-                    "warning_thresholds.attention_min must be positive (got {})",
-                    attention_min
-                );
-            }
-            if attention_max <= 0.0 {
-                anyhow::bail!(
-                    "warning_thresholds.attention_max must be positive (got {})",
-                    attention_max
-                );
-            }
-            if rapid_growth <= 0.0 {
-                anyhow::bail!(
-                    "warning_thresholds.rapid_growth_percent must be positive (got {})",
-                    rapid_growth
-                );
-            }
-
-            if watch_min >= watch_max {
-                anyhow::bail!(
-                    "warning_thresholds.watch_min ({}) must be less than watch_max ({})",
-                    watch_min,
-                    watch_max
-                );
-            }
-            if attention_min >= attention_max {
-                anyhow::bail!(
-                    "warning_thresholds.attention_min ({}) must be less than attention_max ({})",
-                    attention_min,
-                    attention_max
-                );
-            }
+            validate_warning_thresholds(wt)?;
         }
-
-        // Validate scoring weights are non-negative
         if let Some(ref s) = self.scoring {
-            for (name, val) in [
-                ("churn", s.churn),
-                ("touch", s.touch),
-                ("recency", s.recency),
-                ("fan_in", s.fan_in),
-                ("scc", s.scc),
-                ("depth", s.depth),
-                ("neighbor_churn", s.neighbor_churn),
-            ] {
-                if let Some(v) = val {
-                    if v < 0.0 {
-                        anyhow::bail!("scoring.{} must be non-negative (got {})", name, v);
-                    }
-                    if v > 10.0 {
-                        anyhow::bail!("scoring.{} must be at most 10.0 (got {})", name, v);
-                    }
-                }
-            }
+            validate_scoring(s)?;
         }
-
-        // Validate min_lrs is non-negative
         if let Some(min) = self.min_lrs {
             if min < 0.0 {
                 anyhow::bail!("min_lrs must be non-negative (got {})", min);
             }
         }
-
-        // Validate glob patterns compile
         for pattern in &self.include {
             Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
         }
         for pattern in &self.exclude {
             Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
         }
-
         Ok(())
     }
+}
 
+fn validate_thresholds(t: &ThresholdConfig) -> Result<()> {
+    let moderate = t.moderate.unwrap_or(3.0);
+    let high = t.high.unwrap_or(6.0);
+    let critical = t.critical.unwrap_or(9.0);
+    if moderate <= 0.0 {
+        anyhow::bail!("thresholds.moderate must be positive (got {})", moderate);
+    }
+    if high <= 0.0 {
+        anyhow::bail!("thresholds.high must be positive (got {})", high);
+    }
+    if critical <= 0.0 {
+        anyhow::bail!("thresholds.critical must be positive (got {})", critical);
+    }
+    if moderate >= high {
+        anyhow::bail!(
+            "thresholds.moderate ({}) must be less than thresholds.high ({})",
+            moderate,
+            high
+        );
+    }
+    if high >= critical {
+        anyhow::bail!(
+            "thresholds.high ({}) must be less than thresholds.critical ({})",
+            high,
+            critical
+        );
+    }
+    Ok(())
+}
+
+fn validate_weights(w: &WeightConfig) -> Result<()> {
+    for (name, val) in [("cc", w.cc), ("nd", w.nd), ("fo", w.fo), ("ns", w.ns)] {
+        if let Some(v) = val {
+            if v < 0.0 {
+                anyhow::bail!("weights.{} must be non-negative (got {})", name, v);
+            }
+            if v > 10.0 {
+                anyhow::bail!("weights.{} must be at most 10.0 (got {})", name, v);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_warning_thresholds(wt: &WarningThresholdConfig) -> Result<()> {
+    let watch_min = wt.watch_min.unwrap_or(2.5);
+    let watch_max = wt.watch_max.unwrap_or(3.0);
+    let attention_min = wt.attention_min.unwrap_or(5.5);
+    let attention_max = wt.attention_max.unwrap_or(6.0);
+    let rapid_growth = wt.rapid_growth_percent.unwrap_or(50.0);
+    if watch_min <= 0.0 {
+        anyhow::bail!(
+            "warning_thresholds.watch_min must be positive (got {})",
+            watch_min
+        );
+    }
+    if watch_max <= 0.0 {
+        anyhow::bail!(
+            "warning_thresholds.watch_max must be positive (got {})",
+            watch_max
+        );
+    }
+    if attention_min <= 0.0 {
+        anyhow::bail!(
+            "warning_thresholds.attention_min must be positive (got {})",
+            attention_min
+        );
+    }
+    if attention_max <= 0.0 {
+        anyhow::bail!(
+            "warning_thresholds.attention_max must be positive (got {})",
+            attention_max
+        );
+    }
+    if rapid_growth <= 0.0 {
+        anyhow::bail!(
+            "warning_thresholds.rapid_growth_percent must be positive (got {})",
+            rapid_growth
+        );
+    }
+    if watch_min >= watch_max {
+        anyhow::bail!(
+            "warning_thresholds.watch_min ({}) must be less than watch_max ({})",
+            watch_min,
+            watch_max
+        );
+    }
+    if attention_min >= attention_max {
+        anyhow::bail!(
+            "warning_thresholds.attention_min ({}) must be less than attention_max ({})",
+            attention_min,
+            attention_max
+        );
+    }
+    Ok(())
+}
+
+fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
+    for (name, val) in [
+        ("churn", s.churn),
+        ("touch", s.touch),
+        ("recency", s.recency),
+        ("fan_in", s.fan_in),
+        ("scc", s.scc),
+        ("depth", s.depth),
+        ("neighbor_churn", s.neighbor_churn),
+    ] {
+        if let Some(v) = val {
+            if v < 0.0 {
+                anyhow::bail!("scoring.{} must be non-negative (got {})", name, v);
+            }
+            if v > 10.0 {
+                anyhow::bail!("scoring.{} must be at most 10.0 (got {})", name, v);
+            }
+        }
+    }
+    Ok(())
+}
+
+impl HotspotsConfig {
     /// Resolve config into compiled form ready for use
     pub fn resolve(&self) -> Result<ResolvedConfig> {
         self.validate()?;
