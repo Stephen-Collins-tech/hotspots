@@ -135,6 +135,81 @@ fn get_commit_timestamp(repo_path: &Path, sha: &str) -> Result<i64> {
         .with_context(|| format!("failed to parse commit timestamp for {}", sha))
 }
 
+/// Compute the Unix timestamp cutoff for age-based pruning
+fn compute_cutoff_timestamp(older_than_days: Option<u64>) -> Option<i64> {
+    older_than_days.map(|days| {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        now - (days as i64) * 24 * 60 * 60
+    })
+}
+
+/// Classify index entries into pruned / reachable / unreachable-kept buckets
+fn classify_snapshots(
+    repo_path: &Path,
+    index: &Index,
+    reachable_shas: &HashSet<String>,
+    cutoff_timestamp: Option<i64>,
+) -> (Vec<String>, usize, usize) {
+    let mut pruned_shas = Vec::new();
+    let mut reachable_count = 0;
+    let mut unreachable_kept_count = 0;
+
+    for entry in &index.commits {
+        let sha = &entry.sha;
+        let snapshot_path = snapshot::snapshot_path(repo_path, sha);
+        if !snapshot_path.exists() {
+            continue;
+        }
+
+        if reachable_shas.contains(sha) {
+            reachable_count += 1;
+        } else {
+            let should_prune = if let Some(cutoff) = cutoff_timestamp {
+                match get_commit_timestamp(repo_path, sha) {
+                    Ok(timestamp) => timestamp < cutoff,
+                    Err(_) => false,
+                }
+            } else {
+                true
+            };
+
+            if should_prune {
+                pruned_shas.push(sha.clone());
+            } else {
+                unreachable_kept_count += 1;
+            }
+        }
+    }
+
+    (pruned_shas, reachable_count, unreachable_kept_count)
+}
+
+/// Delete snapshot files and update the index for pruned SHAs
+fn delete_pruned_snapshots(
+    repo_path: &Path,
+    pruned_shas: &[String],
+    index: &mut Index,
+    index_path: &Path,
+) -> Result<()> {
+    for sha in pruned_shas {
+        let snapshot_path = snapshot::snapshot_path(repo_path, sha);
+        if snapshot_path.exists() {
+            std::fs::remove_file(&snapshot_path).with_context(|| {
+                format!("failed to remove snapshot: {}", snapshot_path.display())
+            })?;
+        }
+    }
+    for sha in pruned_shas {
+        index.remove_commit(sha);
+    }
+    let index_json = index.to_json()?;
+    snapshot::atomic_write(index_path, &index_json)?;
+    Ok(())
+}
+
 /// Prune unreachable snapshots
 ///
 /// # Arguments
@@ -149,7 +224,6 @@ fn get_commit_timestamp(repo_path: &Path, sha: &str) -> Result<i64> {
 /// - Snapshot files cannot be read/written
 /// - Index cannot be updated
 pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<PruneResult> {
-    // Load index to get list of all snapshot SHAs
     let index_path = snapshot::index_path(repo_path);
     let mut index = if index_path.exists() {
         Index::load_or_new(&index_path)?
@@ -157,85 +231,17 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
         Index::new()
     };
 
-    // Enumerate tracked refs
     let tracked_ref_shas = enumerate_tracked_refs(repo_path, &options.ref_patterns)
         .context("failed to enumerate tracked refs")?;
-
-    // Compute reachable commit set
     let reachable_shas = compute_reachable_commits(repo_path, &tracked_ref_shas)
         .context("failed to compute reachable commits")?;
+    let cutoff_timestamp = compute_cutoff_timestamp(options.older_than_days);
 
-    // Get current time for age filtering
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let cutoff_timestamp = options.older_than_days.map(|days| {
-        let days_ago = (days as i64) * 24 * 60 * 60;
-        now - days_ago
-    });
+    let (pruned_shas, reachable_count, unreachable_kept_count) =
+        classify_snapshots(repo_path, &index, &reachable_shas, cutoff_timestamp);
 
-    // Find unreachable snapshots
-    let mut pruned_shas = Vec::new();
-    let mut reachable_count = 0;
-    let mut unreachable_kept_count = 0;
-
-    // Iterate over all commits in index
-    for entry in &index.commits {
-        let sha = &entry.sha;
-
-        // Check if snapshot file exists
-        let snapshot_path = snapshot::snapshot_path(repo_path, sha);
-        if !snapshot_path.exists() {
-            // Snapshot file is missing but still in index - remove from index
-            continue;
-        }
-
-        if reachable_shas.contains(sha) {
-            // Snapshot is reachable - keep it
-            reachable_count += 1;
-        } else {
-            // Snapshot is unreachable - check age filter
-            let should_prune = if let Some(cutoff) = cutoff_timestamp {
-                // Check if commit is older than cutoff
-                match get_commit_timestamp(repo_path, sha) {
-                    Ok(timestamp) => timestamp < cutoff,
-                    Err(_) => {
-                        // If we can't get timestamp, err on side of caution and don't prune
-                        false
-                    }
-                }
-            } else {
-                true
-            };
-
-            if should_prune {
-                pruned_shas.push(sha.clone());
-            } else {
-                unreachable_kept_count += 1;
-            }
-        }
-    }
-
-    // Prune snapshots and update index (unless dry-run)
     if !options.dry_run {
-        for sha in &pruned_shas {
-            let snapshot_path = snapshot::snapshot_path(repo_path, sha);
-            if snapshot_path.exists() {
-                std::fs::remove_file(&snapshot_path).with_context(|| {
-                    format!("failed to remove snapshot: {}", snapshot_path.display())
-                })?;
-            }
-        }
-
-        // Update index - remove pruned entries
-        for sha in &pruned_shas {
-            index.remove_commit(sha);
-        }
-
-        // Write updated index atomically
-        let index_json = index.to_json()?;
-        snapshot::atomic_write(&index_path, &index_json)?;
+        delete_pruned_snapshots(repo_path, &pruned_shas, &mut index, &index_path)?;
     }
 
     Ok(PruneResult {
