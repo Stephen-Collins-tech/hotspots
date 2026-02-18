@@ -8,16 +8,18 @@
 
 ## Summary
 
-| ID  | Finding                                        | Severity | Effort     | Status      |
-|-----|------------------------------------------------|----------|------------|-------------|
-| A-1 | `from_sources()` dead code in callgraph.rs     | Low      | Trivial    | [x] Done    |
-| A-2 | `to_jsonl()` `.unwrap()` in production path    | Low      | Trivial    | [x] Done    |
-| A-3 | lib.rs docs missing Java and Python            | Trivial  | Trivial    | [x] Done    |
-| A-4 | `compact` subcommand incomplete (UX)           | Low      | Low        | [x] Done    |
-| A-5 | CFG builder TODOs untracked                    | Low      | Low-Medium | [ ] Pending |
-| A-6 | `policy.rs` repetitive evaluation pattern      | Medium   | Medium     | [ ] Pending |
-| A-7 | `main.rs` emit_* extraction                    | Medium   | Low        | [ ] Pending |
-| A-8 | `metrics.rs` TreeSitterMetricsConfig refactor  | Medium   | Medium-High| [ ] Pending |
+| ID   | Finding                                        | Severity | Effort     | Status      |
+|------|------------------------------------------------|----------|------------|-------------|
+| A-1  | `from_sources()` dead code in callgraph.rs     | Low      | Trivial    | [x] Done    |
+| A-2  | `to_jsonl()` `.unwrap()` in production path    | Low      | Trivial    | [x] Done    |
+| A-3  | lib.rs docs missing Java and Python            | Trivial  | Trivial    | [x] Done    |
+| A-4  | `compact` subcommand incomplete (UX)           | Low      | Low        | [x] Done    |
+| A-5  | CFG builder TODOs untracked                    | Low      | Low-Medium | [ ] Pending |
+| A-6  | `policy.rs` repetitive evaluation pattern      | Medium   | Medium     | [ ] Pending |
+| A-7  | `main.rs` emit_* extraction                    | Medium   | Low        | [ ] Pending |
+| A-8  | `metrics.rs` TreeSitterMetricsConfig refactor  | Medium   | Medium-High| [ ] Pending |
+| A-9  | CFG builder `.expect()` panic risk (~28 sites) | Medium   | Medium     | [ ] Pending |
+| A-10 | Snapshot enrichment separation                 | Low      | Low-Medium | [ ] Pending |
 
 **Audit report corrections (false positives):**
 - `trends.rs:195` — NOT a panic; it is a safe `match (first(), last())` with `continue` fallback.
@@ -174,11 +176,66 @@ current golden file tests), so regressions can be caught precisely.
 
 ---
 
+---
+
+## A-9: CFG Builder `.expect()` Panic Risk
+
+**Finding:** ~28 production `.expect("Current node should exist")` calls across four CFG builder
+files. If the visitor is invoked in an unexpected order or without proper initialization,
+these will panic. The pattern is:
+
+```rust
+let from_node = self.current_node.expect("Current node should exist");
+```
+
+| File | Production `.expect()` instances |
+|------|----------------------------------|
+| `cfg/builder.rs` | ~12 (visitor methods) |
+| `language/python/cfg_builder.rs` | 5 |
+| `language/go/cfg_builder.rs` | 4 |
+| `language/java/cfg_builder.rs` | 0 (already clean) |
+
+**Fix options:**
+1. Return `Result` from visitor methods (significant signature change, safest)
+2. Use `unwrap_or_else(|| panic!(...))` with a debug assertion — no improvement
+3. Validate state in the CFG builder's `build()` entry point and use a sentinel/default
+   node ID to make the `.expect()` unreachable in practice
+
+**Recommended:** Option 3 is the pragmatic fix — validate that `current_node` is always
+initialized before the visitor starts, then document the invariant. The `.expect()` becomes
+a programming-error guard, not a runtime failure mode.
+
+**Acceptance:** No production `.expect("Current node should exist")` reachable from unvalidated
+input; `cargo test` passes.
+
+**Status:** [ ] Pending
+
+---
+
+## A-10: Snapshot Enrichment Separation
+
+**Finding:** `Snapshot` is both a data container and partially an orchestrator. Enrichment
+methods (`populate_churn`, `populate_touch_metrics`, `populate_callgraph`,
+`compute_activity_risk`, `compute_percentiles`, `compute_summary`) still live on `Snapshot`
+itself. The `SnapshotEnricher` builder wraps this but doesn't fully encapsulate it.
+
+**Recommendation:** Move all enrichment mutation logic from `Snapshot` into `SnapshotEnricher`,
+leaving `Snapshot` as a pure data struct with only serialization methods.
+
+**Effort:** Low-Medium. No behavior changes — pure structural move. Risk: snapshot.rs is
+1,213 lines; touching it has broad impact.
+
+**Acceptance:** `Snapshot` has no `populate_*` or `compute_*` methods; all tests pass.
+
+**Status:** [ ] Pending
+
+---
+
 ## Ordering
 
-Low-effort, done: A-1, A-2, A-3
-Next up (by value/risk ratio): A-4, A-5
-Medium effort: A-6, A-7
+Done: A-1, A-2, A-3, A-4
+Next up (by value/risk ratio): A-7, A-5, A-9
+Medium effort: A-6, A-10
 Deferred: A-8
 
 ---
