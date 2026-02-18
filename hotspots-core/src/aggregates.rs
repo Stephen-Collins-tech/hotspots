@@ -51,6 +51,25 @@ pub struct FileRiskView {
     pub file_risk_score: f64,
 }
 
+/// Module (directory) instability metric (Robert Martin's Ca/Ce)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ModuleInstability {
+    /// Directory path relative to repo root
+    pub module: String,
+    pub file_count: usize,
+    pub function_count: usize,
+    pub avg_complexity: f64,
+    /// Afferent coupling: external modules that depend on this one
+    pub afferent: usize,
+    /// Efferent coupling: modules this one depends on externally
+    pub efferent: usize,
+    /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
+    pub instability: f64,
+    /// "high" if instability < 0.3 and avg_complexity > 10, else "low"
+    pub module_risk: String,
+}
+
 /// Snapshot aggregates container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +82,8 @@ pub struct SnapshotAggregates {
     pub file_risk: Vec<FileRiskView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub co_change: Vec<crate::git::CoChangePair>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<ModuleInstability>,
 }
 
 /// Delta aggregates for a file
@@ -286,6 +307,133 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
     views
 }
 
+/// Compute module (directory) instability from the import graph.
+///
+/// Builds a file-level import graph by parsing source files, then aggregates
+/// cross-directory edges into afferent/efferent coupling counts.
+pub fn compute_module_instability(
+    functions: &[FunctionSnapshot],
+    repo_root: &std::path::Path,
+) -> Vec<ModuleInstability> {
+    // Collect unique file paths from functions
+    let mut unique_files: Vec<String> = functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+
+    // Resolve import edges
+    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+
+    // Helper: extract directory from a file path (relative to repo_root)
+    let file_dir = |file: &str| -> Option<String> {
+        let normalized = normalize_path_relative_to_repo(file, repo_root)?;
+        Some(extract_directory(&normalized))
+    };
+
+    // Count cross-directory edges
+    let mut efferent: HashMap<String, usize> = HashMap::new();
+    let mut afferent: HashMap<String, usize> = HashMap::new();
+
+    for (from_file, to_file) in &edges {
+        let from_dir = match file_dir(from_file) {
+            Some(d) => d,
+            None => continue,
+        };
+        let to_dir = match file_dir(to_file) {
+            Some(d) => d,
+            None => continue,
+        };
+        if from_dir != to_dir {
+            *efferent.entry(from_dir.clone()).or_insert(0) += 1;
+            *afferent.entry(to_dir.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Aggregate function metrics per directory
+    struct DirStats {
+        files: std::collections::HashSet<String>,
+        function_count: usize,
+        sum_cc: usize,
+    }
+    let mut dir_stats: HashMap<String, DirStats> = HashMap::new();
+
+    for func in functions {
+        let dir = match file_dir(&func.file) {
+            Some(d) => d,
+            None => continue,
+        };
+        let stats = dir_stats.entry(dir).or_insert_with(|| DirStats {
+            files: std::collections::HashSet::new(),
+            function_count: 0,
+            sum_cc: 0,
+        });
+        stats.files.insert(func.file.clone());
+        stats.function_count += 1;
+        stats.sum_cc += func.metrics.cc;
+    }
+
+    // Collect all directory names seen in any of the three maps
+    let all_dirs: std::collections::HashSet<String> = dir_stats
+        .keys()
+        .chain(efferent.keys())
+        .chain(afferent.keys())
+        .cloned()
+        .collect();
+
+    let mut modules: Vec<ModuleInstability> = all_dirs
+        .into_iter()
+        .filter_map(|dir| {
+            let stats = dir_stats.get(&dir)?;
+            let eff = *efferent.get(&dir).unwrap_or(&0);
+            let aff = *afferent.get(&dir).unwrap_or(&0);
+            let instability = if eff + aff == 0 {
+                0.5 // undefined — treat as neutral
+            } else {
+                eff as f64 / (eff + aff) as f64
+            };
+            let avg_complexity = if stats.function_count > 0 {
+                stats.sum_cc as f64 / stats.function_count as f64
+            } else {
+                0.0
+            };
+            let module_risk = if instability < 0.3 && avg_complexity > 10.0 {
+                "high".to_string()
+            } else {
+                "low".to_string()
+            };
+            Some(ModuleInstability {
+                module: dir,
+                file_count: stats.files.len(),
+                function_count: stats.function_count,
+                avg_complexity: (avg_complexity * 100.0).round() / 100.0,
+                afferent: aff,
+                efferent: eff,
+                instability: (instability * 1000.0).round() / 1000.0,
+                module_risk,
+            })
+        })
+        .collect();
+
+    // Sort: high-risk first, then by instability ascending (most stable / highest-risk first)
+    modules.sort_by(|a, b| {
+        b.module_risk
+            .cmp(&a.module_risk) // "high" > "low"
+            .then(
+                a.instability
+                    .partial_cmp(&b.instability)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then(a.module.cmp(&b.module))
+    });
+
+    modules
+}
+
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -300,12 +448,14 @@ pub fn compute_snapshot_aggregates(
     let directories = compute_directory_aggregates(&files, repo_root);
     let file_risk = compute_file_risk_views(&snapshot.functions);
     let co_change = crate::git::extract_co_change_pairs(repo_root, 90, 3).unwrap_or_default();
+    let modules = compute_module_instability(&snapshot.functions, repo_root);
 
     SnapshotAggregates {
         files,
         directories,
         file_risk,
         co_change,
+        modules,
     }
 }
 

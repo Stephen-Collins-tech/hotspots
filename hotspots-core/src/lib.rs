@@ -20,6 +20,7 @@ pub mod delta;
 pub mod discover;
 pub mod git;
 pub mod html;
+pub mod imports;
 pub mod language;
 pub mod metrics;
 pub mod parser;

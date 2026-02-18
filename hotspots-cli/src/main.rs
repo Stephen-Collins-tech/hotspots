@@ -162,6 +162,7 @@ enum OutputMode {
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 enum OutputLevel {
     File,
+    Module,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -667,9 +668,10 @@ fn handle_mode_output(
             }
 
             let total_function_count = snapshot.functions.len();
-            // For file-level view, keep all functions so aggregation is over the full set
-            let is_file_level = level == Some(OutputLevel::File);
-            if (explain || top.is_some()) && !is_file_level {
+            // For file/module level views, keep all functions so aggregation is over the full set
+            let is_aggregate_level =
+                level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+            if (explain || top.is_some()) && !is_aggregate_level {
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -768,6 +770,10 @@ fn emit_snapshot_output(
                 let aggregates =
                     hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
                 print_file_risk_output(&aggregates.file_risk, top)?;
+            } else if level == Some(OutputLevel::Module) {
+                let aggregates =
+                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                print_module_output(&aggregates.modules, top)?;
             } else if explain {
                 let aggregates =
                     hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
@@ -1137,6 +1143,67 @@ fn print_file_risk_output(
 
     println!("{}", "-".repeat(80));
     println!("Showing {}/{} files", display_count, total);
+
+    Ok(())
+}
+
+/// Print ranked module instability table
+fn print_module_output(
+    modules: &[hotspots_core::aggregates::ModuleInstability],
+    top: Option<usize>,
+) -> anyhow::Result<()> {
+    if modules.is_empty() {
+        println!("No modules to display (import resolution produced no in-project edges).");
+        return Ok(());
+    }
+
+    let total = modules.len();
+    let display_count = top.map(|n| n.min(total)).unwrap_or(total);
+    let title = if display_count < total {
+        format!("Top {} Modules by Instability Risk", display_count)
+    } else {
+        "All Modules by Instability".to_string()
+    };
+
+    println!("{}", title);
+    println!("{}", "=".repeat(80));
+    println!();
+    println!(
+        "{:<3} {:<40} {:>5} {:>5} {:>7} {:>9} {:>9} {:>11} {:>5}",
+        "#", "module", "files", "fns", "avg_cc", "afferent", "efferent", "instability", "risk"
+    );
+    println!("{}", "-".repeat(98));
+
+    for (i, m) in modules.iter().take(display_count).enumerate() {
+        let module_display = truncate_string(&m.module, 40);
+        println!(
+            "{:<3} {:<40} {:>5} {:>5} {:>7.1} {:>9} {:>9} {:>11.3} {:>5}",
+            i + 1,
+            module_display,
+            m.file_count,
+            m.function_count,
+            m.avg_complexity,
+            m.afferent,
+            m.efferent,
+            m.instability,
+            m.module_risk,
+        );
+    }
+
+    println!("{}", "-".repeat(98));
+    println!("Showing {}/{} modules", display_count, total);
+
+    let high_risk_count = modules
+        .iter()
+        .take(display_count)
+        .filter(|m| m.module_risk == "high")
+        .count();
+    if high_risk_count > 0 {
+        println!(
+            "High-risk modules (low instability + high complexity): {}",
+            high_risk_count
+        );
+    }
 
     Ok(())
 }

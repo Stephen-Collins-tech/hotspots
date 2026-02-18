@@ -164,10 +164,14 @@ low instability (hard to change AND everything depends on them).
   - Remaining inter-file edges are dominated by test→source (expected, non-informative)
   - Conclusion: module instability scores would be noise, not signal. Requires import-aware
     resolution (e.g. parsing `use` statements + resolving to crate paths) — a separate feature.
-- [ ] **D-3b:** *(blocked by D-3a — gated until import-aware call graph resolution is added)*
-  Add `compute_module_aggregates()` to `aggregates.rs`.
-- [ ] **D-3c:** *(blocked)* Add `modules` array to snapshot JSON output.
-- [ ] **D-3d:** *(blocked)* Add module view to text output.
+- [x] **D-3b:** Add `compute_module_instability()` to `aggregates.rs` using a new
+  file-level import graph (separate from the function-level call graph). Parses
+  `use`/`import` statements per language and resolves them to in-project files.
+- [x] **D-3c:** Add `modules` array to snapshot JSON output via `SnapshotAggregates`.
+  Key is `aggregates.modules` in JSON output.
+- [x] **D-3d:** Add `--level module` text output mode (`print_module_output`). Prints
+  a ranked table with columns: #, module, files, fns, avg_cc, afferent, efferent,
+  instability, risk. Usage: `hotspots analyze . --mode snapshot --format text --level module`.
 
 **Effort:** Medium. Depends on call graph quality (D-3a must validate first).
 **Risk:** Low-Medium. Call graph resolution limits may make the output misleading if not gated.
