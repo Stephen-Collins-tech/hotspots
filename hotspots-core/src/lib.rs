@@ -221,65 +221,84 @@ fn collect_source_files_recursive(
     Ok(())
 }
 
-/// Build a call graph from AST-derived callee names in function reports.
-pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
-    use std::collections::HashMap;
-
-    let mut graph = callgraph::CallGraph::new();
-
-    // Add all functions as nodes
-    let mut name_to_id: HashMap<String, Vec<String>> = HashMap::new();
+/// Build nodes and the name→IDs reverse index for callee resolution
+fn build_name_index(
+    reports: &[FunctionRiskReport],
+    graph: &mut callgraph::CallGraph,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut name_to_id: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for report in reports {
         let function_id = format!("{}::{}", report.file, report.function);
         graph.add_node(function_id.clone());
-
-        // Build reverse mapping: simple name -> list of full IDs
-        // This handles name collisions across files
         name_to_id
             .entry(report.function.clone())
             .or_default()
             .push(function_id);
     }
+    name_to_id
+}
 
-    // First pass: add AST-derived edges for reports that have callee names
-    let mut total_callee_names: usize = 0;
-    let mut resolved_callee_names: usize = 0;
+/// Resolve the best callee_id for a call site.
+///
+/// Prefers a same-file callee; falls back to the first name match.
+/// Returns None for self-calls or unresolved names.
+fn resolve_callee(
+    callee_name: &str,
+    caller_id: &str,
+    caller_file: &str,
+    name_to_id: &std::collections::HashMap<String, Vec<String>>,
+) -> Option<String> {
+    let possible_callees = name_to_id.get(callee_name)?;
+    let normalized_caller_file = caller_file.replace('\\', "/");
+
+    for callee_id in possible_callees {
+        let normalized_callee = callee_id.replace('\\', "/");
+        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
+            return (callee_id != caller_id).then(|| callee_id.clone());
+        }
+    }
+
+    possible_callees
+        .first()
+        .filter(|id| *id != caller_id)
+        .cloned()
+}
+
+/// Add AST-derived edges to the graph; return (total_callee_names, resolved_callee_names)
+fn add_callee_edges(
+    reports: &[FunctionRiskReport],
+    name_to_id: &std::collections::HashMap<String, Vec<String>>,
+    graph: &mut callgraph::CallGraph,
+) -> (usize, usize) {
+    let mut total = 0usize;
+    let mut resolved = 0usize;
     for report in reports {
         let caller_id = format!("{}::{}", report.file, report.function);
-        if !report.callees.is_empty() {
-            let mut added_callees = std::collections::HashSet::new();
-            for callee_name in &report.callees {
-                total_callee_names += 1;
-                if let Some(possible_callees) = name_to_id.get(callee_name) {
-                    resolved_callee_names += 1;
-                    let normalized_caller_file = report.file.replace('\\', "/");
-                    let mut found = false;
-                    for callee_id in possible_callees {
-                        let normalized_callee = callee_id.replace('\\', "/");
-                        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
-                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
-                                graph.add_edge(caller_id.clone(), callee_id.clone());
-                                added_callees.insert(callee_id.clone());
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        if let Some(callee_id) = possible_callees.first() {
-                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
-                                graph.add_edge(caller_id.clone(), callee_id.clone());
-                                added_callees.insert(callee_id.clone());
-                            }
-                        }
+        let mut added_callees = std::collections::HashSet::new();
+        for callee_name in &report.callees {
+            total += 1;
+            if name_to_id.contains_key(callee_name.as_str()) {
+                resolved += 1;
+                if let Some(callee_id) =
+                    resolve_callee(callee_name, &caller_id, &report.file, name_to_id)
+                {
+                    if added_callees.insert(callee_id.clone()) {
+                        graph.add_edge(caller_id.clone(), callee_id);
                     }
                 }
             }
         }
     }
+    (total, resolved)
+}
 
-    graph.total_callee_names = total_callee_names;
-    graph.resolved_callee_names = resolved_callee_names;
-
+/// Build a call graph from AST-derived callee names in function reports.
+pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
+    let mut graph = callgraph::CallGraph::new();
+    let name_to_id = build_name_index(reports, &mut graph);
+    let (total, resolved) = add_callee_edges(reports, &name_to_id, &mut graph);
+    graph.total_callee_names = total;
+    graph.resolved_callee_names = resolved;
     Ok(graph)
 }
