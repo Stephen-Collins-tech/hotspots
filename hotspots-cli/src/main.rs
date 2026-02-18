@@ -769,7 +769,9 @@ fn emit_snapshot_output(
                     hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
                 print_file_risk_output(&aggregates.file_risk, top)?;
             } else if explain {
-                print_explain_output(snapshot, total_function_count)?;
+                let aggregates =
+                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                print_explain_output(snapshot, total_function_count, &aggregates.co_change)?;
             } else {
                 anyhow::bail!(
                     "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
@@ -1143,6 +1145,7 @@ fn print_file_risk_output(
 fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
     total_count: usize,
+    co_change: &[hotspots_core::git::CoChangePair],
 ) -> anyhow::Result<()> {
     let display_count = snapshot.functions.len();
 
@@ -1282,6 +1285,46 @@ fn print_explain_output(
         "Showing {}/{} functions  |  Critical: {}  High: {}",
         display_count, total_count, critical_count, high_count
     );
+
+    // Co-change coupling section — source files only for the explain view
+    const SRC_EXTS: &[&str] = &[
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
+    ];
+    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
+    let notable: Vec<_> = co_change
+        .iter()
+        .filter(|p| {
+            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
+        })
+        .take(10)
+        .collect();
+    if !notable.is_empty() {
+        println!();
+        println!("Co-Change Coupling (90-day window)");
+        println!("{}", "=".repeat(80));
+        for (i, pair) in notable.iter().enumerate() {
+            println!(
+                "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
+                i + 1,
+                pair.risk.to_uppercase(),
+                pair.coupling_ratio,
+                pair.co_change_count,
+                pair.file_a,
+                pair.file_b,
+            );
+        }
+        println!("{}", "-".repeat(80));
+        let total_notable = co_change
+            .iter()
+            .filter(|p| {
+                (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
+            })
+            .count();
+        println!(
+            "{} high/moderate source pairs found  |  Run with --format json for full list",
+            total_notable
+        );
+    }
 
     Ok(())
 }

@@ -117,7 +117,8 @@ hotspots coupling .                                 # new subcommand (optional)
   Returns `Vec<CoChangePair>`. Default: 90-day window, min_count=3.
 - [x] **D-2c:** Add `CoChangePair` struct and integrate into snapshot output.
   Key is `aggregates.co_change` in JSON output.
-- [ ] **D-2d:** Add co-change section to `--explain` text output.
+- [x] **D-2d:** Add co-change section to `--explain` text output.
+  Shows top 10 high/moderate source-file pairs after the per-function list.
 - [x] **D-2e:** Filter out trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`,
   `mod.rs` + any sibling) to reduce noise. Also filters ghost files (renamed/deleted).
 
