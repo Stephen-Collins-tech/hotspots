@@ -76,7 +76,7 @@ pub fn analyze_with_config(
         critical: c.critical_threshold,
     });
 
-    // Collect source files (TypeScript, JavaScript, Go, Rust)
+    // Collect source files (TypeScript, JavaScript, Go, Java, Python, Rust)
     let source_files = collect_source_files(path)?;
 
     // Analyze each file (applying include/exclude from config)
@@ -140,6 +140,8 @@ fn is_supported_source_file(filename: &str) -> bool {
 /// - JavaScript: .js, .mjs, .cjs
 /// - JSX: .jsx, .mjsx, .cjsx
 /// - Go: .go
+/// - Java: .java
+/// - Python: .py, .pyw
 /// - Rust: .rs
 fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
@@ -160,49 +162,40 @@ fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf
     Ok(files)
 }
 
-/// Recursively collect supported source files from a directory
-fn collect_source_files_recursive(
-    dir: &std::path::Path,
+/// Returns true for directory names that should not be traversed
+fn is_skipped_dir(name: &str) -> bool {
+    name.starts_with('.')
+        || name == "node_modules"
+        || name == "dist"
+        || name == "build"
+        || name == "out"
+        || name == "coverage"
+        || name == "target"
+}
+
+/// Process one directory entry, pushing source files or recursing into dirs
+fn process_dir_entry(
+    path: std::path::PathBuf,
+    metadata: std::fs::Metadata,
     files: &mut Vec<std::path::PathBuf>,
 ) -> Result<()> {
     use std::ffi::OsStr;
 
-    for entry_result in std::fs::read_dir(dir)
-        .with_context(|| format!("Failed to read directory: {}", dir.display()))?
-    {
-        let entry: std::fs::DirEntry = entry_result?;
-        let path = entry.path();
+    if metadata.is_symlink() {
+        return Ok(());
+    }
 
-        // Use symlink_metadata to detect symlinks without following them
-        let metadata = std::fs::symlink_metadata(&path)
-            .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
-
-        // Skip symlinks to prevent infinite loops
-        if metadata.is_symlink() {
-            continue;
-        }
-
-        if metadata.is_dir() {
-            // Skip common non-source directories
-            if let Some(name) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
-                // Skip hidden directories, node_modules, and build artifacts
-                if name.starts_with('.')
-                    || name == "node_modules"
-                    || name == "dist"
-                    || name == "build"
-                    || name == "out"
-                    || name == "coverage"
-                    || name == "target"
-                {
-                    continue;
-                }
+    if metadata.is_dir() {
+        if let Some(name) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
+            if is_skipped_dir(name) {
+                return Ok(());
             }
-            collect_source_files_recursive(&path, files)?;
-        } else if metadata.is_file() {
-            if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
-                if is_supported_source_file(filename) {
-                    files.push(path);
-                }
+        }
+        collect_source_files_recursive(&path, files)?;
+    } else if metadata.is_file() {
+        if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
+            if is_supported_source_file(filename) {
+                files.push(path);
             }
         }
     }
@@ -210,58 +203,102 @@ fn collect_source_files_recursive(
     Ok(())
 }
 
-/// Build a call graph from AST-derived callee names in function reports.
-pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
-    use std::collections::HashMap;
+/// Recursively collect supported source files from a directory
+fn collect_source_files_recursive(
+    dir: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    for entry_result in std::fs::read_dir(dir)
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?
+    {
+        let entry = entry_result?;
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)
+            .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
+        process_dir_entry(path, metadata, files)?;
+    }
 
-    let mut graph = callgraph::CallGraph::new();
+    Ok(())
+}
 
-    // Add all functions as nodes
-    let mut name_to_id: HashMap<String, Vec<String>> = HashMap::new();
+/// Build nodes and the name→IDs reverse index for callee resolution
+fn build_name_index(
+    reports: &[FunctionRiskReport],
+    graph: &mut callgraph::CallGraph,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut name_to_id: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for report in reports {
         let function_id = format!("{}::{}", report.file, report.function);
         graph.add_node(function_id.clone());
-
-        // Build reverse mapping: simple name -> list of full IDs
-        // This handles name collisions across files
         name_to_id
             .entry(report.function.clone())
             .or_default()
             .push(function_id);
     }
+    name_to_id
+}
 
-    // First pass: add AST-derived edges for reports that have callee names
+/// Resolve the best callee_id for a call site.
+///
+/// Prefers a same-file callee; falls back to the first name match.
+/// Returns None for self-calls or unresolved names.
+fn resolve_callee(
+    callee_name: &str,
+    caller_id: &str,
+    caller_file: &str,
+    name_to_id: &std::collections::HashMap<String, Vec<String>>,
+) -> Option<String> {
+    let possible_callees = name_to_id.get(callee_name)?;
+    let normalized_caller_file = caller_file.replace('\\', "/");
+
+    for callee_id in possible_callees {
+        let normalized_callee = callee_id.replace('\\', "/");
+        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
+            return (callee_id != caller_id).then(|| callee_id.clone());
+        }
+    }
+
+    possible_callees
+        .first()
+        .filter(|id| *id != caller_id)
+        .cloned()
+}
+
+/// Add AST-derived edges to the graph; return (total_callee_names, resolved_callee_names)
+fn add_callee_edges(
+    reports: &[FunctionRiskReport],
+    name_to_id: &std::collections::HashMap<String, Vec<String>>,
+    graph: &mut callgraph::CallGraph,
+) -> (usize, usize) {
+    let mut total = 0usize;
+    let mut resolved = 0usize;
     for report in reports {
         let caller_id = format!("{}::{}", report.file, report.function);
-        if !report.callees.is_empty() {
-            let mut added_callees = std::collections::HashSet::new();
-            for callee_name in &report.callees {
-                if let Some(possible_callees) = name_to_id.get(callee_name) {
-                    let normalized_caller_file = report.file.replace('\\', "/");
-                    let mut found = false;
-                    for callee_id in possible_callees {
-                        let normalized_callee = callee_id.replace('\\', "/");
-                        if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
-                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
-                                graph.add_edge(caller_id.clone(), callee_id.clone());
-                                added_callees.insert(callee_id.clone());
-                            }
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        if let Some(callee_id) = possible_callees.first() {
-                            if callee_id != &caller_id && !added_callees.contains(callee_id) {
-                                graph.add_edge(caller_id.clone(), callee_id.clone());
-                                added_callees.insert(callee_id.clone());
-                            }
-                        }
+        let mut added_callees = std::collections::HashSet::new();
+        for callee_name in &report.callees {
+            total += 1;
+            if name_to_id.contains_key(callee_name.as_str()) {
+                resolved += 1;
+                if let Some(callee_id) =
+                    resolve_callee(callee_name, &caller_id, &report.file, name_to_id)
+                {
+                    if added_callees.insert(callee_id.clone()) {
+                        graph.add_edge(caller_id.clone(), callee_id);
                     }
                 }
             }
         }
     }
+    (total, resolved)
+}
 
+/// Build a call graph from AST-derived callee names in function reports.
+pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
+    let mut graph = callgraph::CallGraph::new();
+    let name_to_id = build_name_index(reports, &mut graph);
+    let (total, resolved) = add_callee_edges(reports, &name_to_id, &mut graph);
+    graph.total_callee_names = total;
+    graph.resolved_callee_names = resolved;
     Ok(graph)
 }

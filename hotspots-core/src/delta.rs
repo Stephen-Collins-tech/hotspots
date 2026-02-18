@@ -73,6 +73,10 @@ pub struct FunctionDeltaEntry {
     pub band_transition: Option<BandTransition>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    /// Fuzzy-matched new function_id when this Deleted entry is likely a rename/move.
+    /// Set by second-pass heuristic; absent when exact match was found or no match possible.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rename_hint: Option<String>,
 }
 
 /// Commit info in delta
@@ -111,183 +115,34 @@ impl Delta {
     /// If `parent` is None, all functions in `current` are marked as `new`
     /// and `baseline` is set to `true`.
     pub fn new(current: &Snapshot, parent: Option<&Snapshot>) -> Result<Self> {
-        // Validate schema versions
-        if current.schema_version != crate::snapshot::SNAPSHOT_SCHEMA_VERSION {
-            anyhow::bail!(
-                "current snapshot schema version mismatch: expected {}, got {}",
-                crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
-                current.schema_version
-            );
-        }
-
-        if let Some(parent_snapshot) = parent {
-            if parent_snapshot.schema_version != crate::snapshot::SNAPSHOT_SCHEMA_VERSION {
-                anyhow::bail!(
-                    "parent snapshot schema version mismatch: expected {}, got {}",
-                    crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
-                    parent_snapshot.schema_version
-                );
-            }
-        }
-
+        validate_snapshot_versions(current, parent)?;
         // Get parent SHA (use parents[0] only for delta computation)
         let parent_sha = current.commit.parents.first().cloned().unwrap_or_default();
-
-        let baseline = parent.is_none();
-
-        // If baseline, all functions are new
-        if baseline {
-            let deltas: Vec<FunctionDeltaEntry> = current
-                .functions
-                .iter()
-                .map(|func| FunctionDeltaEntry {
-                    function_id: func.function_id.clone(),
-                    status: FunctionStatus::New,
-                    before: None,
-                    after: Some(FunctionState {
-                        metrics: func.metrics.clone(),
-                        lrs: func.lrs,
-                        band: func.band.clone(),
-                    }),
-                    delta: None,
-                    band_transition: None,
-                    suppression_reason: func.suppression_reason.clone(),
-                })
-                .collect();
-
-            return Ok(Delta {
-                schema_version: DELTA_SCHEMA_VERSION,
-                commit: DeltaCommitInfo {
-                    sha: current.commit.sha.clone(),
-                    parent: parent_sha,
-                },
-                baseline: true,
-                deltas,
-                policy: None,
-                aggregates: None, // Aggregates computed on-demand
-            });
+        if parent.is_none() {
+            return Ok(build_baseline_delta(current, parent_sha));
         }
-
-        // Build maps for efficient lookup
-        let parent_funcs: HashMap<&str, &FunctionSnapshot> = parent
-            .unwrap()
+        let parent_snap = parent.unwrap();
+        let parent_funcs: HashMap<&str, &FunctionSnapshot> = parent_snap
             .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-
         let current_funcs: HashMap<&str, &FunctionSnapshot> = current
             .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-
-        // Collect all function_ids (union of parent and current)
-        let mut all_function_ids: Vec<&str> = parent_funcs
+        // Collect all function_ids (union of parent and current), sorted deterministically
+        let mut all_ids: Vec<&str> = parent_funcs
             .keys()
             .chain(current_funcs.keys())
             .copied()
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-
-        // Sort deterministically by function_id (ASCII lexical ordering)
-        all_function_ids.sort();
-
-        // Compute deltas
-        let mut deltas = Vec::new();
-
-        for function_id in all_function_ids {
-            let parent_func = parent_funcs.get(function_id);
-            let current_func = current_funcs.get(function_id);
-
-            match (parent_func, current_func) {
-                (Some(parent), Some(current)) => {
-                    // Function exists in both - check if modified
-                    let status = if functions_differ(parent, current) {
-                        FunctionStatus::Modified
-                    } else {
-                        FunctionStatus::Unchanged
-                    };
-
-                    // Only include if modified or if explicitly tracking unchanged
-                    // For now, we include modified and unchanged (can filter later)
-                    let before = Some(FunctionState {
-                        metrics: parent.metrics.clone(),
-                        lrs: parent.lrs,
-                        band: parent.band.clone(),
-                    });
-
-                    let after = Some(FunctionState {
-                        metrics: current.metrics.clone(),
-                        lrs: current.lrs,
-                        band: current.band.clone(),
-                    });
-
-                    let delta = if status == FunctionStatus::Modified {
-                        Some(compute_function_delta(parent, current))
-                    } else {
-                        None
-                    };
-
-                    let band_transition = if parent.band != current.band {
-                        Some(BandTransition {
-                            from: parent.band.clone(),
-                            to: current.band.clone(),
-                        })
-                    } else {
-                        None
-                    };
-
-                    deltas.push(FunctionDeltaEntry {
-                        function_id: function_id.to_string(),
-                        status,
-                        before,
-                        after,
-                        delta,
-                        band_transition,
-                        suppression_reason: current.suppression_reason.clone(),
-                    });
-                }
-                (Some(parent), None) => {
-                    // Function deleted - preserve parent suppression
-                    deltas.push(FunctionDeltaEntry {
-                        function_id: function_id.to_string(),
-                        status: FunctionStatus::Deleted,
-                        before: Some(FunctionState {
-                            metrics: parent.metrics.clone(),
-                            lrs: parent.lrs,
-                            band: parent.band.clone(),
-                        }),
-                        after: None,
-                        delta: Some(compute_delete_delta(parent)),
-                        band_transition: None,
-                        suppression_reason: parent.suppression_reason.clone(),
-                    });
-                }
-                (None, Some(current)) => {
-                    // Function new
-                    deltas.push(FunctionDeltaEntry {
-                        function_id: function_id.to_string(),
-                        status: FunctionStatus::New,
-                        before: None,
-                        after: Some(FunctionState {
-                            metrics: current.metrics.clone(),
-                            lrs: current.lrs,
-                            band: current.band.clone(),
-                        }),
-                        delta: None,
-                        band_transition: None,
-                        suppression_reason: current.suppression_reason.clone(),
-                    });
-                }
-                (None, None) => {
-                    // Should not happen
-                    unreachable!("function_id should exist in at least one snapshot");
-                }
-            }
-        }
-
+        all_ids.sort();
+        let mut deltas = compute_function_deltas(&all_ids, &parent_funcs, &current_funcs);
+        apply_rename_hints(&mut deltas, &parent_funcs, &current_funcs);
         Ok(Delta {
             schema_version: DELTA_SCHEMA_VERSION,
             commit: DeltaCommitInfo {
@@ -297,7 +152,7 @@ impl Delta {
             baseline: false,
             deltas,
             policy: None,
-            aggregates: None, // Aggregates computed on-demand
+            aggregates: None,
         })
     }
 
@@ -322,6 +177,234 @@ impl Delta {
 
         Ok(delta)
     }
+}
+
+fn validate_snapshot_versions(current: &Snapshot, parent: Option<&Snapshot>) -> Result<()> {
+    if current.schema_version != crate::snapshot::SNAPSHOT_SCHEMA_VERSION {
+        anyhow::bail!(
+            "current snapshot schema version mismatch: expected {}, got {}",
+            crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            current.schema_version
+        );
+    }
+    if let Some(p) = parent {
+        if p.schema_version != crate::snapshot::SNAPSHOT_SCHEMA_VERSION {
+            anyhow::bail!(
+                "parent snapshot schema version mismatch: expected {}, got {}",
+                crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+                p.schema_version
+            );
+        }
+    }
+    Ok(())
+}
+
+fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
+    let deltas = current
+        .functions
+        .iter()
+        .map(|func| FunctionDeltaEntry {
+            function_id: func.function_id.clone(),
+            status: FunctionStatus::New,
+            before: None,
+            after: Some(FunctionState {
+                metrics: func.metrics.clone(),
+                lrs: func.lrs,
+                band: func.band.clone(),
+            }),
+            delta: None,
+            band_transition: None,
+            suppression_reason: func.suppression_reason.clone(),
+            rename_hint: None,
+        })
+        .collect();
+    Delta {
+        schema_version: DELTA_SCHEMA_VERSION,
+        commit: DeltaCommitInfo {
+            sha: current.commit.sha.clone(),
+            parent: parent_sha,
+        },
+        baseline: true,
+        deltas,
+        policy: None,
+        aggregates: None,
+    }
+}
+
+fn compute_function_deltas(
+    all_ids: &[&str],
+    parent_funcs: &HashMap<&str, &FunctionSnapshot>,
+    current_funcs: &HashMap<&str, &FunctionSnapshot>,
+) -> Vec<FunctionDeltaEntry> {
+    let mut deltas = Vec::new();
+    for function_id in all_ids {
+        let parent_func = parent_funcs.get(function_id);
+        let current_func = current_funcs.get(function_id);
+        match (parent_func, current_func) {
+            (Some(parent), Some(current)) => {
+                let status = if functions_differ(parent, current) {
+                    FunctionStatus::Modified
+                } else {
+                    FunctionStatus::Unchanged
+                };
+                let delta = if status == FunctionStatus::Modified {
+                    Some(compute_function_delta(parent, current))
+                } else {
+                    None
+                };
+                let band_transition = if parent.band != current.band {
+                    Some(BandTransition {
+                        from: parent.band.clone(),
+                        to: current.band.clone(),
+                    })
+                } else {
+                    None
+                };
+                deltas.push(FunctionDeltaEntry {
+                    function_id: function_id.to_string(),
+                    status,
+                    before: Some(FunctionState {
+                        metrics: parent.metrics.clone(),
+                        lrs: parent.lrs,
+                        band: parent.band.clone(),
+                    }),
+                    after: Some(FunctionState {
+                        metrics: current.metrics.clone(),
+                        lrs: current.lrs,
+                        band: current.band.clone(),
+                    }),
+                    delta,
+                    band_transition,
+                    suppression_reason: current.suppression_reason.clone(),
+                    rename_hint: None,
+                });
+            }
+            (Some(parent), None) => {
+                deltas.push(FunctionDeltaEntry {
+                    function_id: function_id.to_string(),
+                    status: FunctionStatus::Deleted,
+                    before: Some(FunctionState {
+                        metrics: parent.metrics.clone(),
+                        lrs: parent.lrs,
+                        band: parent.band.clone(),
+                    }),
+                    after: None,
+                    delta: Some(compute_delete_delta(parent)),
+                    band_transition: None,
+                    suppression_reason: parent.suppression_reason.clone(),
+                    rename_hint: None,
+                });
+            }
+            (None, Some(current)) => {
+                deltas.push(FunctionDeltaEntry {
+                    function_id: function_id.to_string(),
+                    status: FunctionStatus::New,
+                    before: None,
+                    after: Some(FunctionState {
+                        metrics: current.metrics.clone(),
+                        lrs: current.lrs,
+                        band: current.band.clone(),
+                    }),
+                    delta: None,
+                    band_transition: None,
+                    suppression_reason: current.suppression_reason.clone(),
+                    rename_hint: None,
+                });
+            }
+            (None, None) => {
+                unreachable!("function_id should exist in at least one snapshot");
+            }
+        }
+    }
+    deltas
+}
+
+/// Find the best rename match for a deleted function among new functions.
+///
+/// Returns the new function ID if a match is found (first match wins).
+fn find_rename_match<'a>(
+    del_id: &str,
+    del_func: &FunctionSnapshot,
+    new_ids: &'a [String],
+    current_funcs: &HashMap<&str, &FunctionSnapshot>,
+    matched_new: &std::collections::HashSet<String>,
+) -> Option<&'a str> {
+    let del_name = del_id
+        .strip_prefix(&format!("{}::", del_func.file))
+        .unwrap_or(del_id);
+    for new_id in new_ids {
+        if matched_new.contains(new_id) {
+            continue;
+        }
+        let new_func = match current_funcs.get(new_id.as_str()) {
+            Some(f) => f,
+            None => continue,
+        };
+        let new_name = new_id
+            .strip_prefix(&format!("{}::", new_func.file))
+            .unwrap_or(new_id.as_str());
+        if del_name == new_name && del_func.file != new_func.file {
+            return Some(new_id.as_str());
+        }
+        if del_func.file == new_func.file && del_func.line.abs_diff(new_func.line) <= 10 {
+            return Some(new_id.as_str());
+        }
+    }
+    None
+}
+
+/// Write rename_hint onto each Deleted entry that was matched
+fn apply_hints(deltas: &mut [FunctionDeltaEntry], hints: &[(String, String)]) {
+    for (del_id, new_id) in hints {
+        for entry in deltas.iter_mut() {
+            if entry.function_id == *del_id {
+                entry.rename_hint = Some(new_id.clone());
+                break;
+            }
+        }
+    }
+}
+
+/// Second pass: fuzzy match Deleted+New pairs as likely renames/moves.
+///
+/// Heuristics (applied in order, first match wins):
+///   1. Same function name, different file → likely file rename
+///   2. Same file, start line within ±10 → likely function move within file
+///
+/// Only sets `rename_hint` on the Deleted entry; does not change status.
+fn apply_rename_hints(
+    deltas: &mut [FunctionDeltaEntry],
+    parent_funcs: &HashMap<&str, &FunctionSnapshot>,
+    current_funcs: &HashMap<&str, &FunctionSnapshot>,
+) {
+    let deleted_ids: Vec<String> = deltas
+        .iter()
+        .filter(|e| e.status == FunctionStatus::Deleted)
+        .map(|e| e.function_id.clone())
+        .collect();
+    let new_ids: Vec<String> = deltas
+        .iter()
+        .filter(|e| e.status == FunctionStatus::New)
+        .map(|e| e.function_id.clone())
+        .collect();
+    if deleted_ids.is_empty() || new_ids.is_empty() {
+        return;
+    }
+    let mut matched_new: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut hints: Vec<(String, String)> = Vec::new();
+    for del_id in &deleted_ids {
+        let del_func = match parent_funcs.get(del_id.as_str()) {
+            Some(f) => f,
+            None => continue,
+        };
+        if let Some(new_id) =
+            find_rename_match(del_id, del_func, &new_ids, current_funcs, &matched_new)
+        {
+            hints.push((del_id.clone(), new_id.to_string()));
+            matched_new.insert(new_id.to_string());
+        }
+    }
+    apply_hints(deltas, &hints);
 }
 
 /// Check if two functions differ (based on metrics, LRS, or band)

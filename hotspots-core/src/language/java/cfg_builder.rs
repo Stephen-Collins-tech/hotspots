@@ -3,8 +3,10 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
-use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
-use tree_sitter::{Node, Parser};
+use crate::language::tree_sitter_utils::{
+    find_child_by_kind, find_function_by_start, with_cached_java_tree,
+};
+use tree_sitter::Node;
 
 /// Java CFG builder
 ///
@@ -15,37 +17,24 @@ impl CfgBuilder for JavaCfgBuilder {
     fn build(&self, function: &FunctionNode) -> Cfg {
         let (_body_node_id, source) = function.body.as_java();
 
-        // Re-parse the source to get the tree
-        let mut parser = Parser::new();
-        let language = tree_sitter_java::LANGUAGE;
-        if parser.set_language(&language.into()).is_err() {
-            return Cfg::new();
-        }
-        let Some(tree) = parser.parse(source, None) else {
-            return Cfg::new();
-        };
-        let root = tree.root_node();
+        let result = with_cached_java_tree(source, |root| {
+            let func_node = find_function_by_start(
+                root,
+                function.span.start,
+                &["method_declaration", "constructor_declaration"],
+            )?;
+            let body_node = find_child_by_kind(func_node, "block")
+                .or_else(|| find_child_by_kind(func_node, "constructor_body"))?;
+            let mut builder = JavaCfgBuilderState::new();
+            builder.build_from_block(&body_node, source);
+            Some(builder.cfg)
+        });
 
-        // Find the function/method node in the tree
-        if let Some(func_node) = find_function_by_start(
-            root,
-            function.span.start,
-            &["method_declaration", "constructor_declaration"],
-        ) {
-            // Find the block (method body) or constructor_body
-            if let Some(body_node) = find_child_by_kind(func_node, "block")
-                .or_else(|| find_child_by_kind(func_node, "constructor_body"))
-            {
-                let mut builder = JavaCfgBuilderState::new();
-                builder.build_from_block(&body_node, source);
-                return builder.cfg;
-            }
-        }
-
-        // Fallback: simple entry->exit CFG if we can't find the function
-        let mut cfg = Cfg::new();
-        cfg.add_edge(cfg.entry, cfg.exit);
-        cfg
+        result.unwrap_or_else(|| {
+            let mut cfg = Cfg::new();
+            cfg.add_edge(cfg.entry, cfg.exit);
+            cfg
+        })
     }
 }
 

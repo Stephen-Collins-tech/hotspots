@@ -3,8 +3,10 @@
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
 use crate::language::cfg_builder::CfgBuilder;
-use crate::language::tree_sitter_utils::{find_child_by_kind, find_function_by_start};
-use tree_sitter::{Node, Parser};
+use crate::language::tree_sitter_utils::{
+    find_child_by_kind, find_function_by_start, with_cached_python_tree,
+};
+use tree_sitter::Node;
 
 /// Python CFG builder
 ///
@@ -15,35 +17,23 @@ impl CfgBuilder for PythonCfgBuilder {
     fn build(&self, function: &FunctionNode) -> Cfg {
         let (_body_node_id, source) = function.body.as_python();
 
-        // Re-parse the source to get the tree
-        let mut parser = Parser::new();
-        let language = tree_sitter_python::LANGUAGE;
-        if parser.set_language(&language.into()).is_err() {
-            return Cfg::new();
-        }
-        let Some(tree) = parser.parse(source, None) else {
-            return Cfg::new();
-        };
-        let root = tree.root_node();
+        let result = with_cached_python_tree(source, |root| {
+            let func_node = find_function_by_start(
+                root,
+                function.span.start,
+                &["function_definition", "async_function_definition"],
+            )?;
+            let body_node = find_child_by_kind(func_node, "block")?;
+            let mut builder = PythonCfgBuilderState::new();
+            builder.build_from_block(&body_node, source);
+            Some(builder.cfg)
+        });
 
-        // Find the function node in the tree
-        if let Some(func_node) = find_function_by_start(
-            root,
-            function.span.start,
-            &["function_definition", "async_function_definition"],
-        ) {
-            // Find the block (function body)
-            if let Some(body_node) = find_child_by_kind(func_node, "block") {
-                let mut builder = PythonCfgBuilderState::new();
-                builder.build_from_block(&body_node, source);
-                return builder.cfg;
-            }
-        }
-
-        // Fallback: simple entry->exit CFG if we can't find the function
-        let mut cfg = Cfg::new();
-        cfg.add_edge(cfg.entry, cfg.exit);
-        cfg
+        result.unwrap_or_else(|| {
+            let mut cfg = Cfg::new();
+            cfg.add_edge(cfg.entry, cfg.exit);
+            cfg
+        })
     }
 }
 
@@ -281,82 +271,96 @@ impl PythonCfgBuilderState {
         self.current_node = Some(join_node);
     }
 
-    fn visit_try(&mut self, node: &Node, source: &str) {
-        let from_node = self.current_node.expect("Current node should exist");
-
-        // Try block
+    fn build_try_block(&mut self, node: &Node, source: &str, from_node: NodeId) -> NodeId {
         let try_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(from_node, try_start);
-
         if let Some(body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(try_start);
             self.build_from_block(&body, source);
         }
-        let try_end = self.current_node.unwrap_or(try_start);
+        self.current_node.unwrap_or(try_start)
+    }
 
+    fn process_except_clause(&mut self, child: Node, from_node: NodeId, source: &str) -> NodeId {
+        let except_condition = self.cfg.add_node(NodeKind::Condition);
+        self.cfg.add_edge(from_node, except_condition);
+        let except_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(except_condition, except_start);
+        self.current_node = Some(except_start);
+        if let Some(body) = find_child_by_kind(child, "block") {
+            self.build_from_block(&body, source);
+        }
+        self.current_node.unwrap_or(except_start)
+    }
+
+    fn process_else_clause(
+        &mut self,
+        child: Node,
+        try_end: NodeId,
+        source: &str,
+    ) -> Option<NodeId> {
+        let else_body = find_child_by_kind(child, "block")?;
+        let else_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(try_end, else_start);
+        self.current_node = Some(else_start);
+        self.build_from_block(&else_body, source);
+        Some(self.current_node.unwrap_or(else_start))
+    }
+
+    fn process_finally_clause(
+        &mut self,
+        child: Node,
+        branch_ends: &[NodeId],
+        source: &str,
+    ) -> NodeId {
+        let finally_node = self.cfg.add_node(NodeKind::Statement);
+        for &end in branch_ends {
+            if end != self.cfg.exit {
+                self.cfg.add_edge(end, finally_node);
+            }
+        }
+        if let Some(body) = find_child_by_kind(child, "block") {
+            self.current_node = Some(finally_node);
+            self.build_from_block(&body, source);
+        }
+        self.current_node.unwrap_or(finally_node)
+    }
+
+    fn visit_try(&mut self, node: &Node, source: &str) {
+        let from_node = self.current_node.expect("Current node should exist");
+        let try_end = self.build_try_block(node, source, from_node);
         let mut branch_ends = vec![try_end];
 
-        // Process except clauses
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "except_clause" {
-                // Each except clause is a separate execution path
-                let except_condition = self.cfg.add_node(NodeKind::Condition);
-                self.cfg.add_edge(from_node, except_condition);
-
-                let except_start = self.cfg.add_node(NodeKind::Statement);
-                self.cfg.add_edge(except_condition, except_start);
-                self.current_node = Some(except_start);
-
-                if let Some(except_body) = find_child_by_kind(child, "block") {
-                    self.build_from_block(&except_body, source);
+            match child.kind() {
+                "except_clause" => {
+                    branch_ends.push(self.process_except_clause(child, from_node, source));
                 }
-
-                branch_ends.push(self.current_node.unwrap_or(except_start));
-            } else if child.kind() == "else_clause" {
-                // Else clause runs if no exception was raised
-                if let Some(else_body) = find_child_by_kind(child, "block") {
-                    let else_start = self.cfg.add_node(NodeKind::Statement);
-                    self.cfg.add_edge(try_end, else_start);
-                    self.current_node = Some(else_start);
-                    self.build_from_block(&else_body, source);
-                    branch_ends.push(self.current_node.unwrap_or(else_start));
-                }
-            } else if child.kind() == "finally_clause" {
-                // Finally clause always runs - creates a join point
-                let finally_node = self.cfg.add_node(NodeKind::Statement);
-
-                // Connect all branches to finally
-                for &end in &branch_ends {
-                    if end != self.cfg.exit {
-                        self.cfg.add_edge(end, finally_node);
+                "else_clause" => {
+                    if let Some(end) = self.process_else_clause(child, try_end, source) {
+                        branch_ends.push(end);
                     }
                 }
-
-                if let Some(finally_body) = find_child_by_kind(child, "block") {
-                    self.current_node = Some(finally_node);
-                    self.build_from_block(&finally_body, source);
+                "finally_clause" => {
+                    let end = self.process_finally_clause(child, &branch_ends, source);
+                    branch_ends = vec![end];
                 }
-
-                // Finally becomes the new end
-                branch_ends = vec![self.current_node.unwrap_or(finally_node)];
+                _ => {}
             }
         }
 
-        // Connect all branch ends to join node (only create if needed)
-        let non_exit_branches: Vec<_> = branch_ends
+        let non_exit: Vec<_> = branch_ends
             .into_iter()
             .filter(|&end| end != self.cfg.exit)
             .collect();
-
-        if !non_exit_branches.is_empty() {
+        if !non_exit.is_empty() {
             let join_node = self.cfg.add_node(NodeKind::Join);
-            for end in non_exit_branches {
+            for end in non_exit {
                 self.cfg.add_edge(end, join_node);
             }
             self.current_node = Some(join_node);
         } else {
-            // All branches exit - current node is exit
             self.current_node = Some(self.cfg.exit);
         }
     }

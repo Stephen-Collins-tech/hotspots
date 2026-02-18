@@ -304,35 +304,20 @@ pub fn compute_hotspot_stability(snapshots: &[Snapshot], top_k: usize) -> Vec<Ho
     hotspot_analyses
 }
 
-/// Compute refactor effectiveness for functions
-///
-/// Detects significant negative LRS deltas and classifies outcomes.
-pub fn compute_refactor_effectiveness(snapshots: &[Snapshot]) -> Vec<RefactorAnalysis> {
-    if snapshots.len() < 2 {
-        return Vec::new();
-    }
-
-    // Track function LRS changes across snapshots
+/// Collect per-function LRS deltas across all snapshot pairs
+fn collect_function_deltas(snapshots: &[Snapshot]) -> HashMap<String, Vec<(usize, f64)>> {
     let mut function_deltas: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
-
     for i in 1..snapshots.len() {
-        let prev_snapshot = &snapshots[i - 1];
-        let curr_snapshot = &snapshots[i];
-
-        // Build maps for efficient lookup
-        let prev_funcs: HashMap<&str, &crate::snapshot::FunctionSnapshot> = prev_snapshot
+        let prev_funcs: HashMap<&str, &crate::snapshot::FunctionSnapshot> = snapshots[i - 1]
             .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-
-        let curr_funcs: HashMap<&str, &crate::snapshot::FunctionSnapshot> = curr_snapshot
+        let curr_funcs: HashMap<&str, &crate::snapshot::FunctionSnapshot> = snapshots[i]
             .functions
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-
-        // Compute deltas for functions that exist in both snapshots
         for (function_id, curr_func) in &curr_funcs {
             if let Some(prev_func) = prev_funcs.get(function_id) {
                 let delta = curr_func.lrs - prev_func.lrs;
@@ -343,47 +328,59 @@ pub fn compute_refactor_effectiveness(snapshots: &[Snapshot]) -> Vec<RefactorAna
             }
         }
     }
+    function_deltas
+}
 
+/// Check how many commits a refactor improvement was sustained and whether it rebounded
+fn check_sustainment_and_rebound(
+    deltas: &[(usize, f64)],
+    first_improvement_idx: usize,
+    snapshots_len: usize,
+) -> (usize, bool) {
+    let mut sustained_commits = 1;
+    let mut rebound_detected = false;
+    for i in first_improvement_idx..snapshots_len.min(first_improvement_idx + 3) {
+        if i >= snapshots_len {
+            break;
+        }
+        if let Some((_, delta)) = deltas.iter().find(|(idx, _)| *idx == i) {
+            if *delta <= REFACTOR_IMPROVEMENT_THRESHOLD {
+                sustained_commits += 1;
+            } else if *delta >= REFACTOR_REBOUND_THRESHOLD {
+                rebound_detected = true;
+                break;
+            }
+        }
+    }
+    (sustained_commits, rebound_detected)
+}
+
+/// Compute refactor effectiveness for functions
+///
+/// Detects significant negative LRS deltas and classifies outcomes.
+pub fn compute_refactor_effectiveness(snapshots: &[Snapshot]) -> Vec<RefactorAnalysis> {
+    if snapshots.len() < 2 {
+        return Vec::new();
+    }
+
+    let function_deltas = collect_function_deltas(snapshots);
     let mut refactor_analyses = Vec::new();
 
     for (function_id, deltas) in function_deltas {
-        // Find significant improvements (delta <= -1.0)
         let improvements: Vec<(usize, f64)> = deltas
             .iter()
-            .filter(|(_, delta)| *delta <= REFACTOR_IMPROVEMENT_THRESHOLD)
+            .filter(|(_, d)| *d <= REFACTOR_IMPROVEMENT_THRESHOLD)
             .copied()
             .collect();
-
         if improvements.is_empty() {
             continue;
         }
 
-        // Find the first improvement
-        let first_improvement_idx = improvements[0].0;
+        let first_idx = improvements[0].0;
         let improvement_delta = improvements[0].1;
+        let (sustained_commits, rebound_detected) =
+            check_sustainment_and_rebound(&deltas, first_idx, snapshots.len());
 
-        // Check if improvement is sustained across ≥ 2 commits
-        let mut sustained_commits = 1;
-        let mut rebound_detected = false;
-
-        // Look ahead to check sustainment and rebound
-        for i in first_improvement_idx..snapshots.len().min(first_improvement_idx + 3) {
-            if i >= snapshots.len() {
-                break;
-            }
-
-            // Find delta for this commit
-            if let Some((_, delta)) = deltas.iter().find(|(idx, _)| *idx == i) {
-                if *delta <= REFACTOR_IMPROVEMENT_THRESHOLD {
-                    sustained_commits += 1;
-                } else if *delta >= REFACTOR_REBOUND_THRESHOLD {
-                    rebound_detected = true;
-                    break;
-                }
-            }
-        }
-
-        // Classify outcome
         let outcome = if sustained_commits >= 2 && !rebound_detected {
             RefactorOutcome::Successful
         } else if sustained_commits >= 2 && rebound_detected {
@@ -401,9 +398,7 @@ pub fn compute_refactor_effectiveness(snapshots: &[Snapshot]) -> Vec<RefactorAna
         });
     }
 
-    // Sort deterministically by function_id
     refactor_analyses.sort_by(|a, b| a.function_id.cmp(&b.function_id));
-
     refactor_analyses
 }
 

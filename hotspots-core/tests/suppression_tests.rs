@@ -98,6 +98,7 @@ fn test_suppression_missing_reason_policy() {
         delta: None,
         band_transition: None,
         suppression_reason: Some(String::new()), // Empty reason
+        rename_hint: None,
     };
 
     let delta = Delta {
@@ -165,6 +166,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
         delta: None,
         band_transition: None,
         suppression_reason: Some("legacy code, will refactor".to_string()), // Suppressed with reason
+        rename_hint: None,
     };
 
     let delta = Delta {
@@ -228,6 +230,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
         delta: None,
         band_transition: None,
         suppression_reason: None, // NOT suppressed
+        rename_hint: None,
     };
 
     let delta = Delta {

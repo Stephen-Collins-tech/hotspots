@@ -18,7 +18,6 @@
 //! architecture. Advanced call tracking (including external dependencies and runtime
 //! analysis) is reserved for future cloud/pro versions.
 
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 /// Call graph for a codebase
@@ -28,6 +27,10 @@ pub struct CallGraph {
     pub edges: HashMap<String, Vec<String>>,
     /// All functions in the graph
     pub nodes: HashSet<String>,
+    /// Total callee names found in ASTs across all functions
+    pub total_callee_names: usize,
+    /// Callee names that resolved to a known internal function ID
+    pub resolved_callee_names: usize,
 }
 
 /// Mutable state for Tarjan's SCC algorithm
@@ -61,6 +64,8 @@ impl CallGraph {
         CallGraph {
             edges: HashMap::new(),
             nodes: HashSet::new(),
+            total_callee_names: 0,
+            resolved_callee_names: 0,
         }
     }
 
@@ -161,69 +166,13 @@ impl CallGraph {
         let mut betweenness: HashMap<String, f64> =
             self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
 
-        // For each node, compute shortest paths using BFS
         for source in &self.nodes {
-            let mut stack = Vec::new();
-            let mut predecessors: HashMap<String, Vec<String>> = HashMap::new();
-            let mut distance: HashMap<String, i32> = HashMap::new();
-            let mut sigma: HashMap<String, f64> = HashMap::new();
-
-            for node in &self.nodes {
-                distance.insert(node.clone(), -1);
-                sigma.insert(node.clone(), 0.0);
-            }
-
-            distance.insert(source.clone(), 0);
-            sigma.insert(source.clone(), 1.0);
-
-            // BFS to find shortest paths
-            let mut queue = vec![source.clone()];
-            while let Some(v) = queue.pop() {
-                stack.push(v.clone());
-
-                if let Some(neighbors) = self.edges.get(&v) {
-                    for w in neighbors {
-                        // First time we see w?
-                        if distance.get(w).copied().unwrap_or(-1) < 0 {
-                            queue.insert(0, w.clone());
-                            distance.insert(w.clone(), distance.get(&v).copied().unwrap_or(0) + 1);
-                        }
-
-                        // Shortest path to w via v?
-                        if distance.get(w).copied().unwrap_or(0)
-                            == distance.get(&v).copied().unwrap_or(0) + 1
-                        {
-                            let sigma_w = sigma.get(w).copied().unwrap_or(0.0);
-                            let sigma_v = sigma.get(&v).copied().unwrap_or(0.0);
-                            sigma.insert(w.clone(), sigma_w + sigma_v);
-
-                            predecessors.entry(w.clone()).or_default().push(v.clone());
-                        }
-                    }
-                }
-            }
-
-            // Accumulation phase
-            let mut delta: HashMap<String, f64> =
-                self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
-
-            while let Some(w) = stack.pop() {
-                if let Some(preds) = predecessors.get(&w) {
-                    for v in preds {
-                        let sigma_v = sigma.get(v).copied().unwrap_or(0.0);
-                        let sigma_w = sigma.get(&w).copied().unwrap_or(0.0);
-                        let delta_w = delta.get(&w).copied().unwrap_or(0.0);
-
-                        let contrib = (sigma_v / sigma_w.max(1.0)) * (1.0 + delta_w);
-                        let delta_v = delta.get(v).copied().unwrap_or(0.0);
-                        delta.insert(v.clone(), delta_v + contrib);
-                    }
-                }
-
-                if &w != source {
-                    let current = betweenness.get(&w).copied().unwrap_or(0.0);
-                    let delta_w = delta.get(&w).copied().unwrap_or(0.0);
-                    betweenness.insert(w, current + delta_w);
+            let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
+            let delta = brandes_accumulate(&stack, &predecessors, &sigma);
+            for w in &stack {
+                if w != source {
+                    *betweenness.entry(w.clone()).or_insert(0.0) +=
+                        delta.get(w).copied().unwrap_or(0.0);
                 }
             }
         }
@@ -437,57 +386,82 @@ impl CallGraph {
             betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
         }
     }
+}
 
-    /// Build a call graph from source files
-    ///
-    /// Extracts function calls using regex patterns (simple but effective).
-    /// More sophisticated AST-based extraction can be added later.
-    ///
-    /// **Important**: This only tracks internal calls (functions in the analyzed codebase).
-    /// External library calls, dynamic calls, and callbacks are intentionally excluded
-    /// to keep analysis fast and deterministic.
-    ///
-    /// # Arguments
-    ///
-    /// * `files` - Map from file path to (source code, list of function names in that file)
-    pub fn from_sources(files: &HashMap<String, (String, Vec<String>)>) -> Self {
-        let mut graph = CallGraph::new();
+/// BFS state returned by `brandes_bfs`: (stack, predecessors, sigma)
+type BrandesBfsState = (
+    Vec<String>,
+    HashMap<String, Vec<String>>,
+    HashMap<String, f64>,
+);
 
-        // Add all functions as nodes first
-        for (_source, functions) in files.values() {
-            for func in functions {
-                graph.add_node(func.clone());
-            }
-        }
+/// Brandes' algorithm BFS phase from a single source.
+///
+/// Returns `(stack, predecessors, sigma)`:
+/// - `stack`: nodes in BFS discovery order (used for reverse traversal in accumulation)
+/// - `predecessors`: for each node, list of predecessors on shortest paths from source
+/// - `sigma`: number of shortest paths from source to each node
+fn brandes_bfs(
+    source: &str,
+    nodes: &HashSet<String>,
+    edges: &HashMap<String, Vec<String>>,
+) -> BrandesBfsState {
+    let mut stack = Vec::new();
+    let mut predecessors: HashMap<String, Vec<String>> = HashMap::new();
+    let mut distance: HashMap<String, i32> = nodes.iter().map(|n| (n.clone(), -1)).collect();
+    let mut sigma: HashMap<String, f64> = nodes.iter().map(|n| (n.clone(), 0.0)).collect();
 
-        // Extract calls using regex patterns
-        // Pattern matches: functionName(...), object.method(...), etc.
-        let call_pattern = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
+    distance.insert(source.to_string(), 0);
+    sigma.insert(source.to_string(), 1.0);
 
-        for (source, functions) in files.values() {
-            // For each function, find what it calls
-            // This is simplified: we assume each function's code is separable
-            // A more sophisticated approach would use AST parsing
-
-            for func in functions {
-                // Find function calls in the source
-                for cap in call_pattern.captures_iter(source) {
-                    if let Some(called_func) = cap.get(1) {
-                        let called_name = called_func.as_str().to_string();
-
-                        // INTERNAL CALLS ONLY: Only add edge if both caller and callee
-                        // are in our graph (i.e., defined in the analyzed codebase).
-                        // This excludes external libraries, runtime APIs, etc.
-                        if graph.nodes.contains(&called_name) && &called_name != func {
-                            graph.add_edge(func.clone(), called_name);
-                        }
-                    }
+    // BFS: insert at front, pop from back (FIFO ordering)
+    let mut queue = vec![source.to_string()];
+    while let Some(v) = queue.pop() {
+        stack.push(v.clone());
+        if let Some(neighbors) = edges.get(&v) {
+            for w in neighbors {
+                if distance.get(w).copied().unwrap_or(-1) < 0 {
+                    queue.insert(0, w.clone());
+                    distance.insert(w.clone(), distance.get(&v).copied().unwrap_or(0) + 1);
+                }
+                if distance.get(w).copied().unwrap_or(0)
+                    == distance.get(&v).copied().unwrap_or(0) + 1
+                {
+                    let sigma_w = sigma.get(w).copied().unwrap_or(0.0);
+                    let sigma_v = sigma.get(&v).copied().unwrap_or(0.0);
+                    sigma.insert(w.clone(), sigma_w + sigma_v);
+                    predecessors.entry(w.clone()).or_default().push(v.clone());
                 }
             }
         }
-
-        graph
     }
+    (stack, predecessors, sigma)
+}
+
+/// Brandes' algorithm accumulation phase.
+///
+/// Back-propagates dependency scores through the BFS stack.
+/// Returns `delta`: each node's contribution to betweenness from this source.
+fn brandes_accumulate(
+    stack: &[String],
+    predecessors: &HashMap<String, Vec<String>>,
+    sigma: &HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    let mut delta: HashMap<String, f64> = stack.iter().map(|n| (n.clone(), 0.0)).collect();
+    let mut work = stack.to_vec();
+    while let Some(w) = work.pop() {
+        if let Some(preds) = predecessors.get(&w) {
+            for v in preds {
+                let sigma_v = sigma.get(v).copied().unwrap_or(0.0);
+                let sigma_w = sigma.get(&w).copied().unwrap_or(0.0);
+                let delta_w = delta.get(&w).copied().unwrap_or(0.0);
+                let contrib = (sigma_v / sigma_w.max(1.0)) * (1.0 + delta_w);
+                let delta_v = delta.get(v).copied().unwrap_or(0.0);
+                delta.insert(v.clone(), delta_v + contrib);
+            }
+        }
+    }
+    delta
 }
 
 impl Default for CallGraph {

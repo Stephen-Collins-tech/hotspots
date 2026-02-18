@@ -10,7 +10,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use hotspots_core::config;
 use hotspots_core::delta::Delta;
-use hotspots_core::policy::PolicyResults;
+use hotspots_core::policy::{PolicyResult, PolicyResults};
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::trends::TrendsAnalysis;
 use hotspots_core::{analyze_with_config, render_json, render_text, AnalysisOptions};
@@ -71,6 +71,14 @@ enum Commands {
         /// Overwrite existing snapshot if it already exists
         #[arg(short = 'f', long)]
         force: bool,
+
+        /// Skip writing snapshot to disk (analyze without persisting; only valid with --mode snapshot or --mode delta)
+        #[arg(long)]
+        no_persist: bool,
+
+        /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
+        #[arg(long)]
+        per_function_touches: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -162,283 +170,346 @@ fn main() -> anyhow::Result<()> {
             output,
             explain,
             force,
-        } => {
-            // Normalize path to absolute
-            let normalized_path = if path.is_relative() {
-                std::env::current_dir()?.join(&path)
-            } else {
-                path
-            };
-
-            // Validate path exists
-            if !normalized_path.exists() {
-                anyhow::bail!("Path does not exist: {}", normalized_path.display());
-            }
-
-            // Validate --policy flag (only valid with --mode delta)
-            if policy {
-                if let Some(m) = mode {
-                    if m != OutputMode::Delta {
-                        anyhow::bail!("--policy flag is only valid with --mode delta");
-                    }
-                } else {
-                    anyhow::bail!("--policy flag is only valid with --mode delta");
-                }
-            }
-
-            // Load configuration
-            let project_root =
-                find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
-            let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
-                .context("failed to load configuration")?;
-
-            if let Some(config_path) = &resolved_config.config_path {
-                eprintln!("Using config: {}", config_path.display());
-            }
-
-            // CLI flags override config file values
-            let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
-            let effective_top = top.or(resolved_config.top_n);
-
-            // Validate --explain flag (only valid with --mode snapshot)
-            if explain {
-                if let Some(m) = mode {
-                    if m != OutputMode::Snapshot {
-                        anyhow::bail!("--explain flag is only valid with --mode snapshot");
-                    }
-                } else {
-                    anyhow::bail!("--explain flag is only valid with --mode snapshot");
-                }
-            }
-
-            // If mode is specified, use snapshot/delta mode
-            if let Some(output_mode) = mode {
-                return handle_mode_output(
-                    &normalized_path,
-                    output_mode,
-                    &resolved_config,
-                    ModeOutputOptions {
-                        format,
-                        policy,
-                        top: effective_top,
-                        min_lrs: effective_min_lrs,
-                        output,
-                        explain,
-                        force,
-                    },
-                );
-            }
-
-            // Default behavior: preserve existing text/JSON output
-            let options = AnalysisOptions {
-                min_lrs: effective_min_lrs,
-                top_n: effective_top,
-            };
-
-            // Analyze with config
-            let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
-
-            // Render output
-            match format {
-                OutputFormat::Text => {
-                    print!("{}", render_text(&reports));
-                }
-                OutputFormat::Json => {
-                    println!("{}", render_json(&reports));
-                }
-                OutputFormat::Html | OutputFormat::Jsonl => {
-                    anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
-                }
-            }
-        }
+            no_persist,
+            per_function_touches,
+        } => handle_analyze(AnalyzeArgs {
+            path,
+            format,
+            mode,
+            policy,
+            top,
+            min_lrs,
+            config_path,
+            output,
+            explain,
+            force,
+            no_persist,
+            per_function_touches,
+        })?,
         Commands::Prune {
             unreachable,
             older_than,
             dry_run,
-        } => {
-            if !unreachable {
-                anyhow::bail!("--unreachable flag must be specified to prune snapshots");
-            }
-
-            // Find repository root (search up from current directory)
-            let repo_root = find_repo_root(&std::env::current_dir()?)?;
-
-            // Build prune options
-            let options = prune::PruneOptions {
-                ref_patterns: vec!["refs/heads/*".to_string()], // Default: local branches only
-                older_than_days: older_than,
-                dry_run,
-            };
-
-            // Execute pruning
-            let result = prune::prune_unreachable(&repo_root, options)?;
-
-            // Print results
-            if dry_run {
-                println!("Dry-run: Would prune {} snapshots", result.pruned_count);
-            } else {
-                println!("Pruned {} snapshots", result.pruned_count);
-            }
-
-            if !result.pruned_shas.is_empty() {
-                println!("\nPruned commit SHAs:");
-                for sha in &result.pruned_shas {
-                    println!("  {}", sha);
-                }
-            }
-
-            println!("\nReachable snapshots: {}", result.reachable_count);
-            if result.unreachable_kept_count > 0 {
-                println!(
-                    "Unreachable snapshots kept (due to age filter): {}",
-                    result.unreachable_kept_count
-                );
-            }
-        }
-        Commands::Compact { level } => {
-            // Validate compaction level
-            if level > 2 {
-                anyhow::bail!("compaction level must be 0, 1, or 2 (got {})", level);
-            }
-
-            // Find repository root (search up from current directory)
-            let repo_root = find_repo_root(&std::env::current_dir()?)?;
-
-            // Load index
-            let index_path = snapshot::index_path(&repo_root);
-            let mut index = snapshot::Index::load_or_new(&index_path)?;
-
-            // Set compaction level
-            let old_level = index.compaction_level();
-            index.set_compaction_level(level);
-
-            // Write updated index atomically
-            let index_json = index.to_json()?;
-            snapshot::atomic_write(&index_path, &index_json)?;
-
-            println!("Compaction level set to {} (was {})", level, old_level);
-
-            // Note: Actual compaction to levels 1 or 2 is not yet implemented
-            // This only sets the metadata. Level 0 (full snapshots) is the current implementation.
-            if level > 0 {
-                println!("Note: Compaction to level {} is not yet implemented. Only metadata was updated.", level);
-            }
-        }
-        Commands::Config { action } => match action {
-            ConfigAction::Validate { path } => {
-                let project_root = std::env::current_dir()?;
-                let resolved = config::load_and_resolve(&project_root, path.as_deref());
-
-                match resolved {
-                    Ok(config) => {
-                        if let Some(ref p) = config.config_path {
-                            println!("Config valid: {}", p.display());
-                        } else {
-                            println!("No config file found. Using defaults.");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Config validation failed: {:#}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-            ConfigAction::Show { path } => {
-                let project_root = std::env::current_dir()?;
-                let resolved = config::load_and_resolve(&project_root, path.as_deref())
-                    .context("failed to load configuration")?;
-
-                println!("Configuration:");
-                if let Some(ref p) = resolved.config_path {
-                    println!("  Source: {}", p.display());
-                } else {
-                    println!("  Source: defaults (no config file found)");
-                }
-                println!();
-                println!("Weights:");
-                println!("  cc: {}", resolved.weight_cc);
-                println!("  nd: {}", resolved.weight_nd);
-                println!("  fo: {}", resolved.weight_fo);
-                println!("  ns: {}", resolved.weight_ns);
-                println!();
-                println!("Thresholds:");
-                println!("  moderate: {}", resolved.moderate_threshold);
-                println!("  high: {}", resolved.high_threshold);
-                println!("  critical: {}", resolved.critical_threshold);
-                println!();
-                println!("Filters:");
-                println!(
-                    "  min_lrs: {}",
-                    resolved
-                        .min_lrs
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "none".to_string())
-                );
-                println!(
-                    "  top: {}",
-                    resolved
-                        .top_n
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "none".to_string())
-                );
-                println!(
-                    "  include: {}",
-                    if resolved.include.is_some() {
-                        "custom patterns"
-                    } else {
-                        "all files"
-                    }
-                );
-                println!(
-                    "  exclude: active ({} patterns)",
-                    if resolved.config_path.is_some() {
-                        "custom"
-                    } else {
-                        "default"
-                    }
-                );
-            }
-        },
+        } => handle_prune(unreachable, older_than, dry_run)?,
+        Commands::Compact { level } => handle_compact(level)?,
+        Commands::Config { action } => handle_config(action)?,
         Commands::Trends {
             path,
             format,
             window,
             top,
-        } => {
-            // Normalize path to absolute
-            let normalized_path = if path.is_relative() {
-                std::env::current_dir()?.join(&path)
+        } => handle_trends(path, format, window, top)?,
+    }
+
+    Ok(())
+}
+
+struct AnalyzeArgs {
+    path: PathBuf,
+    format: OutputFormat,
+    mode: Option<OutputMode>,
+    policy: bool,
+    top: Option<usize>,
+    min_lrs: Option<f64>,
+    config_path: Option<PathBuf>,
+    output: Option<PathBuf>,
+    explain: bool,
+    force: bool,
+    no_persist: bool,
+    per_function_touches: bool,
+}
+
+fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    let AnalyzeArgs {
+        path,
+        format,
+        mode,
+        policy,
+        top,
+        min_lrs,
+        config_path,
+        output,
+        explain,
+        force,
+        no_persist,
+        per_function_touches,
+    } = args;
+
+    // Normalize path to absolute
+    let normalized_path = if path.is_relative() {
+        std::env::current_dir()?.join(&path)
+    } else {
+        path
+    };
+
+    // Validate path exists
+    if !normalized_path.exists() {
+        anyhow::bail!("Path does not exist: {}", normalized_path.display());
+    }
+
+    // Validate --policy flag (only valid with --mode delta)
+    if policy {
+        if let Some(m) = mode {
+            if m != OutputMode::Delta {
+                anyhow::bail!("--policy flag is only valid with --mode delta");
+            }
+        } else {
+            anyhow::bail!("--policy flag is only valid with --mode delta");
+        }
+    }
+
+    // Load configuration
+    let project_root = find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
+    let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
+        .context("failed to load configuration")?;
+
+    if let Some(ref p) = resolved_config.config_path {
+        eprintln!("Using config: {}", p.display());
+    }
+
+    // CLI flags override config file values
+    let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
+    let effective_top = top.or(resolved_config.top_n);
+
+    // Validate --explain flag (only valid with --mode snapshot)
+    if explain {
+        if let Some(m) = mode {
+            if m != OutputMode::Snapshot {
+                anyhow::bail!("--explain flag is only valid with --mode snapshot");
+            }
+        } else {
+            anyhow::bail!("--explain flag is only valid with --mode snapshot");
+        }
+    }
+
+    // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
+    if per_function_touches && mode.is_none() {
+        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
+    }
+
+    // Validate --no-persist (only valid with --mode snapshot or --mode delta; conflicts with --force)
+    if no_persist {
+        if mode.is_none() {
+            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        }
+        if force {
+            anyhow::bail!("--no-persist and --force are mutually exclusive");
+        }
+    }
+
+    // If mode is specified, use snapshot/delta mode
+    if let Some(output_mode) = mode {
+        return handle_mode_output(
+            &normalized_path,
+            output_mode,
+            &resolved_config,
+            ModeOutputOptions {
+                format,
+                policy,
+                top: effective_top,
+                min_lrs: effective_min_lrs,
+                output,
+                explain,
+                force,
+                no_persist,
+                per_function_touches,
+            },
+        );
+    }
+
+    // Default behavior: preserve existing text/JSON output
+    let options = AnalysisOptions {
+        min_lrs: effective_min_lrs,
+        top_n: effective_top,
+    };
+    let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+
+    match format {
+        OutputFormat::Text => {
+            print!("{}", render_text(&reports));
+        }
+        OutputFormat::Json => {
+            println!("{}", render_json(&reports));
+        }
+        OutputFormat::Html | OutputFormat::Jsonl => {
+            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_prune(unreachable: bool, older_than: Option<u64>, dry_run: bool) -> anyhow::Result<()> {
+    if !unreachable {
+        anyhow::bail!("--unreachable flag must be specified to prune snapshots");
+    }
+
+    let repo_root = find_repo_root(&std::env::current_dir()?)?;
+    let options = prune::PruneOptions {
+        ref_patterns: vec!["refs/heads/*".to_string()],
+        older_than_days: older_than,
+        dry_run,
+    };
+    let result = prune::prune_unreachable(&repo_root, options)?;
+
+    if dry_run {
+        println!("Dry-run: Would prune {} snapshots", result.pruned_count);
+    } else {
+        println!("Pruned {} snapshots", result.pruned_count);
+    }
+
+    if !result.pruned_shas.is_empty() {
+        println!("\nPruned commit SHAs:");
+        for sha in &result.pruned_shas {
+            println!("  {}", sha);
+        }
+    }
+
+    println!("\nReachable snapshots: {}", result.reachable_count);
+    if result.unreachable_kept_count > 0 {
+        println!(
+            "Unreachable snapshots kept (due to age filter): {}",
+            result.unreachable_kept_count
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_compact(level: u32) -> anyhow::Result<()> {
+    if level > 2 {
+        anyhow::bail!("compaction level must be 0, 1, or 2 (got {})", level);
+    }
+
+    let repo_root = find_repo_root(&std::env::current_dir()?)?;
+    let index_path = snapshot::index_path(&repo_root);
+    let mut index = snapshot::Index::load_or_new(&index_path)?;
+    let old_level = index.compaction_level();
+    index.set_compaction_level(level);
+    let index_json = index.to_json()?;
+    snapshot::atomic_write(&index_path, &index_json)?;
+
+    if level > 0 {
+        anyhow::bail!(
+            "compaction to level {} is not yet implemented (only level 0 is supported)",
+            level
+        );
+    }
+
+    println!("Compaction level set to {} (was {})", level, old_level);
+    Ok(())
+}
+
+fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
+    match action {
+        ConfigAction::Validate { path } => {
+            let project_root = std::env::current_dir()?;
+            let resolved = config::load_and_resolve(&project_root, path.as_deref());
+            match resolved {
+                Ok(config) => {
+                    if let Some(ref p) = config.config_path {
+                        println!("Config valid: {}", p.display());
+                    } else {
+                        println!("No config file found. Using defaults.");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Config validation failed: {:#}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        ConfigAction::Show { path } => {
+            let project_root = std::env::current_dir()?;
+            let resolved = config::load_and_resolve(&project_root, path.as_deref())
+                .context("failed to load configuration")?;
+
+            println!("Configuration:");
+            if let Some(ref p) = resolved.config_path {
+                println!("  Source: {}", p.display());
             } else {
-                path.clone()
-            };
-
-            // Validate path exists
-            if !normalized_path.exists() {
-                anyhow::bail!("Path does not exist: {}", normalized_path.display());
+                println!("  Source: defaults (no config file found)");
             }
-
-            // Find repository root
-            let repo_root = find_repo_root(&normalized_path)?;
-
-            // Analyze trends
-            let trends = hotspots_core::trends::analyze_trends(&repo_root, window, top)
-                .context("failed to analyze trends")?;
-
-            // Output results
-            match format {
-                OutputFormat::Json => {
-                    let json = trends
-                        .to_json()
-                        .context("failed to serialize trends to JSON")?;
-                    println!("{}", json);
+            println!();
+            println!("Weights:");
+            println!("  cc: {}", resolved.weight_cc);
+            println!("  nd: {}", resolved.weight_nd);
+            println!("  fo: {}", resolved.weight_fo);
+            println!("  ns: {}", resolved.weight_ns);
+            println!();
+            println!("Thresholds:");
+            println!("  moderate: {}", resolved.moderate_threshold);
+            println!("  high: {}", resolved.high_threshold);
+            println!("  critical: {}", resolved.critical_threshold);
+            println!();
+            println!("Filters:");
+            println!(
+                "  min_lrs: {}",
+                resolved
+                    .min_lrs
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            );
+            println!(
+                "  top: {}",
+                resolved
+                    .top_n
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            );
+            println!(
+                "  include: {}",
+                if resolved.include.is_some() {
+                    "custom patterns"
+                } else {
+                    "all files"
                 }
-                OutputFormat::Text => {
-                    print_trends_text_output(&trends)?;
+            );
+            println!(
+                "  exclude: active ({} patterns)",
+                if resolved.config_path.is_some() {
+                    "custom"
+                } else {
+                    "default"
                 }
-                OutputFormat::Html | OutputFormat::Jsonl => {
-                    anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
-                }
-            }
+            );
+        }
+    }
+    Ok(())
+}
+
+fn handle_trends(
+    path: PathBuf,
+    format: OutputFormat,
+    window: usize,
+    top: usize,
+) -> anyhow::Result<()> {
+    let normalized_path = if path.is_relative() {
+        std::env::current_dir()?.join(&path)
+    } else {
+        path
+    };
+
+    if !normalized_path.exists() {
+        anyhow::bail!("Path does not exist: {}", normalized_path.display());
+    }
+
+    let repo_root = find_repo_root(&normalized_path)?;
+    let trends = hotspots_core::trends::analyze_trends(&repo_root, window, top)
+        .context("failed to analyze trends")?;
+
+    match format {
+        OutputFormat::Json => {
+            let json = trends
+                .to_json()
+                .context("failed to serialize trends to JSON")?;
+            println!("{}", json);
+        }
+        OutputFormat::Text => {
+            print_trends_text_output(&trends)?;
+        }
+        OutputFormat::Html | OutputFormat::Jsonl => {
+            anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
         }
     }
 
@@ -452,12 +523,24 @@ fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
+    per_function_touches: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
     // Build call graph before snapshot creation (snapshot consumes reports)
     let call_graph = hotspots_core::build_call_graph(&reports).ok();
+    if let Some(ref cg) = call_graph {
+        let total = cg.total_callee_names;
+        let resolved = cg.resolved_callee_names;
+        if total > 0 {
+            let pct = (resolved as f64 / total as f64) * 100.0;
+            eprintln!(
+                "call graph: resolved {}/{} callee references ({:.0}% internal)",
+                resolved, total, pct
+            );
+        }
+    }
 
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
@@ -482,7 +565,10 @@ fn build_enriched_snapshot(
         }
     }
 
-    enricher = enricher.with_touch_metrics(repo_root);
+    if per_function_touches {
+        eprintln!("Warning: --per-function-touches enabled; analysis will be significantly slower");
+    }
+    enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(graph);
@@ -501,6 +587,8 @@ struct ModeOutputOptions {
     output: Option<PathBuf>,
     explain: bool,
     force: bool,
+    no_persist: bool,
+    per_function_touches: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -518,38 +606,37 @@ fn handle_mode_output(
         output,
         explain,
         force,
+        no_persist,
+        per_function_touches,
     } = opts;
-    // Find repository root (search up from current path)
+
     let repo_root = find_repo_root(path)?;
-
-    // Analyze codebase
-    // Note: top_n is NOT applied here for snapshot/delta modes - it's applied post-scoring
-    // so that functions are ranked by activity_risk (not just LRS) before truncation
-    let options = AnalysisOptions {
-        min_lrs,
-        top_n: None,
-    };
-    let reports = analyze_with_config(path, options, Some(resolved_config))?;
-
-    // Detect PR context (best-effort, CI env vars only)
+    // top_n is NOT applied here — applied post-scoring so functions are ranked by
+    // activity_risk (not just LRS) before truncation
+    let reports = analyze_with_config(
+        path,
+        AnalysisOptions {
+            min_lrs,
+            top_n: None,
+        },
+        Some(resolved_config),
+    )?;
     let pr_context = git::detect_pr_context();
-    let is_mainline = !pr_context.is_pr;
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
-                .context("failed to build enriched snapshot")?;
+            let mut snapshot =
+                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
+                    .context("failed to build enriched snapshot")?;
 
-            // Persist snapshot only in mainline mode (not in PR mode)
-            // Note: Aggregates are NOT persisted (they're derived, computed on output)
-            if is_mainline {
+            // Persist only in mainline mode; skip when --no-persist is set
+            if !pr_context.is_pr && !no_persist {
                 snapshot::persist_snapshot(&repo_root, &snapshot, force)
                     .context("failed to persist snapshot")?;
                 snapshot::append_to_index(&repo_root, &snapshot)
                     .context("failed to update index")?;
             }
 
-            // Sort by activity_risk descending when using --explain or --top N
             let total_function_count = snapshot.functions.len();
             if explain || top.is_some() {
                 snapshot.functions.sort_by(|a, b| {
@@ -564,62 +651,26 @@ fn handle_mode_output(
                 }
             }
 
-            // Emit snapshot output
-            match format {
-                OutputFormat::Json => {
-                    // Compute aggregates for output (not persisted)
-                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                        &snapshot, &repo_root,
-                    );
-                    snapshot.aggregates = Some(aggregates);
-                    let json = snapshot.to_json()?;
-                    println!("{}", json);
-                }
-                OutputFormat::Jsonl => {
-                    let jsonl = snapshot.to_jsonl()?;
-                    println!("{}", jsonl);
-                }
-                OutputFormat::Text => {
-                    if explain {
-                        print_explain_output(&snapshot, total_function_count)?;
-                    } else {
-                        anyhow::bail!(
-                            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
-                        );
-                    }
-                }
-                OutputFormat::Html => {
-                    // Compute aggregates for output
-                    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                        &snapshot, &repo_root,
-                    );
-                    snapshot.aggregates = Some(aggregates);
-
-                    // Render HTML
-                    let html = hotspots_core::html::render_html_snapshot(&snapshot);
-
-                    // Write to file
-                    let output_path =
-                        output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-                    write_html_report(&output_path, &html)?;
-                    eprintln!("HTML report written to: {}", output_path.display());
-                }
-            }
+            emit_snapshot_output(
+                &mut snapshot,
+                format,
+                explain,
+                total_function_count,
+                output,
+                &repo_root,
+            )?;
         }
         OutputMode::Delta => {
-            let snapshot = build_enriched_snapshot(&repo_root, resolved_config, reports)
-                .context("failed to build enriched snapshot")?;
+            let snapshot =
+                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
+                    .context("failed to build enriched snapshot")?;
 
-            // Compute delta
             let delta = if pr_context.is_pr {
-                // PR mode: compare vs merge-base
                 compute_pr_delta(&repo_root, &snapshot)?
             } else {
-                // Mainline mode: compare vs direct parent (parents[0])
                 delta::compute_delta(&repo_root, &snapshot)?
             };
 
-            // Evaluate policies if requested
             let mut delta_with_extras = delta.clone();
             if policy {
                 let policy_results = hotspots_core::policy::evaluate_policies(
@@ -629,74 +680,107 @@ fn handle_mode_output(
                     resolved_config,
                 )
                 .context("failed to evaluate policies")?;
-
                 if let Some(results) = policy_results {
-                    delta_with_extras.policy = Some(results.clone());
+                    delta_with_extras.policy = Some(results);
                 }
             }
-
-            // Compute aggregates for output (not stored in delta computation)
             delta_with_extras.aggregates =
                 Some(hotspots_core::aggregates::compute_delta_aggregates(&delta));
 
-            // Emit delta output
-            let has_blocking_failures = delta_with_extras
-                .policy
-                .as_ref()
-                .map(|p| p.has_blocking_failures())
-                .unwrap_or(false);
-
-            match format {
-                OutputFormat::Json => {
-                    let json = delta_with_extras.to_json()?;
-                    println!("{}", json);
-                }
-                OutputFormat::Jsonl => {
-                    anyhow::bail!(
-                        "JSONL format is not supported for delta mode (use --mode snapshot)"
-                    );
-                }
-                OutputFormat::Text => {
-                    if policy {
-                        // Text output for delta mode is only supported with --policy
-                        if let Some(ref policy_results) = delta_with_extras.policy {
-                            print_policy_text_output(&delta_with_extras, policy_results)?;
-                        } else {
-                            // Baseline delta - no policies evaluated, but still show delta info
-                            println!("Delta Analysis");
-                            println!("{}", "=".repeat(80));
-                            println!(
-                                "Baseline delta (no parent snapshot) - policy evaluation skipped."
-                            );
-                            println!(
-                                "\nDelta contains {} function changes.",
-                                delta_with_extras.deltas.len()
-                            );
-                        }
-                    } else {
-                        anyhow::bail!("text format is not supported for delta mode without --policy (use --format json)");
-                    }
-                }
-                OutputFormat::Html => {
-                    // Render HTML
-                    let html = hotspots_core::html::render_html_delta(&delta_with_extras);
-
-                    // Write to file
-                    let output_path =
-                        output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-                    write_html_report(&output_path, &html)?;
-                    eprintln!("HTML report written to: {}", output_path.display());
-                }
-            }
-
-            // Exit with error code if there are blocking failures
-            if has_blocking_failures {
+            if emit_delta_output(&delta_with_extras, format, policy, output)? {
                 std::process::exit(1);
             }
         }
     }
 
     Ok(())
+}
+
+fn emit_snapshot_output(
+    snapshot: &mut Snapshot,
+    format: OutputFormat,
+    explain: bool,
+    total_function_count: usize,
+    output: Option<PathBuf>,
+    repo_root: &Path,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Json => {
+            let aggregates =
+                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            snapshot.aggregates = Some(aggregates);
+            println!("{}", snapshot.to_json()?);
+        }
+        OutputFormat::Jsonl => {
+            println!("{}", snapshot.to_jsonl()?);
+        }
+        OutputFormat::Text => {
+            if explain {
+                print_explain_output(snapshot, total_function_count)?;
+            } else {
+                anyhow::bail!(
+                    "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+                );
+            }
+        }
+        OutputFormat::Html => {
+            let aggregates =
+                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            snapshot.aggregates = Some(aggregates);
+            let html = hotspots_core::html::render_html_snapshot(snapshot);
+            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+            write_html_report(&output_path, &html)?;
+            eprintln!("HTML report written to: {}", output_path.display());
+        }
+    }
+    Ok(())
+}
+
+/// Returns true if there are blocking policy failures (caller should exit non-zero).
+fn emit_delta_output(
+    delta: &Delta,
+    format: OutputFormat,
+    policy: bool,
+    output: Option<PathBuf>,
+) -> anyhow::Result<bool> {
+    let has_blocking_failures = delta
+        .policy
+        .as_ref()
+        .map(|p| p.has_blocking_failures())
+        .unwrap_or(false);
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", delta.to_json()?);
+        }
+        OutputFormat::Jsonl => {
+            anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
+        }
+        OutputFormat::Text => {
+            if policy {
+                if let Some(ref policy_results) = delta.policy {
+                    print_policy_text_output(delta, policy_results)?;
+                } else {
+                    println!("Delta Analysis");
+                    println!("{}", "=".repeat(80));
+                    println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
+                    println!("\nDelta contains {} function changes.", delta.deltas.len());
+                }
+            } else {
+                anyhow::bail!(
+                    "text format is not supported for delta mode without --policy (use --format json)"
+                );
+            }
+        }
+        OutputFormat::Html => {
+            let html = hotspots_core::html::render_html_delta(delta);
+            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+            write_html_report(&output_path, &html)?;
+            eprintln!("HTML report written to: {}", output_path.display());
+        }
+    }
+
+    Ok(has_blocking_failures)
 }
 
 /// Compute delta for PR mode (compares vs merge-base)
@@ -741,257 +825,221 @@ fn compute_pr_delta(
 
 /// Print policy results as text output
 fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> anyhow::Result<()> {
-    // Print policy summary header
     println!("Policy Evaluation Results");
     println!("{}", "=".repeat(80));
+    print_failing_functions_section(delta, policy_results);
+    print_threshold_warning_section(
+        "Watch Level (approaching moderate threshold)",
+        "watch-threshold",
+        delta,
+        &policy_results.warnings,
+    );
+    print_threshold_warning_section(
+        "Attention Level (approaching high threshold)",
+        "attention-threshold",
+        delta,
+        &policy_results.warnings,
+    );
+    print_rapid_growth_section(delta, &policy_results.warnings);
+    print_repo_warnings_section(&policy_results.warnings);
+    print_policy_summary(policy_results);
+    Ok(())
+}
 
-    // Print blocking failures first
-    if !policy_results.failed.is_empty() {
-        println!("\nPolicy failures:");
-        for result in &policy_results.failed {
-            if let Some(ref function_id) = result.function_id {
-                println!("- {}: {}", result.id.as_str(), function_id);
-            } else {
-                println!("- {}", result.id.as_str());
-            }
+fn print_failing_functions_section(delta: &Delta, policy_results: &PolicyResults) {
+    if policy_results.failed.is_empty() {
+        return;
+    }
+    println!("\nPolicy failures:");
+    for result in &policy_results.failed {
+        if let Some(ref function_id) = result.function_id {
+            println!("- {}: {}", result.id.as_str(), function_id);
+        } else {
+            println!("- {}", result.id.as_str());
         }
-
-        // Print function table for blocking failures
-        println!("\nViolating functions:");
-        println!(
-            "{:<40} {:<12} {:<12} {:<10} {:<20}",
-            "Function", "Before", "After", "ΔLRS", "Policy"
-        );
-        println!("{}", "-".repeat(94));
-
-        // Collect function IDs that triggered failures
-        let violating_function_ids: std::collections::HashSet<&str> = policy_results
+    }
+    println!("\nViolating functions:");
+    println!(
+        "{:<40} {:<12} {:<12} {:<10} {:<20}",
+        "Function", "Before", "After", "ΔLRS", "Policy"
+    );
+    println!("{}", "-".repeat(94));
+    let violating_ids: std::collections::HashSet<&str> = policy_results
+        .failed
+        .iter()
+        .filter_map(|r| r.function_id.as_deref())
+        .collect();
+    for entry in &delta.deltas {
+        if !violating_ids.contains(entry.function_id.as_str()) {
+            continue;
+        }
+        let before_band = entry
+            .before
+            .as_ref()
+            .map(|b| b.band.as_str())
+            .unwrap_or("N/A");
+        let after_band = entry
+            .after
+            .as_ref()
+            .map(|a| a.band.as_str())
+            .unwrap_or("N/A");
+        let delta_lrs = entry
+            .delta
+            .as_ref()
+            .map(|d| format!("{:.2}", d.lrs))
+            .unwrap_or_else(|| "N/A".to_string());
+        let policies: Vec<&str> = policy_results
             .failed
             .iter()
-            .filter_map(|r| r.function_id.as_deref())
+            .filter(|r| r.function_id.as_deref() == Some(entry.function_id.as_str()))
+            .map(|r| r.id.as_str())
             .collect();
+        println!(
+            "{:<40} {:<12} {:<12} {:<10} {:<20}",
+            truncate_string(&entry.function_id, 40),
+            before_band,
+            after_band,
+            delta_lrs,
+            policies.join(", ")
+        );
+    }
+}
 
-        // Find corresponding delta entries
-        for entry in &delta.deltas {
-            if violating_function_ids.contains(entry.function_id.as_str()) {
-                let before_band = entry
-                    .before
+fn print_threshold_warning_section(
+    header: &str,
+    policy_id: &str,
+    delta: &Delta,
+    warnings: &[PolicyResult],
+) {
+    let group: Vec<_> = warnings
+        .iter()
+        .filter(|r| r.id.as_str() == policy_id)
+        .collect();
+    if group.is_empty() {
+        return;
+    }
+    println!("\n{}:", header);
+    println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
+    println!("{}", "-".repeat(64));
+    for warning in group {
+        if let Some(function_id) = &warning.function_id {
+            if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                let after_lrs = entry
+                    .after
                     .as_ref()
-                    .map(|b| b.band.as_str())
-                    .unwrap_or("N/A");
+                    .map(|a| format!("{:.2}", a.lrs))
+                    .unwrap_or_else(|| "N/A".to_string());
                 let after_band = entry
                     .after
                     .as_ref()
                     .map(|a| a.band.as_str())
                     .unwrap_or("N/A");
-                let delta_lrs = entry
-                    .delta
-                    .as_ref()
-                    .map(|d| format!("{:.2}", d.lrs))
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                // Find which policies this function violated
-                let policies: Vec<&str> = policy_results
-                    .failed
-                    .iter()
-                    .filter(|r| r.function_id.as_deref() == Some(entry.function_id.as_str()))
-                    .map(|r| r.id.as_str())
-                    .collect();
-                let policy_str = policies.join(", ");
-
                 println!(
-                    "{:<40} {:<12} {:<12} {:<10} {:<20}",
-                    truncate_string(&entry.function_id, 40),
-                    before_band,
-                    after_band,
-                    delta_lrs,
-                    policy_str
+                    "{:<40} {:<12} {:<12}",
+                    truncate_string(function_id, 40),
+                    after_lrs,
+                    after_band
                 );
             }
         }
     }
+}
 
-    // Print warnings second, grouped by level
-    if !policy_results.warnings.is_empty() {
-        // Group warnings by policy ID
-        let watch_warnings: Vec<_> = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "watch-threshold")
-            .collect();
-        let attention_warnings: Vec<_> = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "attention-threshold")
-            .collect();
-        let rapid_growth_warnings: Vec<_> = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "rapid-growth")
-            .collect();
-        let repo_warnings: Vec<_> = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "net-repo-regression")
-            .collect();
-
-        // Print Watch level warnings
-        if !watch_warnings.is_empty() {
-            println!("\nWatch Level (approaching moderate threshold):");
-            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
-            println!("{}", "-".repeat(64));
-
-            for warning in watch_warnings {
-                if let Some(function_id) = &warning.function_id {
-                    // Find the function in delta to get details
-                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id)
-                    {
-                        let after_lrs = entry
-                            .after
-                            .as_ref()
-                            .map(|a| format!("{:.2}", a.lrs))
-                            .unwrap_or_else(|| "N/A".to_string());
-                        let after_band = entry
-                            .after
-                            .as_ref()
-                            .map(|a| a.band.as_str())
-                            .unwrap_or("N/A");
-
-                        println!(
-                            "{:<40} {:<12} {:<12}",
-                            truncate_string(function_id, 40),
-                            after_lrs,
-                            after_band
-                        );
-                    }
-                }
-            }
-        }
-
-        // Print Attention level warnings
-        if !attention_warnings.is_empty() {
-            println!("\nAttention Level (approaching high threshold):");
-            println!("{:<40} {:<12} {:<12}", "Function", "Current LRS", "Band");
-            println!("{}", "-".repeat(64));
-
-            for warning in attention_warnings {
-                if let Some(function_id) = &warning.function_id {
-                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id)
-                    {
-                        let after_lrs = entry
-                            .after
-                            .as_ref()
-                            .map(|a| format!("{:.2}", a.lrs))
-                            .unwrap_or_else(|| "N/A".to_string());
-                        let after_band = entry
-                            .after
-                            .as_ref()
-                            .map(|a| a.band.as_str())
-                            .unwrap_or("N/A");
-
-                        println!(
-                            "{:<40} {:<12} {:<12}",
-                            truncate_string(function_id, 40),
-                            after_lrs,
-                            after_band
-                        );
-                    }
-                }
-            }
-        }
-
-        // Print Rapid Growth warnings
-        if !rapid_growth_warnings.is_empty() {
-            println!("\nRapid Growth (significant LRS increase):");
-            println!(
-                "{:<40} {:<12} {:<12} {:<12}",
-                "Function", "Current LRS", "Delta", "Growth"
-            );
-            println!("{}", "-".repeat(76));
-
-            for warning in rapid_growth_warnings {
-                if let Some(function_id) = &warning.function_id {
-                    if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id)
-                    {
-                        let after_lrs = entry
-                            .after
-                            .as_ref()
-                            .map(|a| format!("{:.2}", a.lrs))
-                            .unwrap_or_else(|| "N/A".to_string());
-                        let delta_lrs = entry
-                            .delta
-                            .as_ref()
-                            .map(|d| format!("{:+.2}", d.lrs))
-                            .unwrap_or_else(|| "N/A".to_string());
-                        let growth_pct = warning
-                            .metadata
-                            .as_ref()
-                            .and_then(|m| m.growth_percent)
-                            .map(|g| format!("{:+.0}%", g))
-                            .unwrap_or_else(|| "N/A".to_string());
-
-                        println!(
-                            "{:<40} {:<12} {:<12} {:<12}",
-                            truncate_string(function_id, 40),
-                            after_lrs,
-                            delta_lrs,
-                            growth_pct
-                        );
-                    }
-                }
-            }
-        }
-
-        // Print repo-level warnings
-        if !repo_warnings.is_empty() {
-            println!("\nRepository-Level Warnings:");
-            for warning in repo_warnings {
-                println!("- {}", warning.message);
+fn print_rapid_growth_section(delta: &Delta, warnings: &[PolicyResult]) {
+    let group: Vec<_> = warnings
+        .iter()
+        .filter(|r| r.id.as_str() == "rapid-growth")
+        .collect();
+    if group.is_empty() {
+        return;
+    }
+    println!("\nRapid Growth (significant LRS increase):");
+    println!(
+        "{:<40} {:<12} {:<12} {:<12}",
+        "Function", "Current LRS", "Delta", "Growth"
+    );
+    println!("{}", "-".repeat(76));
+    for warning in group {
+        if let Some(function_id) = &warning.function_id {
+            if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
+                let after_lrs = entry
+                    .after
+                    .as_ref()
+                    .map(|a| format!("{:.2}", a.lrs))
+                    .unwrap_or_else(|| "N/A".to_string());
+                let delta_lrs = entry
+                    .delta
+                    .as_ref()
+                    .map(|d| format!("{:+.2}", d.lrs))
+                    .unwrap_or_else(|| "N/A".to_string());
+                let growth_pct = warning
+                    .metadata
+                    .as_ref()
+                    .and_then(|m| m.growth_percent)
+                    .map(|g| format!("{:+.0}%", g))
+                    .unwrap_or_else(|| "N/A".to_string());
+                println!(
+                    "{:<40} {:<12} {:<12} {:<12}",
+                    truncate_string(function_id, 40),
+                    after_lrs,
+                    delta_lrs,
+                    growth_pct
+                );
             }
         }
     }
+}
 
-    // Print summary
+fn print_repo_warnings_section(warnings: &[PolicyResult]) {
+    let group: Vec<_> = warnings
+        .iter()
+        .filter(|r| r.id.as_str() == "net-repo-regression")
+        .collect();
+    if group.is_empty() {
+        return;
+    }
+    println!("\nRepository-Level Warnings:");
+    for warning in group {
+        println!("- {}", warning.message);
+    }
+}
+
+fn print_policy_summary(policy_results: &PolicyResults) {
     if policy_results.failed.is_empty() && policy_results.warnings.is_empty() {
         println!("\nNo policy violations detected.");
-    } else {
-        println!("\nSummary:");
-        println!("  Blocking failures: {}", policy_results.failed.len());
-
-        // Break down warnings by type
-        let watch_count = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "watch-threshold")
-            .count();
-        let attention_count = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "attention-threshold")
-            .count();
-        let rapid_growth_count = policy_results
-            .warnings
-            .iter()
-            .filter(|r| r.id.as_str() == "rapid-growth")
-            .count();
-        let other_warnings_count =
-            policy_results.warnings.len() - watch_count - attention_count - rapid_growth_count;
-
-        if watch_count > 0 {
-            println!("  Watch warnings: {}", watch_count);
-        }
-        if attention_count > 0 {
-            println!("  Attention warnings: {}", attention_count);
-        }
-        if rapid_growth_count > 0 {
-            println!("  Rapid growth warnings: {}", rapid_growth_count);
-        }
-        if other_warnings_count > 0 {
-            println!("  Other warnings: {}", other_warnings_count);
-        }
+        return;
     }
-
-    Ok(())
+    println!("\nSummary:");
+    println!("  Blocking failures: {}", policy_results.failed.len());
+    let watch_count = policy_results
+        .warnings
+        .iter()
+        .filter(|r| r.id.as_str() == "watch-threshold")
+        .count();
+    let attention_count = policy_results
+        .warnings
+        .iter()
+        .filter(|r| r.id.as_str() == "attention-threshold")
+        .count();
+    let rapid_growth_count = policy_results
+        .warnings
+        .iter()
+        .filter(|r| r.id.as_str() == "rapid-growth")
+        .count();
+    let other_count =
+        policy_results.warnings.len() - watch_count - attention_count - rapid_growth_count;
+    if watch_count > 0 {
+        println!("  Watch warnings: {}", watch_count);
+    }
+    if attention_count > 0 {
+        println!("  Attention warnings: {}", attention_count);
+    }
+    if rapid_growth_count > 0 {
+        println!("  Rapid growth warnings: {}", rapid_growth_count);
+    }
+    if other_count > 0 {
+        println!("  Other warnings: {}", other_count);
+    }
 }
 
 /// Print human-readable risk explanations for top functions
