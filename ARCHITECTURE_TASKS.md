@@ -12,11 +12,11 @@
 |------|--------------------------------------------|------------|--------------------|-------------|
 | F-1  | Touch metrics are file-level               | Medium     | Scoring accuracy   | [x] Doc done / [x] Research / [x] Implemented |
 | F-2  | Fan-out double-penalized                   | Low-Medium | Score calibration  | [x] Doc done / [x] Research — no change needed |
-| F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure  |
+| F-3  | Name-based call graph accuracy limits      | Medium     | Call graph         | [x] Doc done / [x] Measure / [x] Research — not warranted |
 | F-4  | Tree-sitter re-parse is O(n×m)             | Medium     | Performance        | [x] Doc done / [x] Implement / [x] Verify |
 | F-5  | function_id is path-dependent              | Medium     | Delta accuracy     | [x] Doc done / [x] Research / [x] Implemented |
 | F-6  | Schema migration strategy undefined        | Low-Medium | Operational risk   | [x] Code done / [x] Doc done|
-| F-7  | PR detection is CI-only                    | Low        | Documentation gap  | [x] Doc done                |
+| F-7  | PR detection is CI-only                    | Low        | Documentation gap  | [x] Doc done / [x] Implemented --no-persist |
 | F-8  | Trends module mis-documented as future     | Low        | Documentation gap  | [x] Doc done                |
 
 ---
@@ -155,9 +155,30 @@ unresolved or wrong.
   fields. Logged to stderr as "call graph: resolved X/Y callee references (N% internal)"
   during every snapshot/delta run.
 
-- [ ] **F-3c (research):** Evaluate whether type information available in the AST (e.g., SWC's
+- [x] **F-3c (research):** Evaluate whether type information available in the AST (e.g., SWC's
   type-aware mode, tree-sitter queries for Java's type resolver) could improve resolution
   accuracy without a major rewrite. Document findings and estimated effort.
+
+  **Results (2026-02-18):**
+
+  **SWC (TypeScript/JavaScript):** The dependency tree contains `swc_ecma_parser`, `swc_ecma_ast`,
+  and `swc_ecma_visit` — no type checker. SWC's optional type checker (`swc_ecma_checker`) exists
+  but is experimental and requires full project compilation context (tsconfig, all imports resolved),
+  not single-file parsing. Integrating it would require spawning the TypeScript compiler or
+  substantially restructuring the analysis pipeline. Estimated effort: 2–4 weeks, TypeScript only.
+
+  **Tree-sitter (Go, Java, Python):** Tree-sitter produces concrete syntax trees, not type
+  information. Resolving types for Go requires `go/types` (go compiler packages, subprocess),
+  for Java requires javac's annotation processor or an LSP, for Python requires mypy/pyright.
+  None of these are available from tree-sitter alone. Estimated effort: 2–4 weeks per language.
+
+  **Decision: Not warranted.** The infrastructure gap is too large relative to the benefit.
+  Type-aware resolution would require either (a) language-server integration (LSP subprocess per
+  file, major latency and complexity) or (b) language-specific compiler APIs (one per language,
+  not composable). The current name-based resolution with same-file preference handles the common
+  case (direct calls to co-located functions) well. The remaining miss cases (interface dispatch,
+  closures, higher-order functions) are inherent to static analysis without type context and are
+  accurately flagged as "unresolved" in the coverage metric added in F-3b.
 
 **Acceptance for F-3a:** ARCHITECTURE.md updated.
 **Acceptance for F-3b:** `cargo check` passes; coverage stat visible in `--format json` output or logs.
@@ -299,9 +320,14 @@ it were mainline.
   PR detection works only in CI environments that set standard PR env vars, and that local
   snapshot mode on any branch (including feature branches) will persist a snapshot.
 
-- [ ] **F-7b (optional):** Consider adding a `--no-persist` flag as an escape hatch for users
+- [x] **F-7b (optional):** Consider adding a `--no-persist` flag as an escape hatch for users
   who want to run snapshot-mode analysis locally without writing to `.hotspots/snapshots/`.
   (Note: `--force` flag already exists for the opposite case.)
+
+  **Implemented (2026-02-18):** Added `--no-persist` to `hotspots analyze`. Only valid with
+  `--mode snapshot` or `--mode delta`; mutually exclusive with `--force`. When set, the persist
+  block (`persist_snapshot` + `append_to_index`) is skipped even on mainline branches.
+  Useful for local exploration runs that should not pollute snapshot history.
 
 **Acceptance for F-7a:** ARCHITECTURE.md updated.
 

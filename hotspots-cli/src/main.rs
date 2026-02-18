@@ -72,6 +72,10 @@ enum Commands {
         #[arg(short = 'f', long)]
         force: bool,
 
+        /// Skip writing snapshot to disk (analyze without persisting; only valid with --mode snapshot or --mode delta)
+        #[arg(long)]
+        no_persist: bool,
+
         /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
         #[arg(long)]
         per_function_touches: bool,
@@ -166,6 +170,7 @@ fn main() -> anyhow::Result<()> {
             output,
             explain,
             force,
+            no_persist,
             per_function_touches,
         } => handle_analyze(AnalyzeArgs {
             path,
@@ -178,6 +183,7 @@ fn main() -> anyhow::Result<()> {
             output,
             explain,
             force,
+            no_persist,
             per_function_touches,
         })?,
         Commands::Prune {
@@ -209,6 +215,7 @@ struct AnalyzeArgs {
     output: Option<PathBuf>,
     explain: bool,
     force: bool,
+    no_persist: bool,
     per_function_touches: bool,
 }
 
@@ -224,6 +231,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         output,
         explain,
         force,
+        no_persist,
         per_function_touches,
     } = args;
 
@@ -279,6 +287,16 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
     }
 
+    // Validate --no-persist (only valid with --mode snapshot or --mode delta; conflicts with --force)
+    if no_persist {
+        if mode.is_none() {
+            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        }
+        if force {
+            anyhow::bail!("--no-persist and --force are mutually exclusive");
+        }
+    }
+
     // If mode is specified, use snapshot/delta mode
     if let Some(output_mode) = mode {
         return handle_mode_output(
@@ -293,6 +311,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 output,
                 explain,
                 force,
+                no_persist,
                 per_function_touches,
             },
         );
@@ -568,6 +587,7 @@ struct ModeOutputOptions {
     output: Option<PathBuf>,
     explain: bool,
     force: bool,
+    no_persist: bool,
     per_function_touches: bool,
 }
 
@@ -586,6 +606,7 @@ fn handle_mode_output(
         output,
         explain,
         force,
+        no_persist,
         per_function_touches,
     } = opts;
 
@@ -608,8 +629,8 @@ fn handle_mode_output(
                 build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
                     .context("failed to build enriched snapshot")?;
 
-            // Persist only in mainline mode; aggregates are not persisted (computed on output)
-            if !pr_context.is_pr {
+            // Persist only in mainline mode; skip when --no-persist is set
+            if !pr_context.is_pr && !no_persist {
                 snapshot::persist_snapshot(&repo_root, &snapshot, force)
                     .context("failed to persist snapshot")?;
                 snapshot::append_to_index(&repo_root, &snapshot)
