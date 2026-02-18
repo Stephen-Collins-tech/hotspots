@@ -167,292 +167,330 @@ fn main() -> anyhow::Result<()> {
             explain,
             force,
             per_function_touches,
-        } => {
-            // Normalize path to absolute
-            let normalized_path = if path.is_relative() {
-                std::env::current_dir()?.join(&path)
-            } else {
-                path
-            };
-
-            // Validate path exists
-            if !normalized_path.exists() {
-                anyhow::bail!("Path does not exist: {}", normalized_path.display());
-            }
-
-            // Validate --policy flag (only valid with --mode delta)
-            if policy {
-                if let Some(m) = mode {
-                    if m != OutputMode::Delta {
-                        anyhow::bail!("--policy flag is only valid with --mode delta");
-                    }
-                } else {
-                    anyhow::bail!("--policy flag is only valid with --mode delta");
-                }
-            }
-
-            // Load configuration
-            let project_root =
-                find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
-            let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
-                .context("failed to load configuration")?;
-
-            if let Some(config_path) = &resolved_config.config_path {
-                eprintln!("Using config: {}", config_path.display());
-            }
-
-            // CLI flags override config file values
-            let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
-            let effective_top = top.or(resolved_config.top_n);
-
-            // Validate --explain flag (only valid with --mode snapshot)
-            if explain {
-                if let Some(m) = mode {
-                    if m != OutputMode::Snapshot {
-                        anyhow::bail!("--explain flag is only valid with --mode snapshot");
-                    }
-                } else {
-                    anyhow::bail!("--explain flag is only valid with --mode snapshot");
-                }
-            }
-
-            // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
-            if per_function_touches && mode.is_none() {
-                anyhow::bail!(
-                    "--per-function-touches is only valid with --mode snapshot or --mode delta"
-                );
-            }
-
-            // If mode is specified, use snapshot/delta mode
-            if let Some(output_mode) = mode {
-                return handle_mode_output(
-                    &normalized_path,
-                    output_mode,
-                    &resolved_config,
-                    ModeOutputOptions {
-                        format,
-                        policy,
-                        top: effective_top,
-                        min_lrs: effective_min_lrs,
-                        output,
-                        explain,
-                        force,
-                        per_function_touches,
-                    },
-                );
-            }
-
-            // Default behavior: preserve existing text/JSON output
-            let options = AnalysisOptions {
-                min_lrs: effective_min_lrs,
-                top_n: effective_top,
-            };
-
-            // Analyze with config
-            let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
-
-            // Render output
-            match format {
-                OutputFormat::Text => {
-                    print!("{}", render_text(&reports));
-                }
-                OutputFormat::Json => {
-                    println!("{}", render_json(&reports));
-                }
-                OutputFormat::Html | OutputFormat::Jsonl => {
-                    anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
-                }
-            }
-        }
+        } => handle_analyze(AnalyzeArgs {
+            path,
+            format,
+            mode,
+            policy,
+            top,
+            min_lrs,
+            config_path,
+            output,
+            explain,
+            force,
+            per_function_touches,
+        })?,
         Commands::Prune {
             unreachable,
             older_than,
             dry_run,
-        } => {
-            if !unreachable {
-                anyhow::bail!("--unreachable flag must be specified to prune snapshots");
-            }
-
-            // Find repository root (search up from current directory)
-            let repo_root = find_repo_root(&std::env::current_dir()?)?;
-
-            // Build prune options
-            let options = prune::PruneOptions {
-                ref_patterns: vec!["refs/heads/*".to_string()], // Default: local branches only
-                older_than_days: older_than,
-                dry_run,
-            };
-
-            // Execute pruning
-            let result = prune::prune_unreachable(&repo_root, options)?;
-
-            // Print results
-            if dry_run {
-                println!("Dry-run: Would prune {} snapshots", result.pruned_count);
-            } else {
-                println!("Pruned {} snapshots", result.pruned_count);
-            }
-
-            if !result.pruned_shas.is_empty() {
-                println!("\nPruned commit SHAs:");
-                for sha in &result.pruned_shas {
-                    println!("  {}", sha);
-                }
-            }
-
-            println!("\nReachable snapshots: {}", result.reachable_count);
-            if result.unreachable_kept_count > 0 {
-                println!(
-                    "Unreachable snapshots kept (due to age filter): {}",
-                    result.unreachable_kept_count
-                );
-            }
-        }
-        Commands::Compact { level } => {
-            // Validate compaction level
-            if level > 2 {
-                anyhow::bail!("compaction level must be 0, 1, or 2 (got {})", level);
-            }
-
-            // Find repository root (search up from current directory)
-            let repo_root = find_repo_root(&std::env::current_dir()?)?;
-
-            // Load index
-            let index_path = snapshot::index_path(&repo_root);
-            let mut index = snapshot::Index::load_or_new(&index_path)?;
-
-            // Set compaction level
-            let old_level = index.compaction_level();
-            index.set_compaction_level(level);
-
-            // Write updated index atomically
-            let index_json = index.to_json()?;
-            snapshot::atomic_write(&index_path, &index_json)?;
-
-            if level > 0 {
-                anyhow::bail!(
-                    "compaction to level {} is not yet implemented (only level 0 is supported)",
-                    level
-                );
-            }
-
-            println!("Compaction level set to {} (was {})", level, old_level);
-        }
-        Commands::Config { action } => match action {
-            ConfigAction::Validate { path } => {
-                let project_root = std::env::current_dir()?;
-                let resolved = config::load_and_resolve(&project_root, path.as_deref());
-
-                match resolved {
-                    Ok(config) => {
-                        if let Some(ref p) = config.config_path {
-                            println!("Config valid: {}", p.display());
-                        } else {
-                            println!("No config file found. Using defaults.");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Config validation failed: {:#}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-            ConfigAction::Show { path } => {
-                let project_root = std::env::current_dir()?;
-                let resolved = config::load_and_resolve(&project_root, path.as_deref())
-                    .context("failed to load configuration")?;
-
-                println!("Configuration:");
-                if let Some(ref p) = resolved.config_path {
-                    println!("  Source: {}", p.display());
-                } else {
-                    println!("  Source: defaults (no config file found)");
-                }
-                println!();
-                println!("Weights:");
-                println!("  cc: {}", resolved.weight_cc);
-                println!("  nd: {}", resolved.weight_nd);
-                println!("  fo: {}", resolved.weight_fo);
-                println!("  ns: {}", resolved.weight_ns);
-                println!();
-                println!("Thresholds:");
-                println!("  moderate: {}", resolved.moderate_threshold);
-                println!("  high: {}", resolved.high_threshold);
-                println!("  critical: {}", resolved.critical_threshold);
-                println!();
-                println!("Filters:");
-                println!(
-                    "  min_lrs: {}",
-                    resolved
-                        .min_lrs
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "none".to_string())
-                );
-                println!(
-                    "  top: {}",
-                    resolved
-                        .top_n
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "none".to_string())
-                );
-                println!(
-                    "  include: {}",
-                    if resolved.include.is_some() {
-                        "custom patterns"
-                    } else {
-                        "all files"
-                    }
-                );
-                println!(
-                    "  exclude: active ({} patterns)",
-                    if resolved.config_path.is_some() {
-                        "custom"
-                    } else {
-                        "default"
-                    }
-                );
-            }
-        },
+        } => handle_prune(unreachable, older_than, dry_run)?,
+        Commands::Compact { level } => handle_compact(level)?,
+        Commands::Config { action } => handle_config(action)?,
         Commands::Trends {
             path,
             format,
             window,
             top,
-        } => {
-            // Normalize path to absolute
-            let normalized_path = if path.is_relative() {
-                std::env::current_dir()?.join(&path)
+        } => handle_trends(path, format, window, top)?,
+    }
+
+    Ok(())
+}
+
+struct AnalyzeArgs {
+    path: PathBuf,
+    format: OutputFormat,
+    mode: Option<OutputMode>,
+    policy: bool,
+    top: Option<usize>,
+    min_lrs: Option<f64>,
+    config_path: Option<PathBuf>,
+    output: Option<PathBuf>,
+    explain: bool,
+    force: bool,
+    per_function_touches: bool,
+}
+
+fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    let AnalyzeArgs {
+        path,
+        format,
+        mode,
+        policy,
+        top,
+        min_lrs,
+        config_path,
+        output,
+        explain,
+        force,
+        per_function_touches,
+    } = args;
+
+    // Normalize path to absolute
+    let normalized_path = if path.is_relative() {
+        std::env::current_dir()?.join(&path)
+    } else {
+        path
+    };
+
+    // Validate path exists
+    if !normalized_path.exists() {
+        anyhow::bail!("Path does not exist: {}", normalized_path.display());
+    }
+
+    // Validate --policy flag (only valid with --mode delta)
+    if policy {
+        if let Some(m) = mode {
+            if m != OutputMode::Delta {
+                anyhow::bail!("--policy flag is only valid with --mode delta");
+            }
+        } else {
+            anyhow::bail!("--policy flag is only valid with --mode delta");
+        }
+    }
+
+    // Load configuration
+    let project_root = find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
+    let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
+        .context("failed to load configuration")?;
+
+    if let Some(ref p) = resolved_config.config_path {
+        eprintln!("Using config: {}", p.display());
+    }
+
+    // CLI flags override config file values
+    let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
+    let effective_top = top.or(resolved_config.top_n);
+
+    // Validate --explain flag (only valid with --mode snapshot)
+    if explain {
+        if let Some(m) = mode {
+            if m != OutputMode::Snapshot {
+                anyhow::bail!("--explain flag is only valid with --mode snapshot");
+            }
+        } else {
+            anyhow::bail!("--explain flag is only valid with --mode snapshot");
+        }
+    }
+
+    // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
+    if per_function_touches && mode.is_none() {
+        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
+    }
+
+    // If mode is specified, use snapshot/delta mode
+    if let Some(output_mode) = mode {
+        return handle_mode_output(
+            &normalized_path,
+            output_mode,
+            &resolved_config,
+            ModeOutputOptions {
+                format,
+                policy,
+                top: effective_top,
+                min_lrs: effective_min_lrs,
+                output,
+                explain,
+                force,
+                per_function_touches,
+            },
+        );
+    }
+
+    // Default behavior: preserve existing text/JSON output
+    let options = AnalysisOptions {
+        min_lrs: effective_min_lrs,
+        top_n: effective_top,
+    };
+    let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+
+    match format {
+        OutputFormat::Text => {
+            print!("{}", render_text(&reports));
+        }
+        OutputFormat::Json => {
+            println!("{}", render_json(&reports));
+        }
+        OutputFormat::Html | OutputFormat::Jsonl => {
+            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_prune(unreachable: bool, older_than: Option<u64>, dry_run: bool) -> anyhow::Result<()> {
+    if !unreachable {
+        anyhow::bail!("--unreachable flag must be specified to prune snapshots");
+    }
+
+    let repo_root = find_repo_root(&std::env::current_dir()?)?;
+    let options = prune::PruneOptions {
+        ref_patterns: vec!["refs/heads/*".to_string()],
+        older_than_days: older_than,
+        dry_run,
+    };
+    let result = prune::prune_unreachable(&repo_root, options)?;
+
+    if dry_run {
+        println!("Dry-run: Would prune {} snapshots", result.pruned_count);
+    } else {
+        println!("Pruned {} snapshots", result.pruned_count);
+    }
+
+    if !result.pruned_shas.is_empty() {
+        println!("\nPruned commit SHAs:");
+        for sha in &result.pruned_shas {
+            println!("  {}", sha);
+        }
+    }
+
+    println!("\nReachable snapshots: {}", result.reachable_count);
+    if result.unreachable_kept_count > 0 {
+        println!(
+            "Unreachable snapshots kept (due to age filter): {}",
+            result.unreachable_kept_count
+        );
+    }
+
+    Ok(())
+}
+
+fn handle_compact(level: u32) -> anyhow::Result<()> {
+    if level > 2 {
+        anyhow::bail!("compaction level must be 0, 1, or 2 (got {})", level);
+    }
+
+    let repo_root = find_repo_root(&std::env::current_dir()?)?;
+    let index_path = snapshot::index_path(&repo_root);
+    let mut index = snapshot::Index::load_or_new(&index_path)?;
+    let old_level = index.compaction_level();
+    index.set_compaction_level(level);
+    let index_json = index.to_json()?;
+    snapshot::atomic_write(&index_path, &index_json)?;
+
+    if level > 0 {
+        anyhow::bail!(
+            "compaction to level {} is not yet implemented (only level 0 is supported)",
+            level
+        );
+    }
+
+    println!("Compaction level set to {} (was {})", level, old_level);
+    Ok(())
+}
+
+fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
+    match action {
+        ConfigAction::Validate { path } => {
+            let project_root = std::env::current_dir()?;
+            let resolved = config::load_and_resolve(&project_root, path.as_deref());
+            match resolved {
+                Ok(config) => {
+                    if let Some(ref p) = config.config_path {
+                        println!("Config valid: {}", p.display());
+                    } else {
+                        println!("No config file found. Using defaults.");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Config validation failed: {:#}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        ConfigAction::Show { path } => {
+            let project_root = std::env::current_dir()?;
+            let resolved = config::load_and_resolve(&project_root, path.as_deref())
+                .context("failed to load configuration")?;
+
+            println!("Configuration:");
+            if let Some(ref p) = resolved.config_path {
+                println!("  Source: {}", p.display());
             } else {
-                path.clone()
-            };
-
-            // Validate path exists
-            if !normalized_path.exists() {
-                anyhow::bail!("Path does not exist: {}", normalized_path.display());
+                println!("  Source: defaults (no config file found)");
             }
-
-            // Find repository root
-            let repo_root = find_repo_root(&normalized_path)?;
-
-            // Analyze trends
-            let trends = hotspots_core::trends::analyze_trends(&repo_root, window, top)
-                .context("failed to analyze trends")?;
-
-            // Output results
-            match format {
-                OutputFormat::Json => {
-                    let json = trends
-                        .to_json()
-                        .context("failed to serialize trends to JSON")?;
-                    println!("{}", json);
+            println!();
+            println!("Weights:");
+            println!("  cc: {}", resolved.weight_cc);
+            println!("  nd: {}", resolved.weight_nd);
+            println!("  fo: {}", resolved.weight_fo);
+            println!("  ns: {}", resolved.weight_ns);
+            println!();
+            println!("Thresholds:");
+            println!("  moderate: {}", resolved.moderate_threshold);
+            println!("  high: {}", resolved.high_threshold);
+            println!("  critical: {}", resolved.critical_threshold);
+            println!();
+            println!("Filters:");
+            println!(
+                "  min_lrs: {}",
+                resolved
+                    .min_lrs
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            );
+            println!(
+                "  top: {}",
+                resolved
+                    .top_n
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            );
+            println!(
+                "  include: {}",
+                if resolved.include.is_some() {
+                    "custom patterns"
+                } else {
+                    "all files"
                 }
-                OutputFormat::Text => {
-                    print_trends_text_output(&trends)?;
+            );
+            println!(
+                "  exclude: active ({} patterns)",
+                if resolved.config_path.is_some() {
+                    "custom"
+                } else {
+                    "default"
                 }
-                OutputFormat::Html | OutputFormat::Jsonl => {
-                    anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
-                }
-            }
+            );
+        }
+    }
+    Ok(())
+}
+
+fn handle_trends(
+    path: PathBuf,
+    format: OutputFormat,
+    window: usize,
+    top: usize,
+) -> anyhow::Result<()> {
+    let normalized_path = if path.is_relative() {
+        std::env::current_dir()?.join(&path)
+    } else {
+        path
+    };
+
+    if !normalized_path.exists() {
+        anyhow::bail!("Path does not exist: {}", normalized_path.display());
+    }
+
+    let repo_root = find_repo_root(&normalized_path)?;
+    let trends = hotspots_core::trends::analyze_trends(&repo_root, window, top)
+        .context("failed to analyze trends")?;
+
+    match format {
+        OutputFormat::Json => {
+            let json = trends
+                .to_json()
+                .context("failed to serialize trends to JSON")?;
+            println!("{}", json);
+        }
+        OutputFormat::Text => {
+            print_trends_text_output(&trends)?;
+        }
+        OutputFormat::Html | OutputFormat::Jsonl => {
+            anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
         }
     }
 
