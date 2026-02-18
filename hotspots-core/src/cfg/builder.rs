@@ -471,85 +471,101 @@ impl CfgBuilder {
         self.current_node = None;
     }
 
-    fn visit_try(&mut self, try_stmt: &TryStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+    fn build_catch_block(&mut self, try_stmt: &TryStmt, try_start: NodeId) -> Option<NodeId> {
+        let handler = try_stmt.handler.as_ref()?;
+        let catch_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(try_start, catch_start);
+        self.current_node = Some(catch_start);
+        self.build_from_body(&handler.body);
+        self.current_node
+    }
 
-        // Try body
-        let try_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(from_node, try_start);
-
-        self.current_node = Some(try_start);
-        self.build_from_body(&try_stmt.block);
-        let try_end = self.current_node.unwrap_or(try_start);
-        // Capture here — before catch — so a throw/return in catch doesn't corrupt it
-        let try_completed = self.current_node.is_some();
-
-        // Catch block (if present - only one in JavaScript/TypeScript)
-        let mut catch_end: Option<NodeId> = None;
-        if let Some(handler) = &try_stmt.handler {
-            let catch_start = self.cfg.add_node(NodeKind::Statement);
-            // Try body can flow to catch (on exception)
-            self.cfg.add_edge(try_start, catch_start);
-
-            self.current_node = Some(catch_start);
-            self.build_from_body(&handler.body);
-            catch_end = self.current_node;
+    fn connect_finally(
+        &mut self,
+        finally_block: &BlockStmt,
+        try_start: NodeId,
+        try_end: NodeId,
+        try_completed: bool,
+        catch_end: Option<NodeId>,
+        has_handler: bool,
+    ) {
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        let finally_start = self.cfg.add_node(NodeKind::Statement);
+        if try_completed {
+            self.cfg.add_edge(try_end, finally_start);
         }
-
-        if let Some(finally_block) = &try_stmt.finalizer {
-            // Finally always executes; create join after finally
-            let join_node = self.cfg.add_node(NodeKind::Join);
-            let finally_start = self.cfg.add_node(NodeKind::Statement);
-            // Try normal completion flows to finally
-            if try_completed {
-                self.cfg.add_edge(try_end, finally_start);
+        if let Some(catch) = catch_end {
+            if catch != self.cfg.exit {
+                self.cfg.add_edge(catch, finally_start);
             }
-            // Catch completion also flows to finally
+        }
+        if !has_handler || catch_end == Some(self.cfg.exit) {
+            self.cfg.add_edge(try_start, finally_start);
+        }
+        self.current_node = Some(finally_start);
+        self.build_from_body(finally_block);
+        let finally_end = self.current_node.unwrap_or(finally_start);
+        if self.current_node.is_some() {
+            self.cfg.add_edge(finally_end, join_node);
+        }
+        self.current_node = Some(join_node);
+    }
+
+    fn connect_no_finally(
+        &mut self,
+        try_start: NodeId,
+        try_end: NodeId,
+        try_completed: bool,
+        catch_end: Option<NodeId>,
+        has_handler: bool,
+    ) {
+        let catch_completed = catch_end.map(|c| c != self.cfg.exit).unwrap_or(false);
+        if try_completed || catch_completed {
+            let join_node = self.cfg.add_node(NodeKind::Join);
+            if try_completed {
+                self.cfg.add_edge(try_end, join_node);
+            }
             if let Some(catch) = catch_end {
                 if catch != self.cfg.exit {
-                    self.cfg.add_edge(catch, finally_start);
+                    self.cfg.add_edge(catch, join_node);
                 }
             }
-            // Exception path (if no catch or catch terminated)
-            if try_stmt.handler.is_none() || catch_end == Some(self.cfg.exit) {
-                self.cfg.add_edge(try_start, finally_start);
-            }
-
-            self.current_node = Some(finally_start);
-            self.build_from_body(finally_block);
-            let finally_end = self.current_node.unwrap_or(finally_start);
-
-            // Finally flows to join
-            if self.current_node.is_some() {
-                self.cfg.add_edge(finally_end, join_node);
+            if !has_handler {
+                self.cfg.add_edge(try_start, self.cfg.exit);
             }
             self.current_node = Some(join_node);
         } else {
-            // No finally: only create join if at least one path reaches it
-            let catch_completed = catch_end.map(|c| c != self.cfg.exit).unwrap_or(false);
-
-            if try_completed || catch_completed {
-                let join_node = self.cfg.add_node(NodeKind::Join);
-                if try_completed {
-                    self.cfg.add_edge(try_end, join_node);
-                }
-                if let Some(catch) = catch_end {
-                    if catch != self.cfg.exit {
-                        self.cfg.add_edge(catch, join_node);
-                    }
-                }
-                // Exception path without catch goes to exit
-                if try_stmt.handler.is_none() {
-                    self.cfg.add_edge(try_start, self.cfg.exit);
-                }
-                self.current_node = Some(join_node);
-            } else {
-                // Both try and catch terminated (return/throw) — no continuation
-                if try_stmt.handler.is_none() {
-                    self.cfg.add_edge(try_start, self.cfg.exit);
-                }
-                self.current_node = None;
+            if !has_handler {
+                self.cfg.add_edge(try_start, self.cfg.exit);
             }
+            self.current_node = None;
+        }
+    }
+
+    fn visit_try(&mut self, try_stmt: &TryStmt) {
+        let from_node = self.current_node.expect("Current node should exist");
+
+        let try_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(from_node, try_start);
+        self.current_node = Some(try_start);
+        self.build_from_body(&try_stmt.block);
+        let try_end = self.current_node.unwrap_or(try_start);
+        let try_completed = self.current_node.is_some();
+
+        let catch_end = self.build_catch_block(try_stmt, try_start);
+        let has_handler = try_stmt.handler.is_some();
+
+        if let Some(finally_block) = &try_stmt.finalizer {
+            self.connect_finally(
+                finally_block,
+                try_start,
+                try_end,
+                try_completed,
+                catch_end,
+                has_handler,
+            );
+        } else {
+            self.connect_no_finally(try_start, try_end, try_completed, catch_end, has_handler);
         }
     }
 
