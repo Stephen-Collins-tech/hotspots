@@ -683,7 +683,7 @@ impl Snapshot {
             let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
             // Embed commit context in each row
             obj.as_object_mut()
-                .unwrap()
+                .context("serialized function is not a JSON object")?
                 .insert("commit".to_string(), commit_json.clone());
             lines.push(serde_json::to_string(&obj).context("failed to serialize JSONL line")?);
         }

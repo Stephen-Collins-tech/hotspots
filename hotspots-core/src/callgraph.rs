@@ -18,7 +18,6 @@
 //! architecture. Advanced call tracking (including external dependencies and runtime
 //! analysis) is reserved for future cloud/pro versions.
 
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 /// Call graph for a codebase
@@ -442,57 +441,6 @@ impl CallGraph {
             pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
             betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
         }
-    }
-
-    /// Build a call graph from source files
-    ///
-    /// Extracts function calls using regex patterns (simple but effective).
-    /// More sophisticated AST-based extraction can be added later.
-    ///
-    /// **Important**: This only tracks internal calls (functions in the analyzed codebase).
-    /// External library calls, dynamic calls, and callbacks are intentionally excluded
-    /// to keep analysis fast and deterministic.
-    ///
-    /// # Arguments
-    ///
-    /// * `files` - Map from file path to (source code, list of function names in that file)
-    pub fn from_sources(files: &HashMap<String, (String, Vec<String>)>) -> Self {
-        let mut graph = CallGraph::new();
-
-        // Add all functions as nodes first
-        for (_source, functions) in files.values() {
-            for func in functions {
-                graph.add_node(func.clone());
-            }
-        }
-
-        // Extract calls using regex patterns
-        // Pattern matches: functionName(...), object.method(...), etc.
-        let call_pattern = Regex::new(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\(").unwrap();
-
-        for (source, functions) in files.values() {
-            // For each function, find what it calls
-            // This is simplified: we assume each function's code is separable
-            // A more sophisticated approach would use AST parsing
-
-            for func in functions {
-                // Find function calls in the source
-                for cap in call_pattern.captures_iter(source) {
-                    if let Some(called_func) = cap.get(1) {
-                        let called_name = called_func.as_str().to_string();
-
-                        // INTERNAL CALLS ONLY: Only add edge if both caller and callee
-                        // are in our graph (i.e., defined in the analyzed codebase).
-                        // This excludes external libraries, runtime APIs, etc.
-                        if graph.nodes.contains(&called_name) && &called_name != func {
-                            graph.add_edge(func.clone(), called_name);
-                        }
-                    }
-                }
-            }
-        }
-
-        graph
     }
 }
 

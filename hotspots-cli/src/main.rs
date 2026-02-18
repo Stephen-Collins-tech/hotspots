@@ -329,13 +329,14 @@ fn main() -> anyhow::Result<()> {
             let index_json = index.to_json()?;
             snapshot::atomic_write(&index_path, &index_json)?;
 
-            println!("Compaction level set to {} (was {})", level, old_level);
-
-            // Note: Actual compaction to levels 1 or 2 is not yet implemented
-            // This only sets the metadata. Level 0 (full snapshots) is the current implementation.
             if level > 0 {
-                println!("Note: Compaction to level {} is not yet implemented. Only metadata was updated.", level);
+                anyhow::bail!(
+                    "compaction to level {} is not yet implemented (only level 0 is supported)",
+                    level
+                );
             }
+
+            println!("Compaction level set to {} (was {})", level, old_level);
         }
         Commands::Config { action } => match action {
             ConfigAction::Validate { path } => {

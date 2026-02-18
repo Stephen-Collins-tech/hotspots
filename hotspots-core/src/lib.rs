@@ -76,7 +76,7 @@ pub fn analyze_with_config(
         critical: c.critical_threshold,
     });
 
-    // Collect source files (TypeScript, JavaScript, Go, Rust)
+    // Collect source files (TypeScript, JavaScript, Go, Java, Python, Rust)
     let source_files = collect_source_files(path)?;
 
     // Analyze each file (applying include/exclude from config)
@@ -140,6 +140,8 @@ fn is_supported_source_file(filename: &str) -> bool {
 /// - JavaScript: .js, .mjs, .cjs
 /// - JSX: .jsx, .mjsx, .cjsx
 /// - Go: .go
+/// - Java: .java
+/// - Python: .py, .pyw
 /// - Rust: .rs
 fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
