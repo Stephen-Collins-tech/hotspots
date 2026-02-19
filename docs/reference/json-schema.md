@@ -51,7 +51,8 @@ All schemas follow JSON Schema Draft 07 specification.
       lrs: 7.2,   // Logarithmic Risk Score
       band: "high",  // Risk band: low | moderate | high | critical
       suppression_reason: "Legacy code, refactor planned",  // Optional
-      driver: "high_complexity"  // Primary risk driver (optional, see Driver Labels)
+      driver: "high_complexity",  // Primary risk driver (optional, see Driver Labels)
+      driver_detail: "cc (P72), nd (P68)"  // Near-miss detail for composite (optional)
     }
   ],
   aggregates: {  // Present in snapshot mode output
@@ -159,15 +160,26 @@ are populated.
 | Label | Condition | Recommended action |
 |---|---|---|
 | `cyclic_dep` | SCC size > 1 (function is in a dependency cycle) | Break the cycle before adding more callers |
-| `high_complexity` | Cyclomatic complexity > 15 | Schedule a refactor; extract sub-functions |
-| `high_churn_low_cc` | touch_count_30d > 10 and CC < 8 | Add regression tests before next change |
-| `high_fanout_churning` | fan_out > 8 and touch_count_30d > 5 | Extract an interface boundary |
-| `deep_nesting` | Nesting depth > 4 | Flatten with early returns or guard clauses |
-| `high_fanin_complex` | fan_in > 10 and CC > 8 | Extract and stabilize; wide blast radius |
+| `high_complexity` | CC above the Pth percentile of the snapshot | Schedule a refactor; extract sub-functions |
+| `high_churn_low_cc` | touch_count above Pth percentile and CC below (100-P)th | Add regression tests before next change |
+| `high_fanout_churning` | fan_out above Pth percentile and touch above 50th | Extract an interface boundary |
+| `deep_nesting` | ND above the Pth percentile of the snapshot | Flatten with early returns or guard clauses |
+| `high_fanin_complex` | fan_in above Pth percentile and CC above 50th | Extract and stabilize; wide blast radius |
 | `composite` | None of the above | Monitor complexity trends |
 
-Thresholds are absolute (not relative to the codebase). Percentile-relative thresholds are
-planned for a future version.
+Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`).
+`cyclic_dep` is the sole absolute check — being in a cycle is binary.
+
+### `driver_detail` — Near-miss context for composite functions
+
+When a function receives the `composite` label, an optional `driver_detail` string lists the
+top dimensions (up to 3) that came closest to firing a specific label, with their percentile
+rank. Example: `"cc (P72), nd (P68)"` means cyclomatic complexity is at the 72nd percentile
+and nesting depth at the 68th — both notable but below the P75 threshold. Only dimensions
+above the 40th percentile (above median) are included.
+
+`driver_detail` is omitted from JSON when null (`skip_serializing_if = "Option::is_none"`),
+so it is forward-compatible with parsers that read existing v2 snapshots.
 
 ## Aggregates
 

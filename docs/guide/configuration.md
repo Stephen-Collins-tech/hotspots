@@ -225,6 +225,33 @@ filtered out as noise.
 
 High-traffic repositories (50+ commits/day) may want a higher threshold to reduce noise.
 
+#### `driver_threshold_percentile`
+Percentile of each metric that a function must exceed to receive a specific driver label.
+
+```json
+{
+  "driver_threshold_percentile": 75
+}
+```
+
+**Type:** integer 1–99
+**Default:** `75`
+
+At the default of 75, a function must have a cyclomatic complexity above the 75th percentile of
+all functions in the snapshot to trigger the `high_complexity` label (i.e. top 25%). The same
+percentile gate applies to `nd` (deep_nesting), `fan_out` (high_fanout_churning), `fan_in`
+(high_fanin_complex), and `touch_count` (high_churn_low_cc, high_fanout_churning).
+
+Compound checks:
+- `high_churn_low_cc`: touch above Pth percentile **and** cc below the (100-P)th percentile
+- `high_fanout_churning`: fan_out above Pth percentile **and** touch above the 50th percentile
+
+`cyclic_dep` stays absolute — being in a cycle is binary, not distribution-relative.
+
+**When to tune:**
+- Small or uniform repos → lower to 50–60 so more functions get specific labels
+- Large repos with high median complexity → raise to 85–90 to reduce noise
+
 #### `per_function_touches`
 Whether to use per-function `git log -L` for touch metrics instead of file-level batching.
 

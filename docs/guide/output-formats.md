@@ -355,6 +355,38 @@ Summary:
   Average LRS: 3.2
 ```
 
+### Snapshot Mode with `--explain`
+
+The `--explain` flag adds per-function detail: driver label, recommended action, and — for
+`composite`-labeled functions — the top near-miss dimensions with their percentile ranks.
+
+```
+hotspots analyze src/ --mode snapshot --format text --explain
+```
+
+```
+processComplexOrder             /src/orders.ts:142
+   LRS: 10.2 | Band: critical | Driver: cc
+   CC: 15, ND: 4, FO: 8, NS: 3
+   Action: Reduce branching; extract sub-functions
+
+handlePaymentFlow               /src/payments.ts:89
+   LRS: 9.5 | Band: critical | Driver: composite
+   CC: 12, ND: 3, FO: 6, NS: 4
+   Action: Multiple complexity dimensions — address the highest first
+   Near-threshold: fan_out (P78), cc (P72), nd (P61)
+
+validateUserInput               /src/validation.ts:23
+   LRS: 7.8 | Band: high | Driver: nd
+   CC: 10, ND: 2, FO: 5, NS: 2
+   Action: Reduce nesting depth; early returns help
+```
+
+`Near-threshold` appears only for `composite` functions and lists up to 3 dimensions at
+or above the 40th percentile (i.e., above median across all analysed functions), sorted
+by percentile rank descending. This makes multi-factor functions interpretable without
+changing how the driver label is computed.
+
 ### Delta Mode Output
 
 ```

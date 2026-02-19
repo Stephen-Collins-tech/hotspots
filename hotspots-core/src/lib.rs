@@ -243,17 +243,21 @@ fn build_name_index(
 
 /// Resolve the best callee_id for a call site.
 ///
-/// Prefers a same-file callee; falls back to the first name match.
+/// Priority 1: same-file callee.
+/// Priority 2: callee in a file the caller explicitly imports.
+/// Priority 3: first name match (fallback).
 /// Returns None for self-calls or unresolved names.
 fn resolve_callee(
     callee_name: &str,
     caller_id: &str,
     caller_file: &str,
     name_to_id: &std::collections::HashMap<String, Vec<String>>,
+    import_map: &std::collections::HashMap<String, std::collections::HashSet<String>>,
 ) -> Option<String> {
     let possible_callees = name_to_id.get(callee_name)?;
     let normalized_caller_file = caller_file.replace('\\', "/");
 
+    // Priority 1: same file
     for callee_id in possible_callees {
         let normalized_callee = callee_id.replace('\\', "/");
         if normalized_callee.starts_with(&format!("{}::", normalized_caller_file)) {
@@ -261,6 +265,17 @@ fn resolve_callee(
         }
     }
 
+    // Priority 2: imported file
+    if let Some(imports) = import_map.get(caller_file) {
+        for callee_id in possible_callees {
+            let callee_file = callee_id.split("::").next().unwrap_or("");
+            if imports.contains(callee_file) && callee_id != caller_id {
+                return Some(callee_id.clone());
+            }
+        }
+    }
+
+    // Priority 3: first match (fallback)
     possible_callees
         .first()
         .filter(|id| *id != caller_id)
@@ -271,6 +286,7 @@ fn resolve_callee(
 fn add_callee_edges(
     reports: &[FunctionRiskReport],
     name_to_id: &std::collections::HashMap<String, Vec<String>>,
+    import_map: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     graph: &mut callgraph::CallGraph,
 ) -> (usize, usize) {
     let mut total = 0usize;
@@ -282,9 +298,13 @@ fn add_callee_edges(
             total += 1;
             if name_to_id.contains_key(callee_name.as_str()) {
                 resolved += 1;
-                if let Some(callee_id) =
-                    resolve_callee(callee_name, &caller_id, &report.file, name_to_id)
-                {
+                if let Some(callee_id) = resolve_callee(
+                    callee_name,
+                    &caller_id,
+                    &report.file,
+                    name_to_id,
+                    import_map,
+                ) {
                     if added_callees.insert(callee_id.clone()) {
                         graph.add_edge(caller_id.clone(), callee_id);
                     }
@@ -296,10 +316,23 @@ fn add_callee_edges(
 }
 
 /// Build a call graph from AST-derived callee names in function reports.
-pub fn build_call_graph(reports: &[FunctionRiskReport]) -> Result<callgraph::CallGraph> {
+pub fn build_call_graph(
+    reports: &[FunctionRiskReport],
+    repo_root: &std::path::Path,
+) -> Result<callgraph::CallGraph> {
     let mut graph = callgraph::CallGraph::new();
     let name_to_id = build_name_index(reports, &mut graph);
-    let (total, resolved) = add_callee_edges(reports, &name_to_id, &mut graph);
+
+    // Build import map for import-guided resolution (priority 2 after same-file)
+    let file_list: Vec<&str> = reports.iter().map(|r| r.file.as_str()).collect();
+    let file_deps = crate::imports::resolve_file_deps(&file_list, repo_root);
+    let mut import_map: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    for (from, to) in file_deps {
+        import_map.entry(from).or_default().insert(to);
+    }
+
+    let (total, resolved) = add_callee_edges(reports, &name_to_id, &import_map, &mut graph);
     graph.total_callee_names = total;
     graph.resolved_callee_names = resolved;
     Ok(graph)

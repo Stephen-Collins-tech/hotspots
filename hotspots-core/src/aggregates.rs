@@ -737,6 +737,7 @@ mod tests {
             risk_factors: None,
             percentile: None,
             driver: None,
+            driver_detail: None,
         }
     }
 

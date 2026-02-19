@@ -556,8 +556,11 @@ fn build_enriched_snapshot(
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
+    // Detect merge-base for branch-aware recency adjustment (None when on main)
+    let merge_base = hotspots_core::git::find_merge_base(repo_root);
+
     // Build call graph before snapshot creation (snapshot consumes reports)
-    let call_graph = hotspots_core::build_call_graph(&reports).ok();
+    let call_graph = hotspots_core::build_call_graph(&reports, repo_root).ok();
     if let Some(ref cg) = call_graph {
         let total = cg.total_callee_names;
         let resolved = cg.resolved_callee_names;
@@ -601,13 +604,17 @@ fn build_enriched_snapshot(
         eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
     }
     enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
+    enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(graph);
     }
 
     Ok(enricher
-        .enrich(Some(&resolved_config.scoring_weights))
+        .enrich(
+            Some(&resolved_config.scoring_weights),
+            resolved_config.driver_threshold_percentile,
+        )
         .build())
 }
 
@@ -1505,6 +1512,11 @@ fn print_explain_output(
             }
         }
         println!("   Action: {}", action);
+        if driver == "composite" {
+            if let Some(ref detail) = func.driver_detail {
+                println!("   Near-threshold: {}", detail);
+            }
+        }
         println!();
     }
 
@@ -1535,23 +1547,36 @@ fn print_explain_output(
 fn driving_dimension(
     func: &hotspots_core::snapshot::FunctionSnapshot,
 ) -> (&'static str, &'static str) {
-    let label = hotspots_core::snapshot::driving_dimension_label(func);
-    let action = match label {
-        "cyclic_dep" => "Cyclic dependency: break the cycle before adding more callers.",
-        "high_complexity" => {
-            "Stable debt: schedule a refactor. Extract sub-functions to reduce CC."
-        }
-        "high_churn_low_cc" => "Churning but simple: add regression tests before next change.",
-        "high_fanout_churning" => {
-            "High coupling + active change: consider extracting an interface boundary."
-        }
-        "deep_nesting" => "Deep nesting: flatten with early returns or guard clauses.",
-        "high_fanin_complex" => {
-            "Many callers + complex: extract and stabilize. Any bug here has wide blast radius."
-        }
-        _ => "Monitor: review complexity trends before next modification.",
-    };
-    (label, action)
+    match func.driver.as_deref().unwrap_or("composite") {
+        "cyclic_dep" => (
+            "cyclic_dep",
+            "Cyclic dependency: break the cycle before adding more callers.",
+        ),
+        "high_complexity" => (
+            "high_complexity",
+            "Stable debt: schedule a refactor. Extract sub-functions to reduce CC.",
+        ),
+        "high_churn_low_cc" => (
+            "high_churn_low_cc",
+            "Churning but simple: add regression tests before next change.",
+        ),
+        "high_fanout_churning" => (
+            "high_fanout_churning",
+            "High coupling + active change: consider extracting an interface boundary.",
+        ),
+        "deep_nesting" => (
+            "deep_nesting",
+            "Deep nesting: flatten with early returns or guard clauses.",
+        ),
+        "high_fanin_complex" => (
+            "high_fanin_complex",
+            "Many callers + complex: extract and stabilize. Any bug here has wide blast radius.",
+        ),
+        _ => (
+            "composite",
+            "Monitor: review complexity trends before next modification.",
+        ),
+    }
 }
 
 /// Truncate string to max length

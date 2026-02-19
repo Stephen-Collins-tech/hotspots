@@ -493,6 +493,7 @@ mod tests {
                     risk_factors: None,
                     percentile: None,
                     driver: None,
+                    driver_detail: None,
                 }],
             ),
             create_test_snapshot(
@@ -521,6 +522,7 @@ mod tests {
                     risk_factors: None,
                     percentile: None,
                     driver: None,
+                    driver_detail: None,
                 }],
             ),
         ];
@@ -561,6 +563,7 @@ mod tests {
                     risk_factors: None,
                     percentile: None,
                     driver: None,
+                    driver_detail: None,
                 }],
             ),
             create_test_snapshot(
@@ -589,6 +592,7 @@ mod tests {
                     risk_factors: None,
                     percentile: None,
                     driver: None,
+                    driver_detail: None,
                 }],
             ),
         ];
@@ -628,6 +632,7 @@ mod tests {
                         risk_factors: None,
                         percentile: None,
                         driver: None,
+                        driver_detail: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -652,6 +657,7 @@ mod tests {
                         risk_factors: None,
                         percentile: None,
                         driver: None,
+                        driver_detail: None,
                     },
                 ],
             ),
@@ -682,6 +688,7 @@ mod tests {
                         risk_factors: None,
                         percentile: None,
                         driver: None,
+                        driver_detail: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -706,6 +713,7 @@ mod tests {
                         risk_factors: None,
                         percentile: None,
                         driver: None,
+                        driver_detail: None,
                     },
                 ],
             ),

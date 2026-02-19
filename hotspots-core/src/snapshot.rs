@@ -138,6 +138,11 @@ pub struct FunctionSnapshot {
     /// Populated by the enricher after activity_risk is computed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub driver: Option<String>,
+    /// Near-miss detail for composite functions: top dimensions that almost fired,
+    /// with their percentile rank. E.g. "cc (P72), nd (P68)".
+    /// None for non-composite labels or when no metric is near-threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver_detail: Option<String>,
 }
 
 /// Risk distribution by band
@@ -258,6 +263,7 @@ impl Snapshot {
                     risk_factors: None,
                     percentile: None,
                     driver: None,
+                    driver_detail: None,
                 }
             })
             .collect();
@@ -465,6 +471,56 @@ impl Snapshot {
         }
     }
 
+    /// Replace branch-inflated recency values with pre-branch last-change dates.
+    ///
+    /// For functions touched only on this branch (days_since_last_change < branch age),
+    /// replaces the inflated recency with the last-change date before the branch diverged.
+    /// One git call per unique file that needs a lookup; no-op when called without a merge base.
+    pub fn adjust_recency_for_branch(
+        &mut self,
+        repo_root: &std::path::Path,
+        merge_base_sha: &str,
+        merge_base_ts: i64,
+    ) {
+        let merge_base_age_days = ((self.commit.timestamp - merge_base_ts).max(0) / 86400) as u32;
+
+        // Identify unique files touched only on this branch
+        let mut files_needing_lookup: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for func in &self.functions {
+            if func
+                .days_since_last_change
+                .is_some_and(|d| d < merge_base_age_days)
+            {
+                files_needing_lookup.insert(func.file.clone());
+            }
+        }
+
+        // One git call per unique file — get last-change date before branch diverged
+        let mut pre_branch: std::collections::HashMap<String, Option<u32>> =
+            std::collections::HashMap::new();
+        for abs_file in &files_needing_lookup {
+            let rel = std::path::Path::new(abs_file)
+                .strip_prefix(repo_root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| abs_file.replace('\\', "/"));
+            let days = crate::git::days_since_last_change_at_sha(
+                repo_root,
+                &rel,
+                merge_base_sha,
+                self.commit.timestamp,
+            );
+            pre_branch.insert(abs_file.clone(), days);
+        }
+
+        // Replace inflated recency with pre-branch value
+        for func in &mut self.functions {
+            if let Some(Some(pre_days)) = pre_branch.get(&func.file) {
+                func.days_since_last_change = Some(*pre_days);
+            }
+        }
+    }
+
     /// Populate call graph metrics
     ///
     /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, dependency depth,
@@ -621,9 +677,47 @@ impl Snapshot {
     /// Populate driver labels for all functions using driving_dimension_label.
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
-    pub fn populate_driver_labels(&mut self) {
+    pub fn populate_driver_labels(&mut self, percentile: u8) {
+        let thresholds = compute_dimension_thresholds(&self.functions, percentile);
+
+        let mut sorted_cc: Vec<usize> = self.functions.iter().map(|f| f.metrics.cc).collect();
+        let mut sorted_nd: Vec<usize> = self.functions.iter().map(|f| f.metrics.nd).collect();
+        let mut sorted_fo: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
+            .collect();
+        let mut sorted_fi: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
+            .collect();
+        let mut sorted_touch: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.touch_count_30d.unwrap_or(0))
+            .collect();
+        sorted_cc.sort_unstable();
+        sorted_nd.sort_unstable();
+        sorted_fo.sort_unstable();
+        sorted_fi.sort_unstable();
+        sorted_touch.sort_unstable();
+
         for function in &mut self.functions {
-            function.driver = Some(driving_dimension_label(function).to_string());
+            let label = driving_dimension_label(function, &thresholds).to_string();
+            function.driver_detail = if label == "composite" {
+                compute_near_miss_detail(
+                    function,
+                    &sorted_cc,
+                    &sorted_nd,
+                    &sorted_fo,
+                    &sorted_fi,
+                    &sorted_touch,
+                )
+            } else {
+                None
+            };
+            function.driver = Some(label);
         }
     }
 
@@ -785,17 +879,97 @@ impl Snapshot {
     }
 }
 
-/// Builder for enriching a snapshot with git, call graph, and risk metrics.
-///
-/// Enforces enrichment step ordering:
+/// Percentile-derived thresholds for driving dimension detection.
+/// Computed once per snapshot from the distribution of all functions.
+pub struct DimensionThresholds {
+    pub cc_high: usize,      // Pth percentile of cc — "high_complexity" gate
+    pub cc_med: usize,       // 50th percentile of cc — floor for "high_fanin_complex"
+    pub cc_low: usize,       // (100-P)th percentile of cc — "low cc" in "high_churn_low_cc"
+    pub nd_high: usize,      // Pth percentile of nd — "deep_nesting" gate
+    pub fan_out_high: usize, // Pth percentile of fan_out — "high_fanout_churning" gate
+    pub fan_in_high: usize,  // Pth percentile of fan_in — "high_fanin_complex" gate
+    pub touch_high: usize,   // Pth percentile of touch_count — "high churn" gate
+    pub touch_med: usize,    // 50th percentile of touch_count — floor for "high_fanout_churning"
+}
+
+/// Compute percentile-derived thresholds from a slice of function snapshots.
+pub fn compute_dimension_thresholds(
+    functions: &[FunctionSnapshot],
+    percentile: u8,
+) -> DimensionThresholds {
+    let n = functions.len();
+    if n == 0 {
+        return DimensionThresholds {
+            cc_high: 0,
+            cc_med: 0,
+            cc_low: 0,
+            nd_high: 0,
+            fan_out_high: 0,
+            fan_in_high: 0,
+            touch_high: 0,
+            touch_med: 0,
+        };
+    }
+
+    let p = percentile as usize;
+    let anti_p = 100 - p;
+
+    let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
+
+    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc).collect();
+    cc_vals.sort_unstable();
+    let cc_high = cc_vals[percentile_idx(p)];
+    let cc_med = cc_vals[percentile_idx(50)];
+    let cc_low = cc_vals[percentile_idx(anti_p)];
+
+    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd).collect();
+    nd_vals.sort_unstable();
+    let nd_high = nd_vals[percentile_idx(p)];
+
+    let mut fo_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
+        .collect();
+    fo_vals.sort_unstable();
+    let fan_out_high = fo_vals[percentile_idx(p)];
+
+    let mut fi_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
+        .collect();
+    fi_vals.sort_unstable();
+    let fan_in_high = fi_vals[percentile_idx(p)];
+
+    let mut touch_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.touch_count_30d.unwrap_or(0))
+        .collect();
+    touch_vals.sort_unstable();
+    let touch_high = touch_vals[percentile_idx(p)];
+    let touch_med = touch_vals[percentile_idx(50)];
+
+    DimensionThresholds {
+        cc_high,
+        cc_med,
+        cc_low,
+        nd_high,
+        fan_out_high,
+        fan_in_high,
+        touch_high,
+        touch_med,
+    }
+}
+
 /// Identify the primary driving dimension for a function's risk.
 ///
 /// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,
 /// `"high_churn_low_cc"`, `"high_fanout_churning"`, `"deep_nesting"`,
-/// `"high_fanin_complex"`, or `"composite"`. Uses absolute thresholds;
-/// percentile-relative thresholds are future work (infrastructure exists via
-/// `p50_lrs` etc. in `SnapshotSummary`).
-pub fn driving_dimension_label(func: &FunctionSnapshot) -> &'static str {
+/// `"high_fanin_complex"`, or `"composite"`. Uses percentile-relative thresholds
+/// derived from the snapshot's own distribution; `cyclic_dep` stays absolute.
+pub fn driving_dimension_label(
+    func: &FunctionSnapshot,
+    thresholds: &DimensionThresholds,
+) -> &'static str {
     let in_cycle = func
         .callgraph
         .as_ref()
@@ -809,19 +983,79 @@ pub fn driving_dimension_label(func: &FunctionSnapshot) -> &'static str {
 
     if in_cycle {
         "cyclic_dep"
-    } else if cc > 15 {
+    } else if cc > thresholds.cc_high {
         "high_complexity"
-    } else if touch_count > 10 && cc < 8 {
+    } else if touch_count > thresholds.touch_high && cc < thresholds.cc_low {
         "high_churn_low_cc"
-    } else if fan_out > 8 && touch_count > 5 {
+    } else if fan_out > thresholds.fan_out_high && touch_count > thresholds.touch_med {
         "high_fanout_churning"
-    } else if nd > 4 {
+    } else if nd > thresholds.nd_high {
         "deep_nesting"
-    } else if fan_in > 10 && cc > 8 {
+    } else if fan_in > thresholds.fan_in_high && cc > thresholds.cc_med {
         "high_fanin_complex"
     } else {
         "composite"
     }
+}
+
+/// Compute near-miss detail string for composite-labeled functions.
+///
+/// Returns a string like "cc (P72), nd (P68)" listing the top dimensions that
+/// are above the 40th percentile (above median) but below the firing threshold.
+/// Returns None when no dimension is notable.
+fn compute_near_miss_detail(
+    func: &FunctionSnapshot,
+    sorted_cc: &[usize],
+    sorted_nd: &[usize],
+    sorted_fo: &[usize],
+    sorted_fi: &[usize],
+    sorted_touch: &[usize],
+) -> Option<String> {
+    let pct_rank = |v: usize, sorted: &[usize]| -> u8 {
+        if sorted.is_empty() {
+            return 0;
+        }
+        ((sorted.partition_point(|&x| x < v) * 100) / sorted.len()) as u8
+    };
+
+    let mut near: Vec<(&str, u8)> = vec![
+        ("cc", pct_rank(func.metrics.cc, sorted_cc)),
+        ("nd", pct_rank(func.metrics.nd, sorted_nd)),
+        (
+            "fan_out",
+            pct_rank(
+                func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0),
+                sorted_fo,
+            ),
+        ),
+        (
+            "fan_in",
+            pct_rank(
+                func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0),
+                sorted_fi,
+            ),
+        ),
+        (
+            "touch",
+            pct_rank(func.touch_count_30d.unwrap_or(0), sorted_touch),
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, rank)| *rank >= 40)
+    .collect();
+
+    near.sort_by(|a, b| b.1.cmp(&a.1));
+    near.truncate(3);
+
+    if near.is_empty() {
+        return None;
+    }
+    Some(
+        near.iter()
+            .map(|(name, rank)| format!("{} (P{})", name, rank))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
 }
 
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
@@ -858,6 +1092,19 @@ impl SnapshotEnricher {
         self
     }
 
+    /// Replace branch-inflated recency with pre-branch last-change dates.
+    /// No-op when merge_base is None (on main, or no divergence).
+    pub fn with_branch_recency_adjustment(
+        mut self,
+        repo_root: &Path,
+        merge_base: Option<&(String, i64)>,
+    ) -> Self {
+        if let Some((sha, ts)) = merge_base {
+            self.snapshot.adjust_recency_for_branch(repo_root, sha, *ts);
+        }
+        self
+    }
+
     /// Populate call graph metrics (PageRank, fan-in, SCC, etc).
     pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
         self.snapshot.populate_callgraph(call_graph);
@@ -867,10 +1114,15 @@ impl SnapshotEnricher {
     /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
-    pub fn enrich(mut self, weights: Option<&crate::scoring::ScoringWeights>) -> Self {
+    pub fn enrich(
+        mut self,
+        weights: Option<&crate::scoring::ScoringWeights>,
+        driver_threshold_percentile: u8,
+    ) -> Self {
         self.snapshot.compute_activity_risk(weights);
         self.snapshot.compute_percentiles();
-        self.snapshot.populate_driver_labels();
+        self.snapshot
+            .populate_driver_labels(driver_threshold_percentile);
         self.snapshot.compute_summary();
         self
     }
@@ -1329,7 +1581,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_summary() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
         let summary = snapshot.summary.as_ref().expect("summary should be set");
         assert_eq!(summary.total_functions, 1);
     }
@@ -1337,7 +1589,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_percentiles() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
         assert!(snapshot.functions[0].percentile.is_some());
     }
 

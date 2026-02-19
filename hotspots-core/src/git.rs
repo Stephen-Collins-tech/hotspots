@@ -319,6 +319,47 @@ pub fn resolve_merge_base_auto() -> Option<String> {
     None
 }
 
+/// Find the merge-base SHA and Unix timestamp between HEAD and main/master.
+/// Returns None when already on main (merge-base == HEAD) or no divergence found.
+pub fn find_merge_base(repo_root: &Path) -> Option<(String, i64)> {
+    for branch in &["main", "master", "origin/HEAD"] {
+        if let Ok(sha) = git_at(repo_root, &["merge-base", "HEAD", branch]) {
+            let sha = sha.trim().to_string();
+            if sha.is_empty() {
+                continue;
+            }
+            if let Ok(head) = git_at(repo_root, &["rev-parse", "HEAD"]) {
+                if head.trim() == sha {
+                    return None; // already on main
+                }
+            }
+            if let Ok(ts_str) = git_at(repo_root, &["log", "-1", "--format=%ct", &sha]) {
+                if let Ok(ts) = ts_str.trim().parse::<i64>() {
+                    return Some((sha, ts));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Days since the last change to `file` at or before `before_sha`.
+/// Returns None if the file has no history before that SHA.
+pub fn days_since_last_change_at_sha(
+    repo_root: &Path,
+    file: &str,
+    before_sha: &str,
+    as_of_timestamp: i64,
+) -> Option<u32> {
+    git_at(
+        repo_root,
+        &["log", "-1", "--format=%ct", before_sha, "--", file],
+    )
+    .ok()
+    .and_then(|out| out.trim().parse::<i64>().ok())
+    .map(|ts| ((as_of_timestamp - ts).max(0) / 86400) as u32)
+}
+
 /// Extract commit churn (lines added/deleted per file)
 ///
 /// Uses `git show --numstat <sha>` to get churn data for all files in the commit.
