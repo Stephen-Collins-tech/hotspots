@@ -94,8 +94,8 @@ risk signal. This is the original "hotspot" concept from Adam Thornhill's work o
 | `file_a`, `file_b`   | the two files                                            |
 | `co_change_count`    | times they changed in the same commit                    |
 | `coupling_ratio`     | co_change_count / min(total_changes_a, total_changes_b)  |
-| `has_static_dep`     | whether a static import exists between them (best-effort)|
-| `risk`               | `high` if ratio > 0.5 and no static dep; else `moderate` |
+| `has_static_dep`     | planned but not shipped — see CC-TASKS.md                |
+| `risk`               | `high` if ratio > 0.5; `moderate` if ratio > 0.25       |
 
 **CLI surface:**
 

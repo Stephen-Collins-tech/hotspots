@@ -185,8 +185,7 @@ no static dependency indicates hidden implicit coupling — a classic maintenanc
   file_b: "hotspots-core/src/aggregates.rs",
   co_change_count: 14,          // Times changed in the same commit
   coupling_ratio: 0.78,         // co_change_count / min(total_a, total_b)
-  has_static_dep: false,        // Whether a static import exists between them
-  risk: "high"                  // "high" if ratio > 0.5 and no static dep; else "moderate"
+  risk: "high"                  // "high" if ratio > 0.5; "moderate" if ratio > 0.25
 }
 ```
 
