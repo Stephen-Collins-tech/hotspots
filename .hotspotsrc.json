@@ -1,0 +1,21 @@
+{
+  "exclude": [
+    "**/tests/fixtures/**",
+    "**/examples/**",
+    "**/fix_golden_paths.py",
+    "**/hotspots-core/tests/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.js",
+    "**/*.test.jsx",
+    "**/*.spec.ts",
+    "**/*.spec.js",
+    "**/node_modules/**",
+    "**/__tests__/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/*_test.go"
+  ]
+}

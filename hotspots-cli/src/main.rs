@@ -232,6 +232,52 @@ struct AnalyzeArgs {
     per_function_touches: bool,
 }
 
+/// Validate flag combinations that are mode/format-specific.
+fn validate_analyze_flags(
+    mode: Option<OutputMode>,
+    format: OutputFormat,
+    policy: bool,
+    explain: bool,
+    per_function_touches: bool,
+    no_persist: bool,
+    force: bool,
+    level: Option<OutputLevel>,
+) -> anyhow::Result<()> {
+    if policy {
+        if mode != Some(OutputMode::Delta) {
+            anyhow::bail!("--policy flag is only valid with --mode delta");
+        }
+    }
+    if explain {
+        if mode != Some(OutputMode::Snapshot) {
+            anyhow::bail!("--explain flag is only valid with --mode snapshot");
+        }
+    }
+    if per_function_touches && mode.is_none() {
+        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
+    }
+    if no_persist {
+        if mode.is_none() {
+            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        }
+        if force {
+            anyhow::bail!("--no-persist and --force are mutually exclusive");
+        }
+    }
+    if level.is_some() {
+        if mode != Some(OutputMode::Snapshot) {
+            anyhow::bail!("--level is only valid with --mode snapshot");
+        }
+        if !matches!(format, OutputFormat::Text) {
+            anyhow::bail!("--level is only valid with --format text");
+        }
+        if explain {
+            anyhow::bail!("--level and --explain are mutually exclusive");
+        }
+    }
+    Ok(())
+}
+
 fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let AnalyzeArgs {
         path,
@@ -261,16 +307,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         anyhow::bail!("Path does not exist: {}", normalized_path.display());
     }
 
-    // Validate --policy flag (only valid with --mode delta)
-    if policy {
-        if let Some(m) = mode {
-            if m != OutputMode::Delta {
-                anyhow::bail!("--policy flag is only valid with --mode delta");
-            }
-        } else {
-            anyhow::bail!("--policy flag is only valid with --mode delta");
-        }
-    }
+    validate_analyze_flags(mode, format, policy, explain, per_function_touches, no_persist, force, level)?;
 
     // Load configuration
     let project_root = find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
@@ -284,45 +321,6 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     // CLI flags override config file values
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-
-    // Validate --explain flag (only valid with --mode snapshot)
-    if explain {
-        if let Some(m) = mode {
-            if m != OutputMode::Snapshot {
-                anyhow::bail!("--explain flag is only valid with --mode snapshot");
-            }
-        } else {
-            anyhow::bail!("--explain flag is only valid with --mode snapshot");
-        }
-    }
-
-    // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
-    if per_function_touches && mode.is_none() {
-        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
-    }
-
-    // Validate --no-persist (only valid with --mode snapshot or --mode delta; conflicts with --force)
-    if no_persist {
-        if mode.is_none() {
-            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
-        }
-        if force {
-            anyhow::bail!("--no-persist and --force are mutually exclusive");
-        }
-    }
-
-    // Validate --level (only valid with --mode snapshot --format text)
-    if level.is_some() {
-        if mode != Some(OutputMode::Snapshot) {
-            anyhow::bail!("--level is only valid with --mode snapshot");
-        }
-        if !matches!(format, OutputFormat::Text) {
-            anyhow::bail!("--level is only valid with --format text");
-        }
-        if explain {
-            anyhow::bail!("--level and --explain are mutually exclusive");
-        }
-    }
 
     // If mode is specified, use snapshot/delta mode
     if let Some(output_mode) = mode {
@@ -1207,6 +1205,126 @@ fn print_module_output(
     Ok(())
 }
 
+/// Format non-zero risk factor lines for a single function.
+fn format_risk_factor_lines(func: &hotspots_core::snapshot::FunctionSnapshot) -> Vec<String> {
+    let factors = match func.risk_factors.as_ref() {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+    let mut lines = Vec::new();
+    if factors.complexity > 0.0 {
+        lines.push(format!(
+            "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
+            factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
+        ));
+    }
+    if factors.churn > 0.0 {
+        let churn_lines = func
+            .churn
+            .as_ref()
+            .map(|c| c.lines_added + c.lines_deleted)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Churn:           {:>6.2}  ({} lines changed recently)",
+            factors.churn, churn_lines
+        ));
+    }
+    if factors.activity > 0.0 {
+        let touches = func.touch_count_30d.unwrap_or(0);
+        lines.push(format!(
+            "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
+            factors.activity, touches
+        ));
+    }
+    if factors.recency > 0.0 {
+        let days = func.days_since_last_change.unwrap_or(0);
+        lines.push(format!(
+            "     • Recency:         {:>6.2}  (last changed {} days ago)",
+            factors.recency, days
+        ));
+    }
+    if factors.fan_in > 0.0 {
+        let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+        lines.push(format!(
+            "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
+            factors.fan_in, fi
+        ));
+    }
+    if factors.cyclic_dependency > 0.0 {
+        let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
+        lines.push(format!(
+            "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
+            factors.cyclic_dependency, scc
+        ));
+    }
+    if factors.depth > 0.0 {
+        let depth = func
+            .callgraph
+            .as_ref()
+            .and_then(|cg| cg.dependency_depth)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Depth:           {:>6.2}  ({} levels from entry point)",
+            factors.depth, depth
+        ));
+    }
+    if factors.neighbor_churn > 0.0 {
+        let nc = func
+            .callgraph
+            .as_ref()
+            .and_then(|cg| cg.neighbor_churn)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
+            factors.neighbor_churn, nc
+        ));
+    }
+    lines
+}
+
+/// Print co-change coupling section (source files only).
+fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
+    const SRC_EXTS: &[&str] = &[
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
+    ];
+    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
+    let notable: Vec<_> = co_change
+        .iter()
+        .filter(|p| {
+            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
+        })
+        .take(10)
+        .collect();
+    if notable.is_empty() {
+        return;
+    }
+    println!();
+    println!("Co-Change Coupling (90-day window)");
+    println!("{}", "=".repeat(80));
+    for (i, pair) in notable.iter().enumerate() {
+        println!(
+            "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
+            i + 1,
+            pair.risk.to_uppercase(),
+            pair.coupling_ratio,
+            pair.co_change_count,
+            pair.file_a,
+            pair.file_b,
+        );
+    }
+    println!("{}", "-".repeat(80));
+    let total_notable = co_change
+        .iter()
+        .filter(|p| {
+            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
+        })
+        .count();
+    println!(
+        "{} high/moderate source pairs found  |  Run with --format json for full list",
+        total_notable
+    );
+}
+
 /// Print human-readable risk explanations for top functions
 fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
@@ -1230,7 +1348,6 @@ fn print_explain_output(
     println!("{}", "=".repeat(80));
     println!();
 
-    // Functions are already sorted by activity_risk before this is called
     for (i, func) in snapshot.functions.iter().take(display_count).enumerate() {
         let score = func.activity_risk.unwrap_or(func.lrs);
         let func_name = func
@@ -1238,101 +1355,23 @@ fn print_explain_output(
             .split("::")
             .last()
             .unwrap_or(&func.function_id);
-        let file_line = format!("{}:{}", func.file, func.line);
-
         println!("#{} {} [{}]", i + 1, func_name, func.band.to_uppercase());
-        println!("   File: {}", file_line);
+        println!("   File: {}:{}", func.file, func.line);
         println!(
             "   Risk Score: {:.2} (complexity base: {:.2})",
             score, func.lrs
         );
-
-        // Print risk factor breakdown if available
-        if let Some(ref factors) = func.risk_factors {
+        let factor_lines = format_risk_factor_lines(func);
+        if !factor_lines.is_empty() {
             println!("   Risk Breakdown:");
-
-            // Collect non-zero factors with their explanations
-            let mut factor_lines = Vec::new();
-
-            if factors.complexity > 0.0 {
-                factor_lines.push(format!(
-                    "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
-                    factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
-                ));
-            }
-            if factors.churn > 0.0 {
-                let churn_lines = func
-                    .churn
-                    .as_ref()
-                    .map(|c| c.lines_added + c.lines_deleted)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Churn:           {:>6.2}  ({} lines changed recently)",
-                    factors.churn, churn_lines
-                ));
-            }
-            if factors.activity > 0.0 {
-                let touches = func.touch_count_30d.unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
-                    factors.activity, touches
-                ));
-            }
-            if factors.recency > 0.0 {
-                let days = func.days_since_last_change.unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Recency:         {:>6.2}  (last changed {} days ago)",
-                    factors.recency, days
-                ));
-            }
-            if factors.fan_in > 0.0 {
-                let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
-                    factors.fan_in, fi
-                ));
-            }
-            if factors.cyclic_dependency > 0.0 {
-                let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
-                factor_lines.push(format!(
-                    "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
-                    factors.cyclic_dependency, scc
-                ));
-            }
-            if factors.depth > 0.0 {
-                let depth = func
-                    .callgraph
-                    .as_ref()
-                    .and_then(|cg| cg.dependency_depth)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Depth:           {:>6.2}  ({} levels from entry point)",
-                    factors.depth, depth
-                ));
-            }
-            if factors.neighbor_churn > 0.0 {
-                let nc = func
-                    .callgraph
-                    .as_ref()
-                    .and_then(|cg| cg.neighbor_churn)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
-                    factors.neighbor_churn, nc
-                ));
-            }
-
             for line in factor_lines {
                 println!("{}", line);
             }
         }
-
-        // Print a recommendation
         println!("   Action: {}", get_recommendation(func));
         println!();
     }
 
-    // Summary
     println!("{}", "-".repeat(80));
     let critical_count = snapshot
         .functions
@@ -1346,51 +1385,12 @@ fn print_explain_output(
         .take(display_count)
         .filter(|f| f.band == "high")
         .count();
-
     println!(
         "Showing {}/{} functions  |  Critical: {}  High: {}",
         display_count, total_count, critical_count, high_count
     );
 
-    // Co-change coupling section — source files only for the explain view
-    const SRC_EXTS: &[&str] = &[
-        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
-    ];
-    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
-    let notable: Vec<_> = co_change
-        .iter()
-        .filter(|p| {
-            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
-        })
-        .take(10)
-        .collect();
-    if !notable.is_empty() {
-        println!();
-        println!("Co-Change Coupling (90-day window)");
-        println!("{}", "=".repeat(80));
-        for (i, pair) in notable.iter().enumerate() {
-            println!(
-                "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
-                i + 1,
-                pair.risk.to_uppercase(),
-                pair.coupling_ratio,
-                pair.co_change_count,
-                pair.file_a,
-                pair.file_b,
-            );
-        }
-        println!("{}", "-".repeat(80));
-        let total_notable = co_change
-            .iter()
-            .filter(|p| {
-                (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
-            })
-            .count();
-        println!(
-            "{} high/moderate source pairs found  |  Run with --format json for full list",
-            total_notable
-        );
-    }
+    print_co_change_section(co_change);
 
     Ok(())
 }
