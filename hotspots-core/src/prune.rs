@@ -195,9 +195,8 @@ fn delete_pruned_snapshots(
 ) -> Result<()> {
     for sha in pruned_shas {
         if let Some(path) = snapshot::snapshot_path_existing(repo_path, sha) {
-            std::fs::remove_file(&path).with_context(|| {
-                format!("failed to remove snapshot: {}", path.display())
-            })?;
+            std::fs::remove_file(&path)
+                .with_context(|| format!("failed to remove snapshot: {}", path.display()))?;
         }
     }
     for sha in pruned_shas {

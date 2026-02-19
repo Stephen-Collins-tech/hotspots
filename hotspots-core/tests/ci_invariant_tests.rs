@@ -68,16 +68,14 @@ fn test_snapshot_immutability() {
     snapshot::persist_snapshot(repo_path, &snapshot, false).expect("first persist should succeed");
 
     // Read file bytes after first persist
-    let first_content =
-        std::fs::read(&snapshot_path).expect("failed to read snapshot file");
+    let first_content = std::fs::read(&snapshot_path).expect("failed to read snapshot file");
 
     // Second persist with identical snapshot should succeed (idempotency)
     snapshot::persist_snapshot(repo_path, &snapshot, false)
         .expect("second persist with identical snapshot should succeed (idempotent)");
 
     // File content should be unchanged (immutability)
-    let second_content =
-        std::fs::read(&snapshot_path).expect("failed to read snapshot file");
+    let second_content = std::fs::read(&snapshot_path).expect("failed to read snapshot file");
     assert_eq!(
         first_content, second_content,
         "snapshot file must not change when persisting identical snapshot (immutability)"

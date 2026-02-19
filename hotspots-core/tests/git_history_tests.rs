@@ -414,8 +414,8 @@ fn test_force_push_does_not_corrupt_history() {
     );
 
     // Verify snapshot content is unchanged (immutability)
-    let content1_after = std::fs::read(&snapshot_path1_check)
-        .expect("failed to read snapshot1 after reset");
+    let content1_after =
+        std::fs::read(&snapshot_path1_check).expect("failed to read snapshot1 after reset");
     assert_eq!(
         content1_before, content1_after,
         "snapshot1 content must be unchanged after reset (immutability)"

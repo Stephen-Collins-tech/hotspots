@@ -185,12 +185,20 @@ no static dependency indicates hidden implicit coupling — a classic maintenanc
   file_b: "hotspots-core/src/aggregates.rs",
   co_change_count: 14,          // Times changed in the same commit
   coupling_ratio: 0.78,         // co_change_count / min(total_a, total_b)
-  risk: "high"                  // "high" if ratio > 0.5; "moderate" if ratio > 0.25
+  has_static_dep: false,        // true if a direct import exists between the two files
+  risk: "high"                  // "high" | "moderate" | "expected" | "low"
+                                // "expected" if has_static_dep (coupling is explained)
+                                // "high" if ratio > 0.5 and no static dep
+                                // "moderate" if ratio > 0.25 and no static dep
 }
 ```
 
 Only pairs where both files currently exist are emitted (ghost files from renames are
 filtered). Trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`) are also filtered.
+
+`has_static_dep` uses the same import graph as module instability (D-3). Pairs with a
+static dependency are classified as `"expected"` — the co-change is explained by the
+import relationship and is lower risk than hidden coupling.
 
 Default window: 90 days; minimum co-occurrence count: 3.
 

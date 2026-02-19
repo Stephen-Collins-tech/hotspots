@@ -616,7 +616,8 @@ impl Snapshot {
         let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
 
         // Band distribution
-        let mut by_band: std::collections::BTreeMap<String, BandStats> = std::collections::BTreeMap::new();
+        let mut by_band: std::collections::BTreeMap<String, BandStats> =
+            std::collections::BTreeMap::new();
         for func in &self.functions {
             let score = func.activity_risk.unwrap_or(func.lrs);
             let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
@@ -1051,8 +1052,8 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> R
     }
 
     // Compress and write atomically (zstd level 3 — fast with good ratio)
-    let compressed = zstd::encode_all(canonical_json.as_bytes(), 3)
-        .context("failed to compress snapshot")?;
+    let compressed =
+        zstd::encode_all(canonical_json.as_bytes(), 3).context("failed to compress snapshot")?;
     atomic_write_bytes(&snapshot_path, &compressed)
         .with_context(|| format!("failed to persist snapshot: {}", snapshot_path.display()))?;
 
@@ -1114,10 +1115,7 @@ pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
         let path = entry.path();
 
         // Only process snapshot files (.json.zst or legacy .json)
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !file_name.ends_with(".json.zst") && !file_name.ends_with(".json") {
             continue;
         }

@@ -307,28 +307,40 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
     views
 }
 
-/// Compute module (directory) instability from the import graph.
+/// Annotate co-change pairs with `has_static_dep` from the import edge set.
 ///
-/// Builds a file-level import graph by parsing source files, then aggregates
-/// cross-directory edges into afferent/efferent coupling counts.
-pub fn compute_module_instability(
+/// For each pair, checks whether a direct import exists in either direction.
+/// Pairs with a static dependency are reclassified as `"expected"`.
+fn annotate_static_deps(
+    pairs: &mut [crate::git::CoChangePair],
+    edges: &[(String, String)],
+    repo_root: &std::path::Path,
+) {
+    // Build a set of normalized (relative) edge pairs, both directions
+    let mut edge_set: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    for (a, b) in edges {
+        let a_rel = normalize_path_relative_to_repo(a, repo_root).unwrap_or_else(|| a.clone());
+        let b_rel = normalize_path_relative_to_repo(b, repo_root).unwrap_or_else(|| b.clone());
+        edge_set.insert((a_rel.clone(), b_rel.clone()));
+        edge_set.insert((b_rel, a_rel));
+    }
+
+    for pair in pairs.iter_mut() {
+        let has_dep = edge_set.contains(&(pair.file_a.clone(), pair.file_b.clone()));
+        pair.has_static_dep = has_dep;
+        if has_dep {
+            pair.risk = "expected".to_string();
+        }
+    }
+}
+
+/// Compute module (directory) instability from a pre-computed import edge list.
+fn compute_module_instability_from_edges(
     functions: &[FunctionSnapshot],
+    edges: &[(String, String)],
     repo_root: &std::path::Path,
 ) -> Vec<ModuleInstability> {
-    // Collect unique file paths from functions
-    let mut unique_files: Vec<String> = functions
-        .iter()
-        .map(|f| f.file.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    unique_files.sort();
-
-    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-
-    // Resolve import edges
-    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
-
     // Helper: extract directory from a file path (relative to repo_root)
     let file_dir = |file: &str| -> Option<String> {
         let normalized = normalize_path_relative_to_repo(file, repo_root)?;
@@ -339,7 +351,7 @@ pub fn compute_module_instability(
     let mut efferent: HashMap<String, usize> = HashMap::new();
     let mut afferent: HashMap<String, usize> = HashMap::new();
 
-    for (from_file, to_file) in &edges {
+    for (from_file, to_file) in edges {
         let from_dir = match file_dir(from_file) {
             Some(d) => d,
             None => continue,
@@ -434,6 +446,25 @@ pub fn compute_module_instability(
     modules
 }
 
+/// Compute module instability from snapshot functions (computes import edges internally).
+///
+/// Exposed as a public API for callers that don't have pre-computed edges.
+pub fn compute_module_instability(
+    functions: &[FunctionSnapshot],
+    repo_root: &std::path::Path,
+) -> Vec<ModuleInstability> {
+    let mut unique_files: Vec<String> = functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+    compute_module_instability_from_edges(functions, &edges, repo_root)
+}
+
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -447,8 +478,24 @@ pub fn compute_snapshot_aggregates(
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
     let file_risk = compute_file_risk_views(&snapshot.functions);
-    let co_change = crate::git::extract_co_change_pairs(repo_root, 90, 3).unwrap_or_default();
-    let modules = compute_module_instability(&snapshot.functions, repo_root);
+
+    // Compute import edges once — shared by module instability and co-change annotation
+    let mut unique_files: Vec<String> = snapshot
+        .functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+    let import_edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+
+    let mut co_change = crate::git::extract_co_change_pairs(repo_root, 90, 3).unwrap_or_default();
+    annotate_static_deps(&mut co_change, &import_edges, repo_root);
+
+    let modules =
+        compute_module_instability_from_edges(&snapshot.functions, &import_edges, repo_root);
 
     SnapshotAggregates {
         files,

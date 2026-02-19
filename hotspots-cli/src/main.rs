@@ -233,45 +233,43 @@ struct AnalyzeArgs {
 }
 
 /// Validate flag combinations that are mode/format-specific.
-fn validate_analyze_flags(
-    mode: Option<OutputMode>,
-    format: OutputFormat,
-    policy: bool,
-    explain: bool,
-    per_function_touches: bool,
-    no_persist: bool,
-    force: bool,
-    level: Option<OutputLevel>,
-) -> anyhow::Result<()> {
-    if policy {
-        if mode != Some(OutputMode::Delta) {
-            anyhow::bail!("--policy flag is only valid with --mode delta");
-        }
+fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    let AnalyzeArgs {
+        mode,
+        format,
+        policy,
+        explain,
+        per_function_touches,
+        no_persist,
+        force,
+        level,
+        ..
+    } = args;
+    if *policy && *mode != Some(OutputMode::Delta) {
+        anyhow::bail!("--policy flag is only valid with --mode delta");
     }
-    if explain {
-        if mode != Some(OutputMode::Snapshot) {
-            anyhow::bail!("--explain flag is only valid with --mode snapshot");
-        }
+    if *explain && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--explain flag is only valid with --mode snapshot");
     }
-    if per_function_touches && mode.is_none() {
+    if *per_function_touches && mode.is_none() {
         anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
     }
-    if no_persist {
+    if *no_persist {
         if mode.is_none() {
             anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
         }
-        if force {
+        if *force {
             anyhow::bail!("--no-persist and --force are mutually exclusive");
         }
     }
     if level.is_some() {
-        if mode != Some(OutputMode::Snapshot) {
+        if *mode != Some(OutputMode::Snapshot) {
             anyhow::bail!("--level is only valid with --mode snapshot");
         }
         if !matches!(format, OutputFormat::Text) {
             anyhow::bail!("--level is only valid with --format text");
         }
-        if explain {
+        if *explain {
             anyhow::bail!("--level and --explain are mutually exclusive");
         }
     }
@@ -279,6 +277,8 @@ fn validate_analyze_flags(
 }
 
 fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    validate_analyze_flags(&args)?;
+
     let AnalyzeArgs {
         path,
         format,
@@ -306,8 +306,6 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     if !normalized_path.exists() {
         anyhow::bail!("Path does not exist: {}", normalized_path.display());
     }
-
-    validate_analyze_flags(mode, format, policy, explain, per_function_touches, no_persist, force, level)?;
 
     // Load configuration
     let project_root = find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
@@ -1288,13 +1286,10 @@ fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
         ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
     ];
     let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
-    let notable: Vec<_> = co_change
-        .iter()
-        .filter(|p| {
-            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
-        })
-        .take(10)
-        .collect();
+    let is_notable = |p: &&hotspots_core::git::CoChangePair| {
+        is_src(&p.file_a) && is_src(&p.file_b) && p.risk != "low"
+    };
+    let notable: Vec<_> = co_change.iter().filter(is_notable).take(10).collect();
     if notable.is_empty() {
         return;
     }
@@ -1302,10 +1297,15 @@ fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
     println!("Co-Change Coupling (90-day window)");
     println!("{}", "=".repeat(80));
     for (i, pair) in notable.iter().enumerate() {
+        let label = if pair.has_static_dep {
+            "expected".to_string()
+        } else {
+            pair.risk.to_uppercase()
+        };
         println!(
             "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
             i + 1,
-            pair.risk.to_uppercase(),
+            label,
             pair.coupling_ratio,
             pair.co_change_count,
             pair.file_a,
@@ -1313,15 +1313,19 @@ fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
         );
     }
     println!("{}", "-".repeat(80));
-    let total_notable = co_change
+    let hidden_count = co_change
         .iter()
         .filter(|p| {
-            (p.risk == "high" || p.risk == "moderate") && is_src(&p.file_a) && is_src(&p.file_b)
+            (p.risk == "high" || p.risk == "moderate")
+                && !p.has_static_dep
+                && is_src(&p.file_a)
+                && is_src(&p.file_b)
         })
         .count();
+    let total_notable = co_change.iter().filter(is_notable).count();
     println!(
-        "{} high/moderate source pairs found  |  Run with --format json for full list",
-        total_notable
+        "{} notable pairs ({} hidden coupling)  |  Run with --format json for full list",
+        total_notable, hidden_count
     );
 }
 

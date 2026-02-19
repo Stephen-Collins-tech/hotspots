@@ -792,8 +792,11 @@ pub struct CoChangePair {
     pub co_change_count: usize,
     /// co_change_count / min(total_changes_a, total_changes_b)
     pub coupling_ratio: f64,
-    /// "high" if ratio > 0.5, "moderate" if > 0.25, else "low"
+    /// "high" if ratio > 0.5 and no static dep, "moderate" if > 0.25 and no static dep,
+    /// "expected" if a direct import exists between the two files, else "low"
     pub risk: String,
+    /// Whether a direct import relationship exists between file_a and file_b
+    pub has_static_dep: bool,
 }
 
 /// Returns true for pairs that are trivially expected to co-change (test+source,
@@ -916,6 +919,7 @@ pub fn extract_co_change_pairs(
                 co_change_count,
                 coupling_ratio: (coupling_ratio * 1000.0).round() / 1000.0,
                 risk,
+                has_static_dep: false, // annotated later in compute_snapshot_aggregates
             }
         })
         .collect();
