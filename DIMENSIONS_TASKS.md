@@ -199,4 +199,25 @@ D-3b–d (module impl)     — blocked by D-3a
 
 ---
 
+## D-4: Snapshot Idempotency Fix ✅ COMPLETE
+
+**Discovered while validating D-1/D-2/D-3:** Repeated `analyze` runs on the same commit failed
+with "snapshot already exists and differs", making `--level file` and `--level module` unusable
+in practice after the first run.
+
+**Root causes fixed (commit `c3bc460`):**
+
+- **Non-deterministic SCC IDs** — Tarjan's algorithm iterated over `HashSet<String>` nodes and
+  edges in random order. Fixed by sorting nodes before DFS and sorting successors within DFS.
+- **Non-deterministic PageRank** — Callers were summed in HashMap insertion order, causing 1-ULP
+  float differences between runs. Fixed by sorting callers before accumulation.
+- **Non-deterministic `by_band` key order** — `HashMap<String, BandStats>` serialized in random
+  key order. Changed to `BTreeMap<String, BandStats>`.
+- **serde_json float round-trip imprecision** — serde_json's float parser has a 1-ULP rounding
+  error for certain values (e.g. `3.6952632147184077` parses back as `3.695263214718408`). Fixed
+  in `persist_snapshot` by normalizing snapshots through one parse-reserialize cycle before
+  comparing and writing, ensuring a stable canonical form on disk.
+
+---
+
 **Created:** 2026-02-18
