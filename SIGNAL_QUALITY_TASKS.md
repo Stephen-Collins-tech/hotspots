@@ -1,21 +1,16 @@
 # Signal Quality Tasks
 
-**Motivation:** The analysis engine is solid. The limiting factor is signal quality and
-actionability. Two problems dominate:
+**Status: COMPLETE** (2026-02-19). Both problems identified here are shipped.
 
-1. **File-level churn smeared across functions.** The default path applies one file-level
-   touch count to every function in that file. On an active feature branch, 8 of 15 top
-   results can have identical activity scores — that's not ranking, that's listing.
-   `--per-function-touches` exists but runs one `git log -L` subprocess per function,
-   making it ~50× slower than file-level batching. It needs a cache to be practical.
+Two problems were identified and fixed:
 
-2. **One composite score, one generic action.** `--explain` collapses cc, nesting, fanout,
-   churn, fan-in into a single activity_risk and emits "URGENT: Reduce complexity" for
-   most functions. The data to show dimension-specific actions already exists in the JSON
-   output — this is a presentation fix, not an analysis change.
+1. **File-level churn smeared across functions.** Fixed by SQ-1: per-function touch cache
+   (`.hotspots/touch-cache.json.zst`). Warm runs are ~230 ms — faster than file-level batching
+   (~268 ms). `per_function_touches: true` is now the default in config.
 
-Fix these two things before adding any new dimensions. Both have higher ROI than anything
-in the remaining task files.
+2. **One composite score, one generic action.** Fixed by SQ-2: `driving_dimension_label()`
+   in core identifies the primary risk driver; `--explain` shows a dimension-specific action
+   and driver label per function; `driver` field present in JSON snapshot output.
 
 ---
 

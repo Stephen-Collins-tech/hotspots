@@ -1,10 +1,12 @@
 # Analysis Dimensions Roadmap
 
-**Motivation:** hotspots is a function-level microscope today. Codebases have multiple levels of
-hierarchy, each with distinct risk signals. This document tracks work to add higher-level
+**Status: COMPLETE** (2026-02-19). D-1, D-2, D-3, D-4, and all CC tasks are shipped.
+
+**Motivation:** hotspots is a function-level microscope. Codebases have multiple levels of
+hierarchy, each with distinct risk signals. This document tracked work to add higher-level
 dimensions of analysis above the function level.
 
-**Principle:** Each dimension should produce a ranked list and a risk score at its level —
+**Principle:** Each dimension produces a ranked list and a risk score at its level —
 parallel to what function-level analysis produces today.
 
 ---
@@ -14,9 +16,9 @@ parallel to what function-level analysis produces today.
 | Level        | Currently captured                         | Missing / Target                                 |
 |--------------|--------------------------------------------|--------------------------------------------------|
 | Function     | cc, nd, fo, churn, touch, fan-in/out, scc  | — mostly covered                                 |
-| File         | churn (lines), touch count (via functions) | LOC, function density, avg/max cc, file score    |
-| Module / Dir | nothing                                    | coupling, afferent/efferent, instability         |
-| Codebase     | trends (velocity, refactor detection)      | co-change coupling, debt index, lang distribution|
+| File         | churn, touch, LOC, avg/max cc, file score  | —                                                |
+| Module / Dir | instability via import graph (imports.rs)  | —                                                |
+| Codebase     | trends, co-change coupling (D-2, CC-1–3)   | debt index, lang distribution                    |
 
 ---
 
@@ -94,8 +96,8 @@ risk signal. This is the original "hotspot" concept from Adam Thornhill's work o
 | `file_a`, `file_b`   | the two files                                            |
 | `co_change_count`    | times they changed in the same commit                    |
 | `coupling_ratio`     | co_change_count / min(total_changes_a, total_changes_b)  |
-| `has_static_dep`     | planned but not shipped — see CC-TASKS.md                |
-| `risk`               | `high` if ratio > 0.5; `moderate` if ratio > 0.25       |
+| `has_static_dep`     | whether a direct import exists between the two files     |
+| `risk`               | `high`/`moderate` (no static dep); `expected` if has_static_dep |
 
 **CLI surface:**
 
@@ -155,15 +157,10 @@ low instability (hard to change AND everything depends on them).
 
 **Tasks:**
 
-- [x] **D-3a (research):** Resolution is **insufficient** — gating D-3b-d.
-  Findings (measured on this repo, 818 functions):
-  - Only 20.8% of functions have any `fan_out > 0` (170/818)
-  - `hotspots-core/src`: 16% fan_out coverage (67/409) — well below the 30% gate
-  - Root cause: name-based resolution fails for Rust trait methods (`new`, `fmt`, `into`, etc.)
-    and any overloaded/common short names. Import-based resolution would be required.
-  - Remaining inter-file edges are dominated by test→source (expected, non-informative)
-  - Conclusion: module instability scores would be noise, not signal. Requires import-aware
-    resolution (e.g. parsing `use` statements + resolving to crate paths) — a separate feature.
+- [x] **D-3a (research):** Function-level call graph resolution is **insufficient** (20.8%
+  fan_out coverage; name-based resolution fails for Rust trait methods). Resolved by building
+  a separate file-level import graph in `imports.rs` that parses `use`/`import` statements
+  directly — no dependency on the function-level call graph. D-3b–d use this graph.
 - [x] **D-3b:** Add `compute_module_instability()` to `aggregates.rs` using a new
   file-level import graph (separate from the function-level call graph). Parses
   `use`/`import` statements per language and resolves them to in-project files.
@@ -173,29 +170,20 @@ low instability (hard to change AND everything depends on them).
   a ranked table with columns: #, module, files, fns, avg_cc, afferent, efferent,
   instability, risk. Usage: `hotspots analyze . --mode snapshot --format text --level module`.
 
-**Effort:** Medium. Depends on call graph quality (D-3a must validate first).
-**Risk:** Low-Medium. Call graph resolution limits may make the output misleading if not gated.
+**Effort:** Medium. Import graph is separate from call graph; no existing analysis modified.
+**Risk:** Low. Additive; existing output unchanged.
 
 ---
 
-## Ordering / Dependencies
+## Completion Order (as shipped)
 
 ```
-D-1 (file view)          — no dependencies, start now
-D-2a (co-change research) — no dependencies, start in parallel with D-1
-D-2b–e (co-change impl)  — blocked by D-2a
-D-3a (module research)   — blocked by D-2a (shares call graph quality question)
-D-3b–d (module impl)     — blocked by D-3a
+D-1 (file view)           — shipped; aggregates existing per-function data
+D-2a (co-change research) — shipped; validated on this repo, calibrated thresholds
+D-2b–e (co-change impl)   — shipped; 90-day window, min_count=3, trivial-pair filter
+D-3a (module research)    — shipped; resolved via file-level import graph (imports.rs)
+D-3b–d (module impl)      — shipped; instability computed from resolved import edges
 ```
-
-## Suggested Order of Attack
-
-1. **D-1** — File-level view. Lowest effort, highest immediate value. Purely aggregates
-   existing data. No new git calls, no new parsing.
-2. **D-2a** — Co-change research. Run the prototype, validate signal quality, calibrate
-   threshold. Short task, unblocks D-2 and D-3.
-3. **D-2b–e** — Co-change implementation (if D-2a validates well).
-4. **D-3** — Module instability (after call graph quality is understood).
 
 ---
 

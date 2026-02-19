@@ -1,10 +1,12 @@
 # Co-Change Analysis Completion
 
-**Motivation:** The D-2 co-change coupling implementation (shipped) identifies file pairs
-that frequently change together. The original D-2 specification included a `has_static_dep`
-field to distinguish *expected* coupling (files with an explicit import relationship) from
-*hidden* coupling (no static dependency — the true signal). This field was not shipped.
-This document tracks the remaining co-change work.
+**Status: COMPLETE** (2026-02-19). All three items — `has_static_dep` (CC-1), co-change delta
+output (CC-2), and configurable window/threshold (CC-3) — are shipped.
+
+**Motivation:** The D-2 co-change coupling implementation identifies file pairs that frequently
+change together. CC-1 added `has_static_dep` to distinguish *expected* coupling (explicit import
+relationship) from *hidden* coupling (no static dependency — the true signal). CC-2 surfaces
+new/dropped pairs in delta output. CC-3 made the analysis window and `min_count` configurable.
 
 **Principle:** Co-change without static dependency is the high-value signal. Static
 dependency detection unlocks accurate `high` vs. `moderate` risk classification and
@@ -94,10 +96,8 @@ signal.
 
 ## CC-3: Configurable Co-Change Window and Threshold
 
-**Summary:** The co-change extraction currently uses hardcoded defaults (90-day window,
-`min_count = 3`). Projects with different commit cadences need to tune these. A
-project that commits once a week needs a larger window; a project with 50 commits/day
-may want a higher `min_count`.
+**Summary:** The co-change extraction used hardcoded defaults (90-day window, `min_count = 3`).
+Projects with different commit cadences need to tune these — now configurable via `.hotspotsrc.json`.
 
 **Tasks:**
 
@@ -112,17 +112,13 @@ may want a higher `min_count`.
 
 ---
 
-## Ordering / Dependencies
+## Completion Order (as shipped)
 
 ```
-CC-1 (has_static_dep)     — start now; uses existing import graph from D-3
-CC-2 (co-change delta)    — no hard dependency on CC-1, but CC-1 risk field should
-                            be in place first so delta captures the right risk values
-CC-3 (configurable)       — no dependencies, can be done anytime
+CC-1 (has_static_dep)     — shipped; uses import graph built by imports.rs (D-3)
+CC-2 (co-change delta)    — shipped; captures new/dropped pairs and risk changes
+CC-3 (configurable)       — shipped; co_change_window_days and co_change_min_count in config
 ```
-
-CC-1 is the highest priority — it completes the original D-2 vision and improves
-signal quality for the already-shipped `--explain` output.
 
 ---
 
