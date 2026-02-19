@@ -377,7 +377,7 @@ struct Snapshot {
     analysis: AnalysisInfo,         // Scope, tool version
     functions: Vec<FunctionSnapshot>, // Per-function metrics + risk scores
     summary: Option<SnapshotSummary>, // Repo-level statistics (computed on output)
-    aggregates: Option<Aggregates>,   // File/directory aggregates (computed on output)
+    aggregates: Option<Aggregates>,   // File risk, co-change, module instability (computed on output)
 }
 ```
 
@@ -494,6 +494,14 @@ Extracts git metadata and activity metrics:
 - **Behavior locally:** Running `--mode snapshot` on any branch (including feature branches)
   is treated as mainline — a snapshot will be persisted. There is no local branch detection.
 
+#### Co-Change Pairs
+- **`extract_co_change_pairs(repo, window_days, min_count)`** — Walks git log for
+  the last N days, counts pairwise file co-occurrences, normalizes by minimum file
+  commit count, and returns `Vec<CoChangePair>`
+- **Default:** 90-day window, `min_count = 3`
+- **Filtering:** Ghost files (renamed/deleted) and trivially expected pairs
+  (e.g., `foo.rs` + `foo_test.rs`, `mod.rs` + sibling) are excluded
+
 #### Repository-Aware Operations
 - **`extract_git_context_at(repo_path)`** — Uses explicit repo root (not CWD)
 - **`extract_commit_churn_at(repo_path, sha)`** — Same
@@ -530,8 +538,18 @@ Evaluates policies on deltas to enforce quality gates:
 ### 11. Output Formats
 
 #### Text Format
-- **Simple mode:** Tabular output (LRS, File, Line, Function, Risk)
-- **Explain mode:** Human-readable breakdown with risk factors and recommendations
+
+In basic mode (`hotspots analyze src/`) the text output is a simple ranked table
+(LRS, File, Line, Function, Risk). In snapshot mode (`--mode snapshot --format text`)
+the text format requires one of three sub-modes:
+
+- **`--explain`** — Per-function human-readable breakdown: metric contributions, activity
+  signals (churn, touch count, fan-in, SCC, depth), plus a co-change coupling section
+  showing the top 10 high/moderate source-file pairs.
+- **`--level file`** — Ranked file risk table (one row per file): max CC, avg CC,
+  function count, LOC, critical-band count, file churn, composite `file_risk_score`.
+- **`--level module`** — Ranked module instability table (one row per directory):
+  file count, function count, avg CC, afferent/efferent coupling, instability, risk.
 
 #### JSON Format
 - Complete snapshot/delta structure
@@ -583,6 +601,51 @@ LRS drop and tracks whether the improvement held. Classified as:
 - Operates on LRS (complexity-based score), not `activity_risk`, as the stable historical signal
 - Snapshots must be on the same branch/mainline for meaningful comparison
 - `--format html` not yet implemented (planned)
+
+---
+
+### 13. Aggregate Analysis (`hotspots-core/src/aggregates.rs`, `hotspots-core/src/imports.rs`)
+
+Computes higher-level risk views from per-function data and git history. All three
+aggregates are computed at output time and included in snapshot JSON under `aggregates`.
+
+#### File Risk (D-1) — `compute_file_risk_views()`
+
+Folds per-function data into one `FileRiskView` per unique file. No new git calls needed;
+all inputs come from the enriched `FunctionSnapshot` list.
+
+```
+file_risk_score = max_cc × 0.4
+               + avg_cc × 0.3
+               + log2(function_count + 1) × 0.2
+               + file_churn_factor × 0.1
+```
+
+Ranked by `file_risk_score` descending. Accessible via `--level file` text output or
+`aggregates.file_risk` in JSON.
+
+#### Co-Change Coupling (D-2) — `git::extract_co_change_pairs()`
+
+Mined from git log in `git.rs`, surfaced in aggregates. See section 9 (git.rs) for the
+extraction details. Pairs are stored in `aggregates.co_change`. Shown in `--explain`
+output as a coupling section below the per-function list.
+
+#### Module Instability (D-3) — `compute_module_instability()`
+
+Parses `use`/`import` statements per language (via `imports.rs`) to build a file-level
+import graph, then aggregates to directory level:
+
+- **Afferent coupling** — number of external directories that import from this directory
+- **Efferent coupling** — number of external directories this directory imports from
+- **Instability** = `efferent / (afferent + efferent)` (0.0 = depended on by all; 1.0 = depends on others only)
+- **`module_risk`** = `high` if `instability < 0.3` and `avg_complexity > 10`
+
+Accessible via `--level module` text output or `aggregates.modules` in JSON.
+
+> **Resolution quality note:** Import-based resolution is used for D-3 (not name-based
+> call graph resolution). This gives better coverage than the function-level call graph
+> but is still best-effort — re-exports, conditional imports, and generated code may
+> produce inaccurate edge counts.
 
 ---
 
@@ -920,6 +983,6 @@ function oldFunction() {
 
 ---
 
-**Document Status:** Current as of 2026-02-15  
+**Document Status:** Current as of 2026-02-19
 **Maintainer:** Stephen Collins  
 **Questions?** Open an issue or see `docs/` for more details.

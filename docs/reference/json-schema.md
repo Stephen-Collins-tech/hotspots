@@ -6,8 +6,8 @@ Hotspots outputs structured JSON that can be consumed by CI/CD pipelines, analys
 
 Hotspots produces JSON output in two modes:
 
-- **Snapshot Mode** (`hotspots analyze --json`): Complete analysis of all functions in the codebase
-- **Delta Mode** (`hotspots analyze --delta --json`): Analysis of changed functions since the last commit
+- **Snapshot Mode** (`hotspots analyze --mode snapshot --format json`): Complete analysis of all functions in the codebase
+- **Delta Mode** (`hotspots analyze --mode delta --format json`): Analysis of changed functions since the last commit
 
 Both modes use the same JSON schema with consistent structure.
 
@@ -26,7 +26,7 @@ All schemas follow JSON Schema Draft 07 specification.
 
 ```typescript
 {
-  schema_version: 1,
+  schema_version: 2,
   commit: {
     sha: "abc123...",           // Git commit SHA (40 chars)
     parents: ["def456..."],     // Parent commit SHAs
@@ -53,9 +53,10 @@ All schemas follow JSON Schema Draft 07 specification.
       suppression_reason: "Legacy code, refactor planned"  // Optional
     }
   ],
-  aggregates: {  // Optional (when --aggregates used)
-    files: [...],
-    directories: [...]
+  aggregates: {  // Present in snapshot mode output
+    file_risk: [...],   // Ranked file risk views (see Aggregates section)
+    co_change: [...],   // Co-change coupling pairs (see Aggregates section)
+    modules: [...]      // Module instability views (see Aggregates section)
   },
   policy_results: {  // Optional (when --policy used)
     failed: [...],    // Blocking failures
@@ -147,6 +148,75 @@ Functions are classified into risk bands based on LRS:
 | Moderate   | 3.0 - 6.0  | Moderate complexity, acceptable |
 | High       | 6.0 - 9.0  | Complex, consider refactoring  |
 | Critical   | ≥ 9.0      | Very complex, refactor recommended |
+
+## Aggregates
+
+Snapshot mode output includes an `aggregates` object with three arrays providing higher-level
+views of codebase risk. These are computed from the per-function data at output time.
+
+### `aggregates.file_risk` — File-Level Risk
+
+Each entry covers one source file. Ranked by `file_risk_score` descending.
+
+```typescript
+{
+  file: "src/api.ts",          // Relative file path
+  function_count: 12,           // Number of functions in file
+  loc: 340,                     // Total lines of code
+  max_cc: 14,                   // Highest cyclomatic complexity in file
+  avg_cc: 6.8,                  // Mean CC across all functions
+  critical_count: 2,            // Functions in critical band
+  file_churn: 180,              // Lines changed in last 30 days
+  file_risk_score: 8.3          // Composite score: max_cc×0.4 + avg_cc×0.3
+                                //   + log2(fn_count+1)×0.2 + churn_factor×0.1
+}
+```
+
+Accessible via `--level file` text output or `aggregates.file_risk` in JSON.
+
+### `aggregates.co_change` — Co-Change Coupling
+
+Pairs of files that frequently change together in the same commit. High coupling with
+no static dependency indicates hidden implicit coupling — a classic maintenance risk.
+
+```typescript
+{
+  file_a: "hotspots-cli/src/main.rs",
+  file_b: "hotspots-core/src/aggregates.rs",
+  co_change_count: 14,          // Times changed in the same commit
+  coupling_ratio: 0.78,         // co_change_count / min(total_a, total_b)
+  has_static_dep: false,        // Whether a static import exists between them
+  risk: "high"                  // "high" if ratio > 0.5 and no static dep; else "moderate"
+}
+```
+
+Only pairs where both files currently exist are emitted (ghost files from renames are
+filtered). Trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`) are also filtered.
+
+Default window: 90 days; minimum co-occurrence count: 3.
+
+### `aggregates.modules` — Module Instability
+
+Each entry covers one directory. Applies Robert Martin's instability metric at directory
+level. `instability = efferent / (afferent + efferent)`.
+
+```typescript
+{
+  module: "hotspots-core/src",  // Directory path
+  file_count: 12,               // Number of files
+  function_count: 409,          // Number of functions
+  avg_complexity: 3.2,          // Mean CC of all functions
+  afferent: 8,                  // External modules depending on this one
+  efferent: 3,                  // External modules this one depends on
+  instability: 0.27,            // efferent / (afferent + efferent)
+  module_risk: "high"           // "high" if instability < 0.3 and avg_complexity > 10
+}
+```
+
+Instability near 0.0 means everything depends on this module — risky to change.
+Instability near 1.0 means this module depends on others but nothing depends on it — safe.
+
+Accessible via `--level module` text output or `aggregates.modules` in JSON.
 
 ## TypeScript Integration
 

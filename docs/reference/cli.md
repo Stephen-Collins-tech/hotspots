@@ -167,6 +167,87 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 
 **Only applicable to HTML format.**
 
+##### `--explain`
+**Optional.** Show human-readable per-function risk breakdown.
+**Only valid with:** `--mode snapshot --format text`
+**Mutually exclusive with:** `--level`
+
+```bash
+# Show ranked functions with full risk factor explanations
+hotspots analyze . --mode snapshot --format text --explain
+
+# Limit to top 10 functions
+hotspots analyze . --mode snapshot --format text --explain --top 10
+```
+
+Displays per-function metric contributions (CC, ND, FO, NS), activity signals (churn,
+touch count, fan-in, SCC, depth), and a co-change coupling section at the end showing
+the top 10 high/moderate source-file pairs.
+
+**Note:** In snapshot mode with `--format text`, you must specify either `--explain`
+or `--level <LEVEL>`.
+
+##### `--level <LEVEL>`
+**Optional.** Switch to a higher-level ranked view instead of per-function output.
+**Only valid with:** `--mode snapshot --format text`
+**Mutually exclusive with:** `--explain`
+
+| Value    | Output                                                               |
+|----------|----------------------------------------------------------------------|
+| `file`   | Ranked file risk table (max CC, avg CC, function count, LOC, churn) |
+| `module` | Ranked module instability table (afferent, efferent, instability)    |
+
+```bash
+# File-level risk view (ranked by composite file_risk_score)
+hotspots analyze . --mode snapshot --format text --level file
+
+# Module (directory) instability view
+hotspots analyze . --mode snapshot --format text --level module
+
+# Limit to top 20 entries
+hotspots analyze . --mode snapshot --format text --level file --top 20
+```
+
+**Note:** In snapshot mode with `--format text`, you must specify either `--level`
+or `--explain`.
+
+##### `--force` / `-f`
+**Optional.** Overwrite an existing snapshot if one already exists for this commit.
+
+```bash
+hotspots analyze . --mode snapshot --force
+```
+
+Snapshots are normally immutable (identified by commit SHA). Use `--force` to
+regenerate a snapshot after a config change or to correct a prior run.
+
+**Mutually exclusive with:** `--no-persist`
+
+##### `--no-persist`
+**Optional.** Analyze without writing the snapshot to disk.
+**Only valid with:** `--mode snapshot` or `--mode delta`
+**Mutually exclusive with:** `--force`
+
+```bash
+# Run snapshot analysis without saving to .hotspots/
+hotspots analyze . --mode snapshot --no-persist --format json
+```
+
+Useful for one-off inspection or CI pipelines where snapshot history is not needed.
+
+##### `--per-function-touches`
+**Optional.** Use `git log -L` to compute per-function touch counts instead of
+file-level counts.
+**Only valid with:** `--mode snapshot` or `--mode delta`
+
+```bash
+hotspots analyze . --mode snapshot --per-function-touches
+```
+
+**Warning:** Approximately 50× slower than the default. Default touch metrics are
+file-level (all functions in a file share the same `touch_count_30d`). Use this flag
+when precise per-function activity signals are required.
+
 #### Examples
 
 **Basic analysis (text output):**
@@ -201,6 +282,27 @@ hotspots analyze src/ --mode delta --policy --format json
 **Override config settings:**
 ```bash
 hotspots analyze src/ --config .hotspots.ci.json --min-lrs 6.0 --top 50
+```
+
+**File-level risk view:**
+```bash
+hotspots analyze . --mode snapshot --format text --level file
+hotspots analyze . --mode snapshot --format text --level file --top 20
+```
+
+**Module instability view:**
+```bash
+hotspots analyze . --mode snapshot --format text --level module
+```
+
+**Human-readable per-function explanations with co-change section:**
+```bash
+hotspots analyze . --mode snapshot --format text --explain
+```
+
+**Snapshot without persisting (read-only inspection):**
+```bash
+hotspots analyze . --mode snapshot --no-persist --format json
 ```
 
 ---
@@ -650,6 +752,47 @@ cat .hotspotsrc.json | jq .  # Check JSON syntax
 **Fix:**
 ```bash
 hotspots prune --unreachable
+```
+
+### "text format without --explain is not supported for snapshot mode"
+
+**Cause:** Using `--mode snapshot --format text` without `--explain` or `--level`.
+
+**Fix:** Add `--explain`, `--level`, or use JSON format:
+```bash
+hotspots analyze . --mode snapshot --format text --explain
+hotspots analyze . --mode snapshot --format text --level file
+hotspots analyze . --mode snapshot --format json
+```
+
+### "--level is only valid with --mode snapshot"
+
+**Cause:** Using `--level` without `--mode snapshot --format text`.
+
+**Fix:**
+```bash
+hotspots analyze . --mode snapshot --format text --level file
+```
+
+### "--level and --explain are mutually exclusive"
+
+**Cause:** Both `--level` and `--explain` flags specified together.
+
+**Fix:** Use one or the other:
+```bash
+hotspots analyze . --mode snapshot --format text --level file
+# OR
+hotspots analyze . --mode snapshot --format text --explain
+```
+
+### "--no-persist and --force are mutually exclusive"
+
+**Cause:** Both `--no-persist` and `--force` flags specified together.
+
+**Fix:** Use one or the other:
+```bash
+hotspots analyze . --mode snapshot --no-persist   # analyze without saving
+hotspots analyze . --mode snapshot --force         # overwrite existing snapshot
 ```
 
 ---
