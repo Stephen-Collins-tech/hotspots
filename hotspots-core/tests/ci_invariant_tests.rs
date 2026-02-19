@@ -67,9 +67,9 @@ fn test_snapshot_immutability() {
     // First persist should succeed
     snapshot::persist_snapshot(repo_path, &snapshot, false).expect("first persist should succeed");
 
-    // Read file content after first persist
+    // Read file bytes after first persist
     let first_content =
-        std::fs::read_to_string(&snapshot_path).expect("failed to read snapshot file");
+        std::fs::read(&snapshot_path).expect("failed to read snapshot file");
 
     // Second persist with identical snapshot should succeed (idempotency)
     snapshot::persist_snapshot(repo_path, &snapshot, false)
@@ -77,7 +77,7 @@ fn test_snapshot_immutability() {
 
     // File content should be unchanged (immutability)
     let second_content =
-        std::fs::read_to_string(&snapshot_path).expect("failed to read snapshot file");
+        std::fs::read(&snapshot_path).expect("failed to read snapshot file");
     assert_eq!(
         first_content, second_content,
         "snapshot file must not change when persisting identical snapshot (immutability)"
@@ -132,7 +132,7 @@ fn test_snapshot_filename_equals_commit_sha() {
     );
 
     // Verify filename matches commit SHA exactly
-    let expected_filename = format!("{}.json", commit_sha);
+    let expected_filename = format!("{}.json.zst", commit_sha);
     let actual_filename = snapshot_path.file_name().unwrap().to_str().unwrap();
     assert_eq!(
         actual_filename, expected_filename,

@@ -159,8 +159,7 @@ fn classify_snapshots(
 
     for entry in &index.commits {
         let sha = &entry.sha;
-        let snapshot_path = snapshot::snapshot_path(repo_path, sha);
-        if !snapshot_path.exists() {
+        if snapshot::snapshot_path_existing(repo_path, sha).is_none() {
             continue;
         }
 
@@ -195,10 +194,9 @@ fn delete_pruned_snapshots(
     index_path: &Path,
 ) -> Result<()> {
     for sha in pruned_shas {
-        let snapshot_path = snapshot::snapshot_path(repo_path, sha);
-        if snapshot_path.exists() {
-            std::fs::remove_file(&snapshot_path).with_context(|| {
-                format!("failed to remove snapshot: {}", snapshot_path.display())
+        if let Some(path) = snapshot::snapshot_path_existing(repo_path, sha) {
+            std::fs::remove_file(&path).with_context(|| {
+                format!("failed to remove snapshot: {}", path.display())
             })?;
         }
     }

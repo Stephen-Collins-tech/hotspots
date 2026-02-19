@@ -131,13 +131,7 @@ pub fn load_snapshot_window(repo_root: &Path, window_size: usize) -> Result<Vec<
     // Load snapshots
     let mut snapshots = Vec::new();
     for entry in commits_to_load {
-        let snapshot_path = crate::snapshot::snapshot_path(repo_root, &entry.sha);
-        if snapshot_path.exists() {
-            let json = std::fs::read_to_string(&snapshot_path)
-                .with_context(|| format!("failed to read snapshot: {}", snapshot_path.display()))?;
-            let snapshot = Snapshot::from_json(&json).with_context(|| {
-                format!("failed to parse snapshot: {}", snapshot_path.display())
-            })?;
+        if let Some(snapshot) = crate::snapshot::load_snapshot(repo_root, &entry.sha)? {
             snapshots.push(snapshot);
         }
     }

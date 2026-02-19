@@ -897,7 +897,59 @@ pub fn index_path(repo_root: &Path) -> PathBuf {
 
 /// Get the path to a snapshot file for a given commit SHA
 pub fn snapshot_path(repo_root: &Path, commit_sha: &str) -> PathBuf {
-    snapshots_dir(repo_root).join(format!("{}.json", commit_sha))
+    snapshots_dir(repo_root).join(format!("{}.json.zst", commit_sha))
+}
+
+/// Return the path of the snapshot file that actually exists on disk,
+/// trying `.json.zst` (new) before `.json` (legacy).  Returns `None` if
+/// neither exists.
+pub fn snapshot_path_existing(repo_root: &Path, commit_sha: &str) -> Option<PathBuf> {
+    let zst = snapshot_path(repo_root, commit_sha);
+    if zst.exists() {
+        return Some(zst);
+    }
+    let json = snapshots_dir(repo_root).join(format!("{}.json", commit_sha));
+    if json.exists() {
+        return Some(json);
+    }
+    None
+}
+
+/// Load a snapshot for the given commit SHA from disk.
+///
+/// Handles both compressed (`.json.zst`) and legacy plain (`.json`) formats.
+/// Returns `None` if no snapshot file exists for the SHA.
+pub fn load_snapshot(repo_root: &Path, commit_sha: &str) -> Result<Option<Snapshot>> {
+    let path = match snapshot_path_existing(repo_root, commit_sha) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let snapshot = read_snapshot_file(&path)?;
+    Ok(Some(snapshot))
+}
+
+/// Read and parse a snapshot from an arbitrary path, auto-detecting compression.
+fn read_snapshot_file(path: &Path) -> Result<Snapshot> {
+    let is_compressed = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.ends_with(".json.zst"))
+        .unwrap_or(false);
+
+    let json: String = if is_compressed {
+        let compressed = std::fs::read(path)
+            .with_context(|| format!("failed to read snapshot: {}", path.display()))?;
+        let bytes = zstd::decode_all(compressed.as_slice())
+            .with_context(|| format!("failed to decompress snapshot: {}", path.display()))?;
+        String::from_utf8(bytes).context("snapshot contains invalid UTF-8")?
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read snapshot: {}", path.display()))?
+    };
+
+    Snapshot::from_json(&json)
+        .with_context(|| format!("failed to parse snapshot: {}", path.display()))
 }
 
 /// Write data to file atomically using temp file + rename
@@ -924,6 +976,32 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     drop(file);
 
     // Atomic rename
+    fs::rename(&temp_path, path)
+        .with_context(|| format!("failed to rename temp file to: {}", path.display()))?;
+
+    Ok(())
+}
+
+/// Write binary data to file atomically using temp file + rename
+pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
+    use std::fs;
+    use std::io::Write;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+    }
+
+    let temp_path = path.with_extension("tmp");
+
+    let mut file = fs::File::create(&temp_path)
+        .with_context(|| format!("failed to create temp file: {}", temp_path.display()))?;
+    file.write_all(contents)
+        .with_context(|| format!("failed to write to temp file: {}", temp_path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("failed to sync temp file: {}", temp_path.display()))?;
+    drop(file);
+
     fs::rename(&temp_path, path)
         .with_context(|| format!("failed to rename temp file to: {}", path.display()))?;
 
@@ -959,34 +1037,23 @@ pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> R
         .context("failed to normalize snapshot for canonical form")?
         .to_json()?;
 
-    if snapshot_path.exists() && !force {
-        // Verify existing snapshot matches (idempotency check)
-        let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
-            format!(
-                "failed to read existing snapshot: {}",
+    if !force {
+        if let Some(existing) = load_snapshot(repo_root, snapshot.commit_sha())? {
+            // Compare canonical forms (both normalized through one parse-reserialize cycle)
+            if existing.to_json()? == canonical_json {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
                 snapshot_path.display()
-            )
-        })?;
-        let existing_snapshot = Snapshot::from_json(&existing_json).with_context(|| {
-            format!(
-                "existing snapshot has invalid schema: {}",
-                snapshot_path.display()
-            )
-        })?;
-
-        // Compare canonical forms (both normalized through one parse-reserialize cycle)
-        if existing_snapshot.to_json()? == canonical_json {
-            return Ok(());
+            );
         }
-
-        anyhow::bail!(
-            "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
-            snapshot_path.display()
-        );
     }
 
-    // Atomic write (use canonical form so future round-trips are stable)
-    atomic_write(&snapshot_path, &canonical_json)
+    // Compress and write atomically (zstd level 3 — fast with good ratio)
+    let compressed = zstd::encode_all(canonical_json.as_bytes(), 3)
+        .context("failed to compress snapshot")?;
+    atomic_write_bytes(&snapshot_path, &compressed)
         .with_context(|| format!("failed to persist snapshot: {}", snapshot_path.display()))?;
 
     Ok(())
@@ -1046,16 +1113,17 @@ pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
         let entry = entry_result?;
         let path = entry.path();
 
-        // Only process .json files
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+        // Only process snapshot files (.json.zst or legacy .json)
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if !file_name.ends_with(".json.zst") && !file_name.ends_with(".json") {
             continue;
         }
 
-        // Read and parse snapshot
-        let json = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read snapshot: {}", path.display()))?;
-
-        let snapshot = match Snapshot::from_json(&json) {
+        // Read and parse snapshot (auto-detects compression)
+        let snapshot = match read_snapshot_file(&path) {
             Ok(s) => s,
             Err(e) => {
                 // Log error but continue (some snapshots may be corrupted)
