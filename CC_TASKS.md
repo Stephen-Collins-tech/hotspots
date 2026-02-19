@@ -101,11 +101,11 @@ may want a higher `min_count`.
 
 **Tasks:**
 
-- [ ] **CC-3a:** Add `co_change_window_days` and `co_change_min_count` to the config
+- [x] **CC-3a:** Add `co_change_window_days` and `co_change_min_count` to the config
   file schema (`hotspots-core/src/config.rs`).
-- [ ] **CC-3b:** Thread the config values through to `extract_co_change_pairs()` call
+- [x] **CC-3b:** Thread the config values through to `extract_co_change_pairs()` call
   in `aggregates.rs`.
-- [ ] **CC-3c:** Document new config fields in `docs/guide/configuration.md`.
+- [x] **CC-3c:** Document new config fields in `docs/guide/configuration.md`.
 
 **Effort:** Low. Config plumbing only; no algorithmic changes.
 **Risk:** Low. Defaults unchanged; existing behavior is preserved.

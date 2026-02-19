@@ -72,6 +72,14 @@ pub struct HotspotsConfig {
     /// Activity risk scoring weights
     #[serde(default)]
     pub scoring: Option<ScoringWeightsConfig>,
+
+    /// Number of days back to look for co-change pairs (default: 90)
+    #[serde(default)]
+    pub co_change_window_days: Option<u64>,
+
+    /// Minimum number of co-changes required to report a pair (default: 3)
+    #[serde(default)]
+    pub co_change_min_count: Option<usize>,
 }
 
 /// Custom risk band thresholds
@@ -161,6 +169,9 @@ pub struct ResolvedConfig {
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
+    /// Co-change mining parameters
+    pub co_change_window_days: u64,
+    pub co_change_min_count: usize,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Path the config was loaded from (None if defaults)
@@ -185,6 +196,16 @@ impl HotspotsConfig {
         if let Some(min) = self.min_lrs {
             if min < 0.0 {
                 anyhow::bail!("min_lrs must be non-negative (got {})", min);
+            }
+        }
+        if let Some(w) = self.co_change_window_days {
+            if w == 0 {
+                anyhow::bail!("co_change_window_days must be at least 1");
+            }
+        }
+        if let Some(m) = self.co_change_min_count {
+            if m == 0 {
+                anyhow::bail!("co_change_min_count must be at least 1");
             }
         }
         for pattern in &self.include {
@@ -413,6 +434,8 @@ impl HotspotsConfig {
             min_lrs: self.min_lrs,
             top_n: self.top,
             scoring_weights,
+            co_change_window_days: self.co_change_window_days.unwrap_or(90),
+            co_change_min_count: self.co_change_min_count.unwrap_or(3),
             config_path: None,
         })
     }

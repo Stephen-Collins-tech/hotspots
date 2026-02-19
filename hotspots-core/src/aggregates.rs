@@ -474,6 +474,8 @@ pub fn compute_module_instability(
 pub fn compute_snapshot_aggregates(
     snapshot: &Snapshot,
     repo_root: &std::path::Path,
+    co_change_window_days: u64,
+    co_change_min_count: usize,
 ) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
@@ -491,7 +493,9 @@ pub fn compute_snapshot_aggregates(
     let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
     let import_edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
 
-    let mut co_change = crate::git::extract_co_change_pairs(repo_root, 90, 3).unwrap_or_default();
+    let mut co_change =
+        crate::git::extract_co_change_pairs(repo_root, co_change_window_days, co_change_min_count)
+            .unwrap_or_default();
     annotate_static_deps(&mut co_change, &import_edges, repo_root);
 
     let modules =

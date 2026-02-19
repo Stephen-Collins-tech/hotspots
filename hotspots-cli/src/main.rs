@@ -688,6 +688,8 @@ fn handle_mode_output(
                     top,
                     total_function_count,
                     output,
+                    co_change_window_days: resolved_config.co_change_window_days,
+                    co_change_min_count: resolved_config.co_change_min_count,
                 },
                 &repo_root,
             )?;
@@ -735,6 +737,8 @@ struct SnapshotOutputOpts {
     top: Option<usize>,
     total_function_count: usize,
     output: Option<PathBuf>,
+    co_change_window_days: u64,
+    co_change_min_count: usize,
 }
 
 fn emit_snapshot_output(
@@ -749,11 +753,17 @@ fn emit_snapshot_output(
         top,
         total_function_count,
         output,
+        co_change_window_days,
+        co_change_min_count,
     } = opts;
     match format {
         OutputFormat::Json => {
-            let aggregates =
-                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                snapshot,
+                repo_root,
+                co_change_window_days,
+                co_change_min_count,
+            );
             snapshot.aggregates = Some(aggregates);
             println!("{}", snapshot.to_json()?);
         }
@@ -762,16 +772,28 @@ fn emit_snapshot_output(
         }
         OutputFormat::Text => {
             if level == Some(OutputLevel::File) {
-                let aggregates =
-                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
                 print_file_risk_output(&aggregates.file_risk, top)?;
             } else if level == Some(OutputLevel::Module) {
-                let aggregates =
-                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
                 print_module_output(&aggregates.modules, top)?;
             } else if explain {
-                let aggregates =
-                    hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
                 print_explain_output(snapshot, total_function_count, &aggregates.co_change)?;
             } else {
                 anyhow::bail!(
@@ -780,8 +802,12 @@ fn emit_snapshot_output(
             }
         }
         OutputFormat::Html => {
-            let aggregates =
-                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                snapshot,
+                repo_root,
+                co_change_window_days,
+                co_change_min_count,
+            );
             snapshot.aggregates = Some(aggregates);
             let html = hotspots_core::html::render_html_snapshot(snapshot);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));

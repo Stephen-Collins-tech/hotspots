@@ -194,6 +194,37 @@ Maximum number of functions to show.
 **Type:** `number`
 **Default:** No limit (show all)
 
+### Co-Change Analysis
+
+#### `co_change_window_days`
+Number of days of git history to mine for co-change pairs.
+
+```json
+{
+  "co_change_window_days": 180
+}
+```
+
+**Type:** `number` (integer ≥ 1)
+**Default:** `90`
+
+Projects with a slow commit cadence (e.g. once a week) benefit from a larger window.
+
+#### `co_change_min_count`
+Minimum number of co-changes required to report a pair. Pairs that appear fewer times are
+filtered out as noise.
+
+```json
+{
+  "co_change_min_count": 5
+}
+```
+
+**Type:** `number` (integer ≥ 1)
+**Default:** `3`
+
+High-traffic repositories (50+ commits/day) may want a higher threshold to reduce noise.
+
 ## Complete Example
 
 ```json
