@@ -50,6 +50,12 @@ Compressed with zstd (same as snapshots). Load once at the start of analysis, wr
 at the end only if new entries were added. Bounded: evict entries whose SHA is not in the
 snapshot index (old commits that are no longer referenced).
 
+**Line range shift behavior:** If surrounding code changes and a function's line range
+moves, the cache key will not match (start/end differ) — it's a miss. This is correct:
+the function's git history in its new position needs to be re-queried. An unchanged
+function in an unchanged file will hit the parent commit's cache entry exactly. Make this
+explicit in a comment in `touch_cache.rs` so it's not accidentally "fixed" later.
+
 ### Tasks
 
 - [ ] **SQ-1a:** Add `read_touch_cache` / `write_touch_cache` in a new
@@ -99,6 +105,13 @@ Identify the single largest contributor to `activity_risk`. Approximate by ranki
 | `callgraph.fan_in > 10` and `metrics.cc > 8` | `high_fanin_complex` | "Many callers + complex: extract and stabilize. Any bug here has wide blast radius." |
 | `callgraph.scc_size > 1` | `cyclic_dep` | "Cyclic dependency: break the cycle before adding more callers." |
 | default | `composite` | (current generic message) |
+
+**Note on thresholds:** These are absolute values, not relative to the codebase being
+analyzed. A repo with median cc=3 and a function at cc=9 should probably flag differently
+than one where cc=9 is the median. The first version should use absolutes (simple,
+predictable, no dep on aggregate computation at explain time). A future version could use
+percentile-relative thresholds — the snapshot enricher already computes percentiles
+(`p50_lrs`, etc.), so the infrastructure is partially there. Don't block SQ-2a–2c on this.
 
 ### Tasks
 
