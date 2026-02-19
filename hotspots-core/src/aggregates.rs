@@ -96,12 +96,31 @@ pub struct FileDeltaAggregates {
     pub improvement_count: usize,
 }
 
+/// A co-change pair entry in the delta diff
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CoChangeDeltaEntry {
+    pub file_a: String,
+    pub file_b: String,
+    /// "new" | "dropped" | "risk_increased" | "risk_decreased"
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_risk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curr_risk: Option<String>,
+    pub co_change_count: usize,
+    pub coupling_ratio: f64,
+    pub has_static_dep: bool,
+}
+
 /// Delta aggregates container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct DeltaAggregates {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<FileDeltaAggregates>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub co_change_delta: Vec<CoChangeDeltaEntry>,
 }
 
 /// Check if a band is High+ (high or critical)
@@ -311,7 +330,7 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
 ///
 /// For each pair, checks whether a direct import exists in either direction.
 /// Pairs with a static dependency are reclassified as `"expected"`.
-fn annotate_static_deps(
+pub fn annotate_static_deps(
     pairs: &mut [crate::git::CoChangePair],
     edges: &[(String, String)],
     repo_root: &std::path::Path,
@@ -510,11 +529,118 @@ pub fn compute_snapshot_aggregates(
     }
 }
 
+/// Numeric rank for risk strings (higher = worse).
+fn risk_rank(risk: &str) -> u8 {
+    match risk {
+        "critical" => 4,
+        "high" => 3,
+        "moderate" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+/// Diff two co-change pair lists and return change entries.
+///
+/// Pairs are keyed by `(min(file_a, file_b), max(file_a, file_b))` so ordering
+/// within a pair does not affect matching.
+pub fn diff_co_change_pairs(
+    prev: &[crate::git::CoChangePair],
+    curr: &[crate::git::CoChangePair],
+) -> Vec<CoChangeDeltaEntry> {
+    // Normalise key: always (smaller, larger) for consistent lookup
+    let normalize = |a: &str, b: &str| -> (String, String) {
+        if a <= b {
+            (a.to_string(), b.to_string())
+        } else {
+            (b.to_string(), a.to_string())
+        }
+    };
+
+    let prev_map: HashMap<(String, String), &crate::git::CoChangePair> = prev
+        .iter()
+        .map(|p| (normalize(&p.file_a, &p.file_b), p))
+        .collect();
+    let curr_map: HashMap<(String, String), &crate::git::CoChangePair> = curr
+        .iter()
+        .map(|p| (normalize(&p.file_a, &p.file_b), p))
+        .collect();
+
+    let mut result: Vec<CoChangeDeltaEntry> = Vec::new();
+
+    // New pairs and risk changes
+    for pair in curr {
+        let key = normalize(&pair.file_a, &pair.file_b);
+        let status = if let Some(prev_pair) = prev_map.get(&key) {
+            let pr = risk_rank(&prev_pair.risk);
+            let cr = risk_rank(&pair.risk);
+            if cr > pr {
+                "risk_increased"
+            } else if cr < pr {
+                "risk_decreased"
+            } else {
+                continue; // unchanged — skip
+            }
+        } else {
+            "new"
+        };
+        let prev_risk = prev_map.get(&key).map(|p| p.risk.clone());
+        result.push(CoChangeDeltaEntry {
+            file_a: pair.file_a.clone(),
+            file_b: pair.file_b.clone(),
+            status: status.to_string(),
+            prev_risk,
+            curr_risk: Some(pair.risk.clone()),
+            co_change_count: pair.co_change_count,
+            coupling_ratio: pair.coupling_ratio,
+            has_static_dep: pair.has_static_dep,
+        });
+    }
+
+    // Dropped pairs
+    for pair in prev {
+        let key = normalize(&pair.file_a, &pair.file_b);
+        if !curr_map.contains_key(&key) {
+            result.push(CoChangeDeltaEntry {
+                file_a: pair.file_a.clone(),
+                file_b: pair.file_b.clone(),
+                status: "dropped".to_string(),
+                prev_risk: Some(pair.risk.clone()),
+                curr_risk: None,
+                co_change_count: pair.co_change_count,
+                coupling_ratio: pair.coupling_ratio,
+                has_static_dep: pair.has_static_dep,
+            });
+        }
+    }
+
+    // Sort: dropped last, then by risk rank desc, then alphabetically
+    result.sort_by(|a, b| {
+        let a_dropped = a.status == "dropped";
+        let b_dropped = b.status == "dropped";
+        a_dropped
+            .cmp(&b_dropped)
+            .then_with(|| {
+                let ar = a.curr_risk.as_deref().map(risk_rank).unwrap_or(0);
+                let br = b.curr_risk.as_deref().map(risk_rank).unwrap_or(0);
+                br.cmp(&ar)
+            })
+            .then(a.file_a.cmp(&b.file_a))
+            .then(a.file_b.cmp(&b.file_b))
+    });
+
+    result
+}
+
 /// Compute delta aggregates from delta entries
 ///
 /// Sorted by `net_lrs_delta` descending (worst regressions first).
 /// Ties broken by file path for determinism.
-pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
+pub fn compute_delta_aggregates(
+    delta: &Delta,
+    current_co_change: &[crate::git::CoChangePair],
+    prev_co_change: &[crate::git::CoChangePair],
+) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
 
@@ -573,7 +699,12 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
             .then(a.file.cmp(&b.file))
     });
 
-    DeltaAggregates { files: aggregates }
+    let co_change_delta = diff_co_change_pairs(prev_co_change, current_co_change);
+
+    DeltaAggregates {
+        files: aggregates,
+        co_change_delta,
+    }
 }
 
 #[cfg(test)]

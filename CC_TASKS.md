@@ -80,12 +80,12 @@ signal.
 
 **Tasks:**
 
-- [ ] **CC-2a:** Add `co_change_delta: Vec<CoChangeDeltaEntry>` to `DeltaAggregates`
+- [x] **CC-2a:** Add `co_change_delta: Vec<CoChangeDeltaEntry>` to `DeltaAggregates`
   struct in `hotspots-core/src/aggregates.rs`.
-- [ ] **CC-2b:** Implement `diff_co_change_pairs(prev, curr)` that produces
+- [x] **CC-2b:** Implement `diff_co_change_pairs(prev, curr)` that produces
   `Vec<CoChangeDeltaEntry>`.
-- [ ] **CC-2c:** Include co-change delta in JSON delta output and in `--explain`
-  delta text (new coupling pairs section after the function list).
+- [x] **CC-2c:** Include co-change delta in JSON delta output and in `--policy`
+  delta text (co-change coupling section filtered to touched files).
 
 **Effort:** Medium. Requires a snapshot-to-snapshot pair lookup.
 **Risk:** Low. Additive; existing delta output unchanged.

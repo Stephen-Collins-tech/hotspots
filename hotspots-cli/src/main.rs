@@ -705,6 +705,42 @@ fn handle_mode_output(
                 delta::compute_delta(&repo_root, &snapshot)?
             };
 
+            // Compute import edges and co-change for delta aggregates
+            let mut unique_files: Vec<String> = snapshot
+                .functions
+                .iter()
+                .map(|f| f.file.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            unique_files.sort();
+            let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+            let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, &repo_root);
+            let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
+                &repo_root,
+                resolved_config.co_change_window_days,
+                resolved_config.co_change_min_count,
+            )
+            .unwrap_or_default();
+            hotspots_core::aggregates::annotate_static_deps(
+                &mut current_co_change,
+                &import_edges,
+                &repo_root,
+            );
+
+            // Try to get prev co-change from parent snapshot aggregates (empty if not stored)
+            let parent_sha = snapshot.commit.parents.first().cloned();
+            let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_sha
+                .as_deref()
+                .and_then(|sha| {
+                    hotspots_core::delta::load_parent_snapshot(&repo_root, sha)
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|s| s.aggregates)
+                .map(|a| a.co_change)
+                .unwrap_or_default();
+
             let mut delta_with_extras = delta.clone();
             if policy {
                 let policy_results = hotspots_core::policy::evaluate_policies(
@@ -719,7 +755,11 @@ fn handle_mode_output(
                 }
             }
             delta_with_extras.aggregates =
-                Some(hotspots_core::aggregates::compute_delta_aggregates(&delta));
+                Some(hotspots_core::aggregates::compute_delta_aggregates(
+                    &delta,
+                    &current_co_change,
+                    &prev_co_change,
+                ));
 
             if emit_delta_output(&delta_with_extras, format, policy, output)? {
                 std::process::exit(1);
@@ -924,8 +964,58 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
     );
     print_rapid_growth_section(delta, &policy_results.warnings);
     print_repo_warnings_section(&policy_results.warnings);
+    print_co_change_delta_section(delta);
     print_policy_summary(policy_results);
     Ok(())
+}
+
+fn print_co_change_delta_section(delta: &Delta) {
+    let co_change_delta = match delta.aggregates.as_ref().map(|a| &a.co_change_delta) {
+        Some(d) if !d.is_empty() => d,
+        _ => return,
+    };
+
+    // Build the set of files touched in this delta
+    let touched: std::collections::HashSet<String> = delta
+        .deltas
+        .iter()
+        .filter_map(|e| {
+            e.function_id
+                .rfind("::")
+                .map(|pos| e.function_id[..pos].to_string())
+        })
+        .collect();
+
+    // Show only pairs relevant to touched files (or all if none matched)
+    let relevant: Vec<&hotspots_core::aggregates::CoChangeDeltaEntry> = co_change_delta
+        .iter()
+        .filter(|e| {
+            e.status != "dropped" && (touched.contains(&e.file_a) || touched.contains(&e.file_b))
+        })
+        .collect();
+
+    if relevant.is_empty() {
+        return;
+    }
+
+    println!("\nCo-Change Coupling (files touched in this delta):");
+    println!("{}", "-".repeat(80));
+    for entry in &relevant {
+        let risk = entry.curr_risk.as_deref().unwrap_or("unknown");
+        let dep_tag = if entry.has_static_dep {
+            " [expected]"
+        } else {
+            ""
+        };
+        println!(
+            "  {} ↔ {}  [{}{}]  co-changed {:.0}% of the time",
+            entry.file_a,
+            entry.file_b,
+            risk,
+            dep_tag,
+            entry.coupling_ratio * 100.0,
+        );
+    }
 }
 
 fn print_failing_functions_section(delta: &Delta, policy_results: &PolicyResults) {

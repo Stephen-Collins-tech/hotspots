@@ -225,6 +225,33 @@ Instability near 1.0 means this module depends on others but nothing depends on 
 
 Accessible via `--level module` text output or `aggregates.modules` in JSON.
 
+## Delta Aggregates
+
+Delta mode output (`--mode delta`) includes an `aggregates` object with file-level
+regression summaries and co-change coupling changes.
+
+### `aggregates.co_change_delta` — Co-Change Pair Diff
+
+Each entry describes a co-change pair that is **new**, **dropped**, or changed risk
+relative to the previous snapshot (if prior state is available). When no prior state
+exists, all current pairs appear as `"new"`.
+
+```typescript
+{
+  file_a: "hotspots-cli/src/main.rs",
+  file_b: "hotspots-core/src/aggregates.rs",
+  status: "new",           // "new" | "dropped" | "risk_increased" | "risk_decreased"
+  prev_risk: null,         // Previous risk level (absent for "new")
+  curr_risk: "high",       // Current risk level (absent for "dropped")
+  co_change_count: 14,     // Times changed in the same commit
+  coupling_ratio: 0.78,    // co_change_count / min(total_a, total_b)
+  has_static_dep: false    // true if a direct import exists between the two files
+}
+```
+
+In `--policy` text output, only pairs involving files touched in the current delta are
+shown. This surfaces "you changed A — did you forget B?" coupling alerts.
+
 ## TypeScript Integration
 
 ### Using @hotspots/types Package
