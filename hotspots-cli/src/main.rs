@@ -80,7 +80,9 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
+        /// Use per-function git log -L for touch metrics (enabled by default via config).
+        /// Warm runs use the on-disk cache and match file-level speed.
+        /// To disable, set per_function_touches: false in .hotspotsrc.json.
         #[arg(long)]
         per_function_touches: bool,
     },
@@ -319,6 +321,9 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     // CLI flags override config file values
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
+    // per_function_touches: CLI flag or config default (true)
+    let effective_per_function_touches =
+        per_function_touches || resolved_config.per_function_touches;
 
     // If mode is specified, use snapshot/delta mode
     if let Some(output_mode) = mode {
@@ -336,7 +341,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist,
                 level,
-                per_function_touches,
+                per_function_touches: effective_per_function_touches,
             },
         );
     }
@@ -588,8 +593,12 @@ fn build_enriched_snapshot(
         }
     }
 
-    if per_function_touches {
-        eprintln!("Warning: --per-function-touches enabled; analysis will be significantly slower");
+    if per_function_touches
+        && !hotspots_core::snapshot::hotspots_dir(repo_root)
+            .join("touch-cache.json.zst")
+            .exists()
+    {
+        eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
     }
     enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
 
@@ -1475,7 +1484,14 @@ fn print_explain_output(
             .split("::")
             .last()
             .unwrap_or(&func.function_id);
-        println!("#{} {} [{}]", i + 1, func_name, func.band.to_uppercase());
+        let (driver, action) = driving_dimension(func);
+        println!(
+            "#{} {} [{}] [{}]",
+            i + 1,
+            func_name,
+            func.band.to_uppercase(),
+            driver
+        );
         println!("   File: {}:{}", func.file, func.line);
         println!(
             "   Risk Score: {:.2} (complexity base: {:.2})",
@@ -1488,7 +1504,7 @@ fn print_explain_output(
                 println!("{}", line);
             }
         }
-        println!("   Action: {}", get_recommendation(func));
+        println!("   Action: {}", action);
         println!();
     }
 
@@ -1515,39 +1531,27 @@ fn print_explain_output(
     Ok(())
 }
 
-/// Generate a human-readable action recommendation based on risk factors
-fn get_recommendation(func: &hotspots_core::snapshot::FunctionSnapshot) -> &'static str {
-    let score = func.activity_risk.unwrap_or(func.lrs);
-    let in_cycle = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.scc_size > 1)
-        .unwrap_or(false);
-    let high_fan_in = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.fan_in > 10)
-        .unwrap_or(false);
-
-    if func.band == "critical" || score > 20.0 {
-        if in_cycle {
-            "URGENT: Break cyclic dependency and refactor this function"
-        } else if high_fan_in {
-            "URGENT: Stabilize or split this high-dependency function"
-        } else {
-            "URGENT: Reduce complexity - extract sub-functions"
+/// Map a driving dimension label to its action text.
+fn driving_dimension(
+    func: &hotspots_core::snapshot::FunctionSnapshot,
+) -> (&'static str, &'static str) {
+    let label = hotspots_core::snapshot::driving_dimension_label(func);
+    let action = match label {
+        "cyclic_dep" => "Cyclic dependency: break the cycle before adding more callers.",
+        "high_complexity" => {
+            "Stable debt: schedule a refactor. Extract sub-functions to reduce CC."
         }
-    } else if func.band == "high" || score > 10.0 {
-        if in_cycle {
-            "Refactor: Break cyclic dependency in this function cluster"
-        } else {
-            "Refactor: Reduce complexity and improve test coverage"
+        "high_churn_low_cc" => "Churning but simple: add regression tests before next change.",
+        "high_fanout_churning" => {
+            "High coupling + active change: consider extracting an interface boundary."
         }
-    } else if func.band == "moderate" {
-        "Watch: Monitor for complexity growth on next change"
-    } else {
-        "OK: Low risk - consider refactoring only if modifying"
-    }
+        "deep_nesting" => "Deep nesting: flatten with early returns or guard clauses.",
+        "high_fanin_complex" => {
+            "Many callers + complex: extract and stabilize. Any bug here has wide blast radius."
+        }
+        _ => "Monitor: review complexity trends before next modification.",
+    };
+    (label, action)
 }
 
 /// Truncate string to max length

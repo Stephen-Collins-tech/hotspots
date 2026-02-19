@@ -50,7 +50,8 @@ All schemas follow JSON Schema Draft 07 specification.
       },
       lrs: 7.2,   // Logarithmic Risk Score
       band: "high",  // Risk band: low | moderate | high | critical
-      suppression_reason: "Legacy code, refactor planned"  // Optional
+      suppression_reason: "Legacy code, refactor planned",  // Optional
+      driver: "high_complexity"  // Primary risk driver (optional, see Driver Labels)
     }
   ],
   aggregates: {  // Present in snapshot mode output
@@ -148,6 +149,25 @@ Functions are classified into risk bands based on LRS:
 | Moderate   | 3.0 - 6.0  | Moderate complexity, acceptable |
 | High       | 6.0 - 9.0  | Complex, consider refactoring  |
 | Critical   | ≥ 9.0      | Very complex, refactor recommended |
+
+## Driver Labels
+
+Each function in snapshot output includes an optional `driver` string identifying the primary
+source of its risk. This is computed by the enricher after activity risk and call graph metrics
+are populated.
+
+| Label | Condition | Recommended action |
+|---|---|---|
+| `cyclic_dep` | SCC size > 1 (function is in a dependency cycle) | Break the cycle before adding more callers |
+| `high_complexity` | Cyclomatic complexity > 15 | Schedule a refactor; extract sub-functions |
+| `high_churn_low_cc` | touch_count_30d > 10 and CC < 8 | Add regression tests before next change |
+| `high_fanout_churning` | fan_out > 8 and touch_count_30d > 5 | Extract an interface boundary |
+| `deep_nesting` | Nesting depth > 4 | Flatten with early returns or guard clauses |
+| `high_fanin_complex` | fan_in > 10 and CC > 8 | Extract and stabilize; wide blast radius |
+| `composite` | None of the above | Monitor complexity trends |
+
+Thresholds are absolute (not relative to the codebase). Percentile-relative thresholds are
+planned for a future version.
 
 ## Aggregates
 

@@ -134,6 +134,10 @@ pub struct FunctionSnapshot {
     pub risk_factors: Option<crate::scoring::RiskFactors>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percentile: Option<PercentileFlags>,
+    /// Primary driving dimension label (e.g. "high_complexity", "high_churn_low_cc").
+    /// Populated by the enricher after activity_risk is computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
 }
 
 /// Risk distribution by band
@@ -253,6 +257,7 @@ impl Snapshot {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
                 }
             })
             .collect();
@@ -300,11 +305,17 @@ impl Snapshot {
         }
     }
 
-    /// Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each)
+    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
+    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
+    // functions whose line ranges have not changed since the last run (warm path).
     fn populate_per_function_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
     ) -> anyhow::Result<()> {
+        let sha = self.commit.sha.clone();
+        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
+        let mut dirty = false;
+
         for function in &mut self.functions {
             let rel = if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
                 r.to_string_lossy().replace('\\', "/")
@@ -313,24 +324,55 @@ impl Snapshot {
             };
 
             let start_line = function.line;
-            let end_line = start_line + (function.metrics.loc as u32).saturating_sub(1);
+            let end_line =
+                (start_line + (function.metrics.loc as u32).saturating_sub(1)).max(start_line);
+            let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
 
-            match crate::git::function_touch_metrics_at(
-                repo_root,
-                &rel,
-                start_line,
-                end_line.max(start_line),
-                self.commit.timestamp,
-            ) {
-                Ok((count, days)) => {
-                    function.touch_count_30d = Some(count);
-                    function.days_since_last_change = days;
-                }
-                Err(_) => {
-                    function.touch_count_30d = Some(0);
+            if let Some(&(count, days)) = cache.get(&key) {
+                function.touch_count_30d = Some(count);
+                function.days_since_last_change = days;
+            } else {
+                match crate::git::function_touch_metrics_at(
+                    repo_root,
+                    &rel,
+                    start_line,
+                    end_line,
+                    self.commit.timestamp,
+                ) {
+                    Ok((count, days)) => {
+                        function.touch_count_30d = Some(count);
+                        function.days_since_last_change = days;
+                        cache.insert(key, (count, days));
+                        dirty = true;
+                    }
+                    Err(_) => {
+                        function.touch_count_30d = Some(0);
+                        cache.insert(key, (0, None));
+                        dirty = true;
+                    }
                 }
             }
         }
+
+        if dirty {
+            // Evict stale entries (most-recent SHAs first) then write.
+            // Always include the current SHA first so we don't evict entries we just
+            // wrote — this matters when --no-persist is used and the SHA isn't in the index yet.
+            let known_shas: Vec<String> = {
+                let mut commits = Index::load_or_new(&index_path(repo_root))
+                    .map(|idx| idx.commits)
+                    .unwrap_or_default();
+                commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                let mut shas = vec![sha.clone()];
+                shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
+                shas
+            };
+            crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
+            if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
+                eprintln!("warning: failed to write touch cache: {e}");
+            }
+        }
+
         Ok(())
     }
 
@@ -576,6 +618,15 @@ impl Snapshot {
         }
     }
 
+    /// Populate driver labels for all functions using driving_dimension_label.
+    ///
+    /// Must be called after compute_activity_risk() and populate_callgraph().
+    pub fn populate_driver_labels(&mut self) {
+        for function in &mut self.functions {
+            function.driver = Some(driving_dimension_label(function).to_string());
+        }
+    }
+
     /// Compute repo-level summary statistics
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
@@ -737,6 +788,42 @@ impl Snapshot {
 /// Builder for enriching a snapshot with git, call graph, and risk metrics.
 ///
 /// Enforces enrichment step ordering:
+/// Identify the primary driving dimension for a function's risk.
+///
+/// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,
+/// `"high_churn_low_cc"`, `"high_fanout_churning"`, `"deep_nesting"`,
+/// `"high_fanin_complex"`, or `"composite"`. Uses absolute thresholds;
+/// percentile-relative thresholds are future work (infrastructure exists via
+/// `p50_lrs` etc. in `SnapshotSummary`).
+pub fn driving_dimension_label(func: &FunctionSnapshot) -> &'static str {
+    let in_cycle = func
+        .callgraph
+        .as_ref()
+        .map(|cg| cg.scc_size > 1)
+        .unwrap_or(false);
+    let fan_out = func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0);
+    let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+    let touch_count = func.touch_count_30d.unwrap_or(0);
+    let cc = func.metrics.cc;
+    let nd = func.metrics.nd;
+
+    if in_cycle {
+        "cyclic_dep"
+    } else if cc > 15 {
+        "high_complexity"
+    } else if touch_count > 10 && cc < 8 {
+        "high_churn_low_cc"
+    } else if fan_out > 8 && touch_count > 5 {
+        "high_fanout_churning"
+    } else if nd > 4 {
+        "deep_nesting"
+    } else if fan_in > 10 && cc > 8 {
+        "high_fanin_complex"
+    } else {
+        "composite"
+    }
+}
+
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
@@ -777,12 +864,13 @@ impl SnapshotEnricher {
         self
     }
 
-    /// Compute activity risk, percentile flags, and summary statistics.
+    /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
     pub fn enrich(mut self, weights: Option<&crate::scoring::ScoringWeights>) -> Self {
         self.snapshot.compute_activity_risk(weights);
         self.snapshot.compute_percentiles();
+        self.snapshot.populate_driver_labels();
         self.snapshot.compute_summary();
         self
     }

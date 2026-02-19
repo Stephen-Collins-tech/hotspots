@@ -492,6 +492,7 @@ mod tests {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
                 }],
             ),
             create_test_snapshot(
@@ -519,6 +520,7 @@ mod tests {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
                 }],
             ),
         ];
@@ -558,6 +560,7 @@ mod tests {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
                 }],
             ),
             create_test_snapshot(
@@ -585,6 +588,7 @@ mod tests {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
                 }],
             ),
         ];
@@ -623,6 +627,7 @@ mod tests {
                         activity_risk: None,
                         risk_factors: None,
                         percentile: None,
+                        driver: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -646,6 +651,7 @@ mod tests {
                         activity_risk: None,
                         risk_factors: None,
                         percentile: None,
+                        driver: None,
                     },
                 ],
             ),
@@ -675,6 +681,7 @@ mod tests {
                         activity_risk: None,
                         risk_factors: None,
                         percentile: None,
+                        driver: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -698,6 +705,7 @@ mod tests {
                         activity_risk: None,
                         risk_factors: None,
                         percentile: None,
+                        driver: None,
                     },
                 ],
             ),

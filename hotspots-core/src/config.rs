@@ -80,6 +80,12 @@ pub struct HotspotsConfig {
     /// Minimum number of co-changes required to report a pair (default: 3)
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
+
+    /// Use per-function git log -L for touch metrics (default: true).
+    /// Warm runs use the on-disk cache and are as fast as file-level.
+    /// Set to false to always use file-level batching (faster cold start, less accurate).
+    #[serde(default)]
+    pub per_function_touches: Option<bool>,
 }
 
 /// Custom risk band thresholds
@@ -172,6 +178,8 @@ pub struct ResolvedConfig {
     /// Co-change mining parameters
     pub co_change_window_days: u64,
     pub co_change_min_count: usize,
+    /// Whether to use per-function git log -L for touch metrics
+    pub per_function_touches: bool,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Path the config was loaded from (None if defaults)
@@ -436,6 +444,7 @@ impl HotspotsConfig {
             scoring_weights,
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
+            per_function_touches: self.per_function_touches.unwrap_or(true),
             config_path: None,
         })
     }

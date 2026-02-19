@@ -1,67 +1,61 @@
 # Direction Notes
 
 Assessment based on self-analysis run (2026-02-19) + two independent Claude sessions in agreement.
+Updated 2026-02-19 to reflect completion of signal quality work.
 
 ## Where we are
 
 Phases 1–4 and 8 are essentially done. Solid analytical foundation:
 - CFG, cyclomatic, nesting, fanout, PageRank, churn, touch, recency
 - Co-change coupling (D-2, CC-1, CC-2, CC-3), file-level view (D-1), module instability (D-3)
+- Per-function touch cache (SQ-1): warm runs match file-level speed (~230 ms vs ~268 ms)
+- Dimension-specific actions in `--explain` (SQ-2): `driver` field in JSON + label in CLI output
 
-The direction is right. The risk is shipping a high-complexity, low-signal instrument —
-impressive internals, output that's hard to act on.
+Signal quality is no longer the bottleneck.
 
-## The core problem
+## The core problem (resolved)
 
-**Stop adding dimensions.** Feature velocity is outrunning signal quality. The composite
-score is the bottleneck: file-level churn applied uniformly to all functions in a file is
-the single largest source of noise. 8 of 15 top results in self-analysis have *identical*
-activity scores — that's not ranking, that's listing. When half the top results are noise,
-users stop trusting the real findings too.
+~~Stop adding dimensions.~~ The noise problem was: file-level churn applied uniformly to all
+functions in a file, causing identical activity scores across functions in the same file.
 
-The remaining task files (CFG_ACCURACY, TEST_COVERAGE, TYPES, OUTPUT, HISTORY) should wait
-until signal quality is fixed. More dimensions built on a noisy base produce more noise.
+**Fixed by SQ-1:** Per-function touches now cached on disk. Warm runs are as fast as file-level.
+Default is on (`per_function_touches: true` in config). First run per commit is slow (~6 s for
+~200 functions); subsequent runs hit the cache (~230 ms).
 
-## What to fix next
+**Fixed by SQ-2:** `--explain` now identifies the driving dimension (`cyclic_dep`,
+`high_complexity`, `high_churn_low_cc`, etc.) and shows a specific action. The `driver` field
+is present in JSON output for programmatic consumers.
 
-**1. Per-function git touches cache (highest ROI)**
+## What's next
 
-`--per-function-touches` exists but is ~50x slower. Making it fast via caching fixes the
-largest source of noise simultaneously across all dimensions — ranking, activity risk,
-neighbor churn. Everything downstream improves when this is right.
+**Phase 6: Testing & Documentation** — the deliberate consolidation milestone.
 
-**2. Dimension-specific actions in `--explain` (output-layer fix)**
+Signal quality is fixed. The remaining task files (CFG_ACCURACY, TEST_COVERAGE, TYPES, OUTPUT,
+HISTORY) remain lower priority. Phase 6 docs are now unblocked:
 
-The data is already in the JSON. `--explain` collapses it into one composite score with a
-generic "URGENT" for everything. Tie the recommended action to the driving dimension:
-
-| driver | action |
-|---|---|
-| high cc + low churn | stable debt, schedule refactor |
-| high churn + low cc | add tests, watch for regression |
-| high fanout + high churn | consider interface boundary |
-| high nesting | flatten with early returns |
-| high fan-in + high cc | extract and stabilize |
-
-This is a presentation change, not an analysis change. Low effort, high impact.
+1. `docs/reference/cli.md` — document current flags (per_function_touches default, --level module,
+   --explain driver output)
+2. `docs/reference/scoring.md` — explain activity risk, driver labels, lrs vs activity_risk
+3. `docs/reference/metrics.md` — LOC, churn, touch, recency, graph metrics
+4. `README.md` — update feature list to reflect current state
 
 ## What's lower priority than it looks
 
-**Splitting main.rs** matters for maintainability and for the tool's own self-reported
-hotspot score, but users won't notice it. It's hygiene, not strategy — do it eventually,
-not next.
+**Splitting main.rs** matters for maintainability and for the tool's own self-reported hotspot
+score, but users won't notice it. It's hygiene, not strategy — do it eventually, not next.
 
-**More co-change dimensions** — CC-1's `has_static_dep` was a genuine signal quality
-improvement (distinguishing expected from hidden coupling), but it operates at the
-aggregates layer, not at the per-function score layer. The core noise problem is unaffected.
+**More co-change dimensions** — CC-1's `has_static_dep` was a genuine signal quality improvement
+(distinguishing expected from hidden coupling), but it operates at the aggregates layer, not at
+the per-function score layer. The core noise problem is now resolved.
+
+**CFG_ACCURACY, TEST_COVERAGE, TYPES, OUTPUT, HISTORY task files** — still valid work, but
+lower priority than closing the Phase 6 documentation gap. More dimensions built on a solid
+base are still more dimensions.
 
 ## Task tracking note
 
-CC_TASKS.md was updated 2026-02-19 to reflect shipped state (all CC-1 through CC-3 done).
 Keep task files current — stale checkboxes make them useless as source of truth.
-
-## Consolidation milestone
-
-Phase 6 (testing/docs) is marked deferred throughout TASKS.md. Set a deliberate point to
-stop adding features and close this gap. The analysis depth is solid; the limiting factor
-is signal quality and actionability.
+- CC_TASKS.md: all CC-1 through CC-3 done ✅
+- SIGNAL_QUALITY_TASKS.md: all SQ-1 and SQ-2 done ✅
+- DIMENSIONS_TASKS.md: D-1, D-2, D-3 done ✅
+- TASKS.md Phase 2.1: call graph infrastructure done ✅

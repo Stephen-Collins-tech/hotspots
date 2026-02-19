@@ -225,6 +225,25 @@ filtered out as noise.
 
 High-traffic repositories (50+ commits/day) may want a higher threshold to reduce noise.
 
+#### `per_function_touches`
+Whether to use per-function `git log -L` for touch metrics instead of file-level batching.
+
+```json
+{
+  "per_function_touches": false
+}
+```
+
+**Type:** `boolean`
+**Default:** `true`
+
+Per-function touch metrics are more accurate (each function gets its own 30-day touch count
+rather than sharing the file's count). Warm runs use the on-disk cache
+(`.hotspots/touch-cache.json.zst`) and match file-level speed (~230 ms vs ~268 ms on this
+repo). The first run on a new commit is slow (~6 s for ~200 functions); subsequent runs are
+fast. Set to `false` to always use file-level batching (useful in CI without a persistent
+cache layer).
+
 ## Complete Example
 
 ```json

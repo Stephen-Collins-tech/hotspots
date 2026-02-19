@@ -58,24 +58,24 @@ explicit in a comment in `touch_cache.rs` so it's not accidentally "fixed" later
 
 ### Tasks
 
-- [ ] **SQ-1a:** Add `read_touch_cache` / `write_touch_cache` in a new
+- [x] **SQ-1a:** Add `read_touch_cache` / `write_touch_cache` in a new
   `hotspots-core/src/touch_cache.rs`. Key: `"{sha}:{file}:{start}:{end}"`. Value:
   `(usize, Option<u32>)`. Serialize as `HashMap<String, (usize, Option<u32>)>`,
   compress/decompress with zstd. Return `None` on missing file (cold start).
 
-- [ ] **SQ-1b:** In `populate_per_function_touch_metrics` (`snapshot.rs`), load the cache
+- [x] **SQ-1b:** In `populate_per_function_touch_metrics` (`snapshot.rs`), load the cache
   before the loop, check each key before spawning a subprocess, write the cache back after
   the loop if any new entries were added. The commit SHA is available on `self`.
 
-- [ ] **SQ-1c:** Add cache eviction: after writing, drop entries whose SHA prefix is not
+- [x] **SQ-1c:** Add cache eviction: after writing, drop entries whose SHA prefix is not
   present in the snapshot index (`load_index`). Keep at most the last 50 distinct SHAs to
   bound file size.
 
-- [ ] **SQ-1d:** Benchmark: run `--per-function-touches` on this repo cold vs. warm.
+- [x] **SQ-1d:** Benchmark: run `--per-function-touches` on this repo cold vs. warm.
   Document the warm speedup in a comment in `touch_cache.rs`. Target: warm run ≤ 2× the
   file-level baseline.
 
-- [ ] **SQ-1e:** Make `--per-function-touches` the default once the warm path is fast
+- [x] **SQ-1e:** Make `--per-function-touches` the default once the warm path is fast
   enough (or add a config flag `per_function_touches: true`). Update docs.
 
 **Effort:** Medium. New module, cache I/O, eviction logic.
@@ -115,20 +115,20 @@ percentile-relative thresholds — the snapshot enricher already computes percen
 
 ### Tasks
 
-- [ ] **SQ-2a:** Add `fn driving_dimension(func: &FunctionSnapshot) -> (&'static str, &'static str)`
+- [x] **SQ-2a:** Add `fn driving_dimension(func: &FunctionSnapshot) -> (&'static str, &'static str)`
   to `main.rs` (or a new `explain.rs` output module). Returns `(driver_label, action_text)`.
   Implement the priority table above. Driver label is for the `--explain` table column;
   action text replaces the current recommendation string.
 
-- [ ] **SQ-2b:** Update `print_explain_output` to show a `driver` column in the per-function
+- [x] **SQ-2b:** Update `print_explain_output` to show a `driver` column in the per-function
   table (e.g., `high_complexity`, `high_churn`, `cyclic_dep`). Keep the existing columns,
   add `driver` after `band`.
 
-- [ ] **SQ-2c:** Update the per-function action line in `--explain` to use the new
+- [x] **SQ-2c:** Update the per-function action line in `--explain` to use the new
   dimension-specific text. Currently: `  → {recommendation}`. No format change needed,
   just better content.
 
-- [ ] **SQ-2d:** Add `driver: String` field to `FunctionSnapshot` JSON output so consumers
+- [x] **SQ-2d:** Add `driver: String` field to `FunctionSnapshot` JSON output so consumers
   can use it programmatically. Populate it in the snapshot enricher using the same logic
   (extracted to `hotspots-core`). Update JSON schema docs.
 

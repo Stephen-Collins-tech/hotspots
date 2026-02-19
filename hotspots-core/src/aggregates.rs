@@ -736,6 +736,7 @@ mod tests {
             activity_risk: None,
             risk_factors: None,
             percentile: None,
+            driver: None,
         }
     }
 
