@@ -41,16 +41,16 @@ risk = "expected" if has_static_dep (any ratio)
 
 **Tasks:**
 
-- [ ] **CC-1a:** Add `has_static_dep: bool` field to `CoChangePair` struct in
+- [x] **CC-1a:** Add `has_static_dep: bool` field to `CoChangePair` struct in
   `hotspots-core/src/git.rs`.
-- [ ] **CC-1b:** In `compute_snapshot_aggregates()` (`aggregates.rs`), after building
+- [x] **CC-1b:** In `compute_snapshot_aggregates()` (`aggregates.rs`), after building
   the import graph for module instability, pass the file import edges to a new helper
   `annotate_static_deps(pairs, import_edges)` that populates `has_static_dep` on each
   pair.
-- [ ] **CC-1c:** Update risk classification: add `"expected"` variant for pairs with
+- [x] **CC-1c:** Update risk classification: add `"expected"` variant for pairs with
   a static dep regardless of ratio. Update `--explain` output to show `[expected]` tag
   for these pairs.
-- [ ] **CC-1d:** Update JSON schema docs (`docs/reference/json-schema.md`) and
+- [x] **CC-1d:** Update JSON schema docs (`docs/reference/json-schema.md`) and
   `DIMENSIONS_TASKS.md` D-2 field table to reflect the shipped field.
 
 **Effort:** Low. Import graph already built for D-3; this is a lookup pass over it.
