@@ -1010,6 +1010,52 @@ pub fn compute_dimension_thresholds(
     }
 }
 
+/// Normalize a driver label string to a canonical `'static` str.
+pub fn normalize_driver_label(label: &str) -> &'static str {
+    match label {
+        "cyclic_dep" => "cyclic_dep",
+        "high_complexity" => "high_complexity",
+        "high_churn_low_cc" => "high_churn_low_cc",
+        "high_fanout_churning" => "high_fanout_churning",
+        "deep_nesting" => "deep_nesting",
+        "high_fanin_complex" => "high_fanin_complex",
+        _ => "composite",
+    }
+}
+
+/// Map a (driver, quadrant) pair to a recommended action string.
+///
+/// `quadrant` is one of `"fire"`, `"debt"`, `"watch"`, `"ok"`, or `""` (unknown).
+/// When quadrant context is available the action is more specific; the generic
+/// driver-only text is used as a fallback.
+pub fn driver_action_for_quadrant(driver: &str, quadrant: &str) -> &'static str {
+    match (driver, quadrant) {
+        ("cyclic_dep", "fire") => "Break cycle now — circular dep is actively changing",
+        ("cyclic_dep", _) => "Resolve dependency cycle",
+        ("high_complexity", "fire") => "Extract sub-functions now — actively changing",
+        ("high_complexity", "debt") => "Schedule CC reduction — stable, plan for next sprint",
+        ("high_complexity", _) => "Reduce cyclomatic complexity",
+        ("high_churn_low_cc", "fire") => "Add tests now — churning without a safety net",
+        ("high_churn_low_cc", _) => "Add tests before next change",
+        ("high_fanout_churning", "fire") => {
+            "Extract interface boundary — high coupling + active change"
+        }
+        ("high_fanout_churning", _) => "Consider extracting an interface boundary",
+        ("deep_nesting", "fire") => "Flatten nesting before next change",
+        ("deep_nesting", "debt") => "Schedule flattening — deep nesting, currently quiet",
+        ("deep_nesting", _) => "Flatten nesting depth",
+        ("high_fanin_complex", "fire") => "Stabilize interface — many callers + active changes",
+        ("high_fanin_complex", _) => "Stabilize interface — high fan-in makes changes risky",
+        (_, "fire") => "Actively risky — plan refactor this sprint",
+        _ => "Monitor: review complexity trends before next modification",
+    }
+}
+
+/// Map a driver label to its recommended action text (quadrant-agnostic fallback).
+pub fn driver_action(label: &str) -> &'static str {
+    driver_action_for_quadrant(label, "")
+}
+
 /// Identify the primary driving dimension for a function's risk.
 ///
 /// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,

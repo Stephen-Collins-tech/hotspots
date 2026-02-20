@@ -1264,24 +1264,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
 
 /// Map (driver, quadrant) to a one-line recommended action for the triage table.
 fn triage_action(driver: Option<&str>, quadrant: Option<&str>) -> &'static str {
-    match (driver.unwrap_or(""), quadrant.unwrap_or("")) {
-        ("high_complexity", "fire") => "Extract sub-functions now — actively changing",
-        ("high_complexity", "debt") => "Schedule CC reduction — stable, plan for next sprint",
-        ("high_complexity", _) => "Reduce cyclomatic complexity",
-        ("deep_nesting", "fire") => "Flatten nesting before next change",
-        ("deep_nesting", "debt") => "Schedule flattening — deep nesting, currently quiet",
-        ("deep_nesting", _) => "Flatten nesting depth",
-        ("high_churn_low_cc", "fire") => "Add tests now — churning without a safety net",
-        ("high_churn_low_cc", _) => "Add tests before next change",
-        ("high_fan_in", "fire") => "Stabilize interface — many callers + active changes",
-        ("high_fan_in", _) => "Stabilize interface — high fan-in makes changes risky",
-        ("cyclic_dependency", "fire") => "Break cycle now — circular dep is actively changing",
-        ("cyclic_dependency", _) => "Resolve dependency cycle",
-        ("composite", "fire") => "Multiple signals — prioritize for immediate review",
-        ("composite", _) => "Multiple signals — schedule review",
-        (_, "fire") => "Actively risky — plan refactor this sprint",
-        _ => "Schedule refactor",
-    }
+    crate::snapshot::driver_action_for_quadrant(driver.unwrap_or(""), quadrant.unwrap_or(""))
 }
 
 /// Render triage panel: quadrant summary + top risks table

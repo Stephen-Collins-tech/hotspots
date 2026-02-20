@@ -123,6 +123,253 @@ pub struct DeltaAggregates {
     pub co_change_delta: Vec<CoChangeDeltaEntry>,
 }
 
+/// Number of functions per quadrant in the agent triage view
+const TRIAGE_TOP_N: usize = 5;
+/// Maximum hidden coupling pairs in the agent output (context-window cap)
+const HIDDEN_COUPLING_TOP_N: usize = 20;
+/// Maximum file risk entries in the agent output
+const FILE_RISK_TOP_N: usize = 10;
+
+/// Slim complexity metrics for agent-optimized function view
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentMetrics {
+    pub cc: usize,
+    pub nd: usize,
+    pub fo: usize,
+}
+
+/// Slim function view for agent-optimized triage output
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentFunctionView {
+    pub function: String,
+    pub file: String,
+    pub line: u32,
+    pub band: String,
+    pub quadrant: String,
+    pub driver: String,
+    pub action: &'static str,
+    pub lrs: f64,
+    pub activity_risk: f64,
+    pub metrics: AgentMetrics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touches_30d: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_changed: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fan_in: Option<usize>,
+}
+
+/// A triage quadrant with count and top-N functions
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TriageQuadrant {
+    pub count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top: Vec<AgentFunctionView>,
+}
+
+/// Triage view grouping functions by quadrant
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TriageView {
+    pub fire: TriageQuadrant,
+    pub debt: TriageQuadrant,
+    pub watch: TriageQuadrant,
+    pub ok: TriageQuadrant,
+}
+
+/// Co-change section for agent-optimized output (hidden coupling only, capped at top N)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentCoChangeView {
+    pub hidden_coupling: Vec<crate::git::CoChangePair>,
+    pub hidden_count: usize,
+    pub total_pairs: usize,
+}
+
+/// Agent-optimized snapshot output (schema version 3)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentSnapshotOutput {
+    pub schema_version: u32,
+    pub commit: crate::snapshot::CommitInfo,
+    pub triage: TriageView,
+    pub co_change: AgentCoChangeView,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_risk: Vec<FileRiskView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<ModuleInstability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::snapshot::SnapshotSummary>,
+}
+
+impl AgentSnapshotOutput {
+    /// Serialize to pretty-printed JSON string.
+    pub fn to_json(&self) -> anyhow::Result<String> {
+        serde_json::to_string_pretty(self).map_err(|e| anyhow::anyhow!("{}", e))
+    }
+}
+
+/// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).
+fn to_agent_view(
+    fns: &[&FunctionSnapshot],
+    repo_root: &std::path::Path,
+    top_n: usize,
+) -> Vec<AgentFunctionView> {
+    fns.iter()
+        .take(top_n)
+        .map(|func| {
+            let function_name = func
+                .function_id
+                .split("::")
+                .last()
+                .unwrap_or(&func.function_id)
+                .to_string();
+            let file = normalize_path_relative_to_repo(&func.file, repo_root)
+                .unwrap_or_else(|| func.file.clone());
+            let driver = func.driver.as_deref().unwrap_or("composite");
+            let action = crate::snapshot::driver_action_for_quadrant(
+                driver,
+                func.quadrant.as_deref().unwrap_or(""),
+            );
+            AgentFunctionView {
+                function: function_name,
+                file,
+                line: func.line,
+                band: func.band.clone(),
+                quadrant: func.quadrant.clone().unwrap_or_else(|| "ok".to_string()),
+                driver: driver.to_string(),
+                action,
+                lrs: func.lrs,
+                activity_risk: func.activity_risk.unwrap_or(func.lrs),
+                metrics: AgentMetrics {
+                    cc: func.metrics.cc,
+                    nd: func.metrics.nd,
+                    fo: func.metrics.fo,
+                },
+                touches_30d: func.touch_count_30d,
+                days_since_changed: func.days_since_last_change,
+                fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
+            }
+        })
+        .collect()
+}
+
+/// Build the agent-optimized v3 JSON output from a fully enriched snapshot and its aggregates.
+///
+/// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
+/// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
+/// top 20 by coupling_ratio. File risk is capped at top 10.
+pub fn compute_agent_snapshot_output(
+    snapshot: &crate::snapshot::Snapshot,
+    aggregates: &SnapshotAggregates,
+    repo_root: &std::path::Path,
+) -> AgentSnapshotOutput {
+    // Partition functions into quadrant buckets
+    let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut watch_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut ok_count = 0usize;
+
+    for func in &snapshot.functions {
+        match func.quadrant.as_deref() {
+            Some("fire") => fire_fns.push(func),
+            Some("debt") => debt_fns.push(func),
+            Some("watch") => watch_fns.push(func),
+            _ => ok_count += 1,
+        }
+    }
+
+    // Sort each group by activity_risk descending
+    let sort_by_risk = |fns: &mut Vec<&FunctionSnapshot>| {
+        fns.sort_by(|a, b| {
+            let a_score = a.activity_risk.unwrap_or(a.lrs);
+            let b_score = b.activity_risk.unwrap_or(b.lrs);
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    };
+    sort_by_risk(&mut fire_fns);
+    sort_by_risk(&mut debt_fns);
+    sort_by_risk(&mut watch_fns);
+
+    let triage = TriageView {
+        fire: TriageQuadrant {
+            count: fire_fns.len(),
+            top: to_agent_view(&fire_fns, repo_root, TRIAGE_TOP_N),
+        },
+        debt: TriageQuadrant {
+            count: debt_fns.len(),
+            top: to_agent_view(&debt_fns, repo_root, TRIAGE_TOP_N),
+        },
+        watch: TriageQuadrant {
+            count: watch_fns.len(),
+            top: to_agent_view(&watch_fns, repo_root, TRIAGE_TOP_N),
+        },
+        ok: TriageQuadrant {
+            count: ok_count,
+            top: Vec::new(),
+        },
+    };
+
+    // Split co-change: hidden (no static dep) source-file pairs only, capped for agent context.
+    // Config, lock, and doc files dominate by coupling_ratio but carry no actionable signal.
+    const SRC_EXTS: &[&str] = &[
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
+    ];
+    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
+
+    let total_pairs = aggregates.co_change.len();
+    let mut hidden_pairs: Vec<&crate::git::CoChangePair> = aggregates
+        .co_change
+        .iter()
+        .filter(|p| !p.has_static_dep && is_src(&p.file_a) && is_src(&p.file_b))
+        .collect();
+    let hidden_count = hidden_pairs.len();
+    hidden_pairs.sort_by(|a, b| {
+        b.coupling_ratio
+            .partial_cmp(&a.coupling_ratio)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let hidden_coupling: Vec<crate::git::CoChangePair> = hidden_pairs
+        .into_iter()
+        .take(HIDDEN_COUPLING_TOP_N)
+        .cloned()
+        .collect();
+
+    // Relativize file_risk paths (same as triage entries)
+    let file_risk: Vec<FileRiskView> = aggregates
+        .file_risk
+        .iter()
+        .take(FILE_RISK_TOP_N)
+        .map(|fr| {
+            let rel_file = normalize_path_relative_to_repo(&fr.file, repo_root)
+                .unwrap_or_else(|| fr.file.clone());
+            FileRiskView {
+                file: rel_file,
+                ..fr.clone()
+            }
+        })
+        .collect();
+
+    AgentSnapshotOutput {
+        schema_version: 3,
+        commit: snapshot.commit.clone(),
+        triage,
+        co_change: AgentCoChangeView {
+            hidden_coupling,
+            hidden_count,
+            total_pairs,
+        },
+        file_risk,
+        modules: aggregates.modules.clone(),
+        summary: snapshot.summary.clone(),
+    }
+}
+
 /// Check if a band is High+ (high or critical)
 fn is_high_plus(band: &str) -> bool {
     band == "high" || band == "critical"

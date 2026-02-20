@@ -85,6 +85,11 @@ enum Commands {
         /// To disable, set per_function_touches: false in .hotspotsrc.json.
         #[arg(long)]
         per_function_touches: bool,
+
+        /// Output all functions as a flat array instead of the default triage-first structure.
+        /// Only valid with --mode snapshot --format json.
+        #[arg(long)]
+        all_functions: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -185,6 +190,7 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            all_functions,
         } => handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -199,6 +205,7 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            all_functions,
         })?,
         Commands::Prune {
             unreachable,
@@ -232,6 +239,7 @@ struct AnalyzeArgs {
     no_persist: bool,
     level: Option<OutputLevel>,
     per_function_touches: bool,
+    all_functions: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -245,6 +253,7 @@ fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         no_persist,
         force,
         level,
+        all_functions,
         ..
     } = args;
     if *policy && *mode != Some(OutputMode::Delta) {
@@ -275,6 +284,11 @@ fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
             anyhow::bail!("--level and --explain are mutually exclusive");
         }
     }
+    if *all_functions
+        && (*mode != Some(OutputMode::Snapshot) || !matches!(format, OutputFormat::Json))
+    {
+        anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
+    }
     Ok(())
 }
 
@@ -295,6 +309,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         no_persist,
         level,
         per_function_touches,
+        all_functions,
     } = args;
 
     // Normalize path to absolute
@@ -342,6 +357,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 no_persist,
                 level,
                 per_function_touches: effective_per_function_touches,
+                all_functions,
             },
         );
     }
@@ -629,6 +645,7 @@ struct ModeOutputOptions {
     no_persist: bool,
     level: Option<OutputLevel>,
     per_function_touches: bool,
+    all_functions: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -649,6 +666,7 @@ fn handle_mode_output(
         no_persist,
         level,
         per_function_touches,
+        all_functions,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -706,6 +724,7 @@ fn handle_mode_output(
                     output,
                     co_change_window_days: resolved_config.co_change_window_days,
                     co_change_min_count: resolved_config.co_change_min_count,
+                    all_functions,
                 },
                 &repo_root,
             )?;
@@ -795,6 +814,7 @@ struct SnapshotOutputOpts {
     output: Option<PathBuf>,
     co_change_window_days: u64,
     co_change_min_count: usize,
+    all_functions: bool,
 }
 
 fn emit_snapshot_output(
@@ -811,6 +831,7 @@ fn emit_snapshot_output(
         output,
         co_change_window_days,
         co_change_min_count,
+        all_functions,
     } = opts;
     match format {
         OutputFormat::Json => {
@@ -820,8 +841,22 @@ fn emit_snapshot_output(
                 co_change_window_days,
                 co_change_min_count,
             );
-            snapshot.aggregates = Some(aggregates);
-            println!("{}", snapshot.to_json()?);
+            if all_functions {
+                snapshot.aggregates = Some(aggregates);
+                println!("{}", snapshot.to_json()?);
+            } else {
+                let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
+                    snapshot,
+                    &aggregates,
+                    repo_root,
+                );
+                println!(
+                    "{}",
+                    agent_output
+                        .to_json()
+                        .context("failed to serialize agent snapshot output")?
+                );
+            }
         }
         OutputFormat::Jsonl => {
             println!("{}", snapshot.to_jsonl()?);
@@ -1552,36 +1587,10 @@ fn print_explain_output(
 fn driving_dimension(
     func: &hotspots_core::snapshot::FunctionSnapshot,
 ) -> (&'static str, &'static str) {
-    match func.driver.as_deref().unwrap_or("composite") {
-        "cyclic_dep" => (
-            "cyclic_dep",
-            "Cyclic dependency: break the cycle before adding more callers.",
-        ),
-        "high_complexity" => (
-            "high_complexity",
-            "Stable debt: schedule a refactor. Extract sub-functions to reduce CC.",
-        ),
-        "high_churn_low_cc" => (
-            "high_churn_low_cc",
-            "Churning but simple: add regression tests before next change.",
-        ),
-        "high_fanout_churning" => (
-            "high_fanout_churning",
-            "High coupling + active change: consider extracting an interface boundary.",
-        ),
-        "deep_nesting" => (
-            "deep_nesting",
-            "Deep nesting: flatten with early returns or guard clauses.",
-        ),
-        "high_fanin_complex" => (
-            "high_fanin_complex",
-            "Many callers + complex: extract and stabilize. Any bug here has wide blast radius.",
-        ),
-        _ => (
-            "composite",
-            "Monitor: review complexity trends before next modification.",
-        ),
-    }
+    let label = hotspots_core::snapshot::normalize_driver_label(
+        func.driver.as_deref().unwrap_or("composite"),
+    );
+    (label, hotspots_core::snapshot::driver_action(label))
 }
 
 /// Truncate string to max length
