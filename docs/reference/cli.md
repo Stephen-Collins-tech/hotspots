@@ -55,7 +55,7 @@ hotspots analyze lib/utils.ts
 ```
 
 ##### `--format <format>`
-**Optional.** Output format: `text`, `json`, or `html`.
+**Optional.** Output format: `text`, `json`, `jsonl`, or `html`.
 **Default:** `text`
 
 ```bash
@@ -64,6 +64,9 @@ hotspots analyze src/ --format text
 
 # Machine-readable JSON output
 hotspots analyze src/ --format json
+
+# Streaming JSONL output (one object per line)
+hotspots analyze src/ --format jsonl
 
 # Interactive HTML report (requires --mode)
 hotspots analyze src/ --format html --mode snapshot
@@ -244,9 +247,10 @@ file-level counts.
 hotspots analyze . --mode snapshot --per-function-touches
 ```
 
-**Warning:** Approximately 50× slower than the default. Default touch metrics are
-file-level (all functions in a file share the same `touch_count_30d`). Use this flag
-when precise per-function activity signals are required.
+**Warning:** Approximately 50× slower on a cold run (no cache). An on-disk touch cache
+is written after the first run; subsequent warm runs are significantly faster. Default
+touch metrics are file-level (all functions in a file share the same `touch_count_30d`).
+Use this flag when precise per-function activity signals are required.
 
 #### Examples
 

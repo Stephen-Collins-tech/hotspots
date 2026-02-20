@@ -110,8 +110,14 @@ hotspots analyze src/
 # Filter to critical functions only
 hotspots analyze src/ --min-lrs 9.0
 
+# Get per-function explanations with driver labels
+hotspots analyze . --mode snapshot --explain --top 10
+
 # Get JSON for tooling/AI
 hotspots analyze src/ --format json
+
+# Stream JSONL for pipeline processing (requires --mode)
+hotspots analyze src/ --mode snapshot --format jsonl --no-persist
 
 # Compare with previous commit (delta mode)
 hotspots analyze src/ --mode delta --policy
@@ -148,7 +154,18 @@ Hotspots computes a **Local Risk Score (LRS)** for each function based on:
 3. **Fan-Out (FO)** - How many other functions does this call?
 4. **Non-Structured Exits (NS)** - How many early returns, breaks, throws?
 
-These metrics combine into a single risk score. Higher LRS = higher risk of bugs, incidents, and developer confusion.
+These metrics combine into a single **Local Risk Score (LRS)**. Higher LRS = higher risk of bugs, incidents, and developer confusion.
+
+LRS is then combined with **Activity Risk** signals from git history and the call graph:
+
+- **Churn** — lines changed in the last 30 days (volatile code)
+- **Touch frequency** — commit count touching this function
+- **Recency** — days since last change (branch-aware)
+- **Fan-in** — how many other functions call this one (call graph)
+- **Cyclic dependency** — SCC membership (tightly coupled code)
+- **Neighbor churn** — lines changed in direct dependencies
+
+The call graph engine resolves imports to detect fan-in, PageRank, betweenness centrality, and SCC membership. Functions that are both complex AND heavily depended upon by other changing code rise to the top.
 
 **Example:**
 
@@ -213,6 +230,30 @@ hotspots analyze src/ --mode delta --policy
 # Exit code 1 if policies fail → CI fails
 ```
 
+### 🔍 Driver Labels & Explain Mode
+
+Understand *why* a function is flagged and get concrete refactoring advice:
+
+```bash
+hotspots analyze . --mode snapshot --explain --top 10
+```
+
+Each function shows its primary **driver** (`high_complexity`, `deep_nesting`,
+`high_churn_low_cc`, `high_fan_in`, `cyclic_dependency`, `composite`, …) plus
+an **Action** line with dimension-specific guidance:
+
+```
+#1 processPayment [CRITICAL] [high_complexity]
+   Risk Score: 14.52 (complexity base: 12.88)
+   Risk Breakdown:
+     • Complexity:   12.88  (cyclomatic=15, nesting=3, fanout=13)
+     • Churn:         0.32  (63 lines changed recently)
+     • Activity:      0.33  (11 commits in last 30 days)
+   Action: Stable debt: schedule a refactor. Extract sub-functions to reduce CC.
+```
+
+Use `--level file` or `--level module` for higher-level aggregated views.
+
 ### 📊 Multiple Output Formats
 
 **Terminal (human-readable):**
@@ -234,6 +275,12 @@ LRS   File                  Line  Function
   }
 ]
 ```
+
+**JSONL (streaming per-function):**
+```bash
+hotspots analyze src/ --mode snapshot --format jsonl | grep '"band":"critical"'
+```
+One JSON object per line — ideal for large repos and shell pipeline processing.
 
 **HTML (interactive reports):**
 - Sortable, filterable tables
@@ -303,6 +350,12 @@ hotspots analyze src/ --mode delta
 
 # See complexity trends
 hotspots trends src/
+
+# Prune unreachable snapshots (after force-push or branch deletion)
+hotspots prune --unreachable --older-than 30
+
+# Compact snapshot history
+hotspots compact --level 0
 ```
 
 Delta mode shows:
@@ -310,6 +363,16 @@ Delta mode shows:
 - Functions that were simplified
 - New high-complexity functions introduced
 - Overall repository complexity trend
+
+### ⚙️ Configuration Commands
+
+```bash
+# Show resolved configuration (weights, thresholds, filters)
+hotspots config show
+
+# Validate configuration file without running analysis
+hotspots config validate
+```
 
 ---
 

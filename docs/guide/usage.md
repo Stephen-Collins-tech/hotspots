@@ -776,7 +776,7 @@ The policy engine evaluates complexity regressions and enforces quality gates in
 
 ```bash
 # Analyze with policy evaluation
-hotspots analyze . --mode delta --policies --format json
+hotspots analyze . --mode delta --policy --format json
 ```
 
 Output includes a `policy` section with failures and warnings.
@@ -949,7 +949,7 @@ function foo() { }  // ⚠️  Warning: suppressed without reason
 Generate interactive HTML reports for better visualization:
 
 ```bash
-hotspots analyze . --format html > report.html
+hotspots analyze . --mode snapshot --format html
 ```
 
 **HTML report features:**
@@ -975,17 +975,14 @@ Shows function changes with:
 **Open in browser:**
 
 ```bash
-hotspots analyze . --format html > report.html
-open report.html  # macOS
-xdg-open report.html  # Linux
-start report.html  # Windows
+hotspots analyze . --mode snapshot --format html
+open .hotspots/report.html  # macOS
+xdg-open .hotspots/report.html  # Linux
+start .hotspots/report.html  # Windows
 ```
 
 ---
 
 ## See Also
 
-- [Capabilities and Use Cases](capabilities-and-use-cases.md) - Detailed feature overview
-- [Metrics Calculation and Rationale](metrics-calculation-and-rationale.md) - How metrics are computed
-- [Git History Integration Summary](git-history-integration-summary.md) - Technical details
 - [LRS Specification](lrs-spec.md) - Local Risk Score details

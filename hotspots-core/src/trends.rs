@@ -494,6 +494,7 @@ mod tests {
                     percentile: None,
                     driver: None,
                     driver_detail: None,
+                    quadrant: None,
                 }],
             ),
             create_test_snapshot(
@@ -523,6 +524,7 @@ mod tests {
                     percentile: None,
                     driver: None,
                     driver_detail: None,
+                    quadrant: None,
                 }],
             ),
         ];
@@ -564,6 +566,7 @@ mod tests {
                     percentile: None,
                     driver: None,
                     driver_detail: None,
+                    quadrant: None,
                 }],
             ),
             create_test_snapshot(
@@ -593,6 +596,7 @@ mod tests {
                     percentile: None,
                     driver: None,
                     driver_detail: None,
+                    quadrant: None,
                 }],
             ),
         ];
@@ -633,6 +637,7 @@ mod tests {
                         percentile: None,
                         driver: None,
                         driver_detail: None,
+                        quadrant: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -658,6 +663,7 @@ mod tests {
                         percentile: None,
                         driver: None,
                         driver_detail: None,
+                        quadrant: None,
                     },
                 ],
             ),
@@ -689,6 +695,7 @@ mod tests {
                         percentile: None,
                         driver: None,
                         driver_detail: None,
+                        quadrant: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -714,6 +721,7 @@ mod tests {
                         percentile: None,
                         driver: None,
                         driver_detail: None,
+                        quadrant: None,
                     },
                 ],
             ),

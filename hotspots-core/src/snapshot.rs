@@ -143,6 +143,14 @@ pub struct FunctionSnapshot {
     /// None for non-composite labels or when no metric is near-threshold.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub driver_detail: Option<String>,
+    /// Triage quadrant. Values: "fire", "debt", "watch", "ok".
+    /// fire  = high/critical + active (touches > p50 or changed ≤30d)
+    /// debt  = high/critical + not active
+    /// watch = moderate/low  + active
+    /// ok    = everything else
+    /// Populated by the enricher after driver labels. None before enrichment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quadrant: Option<String>,
 }
 
 /// Risk distribution by band
@@ -264,6 +272,7 @@ impl Snapshot {
                     percentile: None,
                     driver: None,
                     driver_detail: None,
+                    quadrant: None,
                 }
             })
             .collect();
@@ -721,6 +730,47 @@ impl Snapshot {
         }
     }
 
+    /// Compute and populate triage quadrant for all functions.
+    ///
+    /// Quadrant logic (Option C — combines both signals):
+    ///   is_active = touches_30d > touch_p50 OR days_since_last_change <= 30
+    ///   fire  = high/critical + is_active
+    ///   debt  = high/critical + !is_active
+    ///   watch = moderate/low  + is_active
+    ///   ok    = everything else
+    ///
+    /// Must be called after populate_driver_labels().
+    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8) {
+        if self.functions.is_empty() {
+            return;
+        }
+        let thresholds = compute_dimension_thresholds(&self.functions, driver_threshold_percentile);
+        let touch_p50 = thresholds.touch_med;
+
+        for function in &mut self.functions {
+            let touch_above_p50 = function
+                .touch_count_30d
+                .map(|t| t > touch_p50)
+                .unwrap_or(false);
+            let recently_changed = function
+                .days_since_last_change
+                .map(|d| d <= 30)
+                .unwrap_or(false);
+            let is_active = touch_above_p50 || recently_changed;
+            let is_high_risk = matches!(function.band.as_str(), "critical" | "high");
+
+            function.quadrant = Some(
+                match (is_high_risk, is_active) {
+                    (true, true) => "fire",
+                    (true, false) => "debt",
+                    (false, true) => "watch",
+                    (false, false) => "ok",
+                }
+                .to_string(),
+            );
+        }
+    }
+
     /// Compute repo-level summary statistics
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
@@ -1123,6 +1173,7 @@ impl SnapshotEnricher {
         self.snapshot.compute_percentiles();
         self.snapshot
             .populate_driver_labels(driver_threshold_percentile);
+        self.snapshot.compute_quadrants(driver_threshold_percentile);
         self.snapshot.compute_summary();
         self
     }

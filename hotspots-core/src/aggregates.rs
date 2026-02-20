@@ -738,6 +738,7 @@ mod tests {
             percentile: None,
             driver: None,
             driver_detail: None,
+            quadrant: None,
         }
     }
 

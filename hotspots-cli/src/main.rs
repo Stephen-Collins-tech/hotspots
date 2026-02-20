@@ -865,7 +865,12 @@ fn emit_snapshot_output(
                 co_change_min_count,
             );
             snapshot.aggregates = Some(aggregates);
-            let html = hotspots_core::html::render_html_snapshot(snapshot);
+            let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
+                .collect();
+            let html = hotspots_core::html::render_html_snapshot(snapshot, &history);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
