@@ -444,12 +444,13 @@ footer {
 
 /* Driver badges */
 .driver-badge { font-size: 0.75rem; padding: 0.15rem 0.4rem; border-radius: 0.25rem; margin-left: 0.4rem; }
-.driver-high_complexity   { background: #fff3e0; color: #e65100; }
-.driver-deep_nesting      { background: #f3e5f5; color: #6a1b9a; }
-.driver-high_churn_low_cc { background: #e0f7fa; color: #006064; }
-.driver-high_fan_in       { background: #e3f2fd; color: #0d47a1; }
-.driver-cyclic_dependency { background: #fce4ec; color: #880e4f; }
-.driver-composite         { background: #f5f5f5; color: #424242; }
+.driver-high_complexity    { background: #fff3e0; color: #e65100; }
+.driver-deep_nesting       { background: #f3e5f5; color: #6a1b9a; }
+.driver-high_churn_low_cc  { background: #e0f7fa; color: #006064; }
+.driver-high_fanin_complex { background: #e3f2fd; color: #0d47a1; }
+.driver-high_fanout_churning { background: #e8f5e9; color: #1b5e20; }
+.driver-cyclic_dep         { background: #fce4ec; color: #880e4f; }
+.driver-composite          { background: #f5f5f5; color: #424242; }
 
 /* Module instability zones (Robert Martin) */
 .zone-pain             { color: #ef4444; font-weight: 600; }
@@ -614,12 +615,13 @@ th.sortable.desc::after {
         border-top-color: #374151;
     }
 
-    .driver-high_complexity   { background: #3d2000; color: #ffab76; }
-    .driver-deep_nesting      { background: #2d0050; color: #e0b0ff; }
-    .driver-high_churn_low_cc { background: #002022; color: #80deea; }
-    .driver-high_fan_in       { background: #001e3c; color: #90caf9; }
-    .driver-cyclic_dependency { background: #3b0016; color: #f48fb1; }
-    .driver-composite         { background: #1a1a1a; color: #bdbdbd; }
+    .driver-high_complexity    { background: #3d2000; color: #ffab76; }
+    .driver-deep_nesting       { background: #2d0050; color: #e0b0ff; }
+    .driver-high_churn_low_cc  { background: #002022; color: #80deea; }
+    .driver-high_fanin_complex { background: #001e3c; color: #90caf9; }
+    .driver-high_fanout_churning { background: #002200; color: #a5d6a7; }
+    .driver-cyclic_dep         { background: #3b0016; color: #f48fb1; }
+    .driver-composite          { background: #1a1a1a; color: #bdbdbd; }
 
     .zone-stable   { color: #4ade80; }
     .zone-balanced { color: #60a5fa; }
@@ -1215,8 +1217,9 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 <option value="high_complexity">High Complexity</option>
                 <option value="deep_nesting">Deep Nesting</option>
                 <option value="high_churn_low_cc">High Churn / Low CC</option>
-                <option value="high_fan_in">High Fan-in</option>
-                <option value="cyclic_dependency">Cyclic Dependency</option>
+                <option value="high_fanin_complex">High Fan-in</option>
+                <option value="high_fanout_churning">High Fan-out</option>
+                <option value="cyclic_dep">Cyclic Dep</option>
                 <option value="composite">Composite</option>
             </select>
         </div>

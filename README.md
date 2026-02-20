@@ -239,8 +239,8 @@ hotspots analyze . --mode snapshot --explain --top 10
 ```
 
 Each function shows its primary **driver** (`high_complexity`, `deep_nesting`,
-`high_churn_low_cc`, `high_fan_in`, `cyclic_dependency`, `composite`, …) plus
-an **Action** line with dimension-specific guidance:
+`high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`,
+`composite`) plus an **Action** line with dimension-specific guidance:
 
 ```
 #1 processPayment [CRITICAL] [high_complexity]

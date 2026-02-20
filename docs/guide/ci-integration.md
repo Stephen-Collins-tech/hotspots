@@ -65,7 +65,7 @@ See [GitHub Action Guide](./github-action.md) for complete documentation.
 | `config` | Path to config file | Auto-discover |
 | `fail-on` | When to fail: `error`, `warn`, `never` | `error` |
 | `version` | Hotspots version | `latest` |
-| `github-token` | Token for PR comments | `${{ github.token }}` |
+| `github-token` | Token for PR comments | `github.token` (auto) |
 | `post-comment` | Post PR comment | `true` |
 
 ### Action Outputs

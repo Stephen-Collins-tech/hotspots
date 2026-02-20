@@ -33,7 +33,7 @@ hotspots analyze src/ --mode delta --policy --format json
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "commit": {
     "sha": "abc123def456...",
     "parents": ["def456..."],
@@ -104,7 +104,7 @@ See [JSON Schema Reference](../reference/json-schema.md) for complete documentat
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `schema_version` | number | Schema version (currently `1`) |
+| `schema_version` | number | Schema version (currently `2` for snapshot/delta output) |
 | `commit` | object | Git commit metadata |
 | `analysis` | object | Analysis metadata |
 | `functions` | array | Function analysis results |
@@ -240,15 +240,15 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 
 **Function Table:**
 - Sortable by LRS, CC, ND, FO, NS
-- Filterable by risk band
+- Filterable by risk band and driver label
 - Searchable by function name
-- Color-coded risk levels
+- Color-coded risk levels and driver badges
+- Action column: per-function refactoring recommendation (driver × quadrant)
 
-**Charts:**
-- Risk band distribution (pie chart)
-- LRS histogram
-- Metrics scatter plots
-- Trend charts (delta mode)
+**Charts (snapshot mode):**
+- Risk band distribution (donut chart)
+- Historical trend charts: stacked band count, activity risk line, top-1% share line
+  (requires ≥2 prior snapshots; up to 30 history points; hover for per-bar detail)
 
 **Delta Mode Additions:**
 - Before/after comparison

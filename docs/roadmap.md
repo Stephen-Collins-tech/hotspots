@@ -1,6 +1,6 @@
 # Hotspots Roadmap
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-20
 **Current Version:** Pre-release (approaching v1.0.0)
 **Vision:** Universal complexity analysis for modern software development
 
@@ -29,13 +29,21 @@
 - ✅ CFG (Control Flow Graph) construction
 - ✅ Activity Risk scoring (churn, touch, recency, fan_in, SCC, depth, neighbor_churn)
 - ✅ Call graph engine (import resolution, PageRank, betweenness centrality, SCC detection)
-- ✅ Driver labels and `--explain` mode (dimension-specific refactoring guidance)
+- ✅ Branch-aware recency: divergence-point comparison instead of HEAD-only
+- ✅ Driver labels: `high_complexity`, `deep_nesting`, `high_churn_low_cc`,
+  `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, `composite`
+- ✅ `--explain` mode (dimension-specific refactoring guidance + near-miss detail)
+- ✅ `driver_detail` field: near-miss percentile context for composite functions
+- ✅ Quadrant classification: `fire`, `debt`, `watch`, `ok` (band × activity)
+- ✅ Quadrant-aware action text: single `driver_action_for_quadrant` source of truth
 - ✅ Per-function touch cache (warm-run speedup via on-disk cache)
 - ✅ `--level file` and `--level module` aggregation views
 - ✅ JSONL output format
 - ✅ Policy engine with 7 built-in policies
 - ✅ Suppression comments system
-- ✅ HTML report generation
+- ✅ HTML report: trend charts (band count, risk line, share line), action column in triage table
+- ✅ Agent-optimized JSON (schema v3): triage-first structure with quadrant buckets
+- ✅ `--all-functions` flag for agent/tooling consumption
 - ✅ Proactive warning system
 - ✅ Git delta mode (snapshot + trends)
 - ✅ Configuration file support (`hotspots config show` / `hotspots config validate`)
@@ -887,8 +895,8 @@ For each language candidate:
 
 ---
 
-**Last Updated:** 2026-02-04
-**Next Review:** 2026-03-01 (after Phase 1 completion)
+**Last Updated:** 2026-02-20
+**Next Review:** 2026-03-15
 **Maintained By:** Core team
 
 **Changes to this roadmap require:**

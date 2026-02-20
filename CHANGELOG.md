@@ -37,13 +37,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--explain`** flag: human-readable per-function risk breakdown with individual metric
   contributions, activity signals, and a co-change coupling section
 - **Driver labels** classify the primary reason a function is flagged: `high_complexity`,
-  `deep_nesting`, `high_churn_low_cc`, `high_fan_in`, `cyclic_dependency`, `composite`, etc.
-- **`driver_detail`** field: near-miss dimension detail for composite drivers
-- Percentile-relative thresholds for each driver dimension
+  `deep_nesting`, `high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`,
+  `cyclic_dep`, or `composite`
+- **`driver_detail`** field: near-miss dimension detail for composite drivers (e.g., `cc (P72), nd (P68)`)
+- Percentile-relative thresholds for each driver dimension (default P=75)
+- **Quadrant classification**: each function tagged `fire`, `debt`, `watch`, or `ok` based on
+  band × activity (high/critical + active = `fire`, high/critical + quiet = `debt`, etc.)
+- **Action text**: per-function refactoring recommendation derived from driver × quadrant
 
 #### Higher-Level Views
 - **`--level file`** — ranked file risk table (max CC, avg CC, function count, LOC, churn)
 - **`--level module`** — module instability table (afferent/efferent coupling, instability score)
+
+#### HTML Report
+- **Trend charts** in snapshot HTML report: stacked band-count chart, activity-risk line, and
+  top-1% share line — all drawn with Canvas 2D from embedded history (up to 30 snapshots)
+- **Action column** in triage table: per-function refactoring recommendation (driver × quadrant)
+- Hover tooltip on band chart showing date + per-band counts
+
+#### Agent-Optimized JSON (Schema v3)
+- `--all-functions` flag: emit all functions (overrides `--min-lrs` / `--top` filters) for
+  agent consumption
+- Schema v3 (`AgentSnapshotOutput`): triage-first structure with `fire`/`debt`/`watch`/`ok`
+  quadrant buckets, each entry carrying `action`, `driver`, `quadrant`, and key metrics
 
 #### Output & CLI
 - **JSONL output format** (`--format jsonl`) — one JSON object per line for streaming pipelines

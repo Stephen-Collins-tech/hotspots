@@ -954,9 +954,14 @@ hotspots analyze . --mode snapshot --format html
 
 **HTML report features:**
 - Interactive sorting by any column
-- Filter by risk band
-- Filter by file path
-- Color-coded risk bands
+- Filter by risk band and driver label
+- Search by function name
+- Color-coded risk bands and driver badges
+- **Action column** in triage table: per-function refactoring recommendation (driver × quadrant)
+- **Trend charts** (snapshot mode, requires ≥2 prior snapshots):
+  - Stacked bar chart: band-count distribution over time (up to 30 snapshots)
+  - Line charts: activity risk and top-1% concentration over time
+  - Hover tooltip on band chart with per-band counts
 - Responsive design
 - Self-contained (no external dependencies)
 
@@ -985,4 +990,4 @@ start .hotspots/report.html  # Windows
 
 ## See Also
 
-- [LRS Specification](lrs-spec.md) - Local Risk Score details
+- [LRS Specification](../reference/lrs-spec.md) - Local Risk Score details

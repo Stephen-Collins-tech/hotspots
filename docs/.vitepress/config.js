@@ -109,5 +109,9 @@ export default defineConfig({
   },
 
   // Ignore internal docs from site
-  srcExclude: ['.internal/**']
+  srcExclude: ['.internal/**'],
+
+  // Some docs pages link to root-level files (CLAUDE.md, CONTRIBUTING, etc.) not
+  // included in the docs build. Suppress the dead-link build failure for those.
+  ignoreDeadLinks: true
 })

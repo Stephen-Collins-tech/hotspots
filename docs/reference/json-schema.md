@@ -741,13 +741,16 @@ tools: [
 
 The `schema_version` field tracks schema compatibility:
 
-- **Version 1** (current): Initial stable schema
-- Future versions will increment for breaking changes
-- Tools should check `schema_version` and handle accordingly
+- **Version 2** (current): Snapshot and delta output — adds `driver`, `driver_detail`, and
+  enriched `aggregates` (file_risk, co_change, modules)
+- **Version 3**: Agent-optimized output (`--all-functions`): triage-first structure with
+  `fire`/`debt`/`watch`/`ok` quadrant buckets and per-function `action` text
+- **Version 1**: Delta output schema (separate constant from snapshot schema)
+- Tools should check `schema_version` before consuming output
 
 ## Additional Resources
 
 - [JSON Schema Specification](https://json-schema.org/)
-- [Hotspots GitHub Repository](https://github.com/yourusername/hotspots)
+- [Hotspots GitHub Repository](https://github.com/Stephen-Collins-tech/hotspots)
 - [@hotspots/types npm package](https://www.npmjs.com/package/@hotspots/types)
-- [Complexity Metrics Research](docs/metrics-research.md)
+- [Metrics Reference](./metrics.md)

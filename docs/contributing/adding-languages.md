@@ -42,47 +42,47 @@ Edit `hotspots-core/Cargo.toml`:
 ```toml
 [dependencies]
 # ... existing dependencies ...
-tree-sitter-<language> = "0.x.y"
+tree-sitter-&lt;language&gt; = "0.x.y"
 ```
 
 **Find tree-sitter parsers:** Check [tree-sitter GitHub](https://github.com/tree-sitter) or [crates.io](https://crates.io).
 
 #### 1.2 Create Language Module
 
-Create `hotspots-core/src/language/<language>/mod.rs`:
+Create `hotspots-core/src/language/&lt;language&gt;/mod.rs`:
 
 ```rust
-//! <Language> language support
+//! &lt;Language&gt; language support
 //!
-//! This module provides <Language> parsing, function discovery, and CFG building
-//! using the tree-sitter-<language> parser.
+//! This module provides &lt;Language&gt; parsing, function discovery, and CFG building
+//! using the tree-sitter-&lt;language&gt; parser.
 
 pub mod cfg_builder;
 pub mod parser;
 
-pub use cfg_builder::<Language>CfgBuilder;
-pub use parser::<Language>Parser;
+pub use cfg_builder::&lt;Language&gt;CfgBuilder;
+pub use parser::&lt;Language&gt;Parser;
 ```
 
 #### 1.3 Implement Parser
 
-Create `hotspots-core/src/language/<language>/parser.rs`:
+Create `hotspots-core/src/language/&lt;language&gt;/parser.rs`:
 
 ```rust
 use tree_sitter::{Node, Parser, TreeCursor};
 use anyhow::{Context, Result};
 use crate::language::function_body::FunctionBody;
 
-pub struct <Language>Parser {
+pub struct &lt;Language&gt;Parser {
     parser: Parser,
 }
 
-impl <Language>Parser {
+impl &lt;Language&gt;Parser {
     pub fn new() -> Result<Self> {
         let mut parser = Parser::new();
-        let language = tree_sitter_<language>::LANGUAGE.into();
+        let language = tree_sitter_&lt;language&gt;::LANGUAGE.into();
         parser.set_language(&language)
-            .context("Failed to load <Language> grammar")?;
+            .context("Failed to load &lt;Language&gt; grammar")?;
 
         Ok(Self { parser })
     }
@@ -90,7 +90,7 @@ impl <Language>Parser {
     /// Parse source code and discover functions
     pub fn discover_functions(&mut self, source: &str) -> Result<Vec<FunctionBody>> {
         let tree = self.parser.parse(source, None)
-            .context("Failed to parse <Language> source")?;
+            .context("Failed to parse &lt;Language&gt; source")?;
 
         let root = tree.root_node();
         let mut functions = Vec::new();
@@ -101,7 +101,7 @@ impl <Language>Parser {
 
         // Sort by source position for determinism
         functions.sort_by_key(|f| match f {
-            FunctionBody::<Language> { body_node, .. } => *body_node,
+            FunctionBody::&lt;Language&gt; { body_node, .. } => *body_node,
             _ => unreachable!(),
         });
 
@@ -142,14 +142,14 @@ impl <Language>Parser {
         let body_node = node.child_by_field_name("body")?;
         let body_source = &source[body_node.byte_range()];
 
-        Some(FunctionBody::<Language> {
+        Some(FunctionBody::&lt;Language&gt; {
             body_node: body_node.id(),
             source: body_source.to_string(),
         })
     }
 }
 
-impl crate::language::LanguageParser for <Language>Parser {
+impl crate::language::LanguageParser for &lt;Language&gt;Parser {
     fn discover_functions(&mut self, source: &str) -> Result<Vec<FunctionBody>> {
         self.discover_functions(source)
     }
@@ -167,18 +167,18 @@ impl crate::language::LanguageParser for <Language>Parser {
 Edit `hotspots-core/src/language/mod.rs`:
 
 ```rust
-pub mod <language>;
+pub mod &lt;language&gt;;
 
 pub enum Language {
     // ... existing languages ...
-    <Language>,
+    &lt;Language&gt;,
 }
 
 impl Language {
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext {
             // ... existing extensions ...
-            "<ext>" => Some(Language::<Language>),
+            "&lt;ext&gt;" => Some(Language::&lt;Language&gt;),
             _ => None,
         }
     }
@@ -186,19 +186,19 @@ impl Language {
     pub fn extensions(&self) -> &[&str] {
         match self {
             // ... existing languages ...
-            Language::<Language> => &["<ext>"],
+            Language::&lt;Language&gt; => &["&lt;ext&gt;"],
         }
     }
 
     pub fn name(&self) -> &str {
         match self {
             // ... existing languages ...
-            Language::<Language> => "<Language>",
+            Language::&lt;Language&gt; => "&lt;Language&gt;",
         }
     }
 }
 
-pub use <language>::{<Language>Parser, <Language>CfgBuilder};
+pub use &lt;language&gt;::{&lt;Language&gt;Parser, &lt;Language&gt;CfgBuilder};
 ```
 
 #### 1.5 Add FunctionBody Variant
@@ -208,19 +208,19 @@ Edit `hotspots-core/src/language/function_body.rs`:
 ```rust
 pub enum FunctionBody {
     // ... existing variants ...
-    <Language> {
+    &lt;Language&gt; {
         body_node: usize,
         source: String,
     },
 }
 
 impl FunctionBody {
-    pub fn is_<language>(&self) -> bool {
-        matches!(self, FunctionBody::<Language> { .. })
+    pub fn is_&lt;language&gt;(&self) -> bool {
+        matches!(self, FunctionBody::&lt;Language&gt; { .. })
     }
 
-    pub fn as_<language>(&self) -> Option<(&usize, &str)> {
-        if let FunctionBody::<Language> { body_node, source } = self {
+    pub fn as_&lt;language&gt;(&self) -> Option<(&usize, &str)> {
+        if let FunctionBody::&lt;Language&gt; { body_node, source } = self {
             Some((body_node, source))
         } else {
             None
@@ -235,20 +235,20 @@ impl FunctionBody {
 
 #### 2.1 Create CFG Builder
 
-Create `hotspots-core/src/language/<language>/cfg_builder.rs`:
+Create `hotspots-core/src/language/&lt;language&gt;/cfg_builder.rs`:
 
 ```rust
 use crate::cfg::{Cfg, CfgNode};
 use anyhow::Result;
 
-pub struct <Language>CfgBuilder;
+pub struct &lt;Language&gt;CfgBuilder;
 
-impl <Language>CfgBuilder {
+impl &lt;Language&gt;CfgBuilder {
     /// Build CFG from function body
     pub fn build_cfg(source: &str) -> Result<Cfg> {
         // Re-parse source to get tree-sitter tree
         let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_<language>::LANGUAGE.into())?;
+        parser.set_language(&tree_sitter_&lt;language&gt;::LANGUAGE.into())?;
         let tree = parser.parse(source, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse function body"))?;
 
@@ -346,12 +346,12 @@ impl <Language>CfgBuilder {
     // ... implement visit_for, visit_switch, etc. ...
 }
 
-impl crate::language::cfg_builder::CfgBuilder for <Language>CfgBuilder {
+impl crate::language::cfg_builder::CfgBuilder for &lt;Language&gt;CfgBuilder {
     fn build_cfg(body: &crate::language::function_body::FunctionBody) -> Result<Cfg> {
-        if let Some((_, source)) = body.as_<language>() {
+        if let Some((_, source)) = body.as_&lt;language&gt;() {
             Self::build_cfg(source)
         } else {
-            anyhow::bail!("Expected <Language> function body")
+            anyhow::bail!("Expected &lt;Language&gt; function body")
         }
     }
 }
@@ -372,7 +372,7 @@ Edit `hotspots-core/src/language/cfg_builder.rs`:
 pub fn create_cfg_builder(body: &FunctionBody) -> Box<dyn CfgBuilder> {
     match body {
         // ... existing languages ...
-        FunctionBody::<Language> { .. } => Box::new(<language>::<Language>CfgBuilder),
+        FunctionBody::&lt;Language&gt; { .. } => Box::new(&lt;language&gt;::&lt;Language&gt;CfgBuilder),
     }
 }
 ```
@@ -385,9 +385,9 @@ Edit `hotspots-core/src/analysis.rs`:
 pub fn create_parser(lang: Language) -> Result<Box<dyn LanguageParser>> {
     match lang {
         // ... existing languages ...
-        Language::<Language> => {
-            Ok(Box::new(<language>::<Language>Parser::new()
-                .context("Failed to create <Language> parser")?))
+        Language::&lt;Language&gt; => {
+            Ok(Box::new(&lt;language&gt;::&lt;Language&gt;Parser::new()
+                .context("Failed to create &lt;Language&gt; parser")?))
         }
     }
 }
@@ -399,10 +399,10 @@ pub fn create_parser(lang: Language) -> Result<Box<dyn LanguageParser>> {
 
 #### 3.1 Create Test Fixtures
 
-Create `tests/fixtures/<language>/` directory with test files:
+Create `tests/fixtures/&lt;language&gt;/` directory with test files:
 
 **simple.ext** - Basic functions:
-```<language>
+```&lt;language&gt;
 // Simple function (low complexity)
 function simpleFunction(x) {
     return x + 1;
@@ -418,7 +418,7 @@ function withEarlyReturn(x) {
 ```
 
 **loops.ext** - Loop constructs:
-```<language>
+```&lt;language&gt;
 // While loop
 function whileLoop(n) {
     int i = 0;
@@ -451,7 +451,7 @@ function nestedLoops(matrix[][]) {
 ```
 
 **branching.ext** - Conditional logic:
-```<language>
+```&lt;language&gt;
 // If/else chains
 function ifElseChain(value) {
     if (value < 0) {
@@ -491,12 +491,12 @@ function switchStatement(value) {
 cargo build --release
 
 # Generate golden output for each fixture
-./target/release/hotspots analyze tests/fixtures/<language>/simple.ext --format json > tests/golden/<language>-simple.json
-./target/release/hotspots analyze tests/fixtures/<language>/loops.ext --format json > tests/golden/<language>-loops.json
-./target/release/hotspots analyze tests/fixtures/<language>/branching.ext --format json > tests/golden/<language>-branching.json
+./target/release/hotspots analyze tests/fixtures/&lt;language&gt;/simple.ext --format json > tests/golden/&lt;language&gt;-simple.json
+./target/release/hotspots analyze tests/fixtures/&lt;language&gt;/loops.ext --format json > tests/golden/&lt;language&gt;-loops.json
+./target/release/hotspots analyze tests/fixtures/&lt;language&gt;/branching.ext --format json > tests/golden/&lt;language&gt;-branching.json
 
 # Verify output manually
-cat tests/golden/<language>-simple.json | jq .
+cat tests/golden/&lt;language&gt;-simple.json | jq .
 ```
 
 **Golden file checklist:**
@@ -508,12 +508,12 @@ cat tests/golden/<language>-simple.json | jq .
 
 #### 3.3 Add Unit Tests
 
-Create `hotspots-core/tests/<language>_tests.rs`:
+Create `hotspots-core/tests/&lt;language&gt;_tests.rs`:
 
 ```rust
 #[cfg(test)]
-mod <language>_tests {
-    use hotspots_core::language::<language>::<Language>Parser;
+mod &lt;language&gt;_tests {
+    use hotspots_core::language::&lt;language&gt;::&lt;Language&gt;Parser;
     use hotspots_core::analyze_function;
 
     #[test]
@@ -524,7 +524,7 @@ mod <language>_tests {
             }
         "#;
 
-        let mut parser = <Language>Parser::new().unwrap();
+        let mut parser = &lt;Language&gt;Parser::new().unwrap();
         let functions = parser.discover_functions(source).unwrap();
 
         assert_eq!(functions.len(), 1);
@@ -545,7 +545,7 @@ mod <language>_tests {
             }
         "#;
 
-        let mut parser = <Language>Parser::new().unwrap();
+        let mut parser = &lt;Language&gt;Parser::new().unwrap();
         let functions = parser.discover_functions(source).unwrap();
         let report = analyze_function(&functions[0], "test.ext").unwrap();
 
@@ -565,10 +565,10 @@ mod <language>_tests {
 cargo test
 
 # Run language-specific tests
-cargo test <language>
+cargo test &lt;language&gt;
 
 # Run with output
-cargo test <language> -- --nocapture
+cargo test &lt;language&gt; -- --nocapture
 
 # Verify golden tests
 cargo test --test golden_tests
@@ -583,11 +583,11 @@ cargo test --test golden_tests
 Edit `docs/reference/language-support.md`:
 
 ```markdown
-## <Language>
+## &lt;Language&gt;
 
 **Supported:** Yes (v1.x.x+)
-**File Extensions:** `.<ext>`
-**tree-sitter Parser:** `tree-sitter-<language>`
+**File Extensions:** `.&lt;ext&gt;`
+**tree-sitter Parser:** `tree-sitter-&lt;language&gt;`
 
 ### Function Detection
 
@@ -627,7 +627,7 @@ Example: Python's else-on-loops, Go's defer statements, etc.
 
 ### Example Analysis
 
-```<language>
+```&lt;language&gt;
 function complexFunction(data) {
     if (data.type === 'A') {
         for (item in data.items) {
@@ -654,7 +654,7 @@ Update supported languages list and examples.
 
 #### 4.3 Add Examples
 
-Create `examples/<language>/` with sample projects.
+Create `examples/&lt;language&gt;/` with sample projects.
 
 ---
 
