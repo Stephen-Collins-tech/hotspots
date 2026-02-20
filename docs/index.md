@@ -149,11 +149,11 @@ hotspots trends src/
 ### 🤖 AI-Assisted Refactoring
 
 ```bash
-# Install MCP server for Claude
-npm install -g @hotspots/mcp-server
+# Get agent-optimized JSON (fire/debt/watch/ok quadrant buckets + action text)
+hotspots analyze src/ --all-functions --format json
 
-# Then ask Claude:
-"Find my top 10 hotspots and suggest refactoring strategies"
+# Feed to Claude Code or paste into Claude/Cursor/Copilot:
+# "These are my hotspots. Suggest refactoring strategies for the 'fire' quadrant."
 ```
 
 ---
@@ -256,19 +256,32 @@ function complexLegacyCode() {
 }
 ```
 
+### 🏷️ Driver Labels
+
+Understand *why* a function is complex:
+
+- `high_complexity` — High CC and nesting, complex logic
+- `deep_nesting` — High nesting despite moderate CC
+- `high_churn_low_cc` — Frequently changed simple function (churn risk)
+- `high_fanout_churning` — Many callees + high churn
+- `high_fanin_complex` — Many callers + complex body
+- `cyclic_dep` — Participates in import/call cycles
+- `composite` — Multiple risk factors combined
+
 ### 📈 Git History Analysis
 
 Track complexity over time:
 
-- **Snapshot mode** - Create baseline
-- **Delta mode** - Compare current vs baseline
-- **Trends** - See complexity evolution
+- **Snapshot mode** — Create baseline, generates interactive HTML report
+- **Delta mode** — Compare current vs baseline; PR policy enforcement
+- **Trend charts** — HTML report shows band-count, activity risk, top-1% share over time
+- **`--all-functions` flag** — Agent-optimized JSON with quadrant classification (`fire`/`debt`/`watch`/`ok`) and action text
 
 ### 📊 Multiple Formats
 
-- **Text** - Terminal-friendly, color-coded
-- **JSON** - Machine-readable for tooling/AI
-- **HTML** - Interactive reports for stakeholders
+- **Text** — Terminal-friendly, color-coded
+- **JSON** — Machine-readable for tooling/AI (schema v2)
+- **HTML** — Interactive reports with triage table, driver badges, trend charts
 
 ### ⚡ Fast & Deterministic
 
@@ -315,8 +328,8 @@ Found a bug? Feature request?
 3. Enforce quality gates on every PR
 
 **Want AI-assisted refactoring?**
-1. [Install MCP server](./integrations/mcp-server.md) (2 minutes)
-2. [Try example workflows](./integrations/ai-agents.md) (10 minutes)
+1. [AI Integration Guide](./integrations/mcp-server.md) — Claude Code workflows
+2. [Agent Examples](./integrations/ai-agents.md) — Automated refactoring scripts
 3. Let AI suggest refactorings for your hotspots
 
 ---

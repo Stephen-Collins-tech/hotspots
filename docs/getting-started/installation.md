@@ -53,43 +53,31 @@ Coming soon - Windows support
 
 ## GitHub Action
 
-Use Hot spots in GitHub Actions:
+Use Hotspots in GitHub Actions:
 
 ```yaml
-- uses: Stephen-Collins-tech/hotspots@v1
+- uses: Stephen-Collins-tech/hotspots-action@v1
   with:
-    path: src/
-    mode: delta
-    policy: true
-    fail-on: blocking
+    github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 See [GitHub Action Guide](../guide/github-action.md) for more.
 
 ## MCP Server (AI Integration)
 
-Install the MCP server for AI tools like Claude Desktop:
+> **Coming Soon** — Native MCP server integration is planned for a future release.
+
+Until then, use Hotspots with Claude Code directly via CLI commands:
 
 ```bash
-cd packages/mcp-server
-npm install
-npm run build
+# Analyze changes in your project
+hotspots analyze . --mode delta --format json
+
+# Get agent-optimized output (quadrant buckets + action text)
+hotspots analyze . --mode delta --all-functions --format json
 ```
 
-Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "node",
-      "args": ["/path/to/hotspots/packages/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-See [MCP Server Documentation](../integrations/mcp-server.md) for more.
+See [AI Integration Guide](../integrations/mcp-server.md) for complete AI workflow documentation.
 
 ## Verify Installation
 
@@ -135,7 +123,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### Build from source fails
 
-Ensure you have Rust 1.70+:
+Ensure you have Rust 1.75 or later:
 
 ```bash
 rustc --version

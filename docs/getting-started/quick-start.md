@@ -92,21 +92,25 @@ hotspots analyze src/ --format json > hotspots.json
 
 **Example JSON output:**
 ```json
-[
-  {
-    "file": "src/auth/validateUser.ts",
-    "function": "validateUser",
-    "line": 142,
-    "lrs": 12.4,
-    "band": "critical",
-    "metrics": {
-      "cc": 15,
-      "nd": 4,
-      "fo": 8,
-      "ns": 3
+{
+  "schema_version": 2,
+  "generated_at": "2026-02-20T12:00:00Z",
+  "summary": {
+    "total_functions": 47,
+    "by_band": { "critical": 2, "high": 5, "moderate": 18, "low": 22 }
+  },
+  "functions": [
+    {
+      "file": "src/auth/validateUser.ts",
+      "name": "validateUser",
+      "line": 142,
+      "lrs": 12.4,
+      "band": "critical",
+      "driver": "high_complexity",
+      "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
     }
-  }
-]
+  ]
+}
 ```
 
 ---
@@ -213,20 +217,20 @@ RESULT: FAILED (1 blocking violation)
 Create an HTML report for your team:
 
 ```bash
-hotspots analyze src/ --format html --output report.html
+hotspots analyze src/ --mode snapshot --format html
 ```
 
-**What you get:** Interactive HTML report with:
-- Sortable tables
-- Filterable by risk band
-- Charts and visualizations
+**What you get:** Interactive HTML report at `.hotspots/report.html` with:
+- Sortable, filterable function table with driver badges
+- Triage section with recommended actions per function
+- Trend charts (band counts, activity risk, top-1% share) when history exists
 - Shareable with stakeholders
 
 **Open it:**
 ```bash
-open report.html  # macOS
-xdg-open report.html  # Linux
-start report.html  # Windows
+open .hotspots/report.html  # macOS
+xdg-open .hotspots/report.html  # Linux
+start .hotspots/report.html  # Windows
 ```
 
 ---
@@ -289,8 +293,8 @@ hotspots analyze src/ --format json --min-lrs 9.0 | pbcopy
 3. [Add to CI/CD](../guide/ci-integration.md) - Jenkins, GitLab CI, CircleCI
 
 **For AI Users:**
-1. [Install MCP server](../integrations/mcp-server.md) - Claude Desktop integration
-2. [Try AI workflows](../integrations/ai-agents.md) - Automated refactoring suggestions
+1. [AI Integration Guide](../integrations/mcp-server.md) - Claude Code and AI workflow examples
+2. [Agent Examples](../integrations/ai-agents.md) - Python/TypeScript automation scripts
 
 ---
 
