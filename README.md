@@ -58,14 +58,15 @@ Stop wasting time on code that "looks messy" but never causes problems. Focus on
 
 Catch risky changes before they merge:
 
-```yaml
-# .github/workflows/hotspots.yml
-- uses: Stephen-Collins-tech/hotspots-action@v1
-  with:
-    policy: critical-introduction  # Block new critical-risk functions
+```bash
+# Run in CI with policy checks
+hotspots analyze src/ --mode delta --policy
+# Exit code 1 if policies fail → CI fails
 ```
 
 Your CI fails if someone introduces high-risk code. No manual review needed.
+
+> **GitHub Action coming soon.** A native `hotspots-action` for GitHub Actions is not yet available. Use the CLI directly in your workflows in the meantime.
 
 ### ✅ Ship with Confidence, Not Crossed Fingers
 
@@ -96,12 +97,7 @@ chmod +x hotspots
 sudo mv hotspots /usr/local/bin/
 ```
 
-**GitHub Action (recommended for teams):**
-```yaml
-- uses: Stephen-Collins-tech/hotspots-action@v1
-  with:
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-```
+**GitHub Action:** Coming soon. Use the CLI directly in your workflows for now.
 
 ### 2. Analyze Your Code
 
@@ -382,7 +378,7 @@ hotspots config validate
 
 - 🚀 [Quick Start](docs/getting-started/quick-start.md) - Get started in 5 minutes
 - 📖 [CLI Reference](docs/reference/cli.md) - All commands and options
-- 🎯 [GitHub Action Guide](docs/guide/github-action.md) - CI/CD integration
+- 🎯 GitHub Action - CI/CD integration *(coming soon)*
 - 🤖 [AI Integration](docs/integrations/ai-agents.md) - Claude, Cursor, Copilot
 - 🏗️ [Architecture](docs/architecture/overview.md) - How it works
 - 🤝 [Contributing](docs/contributing/index.md) - Add languages, fix bugs, improve docs
@@ -494,7 +490,7 @@ MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
 2. 🔍 Run your first analysis: `hotspots analyze src/`
 3. 🎯 Identify your top 10 hotspots
 4. 🛠️ Refactor the worst offender
-5. 📊 Add to CI/CD: [GitHub Action Guide](docs/guide/github-action.md)
+5. 📊 Add to CI/CD: `hotspots analyze src/ --mode delta --policy` (GitHub Action coming soon)
 6. 🤖 Integrate with AI: [AI Integration Guide](docs/integrations/ai-agents.md)
 
 **Questions?** Open a [GitHub Discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
