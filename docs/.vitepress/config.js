@@ -10,6 +10,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/usage' },
       { text: 'Reference', link: '/reference/cli' },
+      { text: 'hotspots.dev', link: 'https://hotspots.dev' },
       { text: 'GitHub', link: 'https://github.com/Stephen-Collins-tech/hotspots' }
     ],
 
@@ -52,7 +53,7 @@ export default defineConfig({
     ],
 
     footer: {
-      message: 'Released under the MIT License.',
+      message: 'Released under the MIT License. · <a href="https://hotspots.dev">hotspots.dev</a>',
       copyright: 'Copyright © 2026 Stephen Collins'
     },
 
