@@ -1,5 +1,7 @@
 # Hotspots
 
+**Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Install:** `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`
+
 **Find the code that's actually causing problems.**
 
 Your codebase has thousands of functions. Some are messy but never break. Others are complex AND change constantly—those are your **hotspots**, the 20% of code causing 80% of your bugs, incidents, and slowdowns.
