@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-02-21
+
 ### Added
 
 #### Multi-Language Support
@@ -131,4 +133,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `visualizations/`: Interactive charts and specs
 - `docs/`: Comprehensive documentation
 
+[1.0.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.0.0
 [0.0.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v0.0.1

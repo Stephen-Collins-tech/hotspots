@@ -1,7 +1,7 @@
 {
   "name": "hotspots-action",
   "version": "1.0.0",
-  "description": "GitHub Action for Faultline complexity analysis",
+  "description": "GitHub Action for Hotspots complexity analysis",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && ncc build dist/main.js -o dist --source-map --license licenses.txt",
@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourorg/hotspots.git"
+    "url": "git+https://github.com/Stephen-Collins-tech/hotspots.git"
   },
   "keywords": [
     "actions",
@@ -23,7 +23,7 @@
     "ci",
     "code-quality"
   ],
-  "author": "Faultline",
+  "author": "Stephen Collins",
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^1.10.1",

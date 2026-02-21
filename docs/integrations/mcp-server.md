@@ -202,7 +202,7 @@ jobs:
           # Post comment to PR via GitHub API
 ```
 
-See [examples/ai-agents/pr-reviewer.ts](../examples/ai-agents/pr-reviewer.ts) for reference implementation.
+See [examples/ai-agents/pr-reviewer/pr-reviewer.ts](../examples/ai-agents/pr-reviewer/pr-reviewer.ts) for reference implementation.
 
 ---
 
