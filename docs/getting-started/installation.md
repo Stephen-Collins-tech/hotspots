@@ -7,16 +7,14 @@ Install Hotspots on your system.
 ### macOS / Linux
 
 ```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
-chmod +x hotspots
-mkdir -p ~/.local/bin
-mv hotspots ~/.local/bin/
+curl -fsSL https://hotspots.dev/install.sh | sh
 ```
 
-Then ensure `~/.local/bin` is in your PATH. Add this to `~/.zshrc` or `~/.bashrc` if it isn't already:
+This installs the binary to `~/.local/bin/hotspots` and prints a PATH reminder if needed.
 
+**Install a specific version:**
 ```bash
-export PATH="$HOME/.local/bin:$PATH"
+HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://hotspots.dev/install.sh | sh
 ```
 
 Verify installation:
