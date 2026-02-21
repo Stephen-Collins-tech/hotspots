@@ -32,6 +32,44 @@ pub struct DirectoryAggregates {
     pub high_plus_count: usize,
 }
 
+/// File-level risk view
+///
+/// Richer than `FileAggregates` — includes CC, LOC, function density, and a composite
+/// file_risk_score derived from:
+///   max_cc × 0.4 + avg_cc × 0.3 + log2(function_count + 1) × 0.2 + churn_factor × 0.1
+/// where churn_factor = (file_churn / 100).min(10.0)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct FileRiskView {
+    pub file: String,
+    pub function_count: usize,
+    pub loc: usize,
+    pub max_cc: usize,
+    pub avg_cc: f64,
+    pub critical_count: usize,
+    pub file_churn: u64,
+    pub file_risk_score: f64,
+}
+
+/// Module (directory) instability metric (Robert Martin's Ca/Ce)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ModuleInstability {
+    /// Directory path relative to repo root
+    pub module: String,
+    pub file_count: usize,
+    pub function_count: usize,
+    pub avg_complexity: f64,
+    /// Afferent coupling: external modules that depend on this one
+    pub afferent: usize,
+    /// Efferent coupling: modules this one depends on externally
+    pub efferent: usize,
+    /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
+    pub instability: f64,
+    /// "high" if instability < 0.3 and avg_complexity > 10, else "low"
+    pub module_risk: String,
+}
+
 /// Snapshot aggregates container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +78,12 @@ pub struct SnapshotAggregates {
     pub files: Vec<FileAggregates>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub directories: Vec<DirectoryAggregates>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_risk: Vec<FileRiskView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub co_change: Vec<crate::git::CoChangePair>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<ModuleInstability>,
 }
 
 /// Delta aggregates for a file
@@ -49,6 +93,24 @@ pub struct FileDeltaAggregates {
     pub file: String,
     pub net_lrs_delta: f64,
     pub regression_count: usize,
+    pub improvement_count: usize,
+}
+
+/// A co-change pair entry in the delta diff
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CoChangeDeltaEntry {
+    pub file_a: String,
+    pub file_b: String,
+    /// "new" | "dropped" | "risk_increased" | "risk_decreased"
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_risk: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curr_risk: Option<String>,
+    pub co_change_count: usize,
+    pub coupling_ratio: f64,
+    pub has_static_dep: bool,
 }
 
 /// Delta aggregates container
@@ -57,6 +119,263 @@ pub struct FileDeltaAggregates {
 pub struct DeltaAggregates {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<FileDeltaAggregates>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub co_change_delta: Vec<CoChangeDeltaEntry>,
+}
+
+/// Number of functions per quadrant in the agent triage view
+const TRIAGE_TOP_N: usize = 5;
+/// Maximum hidden coupling pairs in the agent output (context-window cap)
+const HIDDEN_COUPLING_TOP_N: usize = 20;
+/// Maximum file risk entries in the agent output
+const FILE_RISK_TOP_N: usize = 10;
+
+/// Slim complexity metrics for agent-optimized function view
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentMetrics {
+    pub cc: usize,
+    pub nd: usize,
+    pub fo: usize,
+}
+
+/// Slim function view for agent-optimized triage output
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentFunctionView {
+    pub function: String,
+    pub file: String,
+    pub line: u32,
+    pub band: String,
+    pub quadrant: String,
+    pub driver: String,
+    pub action: &'static str,
+    pub lrs: f64,
+    pub activity_risk: f64,
+    pub metrics: AgentMetrics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touches_30d: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub days_since_changed: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fan_in: Option<usize>,
+}
+
+/// A triage quadrant with count and top-N functions
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TriageQuadrant {
+    pub count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top: Vec<AgentFunctionView>,
+}
+
+/// Triage view grouping functions by quadrant
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TriageView {
+    pub fire: TriageQuadrant,
+    pub debt: TriageQuadrant,
+    pub watch: TriageQuadrant,
+    pub ok: TriageQuadrant,
+}
+
+/// Co-change section for agent-optimized output (hidden coupling only, capped at top N)
+///
+/// `hidden_count` reflects only actionable pairs (risk == "high" or "moderate").
+/// Low-risk pairs are excluded to match text output semantics.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentCoChangeView {
+    pub hidden_coupling: Vec<crate::git::CoChangePair>,
+    pub hidden_count: usize,
+    pub total_pairs: usize,
+}
+
+/// Agent-optimized snapshot output (schema version 3)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentSnapshotOutput {
+    pub schema_version: u32,
+    pub commit: crate::snapshot::CommitInfo,
+    pub triage: TriageView,
+    pub co_change: AgentCoChangeView,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub file_risk: Vec<FileRiskView>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub modules: Vec<ModuleInstability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::snapshot::SnapshotSummary>,
+}
+
+impl AgentSnapshotOutput {
+    /// Serialize to pretty-printed JSON string.
+    pub fn to_json(&self) -> anyhow::Result<String> {
+        serde_json::to_string_pretty(self).map_err(|e| anyhow::anyhow!("{}", e))
+    }
+}
+
+/// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).
+fn to_agent_view(
+    fns: &[&FunctionSnapshot],
+    repo_root: &std::path::Path,
+    top_n: usize,
+) -> Vec<AgentFunctionView> {
+    fns.iter()
+        .take(top_n)
+        .map(|func| {
+            let function_name = func
+                .function_id
+                .split("::")
+                .last()
+                .unwrap_or(&func.function_id)
+                .to_string();
+            let file = normalize_path_relative_to_repo(&func.file, repo_root)
+                .unwrap_or_else(|| func.file.clone());
+            let driver = func.driver.as_deref().unwrap_or("composite");
+            let action = crate::snapshot::driver_action_for_quadrant(
+                driver,
+                func.quadrant.as_deref().unwrap_or(""),
+            );
+            AgentFunctionView {
+                function: function_name,
+                file,
+                line: func.line,
+                band: func.band.clone(),
+                quadrant: func.quadrant.clone().unwrap_or_else(|| "ok".to_string()),
+                driver: driver.to_string(),
+                action,
+                lrs: func.lrs,
+                activity_risk: func.activity_risk.unwrap_or(func.lrs),
+                metrics: AgentMetrics {
+                    cc: func.metrics.cc,
+                    nd: func.metrics.nd,
+                    fo: func.metrics.fo,
+                },
+                touches_30d: func.touch_count_30d,
+                days_since_changed: func.days_since_last_change,
+                fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
+            }
+        })
+        .collect()
+}
+
+/// Build the agent-optimized v3 JSON output from a fully enriched snapshot and its aggregates.
+///
+/// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
+/// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
+/// top 20 by coupling_ratio. File risk is capped at top 10.
+pub fn compute_agent_snapshot_output(
+    snapshot: &crate::snapshot::Snapshot,
+    aggregates: &SnapshotAggregates,
+    repo_root: &std::path::Path,
+) -> AgentSnapshotOutput {
+    // Partition functions into quadrant buckets
+    let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut watch_fns: Vec<&FunctionSnapshot> = Vec::new();
+    let mut ok_count = 0usize;
+
+    for func in &snapshot.functions {
+        match func.quadrant.as_deref() {
+            Some("fire") => fire_fns.push(func),
+            Some("debt") => debt_fns.push(func),
+            Some("watch") => watch_fns.push(func),
+            _ => ok_count += 1,
+        }
+    }
+
+    // Sort each group by activity_risk descending
+    let sort_by_risk = |fns: &mut Vec<&FunctionSnapshot>| {
+        fns.sort_by(|a, b| {
+            let a_score = a.activity_risk.unwrap_or(a.lrs);
+            let b_score = b.activity_risk.unwrap_or(b.lrs);
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    };
+    sort_by_risk(&mut fire_fns);
+    sort_by_risk(&mut debt_fns);
+    sort_by_risk(&mut watch_fns);
+
+    let triage = TriageView {
+        fire: TriageQuadrant {
+            count: fire_fns.len(),
+            top: to_agent_view(&fire_fns, repo_root, TRIAGE_TOP_N),
+        },
+        debt: TriageQuadrant {
+            count: debt_fns.len(),
+            top: to_agent_view(&debt_fns, repo_root, TRIAGE_TOP_N),
+        },
+        watch: TriageQuadrant {
+            count: watch_fns.len(),
+            top: to_agent_view(&watch_fns, repo_root, TRIAGE_TOP_N),
+        },
+        ok: TriageQuadrant {
+            count: ok_count,
+            top: Vec::new(),
+        },
+    };
+
+    // Split co-change: hidden (no static dep) source-file pairs only, capped for agent context.
+    // Config, lock, and doc files dominate by coupling_ratio but carry no actionable signal.
+    const SRC_EXTS: &[&str] = &[
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
+    ];
+    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
+
+    let total_pairs = aggregates.co_change.len();
+    let mut hidden_pairs: Vec<&crate::git::CoChangePair> = aggregates
+        .co_change
+        .iter()
+        .filter(|p| {
+            !p.has_static_dep
+                && is_src(&p.file_a)
+                && is_src(&p.file_b)
+                && (p.risk == "high" || p.risk == "moderate")
+        })
+        .collect();
+    let hidden_count = hidden_pairs.len();
+    hidden_pairs.sort_by(|a, b| {
+        b.coupling_ratio
+            .partial_cmp(&a.coupling_ratio)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let hidden_coupling: Vec<crate::git::CoChangePair> = hidden_pairs
+        .into_iter()
+        .take(HIDDEN_COUPLING_TOP_N)
+        .cloned()
+        .collect();
+
+    // Relativize file_risk paths (same as triage entries)
+    let file_risk: Vec<FileRiskView> = aggregates
+        .file_risk
+        .iter()
+        .take(FILE_RISK_TOP_N)
+        .map(|fr| {
+            let rel_file = normalize_path_relative_to_repo(&fr.file, repo_root)
+                .unwrap_or_else(|| fr.file.clone());
+            FileRiskView {
+                file: rel_file,
+                ..fr.clone()
+            }
+        })
+        .collect();
+
+    AgentSnapshotOutput {
+        schema_version: 3,
+        commit: snapshot.commit.clone(),
+        triage,
+        co_change: AgentCoChangeView {
+            hidden_coupling,
+            hidden_count,
+            total_pairs,
+        },
+        file_risk,
+        modules: aggregates.modules.clone(),
+        summary: snapshot.summary.clone(),
+    }
 }
 
 /// Check if a band is High+ (high or critical)
@@ -200,6 +519,226 @@ pub fn compute_directory_aggregates(
     aggregates
 }
 
+/// Compute file risk views from snapshot functions
+///
+/// Ranked descending by `file_risk_score`. Score formula:
+///   max_cc × 0.4 + avg_cc × 0.3 + log2(function_count + 1) × 0.2 + churn_factor × 0.1
+pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskView> {
+    // Accumulate (sum_cc, max_cc, count, critical_count, loc, file_churn) per file
+    let mut file_data: HashMap<String, (usize, usize, usize, usize, usize, u64)> = HashMap::new();
+    for func in functions {
+        let e = file_data
+            .entry(func.file.clone())
+            .or_insert((0, 0, 0, 0, 0, 0));
+        e.0 += func.metrics.cc;
+        e.1 = e.1.max(func.metrics.cc);
+        e.2 += 1;
+        if func.band == "critical" {
+            e.3 += 1;
+        }
+        e.4 += func.metrics.loc;
+        if let Some(churn) = &func.churn {
+            let lines = (churn.lines_added + churn.lines_deleted) as u64;
+            e.5 = e.5.max(lines);
+        }
+    }
+
+    let mut views: Vec<FileRiskView> = file_data
+        .into_iter()
+        .map(
+            |(file, (sum_cc, max_cc, function_count, critical_count, loc, file_churn))| {
+                let avg_cc = if function_count > 0 {
+                    sum_cc as f64 / function_count as f64
+                } else {
+                    0.0
+                };
+                let churn_factor = (file_churn as f64 / 100.0).min(10.0);
+                let score = max_cc as f64 * 0.4
+                    + avg_cc * 0.3
+                    + (function_count as f64 + 1.0).log2() * 0.2
+                    + churn_factor * 0.1;
+                FileRiskView {
+                    file,
+                    function_count,
+                    loc,
+                    max_cc,
+                    avg_cc: (avg_cc * 100.0).round() / 100.0,
+                    critical_count,
+                    file_churn,
+                    file_risk_score: (score * 100.0).round() / 100.0,
+                }
+            },
+        )
+        .collect();
+
+    views.sort_by(|a, b| {
+        b.file_risk_score
+            .partial_cmp(&a.file_risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
+
+    views
+}
+
+/// Annotate co-change pairs with `has_static_dep` from the import edge set.
+///
+/// For each pair, checks whether a direct import exists in either direction.
+/// Pairs with a static dependency are reclassified as `"expected"`.
+pub fn annotate_static_deps(
+    pairs: &mut [crate::git::CoChangePair],
+    edges: &[(String, String)],
+    repo_root: &std::path::Path,
+) {
+    // Build a set of normalized (relative) edge pairs, both directions
+    let mut edge_set: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    for (a, b) in edges {
+        let a_rel = normalize_path_relative_to_repo(a, repo_root).unwrap_or_else(|| a.clone());
+        let b_rel = normalize_path_relative_to_repo(b, repo_root).unwrap_or_else(|| b.clone());
+        edge_set.insert((a_rel.clone(), b_rel.clone()));
+        edge_set.insert((b_rel, a_rel));
+    }
+
+    for pair in pairs.iter_mut() {
+        let has_dep = edge_set.contains(&(pair.file_a.clone(), pair.file_b.clone()));
+        pair.has_static_dep = has_dep;
+        if has_dep {
+            pair.risk = "expected".to_string();
+        }
+    }
+}
+
+/// Compute module (directory) instability from a pre-computed import edge list.
+fn compute_module_instability_from_edges(
+    functions: &[FunctionSnapshot],
+    edges: &[(String, String)],
+    repo_root: &std::path::Path,
+) -> Vec<ModuleInstability> {
+    // Helper: extract directory from a file path (relative to repo_root)
+    let file_dir = |file: &str| -> Option<String> {
+        let normalized = normalize_path_relative_to_repo(file, repo_root)?;
+        Some(extract_directory(&normalized))
+    };
+
+    // Count cross-directory edges
+    let mut efferent: HashMap<String, usize> = HashMap::new();
+    let mut afferent: HashMap<String, usize> = HashMap::new();
+
+    for (from_file, to_file) in edges {
+        let from_dir = match file_dir(from_file) {
+            Some(d) => d,
+            None => continue,
+        };
+        let to_dir = match file_dir(to_file) {
+            Some(d) => d,
+            None => continue,
+        };
+        if from_dir != to_dir {
+            *efferent.entry(from_dir.clone()).or_insert(0) += 1;
+            *afferent.entry(to_dir.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Aggregate function metrics per directory
+    struct DirStats {
+        files: std::collections::HashSet<String>,
+        function_count: usize,
+        sum_cc: usize,
+    }
+    let mut dir_stats: HashMap<String, DirStats> = HashMap::new();
+
+    for func in functions {
+        let dir = match file_dir(&func.file) {
+            Some(d) => d,
+            None => continue,
+        };
+        let stats = dir_stats.entry(dir).or_insert_with(|| DirStats {
+            files: std::collections::HashSet::new(),
+            function_count: 0,
+            sum_cc: 0,
+        });
+        stats.files.insert(func.file.clone());
+        stats.function_count += 1;
+        stats.sum_cc += func.metrics.cc;
+    }
+
+    // Collect all directory names seen in any of the three maps
+    let all_dirs: std::collections::HashSet<String> = dir_stats
+        .keys()
+        .chain(efferent.keys())
+        .chain(afferent.keys())
+        .cloned()
+        .collect();
+
+    let mut modules: Vec<ModuleInstability> = all_dirs
+        .into_iter()
+        .filter_map(|dir| {
+            let stats = dir_stats.get(&dir)?;
+            let eff = *efferent.get(&dir).unwrap_or(&0);
+            let aff = *afferent.get(&dir).unwrap_or(&0);
+            let instability = if eff + aff == 0 {
+                0.5 // undefined — treat as neutral
+            } else {
+                eff as f64 / (eff + aff) as f64
+            };
+            let avg_complexity = if stats.function_count > 0 {
+                stats.sum_cc as f64 / stats.function_count as f64
+            } else {
+                0.0
+            };
+            let module_risk = if instability < 0.3 && avg_complexity > 10.0 {
+                "high".to_string()
+            } else {
+                "low".to_string()
+            };
+            Some(ModuleInstability {
+                module: dir,
+                file_count: stats.files.len(),
+                function_count: stats.function_count,
+                avg_complexity: (avg_complexity * 100.0).round() / 100.0,
+                afferent: aff,
+                efferent: eff,
+                instability: (instability * 1000.0).round() / 1000.0,
+                module_risk,
+            })
+        })
+        .collect();
+
+    // Sort: high-risk first, then by instability ascending (most stable / highest-risk first)
+    modules.sort_by(|a, b| {
+        b.module_risk
+            .cmp(&a.module_risk) // "high" > "low"
+            .then(
+                a.instability
+                    .partial_cmp(&b.instability)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then(a.module.cmp(&b.module))
+    });
+
+    modules
+}
+
+/// Compute module instability from snapshot functions (computes import edges internally).
+///
+/// Exposed as a public API for callers that don't have pre-computed edges.
+pub fn compute_module_instability(
+    functions: &[FunctionSnapshot],
+    repo_root: &std::path::Path,
+) -> Vec<ModuleInstability> {
+    let mut unique_files: Vec<String> = functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+    compute_module_instability_from_edges(functions, &edges, repo_root)
+}
+
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -209,16 +748,159 @@ pub fn compute_directory_aggregates(
 pub fn compute_snapshot_aggregates(
     snapshot: &Snapshot,
     repo_root: &std::path::Path,
+    co_change_window_days: u64,
+    co_change_min_count: usize,
 ) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
+    let file_risk = compute_file_risk_views(&snapshot.functions);
 
-    SnapshotAggregates { files, directories }
+    // Compute import edges once — shared by module instability and co-change annotation
+    let mut unique_files: Vec<String> = snapshot
+        .functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+    let mut all_edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+    all_edges.extend(crate::imports::resolve_cargo_workspace_edges(
+        repo_root,
+        &files_as_str,
+    ));
+
+    let mut co_change =
+        crate::git::extract_co_change_pairs(repo_root, co_change_window_days, co_change_min_count)
+            .unwrap_or_default();
+    annotate_static_deps(&mut co_change, &all_edges, repo_root);
+
+    let modules = compute_module_instability_from_edges(&snapshot.functions, &all_edges, repo_root);
+
+    SnapshotAggregates {
+        files,
+        directories,
+        file_risk,
+        co_change,
+        modules,
+    }
+}
+
+/// Numeric rank for risk strings (higher = worse).
+fn risk_rank(risk: &str) -> u8 {
+    match risk {
+        "critical" => 4,
+        "high" => 3,
+        "moderate" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+/// Diff two co-change pair lists and return change entries.
+///
+/// Pairs are keyed by `(min(file_a, file_b), max(file_a, file_b))` so ordering
+/// within a pair does not affect matching.
+pub fn diff_co_change_pairs(
+    prev: &[crate::git::CoChangePair],
+    curr: &[crate::git::CoChangePair],
+) -> Vec<CoChangeDeltaEntry> {
+    // Normalise key: always (smaller, larger) for consistent lookup
+    let normalize = |a: &str, b: &str| -> (String, String) {
+        if a <= b {
+            (a.to_string(), b.to_string())
+        } else {
+            (b.to_string(), a.to_string())
+        }
+    };
+
+    let prev_map: HashMap<(String, String), &crate::git::CoChangePair> = prev
+        .iter()
+        .map(|p| (normalize(&p.file_a, &p.file_b), p))
+        .collect();
+    let curr_map: HashMap<(String, String), &crate::git::CoChangePair> = curr
+        .iter()
+        .map(|p| (normalize(&p.file_a, &p.file_b), p))
+        .collect();
+
+    let mut result: Vec<CoChangeDeltaEntry> = Vec::new();
+
+    // New pairs and risk changes
+    for pair in curr {
+        let key = normalize(&pair.file_a, &pair.file_b);
+        let status = if let Some(prev_pair) = prev_map.get(&key) {
+            let pr = risk_rank(&prev_pair.risk);
+            let cr = risk_rank(&pair.risk);
+            if cr > pr {
+                "risk_increased"
+            } else if cr < pr {
+                "risk_decreased"
+            } else {
+                continue; // unchanged — skip
+            }
+        } else {
+            "new"
+        };
+        let prev_risk = prev_map.get(&key).map(|p| p.risk.clone());
+        result.push(CoChangeDeltaEntry {
+            file_a: pair.file_a.clone(),
+            file_b: pair.file_b.clone(),
+            status: status.to_string(),
+            prev_risk,
+            curr_risk: Some(pair.risk.clone()),
+            co_change_count: pair.co_change_count,
+            coupling_ratio: pair.coupling_ratio,
+            has_static_dep: pair.has_static_dep,
+        });
+    }
+
+    // Dropped pairs
+    for pair in prev {
+        let key = normalize(&pair.file_a, &pair.file_b);
+        if !curr_map.contains_key(&key) {
+            result.push(CoChangeDeltaEntry {
+                file_a: pair.file_a.clone(),
+                file_b: pair.file_b.clone(),
+                status: "dropped".to_string(),
+                prev_risk: Some(pair.risk.clone()),
+                curr_risk: None,
+                co_change_count: pair.co_change_count,
+                coupling_ratio: pair.coupling_ratio,
+                has_static_dep: pair.has_static_dep,
+            });
+        }
+    }
+
+    // Sort: dropped last, then by risk rank desc, then alphabetically
+    result.sort_by(|a, b| {
+        let a_dropped = a.status == "dropped";
+        let b_dropped = b.status == "dropped";
+        a_dropped
+            .cmp(&b_dropped)
+            .then_with(|| {
+                let ar = a.curr_risk.as_deref().map(risk_rank).unwrap_or(0);
+                let br = b.curr_risk.as_deref().map(risk_rank).unwrap_or(0);
+                br.cmp(&ar)
+            })
+            .then(a.file_a.cmp(&b.file_a))
+            .then(a.file_b.cmp(&b.file_b))
+    });
+
+    result
 }
 
 /// Compute delta aggregates from delta entries
-pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
-    let mut file_data: HashMap<String, (f64, usize)> = HashMap::new();
+///
+/// Sorted by `net_lrs_delta` descending (worst regressions first).
+/// Ties broken by file path for determinism.
+pub fn compute_delta_aggregates(
+    delta: &Delta,
+    current_co_change: &[crate::git::CoChangePair],
+    prev_co_change: &[crate::git::CoChangePair],
+) -> DeltaAggregates {
+    // (net_lrs_delta, regression_count, improvement_count)
+    let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
 
     for entry in &delta.deltas {
         // Extract file path from function_id (format: "path/to/file.ts::function")
@@ -228,27 +910,26 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
             continue; // Skip malformed function_id
         };
 
-        let file_entry = file_data.entry(file).or_insert((0.0, 0));
+        let e = file_data.entry(file).or_insert((0.0, 0, 0));
 
-        // Compute net LRS delta
         if let Some(delta_val) = &entry.delta {
-            file_entry.0 += delta_val.lrs;
-
-            // Count regressions (delta.lrs > 0)
+            e.0 += delta_val.lrs;
             if delta_val.lrs > 0.0 {
-                file_entry.1 += 1;
+                e.1 += 1; // regression
+            } else if delta_val.lrs < 0.0 {
+                e.2 += 1; // improvement
             }
         } else {
-            // For New/Deleted functions, compute delta from before/after states
             match entry.status {
                 crate::delta::FunctionStatus::New => {
                     if let Some(after) = &entry.after {
-                        file_entry.0 += after.lrs;
+                        e.0 += after.lrs;
                     }
                 }
                 crate::delta::FunctionStatus::Deleted => {
                     if let Some(before) = &entry.before {
-                        file_entry.0 -= before.lrs;
+                        e.0 -= before.lrs;
+                        e.2 += 1; // deleted function = improvement
                     }
                 }
                 _ => {}
@@ -259,18 +940,29 @@ pub fn compute_delta_aggregates(delta: &Delta) -> DeltaAggregates {
     let mut aggregates: Vec<FileDeltaAggregates> = file_data
         .into_iter()
         .map(
-            |(file, (net_lrs_delta, regression_count))| FileDeltaAggregates {
+            |(file, (net_lrs_delta, regression_count, improvement_count))| FileDeltaAggregates {
                 file,
                 net_lrs_delta,
                 regression_count,
+                improvement_count,
             },
         )
         .collect();
 
-    // Sort deterministically by file path
-    aggregates.sort_by(|a, b| a.file.cmp(&b.file));
+    // Sort by net_lrs_delta descending (worst regressions first), then file path
+    aggregates.sort_by(|a, b| {
+        b.net_lrs_delta
+            .partial_cmp(&a.net_lrs_delta)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
 
-    DeltaAggregates { files: aggregates }
+    let co_change_delta = diff_co_change_pairs(prev_co_change, current_co_change);
+
+    DeltaAggregates {
+        files: aggregates,
+        co_change_delta,
+    }
 }
 
 #[cfg(test)]
@@ -302,6 +994,9 @@ mod tests {
             activity_risk: None,
             risk_factors: None,
             percentile: None,
+            driver: None,
+            driver_detail: None,
+            quadrant: None,
         }
     }
 

@@ -786,6 +786,77 @@ This document defines the canonical interpretation of Hotspots's metrics. Any de
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2026-01-18  
+**Document Version:** 1.0
+**Last Updated:** 2026-01-18
 **Status:** Current specification for Hotspots metrics and LRS calculation
+
+---
+
+## Formal LRS Specification
+
+This section is a compact, precise specification of the LRS calculation — suitable for implementing compatible tooling.
+
+### Metric Definitions
+
+**CC (Cyclomatic Complexity)**
+- Formula: `CC = E - N + 2` (Control Flow Graph edges − nodes + 2)
+- Additional: each `&&`/`||` operator +1, each switch case +1, each catch clause +1
+- Minimum: 1
+
+**ND (Nesting Depth)**
+- Maximum depth of nested control structures (`if`, loops, `switch`, `try`)
+- Lexical scopes and object literals are NOT counted
+- Range: 0 to unbounded (capped at 8 for risk calculation)
+
+**FO (Fan-Out)**
+- Count of distinct function calls (deduplicated by string representation)
+- Chained calls (`foo().bar().baz()`) count each segment separately
+- Self-calls (recursion) are counted
+- Range: 0 to unbounded
+
+**NS (Non-Structured Exits)**
+- Count of early `return`, `break`, `continue`, `throw` statements
+- Final tail return is NOT counted
+- Range: 0 to unbounded (capped at 6 for risk calculation)
+
+### Risk Transforms
+
+```
+R_cc = min(log2(CC + 1), 6)   # Logarithmic, bounded at 6
+R_nd = min(ND, 8)              # Linear, bounded at 8
+R_fo = min(log2(FO + 1), 6)   # Logarithmic, bounded at 6
+R_ns = min(NS, 6)              # Linear, bounded at 6
+```
+
+### LRS Calculation
+
+```
+LRS = 1.0 × R_cc + 0.8 × R_nd + 0.6 × R_fo + 0.7 × R_ns
+```
+
+**Theoretical maximum:** `1.0×6 + 0.8×8 + 0.6×6 + 0.7×6 = 22.0`
+
+### Risk Bands
+
+| Band | Range | Interpretation |
+|------|-------|---------------|
+| Low | LRS < 3 | Simple, maintainable |
+| Moderate | 3 ≤ LRS < 6 | Moderate complexity |
+| High | 6 ≤ LRS < 9 | Refactor recommended |
+| Critical | LRS ≥ 9 | Urgent refactor |
+
+### Properties
+
+- **Deterministic:** Identical source → identical LRS (formatting/comments do not affect results)
+- **Monotonic:** Increasing any metric increases LRS (until caps are reached)
+- **Precision:** Internal calculations use full `f64`; JSON output preserves full precision; text output rounds to 2 decimal places
+
+### Worked Examples
+
+**Simple function** (`return x * 2`): CC=1, ND=0, FO=0, NS=0 → **LRS = 1.0** (Low)
+
+**Nested branching** (two nested `if` statements): CC=3, ND=2, FO=0, NS=0
+- R_cc = log2(4) = 2.0, R_nd = 2 → **LRS = 1.0×2.0 + 0.8×2 = 3.6** (Moderate)
+
+**Loop with breaks**: CC=3, ND=2, FO=0, NS=2
+- R_cc = 2.0, R_nd = 2, R_ns = 2 → **LRS = 2.0 + 1.6 + 0 + 1.4 = 5.0** (Moderate)

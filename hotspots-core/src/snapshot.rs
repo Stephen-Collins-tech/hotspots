@@ -134,6 +134,23 @@ pub struct FunctionSnapshot {
     pub risk_factors: Option<crate::scoring::RiskFactors>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percentile: Option<PercentileFlags>,
+    /// Primary driving dimension label (e.g. "high_complexity", "high_churn_low_cc").
+    /// Populated by the enricher after activity_risk is computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
+    /// Near-miss detail for composite functions: top dimensions that almost fired,
+    /// with their percentile rank. E.g. "cc (P72), nd (P68)".
+    /// None for non-composite labels or when no metric is near-threshold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver_detail: Option<String>,
+    /// Triage quadrant. Values: "fire", "debt", "watch", "ok".
+    /// fire  = high/critical + active (touches > p50 or changed ≤30d)
+    /// debt  = high/critical + not active
+    /// watch = moderate/low  + active
+    /// ok    = everything else
+    /// Populated by the enricher after driver labels. None before enrichment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quadrant: Option<String>,
 }
 
 /// Risk distribution by band
@@ -163,7 +180,7 @@ pub struct SnapshotSummary {
     pub top_1_pct_share: f64,
     pub top_5_pct_share: f64,
     pub top_10_pct_share: f64,
-    pub by_band: std::collections::HashMap<String, BandStats>,
+    pub by_band: std::collections::BTreeMap<String, BandStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_graph: Option<CallGraphStats>,
 }
@@ -253,6 +270,9 @@ impl Snapshot {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
+                    driver: None,
+                    driver_detail: None,
+                    quadrant: None,
                 }
             })
             .collect();
@@ -300,11 +320,17 @@ impl Snapshot {
         }
     }
 
-    /// Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each)
+    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
+    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
+    // functions whose line ranges have not changed since the last run (warm path).
     fn populate_per_function_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
     ) -> anyhow::Result<()> {
+        let sha = self.commit.sha.clone();
+        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
+        let mut dirty = false;
+
         for function in &mut self.functions {
             let rel = if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
                 r.to_string_lossy().replace('\\', "/")
@@ -313,24 +339,55 @@ impl Snapshot {
             };
 
             let start_line = function.line;
-            let end_line = start_line + (function.metrics.loc as u32).saturating_sub(1);
+            let end_line =
+                (start_line + (function.metrics.loc as u32).saturating_sub(1)).max(start_line);
+            let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
 
-            match crate::git::function_touch_metrics_at(
-                repo_root,
-                &rel,
-                start_line,
-                end_line.max(start_line),
-                self.commit.timestamp,
-            ) {
-                Ok((count, days)) => {
-                    function.touch_count_30d = Some(count);
-                    function.days_since_last_change = days;
-                }
-                Err(_) => {
-                    function.touch_count_30d = Some(0);
+            if let Some(&(count, days)) = cache.get(&key) {
+                function.touch_count_30d = Some(count);
+                function.days_since_last_change = days;
+            } else {
+                match crate::git::function_touch_metrics_at(
+                    repo_root,
+                    &rel,
+                    start_line,
+                    end_line,
+                    self.commit.timestamp,
+                ) {
+                    Ok((count, days)) => {
+                        function.touch_count_30d = Some(count);
+                        function.days_since_last_change = days;
+                        cache.insert(key, (count, days));
+                        dirty = true;
+                    }
+                    Err(_) => {
+                        function.touch_count_30d = Some(0);
+                        cache.insert(key, (0, None));
+                        dirty = true;
+                    }
                 }
             }
         }
+
+        if dirty {
+            // Evict stale entries (most-recent SHAs first) then write.
+            // Always include the current SHA first so we don't evict entries we just
+            // wrote — this matters when --no-persist is used and the SHA isn't in the index yet.
+            let known_shas: Vec<String> = {
+                let mut commits = Index::load_or_new(&index_path(repo_root))
+                    .map(|idx| idx.commits)
+                    .unwrap_or_default();
+                commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                let mut shas = vec![sha.clone()];
+                shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
+                shas
+            };
+            crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
+            if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
+                eprintln!("warning: failed to write touch cache: {e}");
+            }
+        }
+
         Ok(())
     }
 
@@ -420,6 +477,56 @@ impl Snapshot {
             self.populate_per_function_touch_metrics(repo_root)
         } else {
             self.populate_file_level_touch_metrics(repo_root)
+        }
+    }
+
+    /// Replace branch-inflated recency values with pre-branch last-change dates.
+    ///
+    /// For functions touched only on this branch (days_since_last_change < branch age),
+    /// replaces the inflated recency with the last-change date before the branch diverged.
+    /// One git call per unique file that needs a lookup; no-op when called without a merge base.
+    pub fn adjust_recency_for_branch(
+        &mut self,
+        repo_root: &std::path::Path,
+        merge_base_sha: &str,
+        merge_base_ts: i64,
+    ) {
+        let merge_base_age_days = ((self.commit.timestamp - merge_base_ts).max(0) / 86400) as u32;
+
+        // Identify unique files touched only on this branch
+        let mut files_needing_lookup: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for func in &self.functions {
+            if func
+                .days_since_last_change
+                .is_some_and(|d| d < merge_base_age_days)
+            {
+                files_needing_lookup.insert(func.file.clone());
+            }
+        }
+
+        // One git call per unique file — get last-change date before branch diverged
+        let mut pre_branch: std::collections::HashMap<String, Option<u32>> =
+            std::collections::HashMap::new();
+        for abs_file in &files_needing_lookup {
+            let rel = std::path::Path::new(abs_file)
+                .strip_prefix(repo_root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| abs_file.replace('\\', "/"));
+            let days = crate::git::days_since_last_change_at_sha(
+                repo_root,
+                &rel,
+                merge_base_sha,
+                self.commit.timestamp,
+            );
+            pre_branch.insert(abs_file.clone(), days);
+        }
+
+        // Replace inflated recency with pre-branch value
+        for func in &mut self.functions {
+            if let Some(Some(pre_days)) = pre_branch.get(&func.file) {
+                func.days_since_last_change = Some(*pre_days);
+            }
         }
     }
 
@@ -576,12 +683,98 @@ impl Snapshot {
         }
     }
 
+    /// Populate driver labels for all functions using driving_dimension_label.
+    ///
+    /// Must be called after compute_activity_risk() and populate_callgraph().
+    pub fn populate_driver_labels(&mut self, percentile: u8) {
+        let thresholds = compute_dimension_thresholds(&self.functions, percentile);
+
+        let mut sorted_cc: Vec<usize> = self.functions.iter().map(|f| f.metrics.cc).collect();
+        let mut sorted_nd: Vec<usize> = self.functions.iter().map(|f| f.metrics.nd).collect();
+        let mut sorted_fo: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
+            .collect();
+        let mut sorted_fi: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
+            .collect();
+        let mut sorted_touch: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.touch_count_30d.unwrap_or(0))
+            .collect();
+        sorted_cc.sort_unstable();
+        sorted_nd.sort_unstable();
+        sorted_fo.sort_unstable();
+        sorted_fi.sort_unstable();
+        sorted_touch.sort_unstable();
+
+        for function in &mut self.functions {
+            let label = driving_dimension_label(function, &thresholds).to_string();
+            function.driver_detail = if label == "composite" {
+                compute_near_miss_detail(
+                    function,
+                    &sorted_cc,
+                    &sorted_nd,
+                    &sorted_fo,
+                    &sorted_fi,
+                    &sorted_touch,
+                )
+            } else {
+                None
+            };
+            function.driver = Some(label);
+        }
+    }
+
+    /// Compute and populate triage quadrant for all functions.
+    ///
+    /// Quadrant logic (Option C — combines both signals):
+    ///   is_active = touches_30d > touch_p50 OR days_since_last_change <= 30
+    ///   fire  = high/critical + is_active
+    ///   debt  = high/critical + !is_active
+    ///   watch = moderate/low  + is_active
+    ///   ok    = everything else
+    ///
+    /// Must be called after populate_driver_labels().
+    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8) {
+        if self.functions.is_empty() {
+            return;
+        }
+        let thresholds = compute_dimension_thresholds(&self.functions, driver_threshold_percentile);
+        let touch_p50 = thresholds.touch_med;
+
+        for function in &mut self.functions {
+            let touch_above_p50 = function
+                .touch_count_30d
+                .map(|t| t > touch_p50)
+                .unwrap_or(false);
+            let recently_changed = function
+                .days_since_last_change
+                .map(|d| d <= 30)
+                .unwrap_or(false);
+            let is_active = touch_above_p50 || recently_changed;
+            let is_high_risk = matches!(function.band.as_str(), "critical" | "high");
+
+            function.quadrant = Some(
+                match (is_high_risk, is_active) {
+                    (true, true) => "fire",
+                    (true, false) => "debt",
+                    (false, true) => "watch",
+                    (false, false) => "ok",
+                }
+                .to_string(),
+            );
+        }
+    }
+
     /// Compute repo-level summary statistics
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
     pub fn compute_summary(&mut self) {
-        use std::collections::HashMap;
-
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -590,7 +783,7 @@ impl Snapshot {
                 top_1_pct_share: 0.0,
                 top_5_pct_share: 0.0,
                 top_10_pct_share: 0.0,
-                by_band: HashMap::new(),
+                by_band: std::collections::BTreeMap::new(),
                 call_graph: None,
             });
             return;
@@ -618,7 +811,8 @@ impl Snapshot {
         let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
 
         // Band distribution
-        let mut by_band: HashMap<String, BandStats> = HashMap::new();
+        let mut by_band: std::collections::BTreeMap<String, BandStats> =
+            std::collections::BTreeMap::new();
         for func in &self.functions {
             let score = func.activity_risk.unwrap_or(func.lrs);
             let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
@@ -735,9 +929,231 @@ impl Snapshot {
     }
 }
 
-/// Builder for enriching a snapshot with git, call graph, and risk metrics.
+/// Percentile-derived thresholds for driving dimension detection.
+/// Computed once per snapshot from the distribution of all functions.
+pub struct DimensionThresholds {
+    pub cc_high: usize,      // Pth percentile of cc — "high_complexity" gate
+    pub cc_med: usize,       // 50th percentile of cc — floor for "high_fanin_complex"
+    pub cc_low: usize,       // (100-P)th percentile of cc — "low cc" in "high_churn_low_cc"
+    pub nd_high: usize,      // Pth percentile of nd — "deep_nesting" gate
+    pub fan_out_high: usize, // Pth percentile of fan_out — "high_fanout_churning" gate
+    pub fan_in_high: usize,  // Pth percentile of fan_in — "high_fanin_complex" gate
+    pub touch_high: usize,   // Pth percentile of touch_count — "high churn" gate
+    pub touch_med: usize,    // 50th percentile of touch_count — floor for "high_fanout_churning"
+}
+
+/// Compute percentile-derived thresholds from a slice of function snapshots.
+pub fn compute_dimension_thresholds(
+    functions: &[FunctionSnapshot],
+    percentile: u8,
+) -> DimensionThresholds {
+    let n = functions.len();
+    if n == 0 {
+        return DimensionThresholds {
+            cc_high: 0,
+            cc_med: 0,
+            cc_low: 0,
+            nd_high: 0,
+            fan_out_high: 0,
+            fan_in_high: 0,
+            touch_high: 0,
+            touch_med: 0,
+        };
+    }
+
+    let p = percentile as usize;
+    let anti_p = 100 - p;
+
+    let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
+
+    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc).collect();
+    cc_vals.sort_unstable();
+    let cc_high = cc_vals[percentile_idx(p)];
+    let cc_med = cc_vals[percentile_idx(50)];
+    let cc_low = cc_vals[percentile_idx(anti_p)];
+
+    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd).collect();
+    nd_vals.sort_unstable();
+    let nd_high = nd_vals[percentile_idx(p)];
+
+    let mut fo_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
+        .collect();
+    fo_vals.sort_unstable();
+    let fan_out_high = fo_vals[percentile_idx(p)];
+
+    let mut fi_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
+        .collect();
+    fi_vals.sort_unstable();
+    let fan_in_high = fi_vals[percentile_idx(p)];
+
+    let mut touch_vals: Vec<usize> = functions
+        .iter()
+        .map(|f| f.touch_count_30d.unwrap_or(0))
+        .collect();
+    touch_vals.sort_unstable();
+    let touch_high = touch_vals[percentile_idx(p)];
+    let touch_med = touch_vals[percentile_idx(50)];
+
+    DimensionThresholds {
+        cc_high,
+        cc_med,
+        cc_low,
+        nd_high,
+        fan_out_high,
+        fan_in_high,
+        touch_high,
+        touch_med,
+    }
+}
+
+/// Normalize a driver label string to a canonical `'static` str.
+pub fn normalize_driver_label(label: &str) -> &'static str {
+    match label {
+        "cyclic_dep" => "cyclic_dep",
+        "high_complexity" => "high_complexity",
+        "high_churn_low_cc" => "high_churn_low_cc",
+        "high_fanout_churning" => "high_fanout_churning",
+        "deep_nesting" => "deep_nesting",
+        "high_fanin_complex" => "high_fanin_complex",
+        _ => "composite",
+    }
+}
+
+/// Map a (driver, quadrant) pair to a recommended action string.
 ///
-/// Enforces enrichment step ordering:
+/// `quadrant` is one of `"fire"`, `"debt"`, `"watch"`, `"ok"`, or `""` (unknown).
+/// When quadrant context is available the action is more specific; the generic
+/// driver-only text is used as a fallback.
+pub fn driver_action_for_quadrant(driver: &str, quadrant: &str) -> &'static str {
+    match (driver, quadrant) {
+        ("cyclic_dep", "fire") => "Break cycle now — circular dep is actively changing",
+        ("cyclic_dep", _) => "Resolve dependency cycle",
+        ("high_complexity", "fire") => "Extract sub-functions now — actively changing",
+        ("high_complexity", "debt") => "Schedule CC reduction — stable, plan for next sprint",
+        ("high_complexity", _) => "Reduce cyclomatic complexity",
+        ("high_churn_low_cc", "fire") => "Add tests now — churning without a safety net",
+        ("high_churn_low_cc", _) => "Add tests before next change",
+        ("high_fanout_churning", "fire") => {
+            "Extract interface boundary — high coupling + active change"
+        }
+        ("high_fanout_churning", _) => "Consider extracting an interface boundary",
+        ("deep_nesting", "fire") => "Flatten nesting before next change",
+        ("deep_nesting", "debt") => "Schedule flattening — deep nesting, currently quiet",
+        ("deep_nesting", _) => "Flatten nesting depth",
+        ("high_fanin_complex", "fire") => "Stabilize interface — many callers + active changes",
+        ("high_fanin_complex", _) => "Stabilize interface — high fan-in makes changes risky",
+        (_, "fire") => "Actively risky — plan refactor this sprint",
+        _ => "Monitor: review complexity trends before next modification",
+    }
+}
+
+/// Map a driver label to its recommended action text (quadrant-agnostic fallback).
+pub fn driver_action(label: &str) -> &'static str {
+    driver_action_for_quadrant(label, "")
+}
+
+/// Identify the primary driving dimension for a function's risk.
+///
+/// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,
+/// `"high_churn_low_cc"`, `"high_fanout_churning"`, `"deep_nesting"`,
+/// `"high_fanin_complex"`, or `"composite"`. Uses percentile-relative thresholds
+/// derived from the snapshot's own distribution; `cyclic_dep` stays absolute.
+pub fn driving_dimension_label(
+    func: &FunctionSnapshot,
+    thresholds: &DimensionThresholds,
+) -> &'static str {
+    let in_cycle = func
+        .callgraph
+        .as_ref()
+        .map(|cg| cg.scc_size > 1)
+        .unwrap_or(false);
+    let fan_out = func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0);
+    let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+    let touch_count = func.touch_count_30d.unwrap_or(0);
+    let cc = func.metrics.cc;
+    let nd = func.metrics.nd;
+
+    if in_cycle {
+        "cyclic_dep"
+    } else if cc > thresholds.cc_high {
+        "high_complexity"
+    } else if touch_count > thresholds.touch_high && cc < thresholds.cc_low {
+        "high_churn_low_cc"
+    } else if fan_out > thresholds.fan_out_high && touch_count > thresholds.touch_med {
+        "high_fanout_churning"
+    } else if nd > thresholds.nd_high {
+        "deep_nesting"
+    } else if fan_in > thresholds.fan_in_high && cc > thresholds.cc_med {
+        "high_fanin_complex"
+    } else {
+        "composite"
+    }
+}
+
+/// Compute near-miss detail string for composite-labeled functions.
+///
+/// Returns a string like "cc (P72), nd (P68)" listing the top dimensions that
+/// are above the 40th percentile (above median) but below the firing threshold.
+/// Returns None when no dimension is notable.
+fn compute_near_miss_detail(
+    func: &FunctionSnapshot,
+    sorted_cc: &[usize],
+    sorted_nd: &[usize],
+    sorted_fo: &[usize],
+    sorted_fi: &[usize],
+    sorted_touch: &[usize],
+) -> Option<String> {
+    let pct_rank = |v: usize, sorted: &[usize]| -> u8 {
+        if sorted.is_empty() {
+            return 0;
+        }
+        ((sorted.partition_point(|&x| x < v) * 100) / sorted.len()) as u8
+    };
+
+    let mut near: Vec<(&str, u8)> = vec![
+        ("cc", pct_rank(func.metrics.cc, sorted_cc)),
+        ("nd", pct_rank(func.metrics.nd, sorted_nd)),
+        (
+            "fan_out",
+            pct_rank(
+                func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0),
+                sorted_fo,
+            ),
+        ),
+        (
+            "fan_in",
+            pct_rank(
+                func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0),
+                sorted_fi,
+            ),
+        ),
+        (
+            "touch",
+            pct_rank(func.touch_count_30d.unwrap_or(0), sorted_touch),
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, rank)| *rank >= 40)
+    .collect();
+
+    near.sort_by(|a, b| b.1.cmp(&a.1));
+    near.truncate(3);
+
+    if near.is_empty() {
+        return None;
+    }
+    Some(
+        near.iter()
+            .map(|(name, rank)| format!("{} (P{})", name, rank))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
@@ -772,18 +1188,38 @@ impl SnapshotEnricher {
         self
     }
 
+    /// Replace branch-inflated recency with pre-branch last-change dates.
+    /// No-op when merge_base is None (on main, or no divergence).
+    pub fn with_branch_recency_adjustment(
+        mut self,
+        repo_root: &Path,
+        merge_base: Option<&(String, i64)>,
+    ) -> Self {
+        if let Some((sha, ts)) = merge_base {
+            self.snapshot.adjust_recency_for_branch(repo_root, sha, *ts);
+        }
+        self
+    }
+
     /// Populate call graph metrics (PageRank, fan-in, SCC, etc).
     pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
         self.snapshot.populate_callgraph(call_graph);
         self
     }
 
-    /// Compute activity risk, percentile flags, and summary statistics.
+    /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
-    pub fn enrich(mut self, weights: Option<&crate::scoring::ScoringWeights>) -> Self {
+    pub fn enrich(
+        mut self,
+        weights: Option<&crate::scoring::ScoringWeights>,
+        driver_threshold_percentile: u8,
+    ) -> Self {
         self.snapshot.compute_activity_risk(weights);
         self.snapshot.compute_percentiles();
+        self.snapshot
+            .populate_driver_labels(driver_threshold_percentile);
+        self.snapshot.compute_quadrants(driver_threshold_percentile);
         self.snapshot.compute_summary();
         self
     }
@@ -899,7 +1335,59 @@ pub fn index_path(repo_root: &Path) -> PathBuf {
 
 /// Get the path to a snapshot file for a given commit SHA
 pub fn snapshot_path(repo_root: &Path, commit_sha: &str) -> PathBuf {
-    snapshots_dir(repo_root).join(format!("{}.json", commit_sha))
+    snapshots_dir(repo_root).join(format!("{}.json.zst", commit_sha))
+}
+
+/// Return the path of the snapshot file that actually exists on disk,
+/// trying `.json.zst` (new) before `.json` (legacy).  Returns `None` if
+/// neither exists.
+pub fn snapshot_path_existing(repo_root: &Path, commit_sha: &str) -> Option<PathBuf> {
+    let zst = snapshot_path(repo_root, commit_sha);
+    if zst.exists() {
+        return Some(zst);
+    }
+    let json = snapshots_dir(repo_root).join(format!("{}.json", commit_sha));
+    if json.exists() {
+        return Some(json);
+    }
+    None
+}
+
+/// Load a snapshot for the given commit SHA from disk.
+///
+/// Handles both compressed (`.json.zst`) and legacy plain (`.json`) formats.
+/// Returns `None` if no snapshot file exists for the SHA.
+pub fn load_snapshot(repo_root: &Path, commit_sha: &str) -> Result<Option<Snapshot>> {
+    let path = match snapshot_path_existing(repo_root, commit_sha) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+
+    let snapshot = read_snapshot_file(&path)?;
+    Ok(Some(snapshot))
+}
+
+/// Read and parse a snapshot from an arbitrary path, auto-detecting compression.
+fn read_snapshot_file(path: &Path) -> Result<Snapshot> {
+    let is_compressed = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| n.ends_with(".json.zst"))
+        .unwrap_or(false);
+
+    let json: String = if is_compressed {
+        let compressed = std::fs::read(path)
+            .with_context(|| format!("failed to read snapshot: {}", path.display()))?;
+        let bytes = zstd::decode_all(compressed.as_slice())
+            .with_context(|| format!("failed to decompress snapshot: {}", path.display()))?;
+        String::from_utf8(bytes).context("snapshot contains invalid UTF-8")?
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read snapshot: {}", path.display()))?
+    };
+
+    Snapshot::from_json(&json)
+        .with_context(|| format!("failed to parse snapshot: {}", path.display()))
 }
 
 /// Write data to file atomically using temp file + rename
@@ -932,6 +1420,32 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
+/// Write binary data to file atomically using temp file + rename
+pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
+    use std::fs;
+    use std::io::Write;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+    }
+
+    let temp_path = path.with_extension("tmp");
+
+    let mut file = fs::File::create(&temp_path)
+        .with_context(|| format!("failed to create temp file: {}", temp_path.display()))?;
+    file.write_all(contents)
+        .with_context(|| format!("failed to write to temp file: {}", temp_path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("failed to sync temp file: {}", temp_path.display()))?;
+    drop(file);
+
+    fs::rename(&temp_path, path)
+        .with_context(|| format!("failed to rename temp file to: {}", path.display()))?;
+
+    Ok(())
+}
+
 /// Persist a snapshot to disk
 ///
 /// # Atomic Writes
@@ -951,37 +1465,33 @@ pub fn atomic_write(path: &Path, contents: &str) -> Result<()> {
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
 
-    if snapshot_path.exists() && !force {
-        // Verify existing snapshot matches (idempotency check)
-        let existing_json = std::fs::read_to_string(&snapshot_path).with_context(|| {
-            format!(
-                "failed to read existing snapshot: {}",
-                snapshot_path.display()
-            )
-        })?;
-        let existing_snapshot = Snapshot::from_json(&existing_json).with_context(|| {
-            format!(
-                "existing snapshot has invalid schema: {}",
-                snapshot_path.display()
-            )
-        })?;
+    // Normalize through a parse-reserialize cycle to produce a canonical form.
+    // This handles float serialization quirks where serde_json may parse a float
+    // string to a slightly different f64 than what was computed (e.g. a 1-ULP
+    // difference due to the float parser's rounding). Both the on-disk snapshot
+    // (already round-tripped once) and the freshly-computed snapshot are brought
+    // to the same canonical representation before comparing.
+    let canonical_json = Snapshot::from_json(&snapshot.to_json()?)
+        .context("failed to normalize snapshot for canonical form")?
+        .to_json()?;
 
-        // If it's byte-for-byte identical, this is idempotent (ok)
-        if existing_snapshot.to_json()? == snapshot.to_json()? {
-            return Ok(());
+    if !force {
+        if let Some(existing) = load_snapshot(repo_root, snapshot.commit_sha())? {
+            // Compare canonical forms (both normalized through one parse-reserialize cycle)
+            if existing.to_json()? == canonical_json {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
+                snapshot_path.display()
+            );
         }
-
-        anyhow::bail!(
-            "snapshot already exists and differs: {} (snapshots are immutable; use --force to overwrite)",
-            snapshot_path.display()
-        );
     }
 
-    // Serialize snapshot
-    let json = snapshot.to_json()?;
-
-    // Atomic write
-    atomic_write(&snapshot_path, &json)
+    // Compress and write atomically (zstd level 3 — fast with good ratio)
+    let compressed =
+        zstd::encode_all(canonical_json.as_bytes(), 3).context("failed to compress snapshot")?;
+    atomic_write_bytes(&snapshot_path, &compressed)
         .with_context(|| format!("failed to persist snapshot: {}", snapshot_path.display()))?;
 
     Ok(())
@@ -1041,16 +1551,14 @@ pub fn rebuild_index(repo_root: &Path) -> Result<Index> {
         let entry = entry_result?;
         let path = entry.path();
 
-        // Only process .json files
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+        // Only process snapshot files (.json.zst or legacy .json)
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !file_name.ends_with(".json.zst") && !file_name.ends_with(".json") {
             continue;
         }
 
-        // Read and parse snapshot
-        let json = std::fs::read_to_string(&path)
-            .with_context(|| format!("failed to read snapshot: {}", path.display()))?;
-
-        let snapshot = match Snapshot::from_json(&json) {
+        // Read and parse snapshot (auto-detects compression)
+        let snapshot = match read_snapshot_file(&path) {
             Ok(s) => s,
             Err(e) => {
                 // Log error but continue (some snapshots may be corrupted)
@@ -1170,7 +1678,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_summary() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
         let summary = snapshot.summary.as_ref().expect("summary should be set");
         assert_eq!(summary.total_functions, 1);
     }
@@ -1178,7 +1686,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_percentiles() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
         assert!(snapshot.functions[0].percentile.is_some());
     }
 

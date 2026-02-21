@@ -16,6 +16,10 @@ This file contains conventions and rules for Claude Code when working on this pr
 - Format: `<type>: <concise description>` (e.g., `feat: add suppression comments support`)
 - Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 - Never include a commit body unless explicitly requested.
+- **Before committing**, always run the following and fix any issues. Pre-commit hooks enforce this, but run manually first to avoid hook failures:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test`
 
 ## Code Changes
 
@@ -60,6 +64,8 @@ When implementing features that touch multiple files:
 
 - Use `cargo check` for fast compilation verification
 - Use `cargo test` to run the test suite
+- Use `cargo fmt --all -- --check` to verify formatting before committing
+- Use `cargo clippy --all-targets --all-features -- -D warnings` to lint before committing
 - Follow existing code style and patterns in the codebase
 
 ## Change Scope

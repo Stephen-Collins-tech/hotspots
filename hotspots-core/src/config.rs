@@ -72,6 +72,26 @@ pub struct HotspotsConfig {
     /// Activity risk scoring weights
     #[serde(default)]
     pub scoring: Option<ScoringWeightsConfig>,
+
+    /// Number of days back to look for co-change pairs (default: 90)
+    #[serde(default)]
+    pub co_change_window_days: Option<u64>,
+
+    /// Minimum number of co-changes required to report a pair (default: 3)
+    #[serde(default)]
+    pub co_change_min_count: Option<usize>,
+
+    /// Use per-function git log -L for touch metrics (default: true).
+    /// Warm runs use the on-disk cache and are as fast as file-level.
+    /// Set to false to always use file-level batching (faster cold start, less accurate).
+    #[serde(default)]
+    pub per_function_touches: Option<bool>,
+
+    /// Percentile threshold for driving dimension detection (1–99, default: 75).
+    /// A function must exceed this percentile in a metric to trigger that driver label.
+    /// Lower values = more functions get specific labels; higher = only extreme outliers.
+    #[serde(default)]
+    pub driver_threshold_percentile: Option<u8>,
 }
 
 /// Custom risk band thresholds
@@ -161,6 +181,13 @@ pub struct ResolvedConfig {
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
+    /// Co-change mining parameters
+    pub co_change_window_days: u64,
+    pub co_change_min_count: usize,
+    /// Whether to use per-function git log -L for touch metrics
+    pub per_function_touches: bool,
+    /// Percentile threshold for driving dimension detection (1–99)
+    pub driver_threshold_percentile: u8,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Path the config was loaded from (None if defaults)
@@ -185,6 +212,24 @@ impl HotspotsConfig {
         if let Some(min) = self.min_lrs {
             if min < 0.0 {
                 anyhow::bail!("min_lrs must be non-negative (got {})", min);
+            }
+        }
+        if let Some(w) = self.co_change_window_days {
+            if w == 0 {
+                anyhow::bail!("co_change_window_days must be at least 1");
+            }
+        }
+        if let Some(m) = self.co_change_min_count {
+            if m == 0 {
+                anyhow::bail!("co_change_min_count must be at least 1");
+            }
+        }
+        if let Some(p) = self.driver_threshold_percentile {
+            if p == 0 || p >= 100 {
+                anyhow::bail!(
+                    "driver_threshold_percentile must be between 1 and 99 (got {})",
+                    p
+                );
             }
         }
         for pattern in &self.include {
@@ -413,6 +458,10 @@ impl HotspotsConfig {
             min_lrs: self.min_lrs,
             top_n: self.top,
             scoring_weights,
+            co_change_window_days: self.co_change_window_days.unwrap_or(90),
+            co_change_min_count: self.co_change_min_count.unwrap_or(3),
+            per_function_touches: self.per_function_touches.unwrap_or(true),
+            driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             config_path: None,
         })
     }

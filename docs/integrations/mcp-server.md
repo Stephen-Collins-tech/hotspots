@@ -19,54 +19,9 @@ The JSON output format, deterministic analysis, and MCP integration make Hotspot
 
 ### Claude Desktop (MCP Server)
 
-The fastest way to use Hotspots with Claude Desktop:
-
-**1. Install the MCP server:**
-
-```bash
-npm install -g @hotspots/mcp-server
-```
-
-**2. Configure Claude Desktop:**
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "npx",
-      "args": ["@hotspots/mcp-server"]
-    }
-  }
-}
-```
-
-**3. Restart Claude Desktop**
-
-Claude will now have access to the `hotspots_analyze` tool for analyzing complexity.
-
-**Example usage:**
-
-```
-User: Analyze the complexity of my src/ directory
-
-Claude: I'll analyze the complexity using Hotspots.
-[Uses hotspots_analyze tool]
-
-Based on the analysis:
-- Total functions: 47
-- Critical risk: 2 functions
-- High risk: 5 functions
-
-The two critical functions are:
-- processRequest in src/api.ts:88 (LRS: 11.2)
-- handleMigration in src/db.ts:41 (LRS: 9.8)
-
-Would you like me to help refactor these?
-```
-
-See [packages/mcp-server/README.md](../packages/mcp-server/README.md) for full MCP documentation.
+> **Coming Soon** — A native MCP server (`@hotspots/mcp-server`) is planned for a future release.
+> It will allow Claude Desktop to call `hotspots_analyze` as a tool directly.
+> Track progress: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues).
 
 ### Claude Code
 
@@ -253,33 +208,17 @@ See [examples/ai-agents/pr-reviewer.ts](../examples/ai-agents/pr-reviewer.ts) fo
 
 ## AI Assistant Integration Examples
 
-### Claude Desktop/Code (MCP)
+### Claude Code
 
-**Setup:**
-
-```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "npx",
-      "args": ["@hotspots/mcp-server"],
-      "env": {
-        "HOTSPOTS_PATH": "/usr/local/bin/hotspots"
-      }
-    }
-  }
-}
-```
-
-**Usage:**
-
-Claude has direct access to `hotspots_analyze` tool. Just ask:
+Claude Code can run Hotspots CLI commands directly. Just ask:
 
 ```
-"Analyze the complexity of my codebase"
+"Run hotspots analyze . --mode delta --format json and explain the results"
 "Check if my recent changes increased complexity"
 "Find the most complex functions in src/"
 ```
+
+Claude Code will execute `hotspots analyze ...` via bash, parse the JSON, and provide insights.
 
 ### GPT-4 / ChatGPT (API)
 
@@ -440,35 +379,6 @@ Hotspots produces structured JSON suitable for AI consumption. See [json-schema.
   }
 }
 ```
-
-### TypeScript Type Definitions
-
-Use `@hotspots/types` for type-safe integration:
-
-```bash
-npm install @hotspots/types
-```
-
-```typescript
-import type { HotspotsOutput, FunctionReport } from '@hotspots/types';
-import { isHotspotsOutput, filterByRiskBand, getHighestRiskFunctions } from '@hotspots/types';
-
-// Parse Hotspots output
-const output: HotspotsOutput = JSON.parse(stdout);
-
-// Type-safe validation
-if (!isHotspotsOutput(output)) {
-  throw new Error('Invalid hotspots output');
-}
-
-// Find critical functions
-const critical = filterByRiskBand(output.functions, 'critical');
-
-// Get top 5 most complex
-const top5 = getHighestRiskFunctions(output.functions, 5);
-```
-
-See [packages/types/README.md](../packages/types/README.md) for full API documentation.
 
 ---
 
@@ -635,30 +545,18 @@ Provide:
 
 ### "hotspots binary not found in PATH"
 
-**Problem:** MCP server or AI workflow can't find hotspots binary
+**Problem:** AI workflow or script can't find the hotspots binary.
 
-**Solution:**
-
-Set `HOTSPOTS_PATH` environment variable:
-
-```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "npx",
-      "args": ["@hotspots/mcp-server"],
-      "env": {
-        "HOTSPOTS_PATH": "/usr/local/bin/hotspots"
-      }
-    }
-  }
-}
-```
-
-Or add hotspots to PATH:
+**Solution:** Add hotspots to PATH:
 
 ```bash
-export PATH="/path/to/hotspots:$PATH"
+export PATH="/usr/local/bin:$PATH"
+```
+
+Or specify the full path in your script:
+
+```bash
+/usr/local/bin/hotspots analyze . --format json
 ```
 
 ### "Failed to parse JSON output"
@@ -851,8 +749,7 @@ Provide insights on:
 
 ## See Also
 
-- [JSON Schema Documentation](json-schema.md) - Complete JSON format reference
-- [MCP Server README](../packages/mcp-server/README.md) - Claude Desktop/Code integration
-- [TypeScript Types](../packages/types/README.md) - Type-safe integration with @hotspots/types
-- [GitHub Action](../action/README.md) - CI/CD integration
-- [Example Implementations](../examples/ai-agents/) - Reference code for common workflows
+- [JSON Schema Documentation](../reference/json-schema.md) - Complete JSON format reference
+- [Agent Examples](./ai-agents.md) - Example AI agent implementations
+- [GitHub Action Guide](../guide/github-action.md) - CI/CD integration
+- [CLI Reference](../reference/cli.md) - All commands and flags

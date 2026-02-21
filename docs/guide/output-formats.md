@@ -33,7 +33,7 @@ hotspots analyze src/ --mode delta --policy --format json
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "commit": {
     "sha": "abc123def456...",
     "parents": ["def456..."],
@@ -96,7 +96,7 @@ Complete JSON schema definitions available:
 - **`metrics.schema.json`** - Raw metrics (CC, ND, FO, NS)
 - **`policy-result.schema.json`** - Policy violations/warnings
 
-See [JSON Schema Reference](../reference/json-schema.md) for complete documentation.
+See the [JSON Schema Reference section](#json-schema-reference) below for complete documentation.
 
 ### Fields Reference
 
@@ -104,7 +104,7 @@ See [JSON Schema Reference](../reference/json-schema.md) for complete documentat
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `schema_version` | number | Schema version (currently `1`) |
+| `schema_version` | number | Schema version (currently `2` for snapshot/delta output) |
 | `commit` | object | Git commit metadata |
 | `analysis` | object | Analysis metadata |
 | `functions` | array | Function analysis results |
@@ -240,15 +240,15 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 
 **Function Table:**
 - Sortable by LRS, CC, ND, FO, NS
-- Filterable by risk band
+- Filterable by risk band and driver label
 - Searchable by function name
-- Color-coded risk levels
+- Color-coded risk levels and driver badges
+- Action column: per-function refactoring recommendation (driver × quadrant)
 
-**Charts:**
-- Risk band distribution (pie chart)
-- LRS histogram
-- Metrics scatter plots
-- Trend charts (delta mode)
+**Charts (snapshot mode):**
+- Risk band distribution (donut chart)
+- Historical trend charts: stacked band count, activity risk line, top-1% share line
+  (requires ≥2 prior snapshots; up to 30 history points; hover for per-bar detail)
 
 **Delta Mode Additions:**
 - Before/after comparison
@@ -354,6 +354,38 @@ Summary:
   Low: 101
   Average LRS: 3.2
 ```
+
+### Snapshot Mode with `--explain`
+
+The `--explain` flag adds per-function detail: driver label, recommended action, and — for
+`composite`-labeled functions — the top near-miss dimensions with their percentile ranks.
+
+```
+hotspots analyze src/ --mode snapshot --format text --explain
+```
+
+```
+processComplexOrder             /src/orders.ts:142
+   LRS: 10.2 | Band: critical | Driver: cc
+   CC: 15, ND: 4, FO: 8, NS: 3
+   Action: Reduce branching; extract sub-functions
+
+handlePaymentFlow               /src/payments.ts:89
+   LRS: 9.5 | Band: critical | Driver: composite
+   CC: 12, ND: 3, FO: 6, NS: 4
+   Action: Multiple complexity dimensions — address the highest first
+   Near-threshold: fan_out (P78), cc (P72), nd (P61)
+
+validateUserInput               /src/validation.ts:23
+   LRS: 7.8 | Band: high | Driver: nd
+   CC: 10, ND: 2, FO: 5, NS: 2
+   Action: Reduce nesting depth; early returns help
+```
+
+`Near-threshold` appears only for `composite` functions and lists up to 3 dimensions at
+or above the 40th percentile (i.e., above median across all analysed functions), sorted
+by percentile rank descending. This makes multi-factor functions interpretable without
+changing how the driver label is computed.
 
 ### Delta Mode Output
 
@@ -494,10 +526,113 @@ hotspots analyze src/ --format text | wc -l
 
 ## Related Documentation
 
-- [JSON Schema Reference](../reference/json-schema.md) - Complete schema documentation
 - [CLI Reference](../reference/cli.md) - Command-line options
-- [CI/CD Integration](./ci-integration.md) - Using output in pipelines
+- [CI/CD & GitHub Action](./ci-cd.md) - Using output in pipelines
 - [Configuration](./configuration.md) - Filter and threshold options
+
+---
+
+## JSON Schema Reference
+
+Hotspots produces versioned JSON output. The `schema_version` field indicates the format.
+
+### Schema Versions
+
+| Version | Scope | Added fields |
+|---------|-------|--------------|
+| **v2** (current) | Snapshot and delta output | `driver`, `driver_detail`, enriched `aggregates` (file_risk, co_change, modules) |
+| **v3** | Agent-optimized (`--all-functions`) | `fire`/`debt`/`watch`/`ok` quadrant buckets, per-function `action` text |
+| **v1** | Delta output (legacy constant) | — |
+
+Always check `schema_version` before consuming output in tooling.
+
+### Driver Labels
+
+Each function includes an optional `driver` string identifying the primary source of risk:
+
+| Label | Condition | Recommended action |
+|-------|-----------|-------------------|
+| `cyclic_dep` | Function is in a dependency cycle (SCC size > 1) | Break the cycle before adding more callers |
+| `high_complexity` | CC above the Pth percentile | Schedule a refactor; extract sub-functions |
+| `high_churn_low_cc` | touch_count above Pth percentile and CC below (100-P)th | Add regression tests before next change |
+| `high_fanout_churning` | fan_out above Pth percentile and touch above 50th | Extract an interface boundary |
+| `deep_nesting` | ND above the Pth percentile | Flatten with early returns or guard clauses |
+| `high_fanin_complex` | fan_in above Pth percentile and CC above 50th | Extract and stabilize; wide blast radius |
+| `composite` | None of the above specific drivers | Monitor complexity trends |
+
+Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`). `cyclic_dep` is the sole absolute check.
+
+### `driver_detail` — Near-miss context for composite functions
+
+When a function receives the `composite` label, `driver_detail` lists the top dimensions (up to 3) that came closest to firing a specific label, with their percentile rank. Example: `"cc (P72), nd (P68)"` means CC is at the 72nd percentile and ND at the 68th — notable but below the P75 threshold. Only dimensions above the 40th percentile are included.
+
+`driver_detail` is omitted from JSON when null (forward-compatible).
+
+### Aggregates (Snapshot Mode)
+
+Snapshot output includes an `aggregates` object with three arrays:
+
+#### `aggregates.file_risk` — File-Level Risk
+
+Each entry covers one source file, ranked by `file_risk_score` descending.
+
+```typescript
+{
+  file: "src/api.ts",
+  function_count: 12,
+  loc: 340,
+  max_cc: 14,
+  avg_cc: 6.8,
+  critical_count: 2,
+  file_churn: 180,
+  file_risk_score: 8.3   // max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn×0.1
+}
+```
+
+#### `aggregates.co_change` — Co-Change Coupling
+
+Pairs of files that frequently change together in the same commit. High coupling with no static dependency = hidden implicit coupling.
+
+```typescript
+{
+  file_a: "hotspots-cli/src/main.rs",
+  file_b: "hotspots-core/src/aggregates.rs",
+  co_change_count: 14,
+  coupling_ratio: 0.78,
+  has_static_dep: false,
+  risk: "high"   // "high" | "moderate" | "expected" | "low"
+}
+```
+
+`risk: "expected"` means a static import exists between the files — the co-change is explained. Default window: 90 days; minimum count: 3.
+
+#### `aggregates.modules` — Module Instability
+
+Robert Martin's instability metric at the directory level: `instability = efferent / (afferent + efferent)`.
+
+```typescript
+{
+  module: "hotspots-core/src",
+  file_count: 12,
+  function_count: 409,
+  avg_complexity: 3.2,
+  afferent: 8,       // external modules depending on this one
+  efferent: 3,       // external modules this one depends on
+  instability: 0.27, // near 0 = risky to change; near 1 = safe
+  module_risk: "high"
+}
+```
+
+### Schema Files
+
+JSON Schema definitions are available in the `schemas/` directory:
+
+- `hotspots-output.schema.json` — Complete output schema
+- `function-report.schema.json` — Individual function analysis
+- `metrics.schema.json` — Raw metrics (CC, ND, FO, NS)
+- `policy-result.schema.json` — Policy violation/warning format
+
+All schemas follow JSON Schema Draft 07.
 
 ---
 
@@ -550,3 +685,5 @@ Embed HTML report in iframe:
 ---
 
 **Need more examples?** Check out [examples/output-formats/](https://github.com/Stephen-Collins-tech/hotspots/tree/main/examples/output-formats).
+
+**Using in CI/CD?** See [CI/CD & GitHub Action](./ci-cd.md) for pipeline integration examples.

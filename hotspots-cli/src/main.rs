@@ -76,9 +76,20 @@ enum Commands {
         #[arg(long)]
         no_persist: bool,
 
-        /// Use per-function git log -L for touch metrics (accurate but ~50× slower)
+        /// Output level for text format: file shows a ranked file risk table (only valid with --mode snapshot --format text)
+        #[arg(long, value_name = "LEVEL")]
+        level: Option<OutputLevel>,
+
+        /// Use per-function git log -L for touch metrics (enabled by default via config).
+        /// Warm runs use the on-disk cache and match file-level speed.
+        /// To disable, set per_function_touches: false in .hotspotsrc.json.
         #[arg(long)]
         per_function_touches: bool,
+
+        /// Output all functions as a flat array instead of the default triage-first structure.
+        /// Only valid with --mode snapshot --format json.
+        #[arg(long)]
+        all_functions: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -155,6 +166,12 @@ enum OutputMode {
     Delta,
 }
 
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum OutputLevel {
+    File,
+    Module,
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -171,7 +188,9 @@ fn main() -> anyhow::Result<()> {
             explain,
             force,
             no_persist,
+            level,
             per_function_touches,
+            all_functions,
         } => handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -184,7 +203,9 @@ fn main() -> anyhow::Result<()> {
             explain,
             force,
             no_persist,
+            level,
             per_function_touches,
+            all_functions,
         })?,
         Commands::Prune {
             unreachable,
@@ -216,10 +237,64 @@ struct AnalyzeArgs {
     explain: bool,
     force: bool,
     no_persist: bool,
+    level: Option<OutputLevel>,
     per_function_touches: bool,
+    all_functions: bool,
+}
+
+/// Validate flag combinations that are mode/format-specific.
+fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    let AnalyzeArgs {
+        mode,
+        format,
+        policy,
+        explain,
+        per_function_touches,
+        no_persist,
+        force,
+        level,
+        all_functions,
+        ..
+    } = args;
+    if *policy && *mode != Some(OutputMode::Delta) {
+        anyhow::bail!("--policy flag is only valid with --mode delta");
+    }
+    if *explain && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--explain flag is only valid with --mode snapshot");
+    }
+    if *per_function_touches && mode.is_none() {
+        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
+    }
+    if *no_persist {
+        if mode.is_none() {
+            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        }
+        if *force {
+            anyhow::bail!("--no-persist and --force are mutually exclusive");
+        }
+    }
+    if level.is_some() {
+        if *mode != Some(OutputMode::Snapshot) {
+            anyhow::bail!("--level is only valid with --mode snapshot");
+        }
+        if !matches!(format, OutputFormat::Text) {
+            anyhow::bail!("--level is only valid with --format text");
+        }
+        if *explain {
+            anyhow::bail!("--level and --explain are mutually exclusive");
+        }
+    }
+    if *all_functions
+        && (*mode != Some(OutputMode::Snapshot) || !matches!(format, OutputFormat::Json))
+    {
+        anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
+    }
+    Ok(())
 }
 
 fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    validate_analyze_flags(&args)?;
+
     let AnalyzeArgs {
         path,
         format,
@@ -232,7 +307,9 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         explain,
         force,
         no_persist,
+        level,
         per_function_touches,
+        all_functions,
     } = args;
 
     // Normalize path to absolute
@@ -247,17 +324,6 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         anyhow::bail!("Path does not exist: {}", normalized_path.display());
     }
 
-    // Validate --policy flag (only valid with --mode delta)
-    if policy {
-        if let Some(m) = mode {
-            if m != OutputMode::Delta {
-                anyhow::bail!("--policy flag is only valid with --mode delta");
-            }
-        } else {
-            anyhow::bail!("--policy flag is only valid with --mode delta");
-        }
-    }
-
     // Load configuration
     let project_root = find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
     let resolved_config = config::load_and_resolve(&project_root, config_path.as_deref())
@@ -270,32 +336,9 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     // CLI flags override config file values
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-
-    // Validate --explain flag (only valid with --mode snapshot)
-    if explain {
-        if let Some(m) = mode {
-            if m != OutputMode::Snapshot {
-                anyhow::bail!("--explain flag is only valid with --mode snapshot");
-            }
-        } else {
-            anyhow::bail!("--explain flag is only valid with --mode snapshot");
-        }
-    }
-
-    // Validate --per-function-touches (only valid with --mode snapshot or --mode delta)
-    if per_function_touches && mode.is_none() {
-        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
-    }
-
-    // Validate --no-persist (only valid with --mode snapshot or --mode delta; conflicts with --force)
-    if no_persist {
-        if mode.is_none() {
-            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
-        }
-        if force {
-            anyhow::bail!("--no-persist and --force are mutually exclusive");
-        }
-    }
+    // per_function_touches: CLI flag or config default (true)
+    let effective_per_function_touches =
+        per_function_touches || resolved_config.per_function_touches;
 
     // If mode is specified, use snapshot/delta mode
     if let Some(output_mode) = mode {
@@ -312,7 +355,9 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain,
                 force,
                 no_persist,
-                per_function_touches,
+                level,
+                per_function_touches: effective_per_function_touches,
+                all_functions,
             },
         );
     }
@@ -380,6 +425,12 @@ fn handle_compact(level: u32) -> anyhow::Result<()> {
     if level > 2 {
         anyhow::bail!("compaction level must be 0, 1, or 2 (got {})", level);
     }
+    if level > 0 {
+        anyhow::bail!(
+            "compaction to level {} is not yet implemented (only level 0 is supported)",
+            level
+        );
+    }
 
     let repo_root = find_repo_root(&std::env::current_dir()?)?;
     let index_path = snapshot::index_path(&repo_root);
@@ -388,13 +439,6 @@ fn handle_compact(level: u32) -> anyhow::Result<()> {
     index.set_compaction_level(level);
     let index_json = index.to_json()?;
     snapshot::atomic_write(&index_path, &index_json)?;
-
-    if level > 0 {
-        anyhow::bail!(
-            "compaction to level {} is not yet implemented (only level 0 is supported)",
-            level
-        );
-    }
 
     println!("Compaction level set to {} (was {})", level, old_level);
     Ok(())
@@ -528,8 +572,11 @@ fn build_enriched_snapshot(
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
+    // Detect merge-base for branch-aware recency adjustment (None when on main)
+    let merge_base = hotspots_core::git::find_merge_base(repo_root);
+
     // Build call graph before snapshot creation (snapshot consumes reports)
-    let call_graph = hotspots_core::build_call_graph(&reports).ok();
+    let call_graph = hotspots_core::build_call_graph(&reports, repo_root).ok();
     if let Some(ref cg) = call_graph {
         let total = cg.total_callee_names;
         let resolved = cg.resolved_callee_names;
@@ -565,17 +612,25 @@ fn build_enriched_snapshot(
         }
     }
 
-    if per_function_touches {
-        eprintln!("Warning: --per-function-touches enabled; analysis will be significantly slower");
+    if per_function_touches
+        && !hotspots_core::snapshot::hotspots_dir(repo_root)
+            .join("touch-cache.json.zst")
+            .exists()
+    {
+        eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
     }
     enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
+    enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(graph);
     }
 
     Ok(enricher
-        .enrich(Some(&resolved_config.scoring_weights))
+        .enrich(
+            Some(&resolved_config.scoring_weights),
+            resolved_config.driver_threshold_percentile,
+        )
         .build())
 }
 
@@ -588,7 +643,9 @@ struct ModeOutputOptions {
     explain: bool,
     force: bool,
     no_persist: bool,
+    level: Option<OutputLevel>,
     per_function_touches: bool,
+    all_functions: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -607,7 +664,9 @@ fn handle_mode_output(
         explain,
         force,
         no_persist,
+        level,
         per_function_touches,
+        all_functions,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -638,7 +697,10 @@ fn handle_mode_output(
             }
 
             let total_function_count = snapshot.functions.len();
-            if explain || top.is_some() {
+            // For file/module level views, keep all functions so aggregation is over the full set
+            let is_aggregate_level =
+                level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+            if (explain || top.is_some()) && !is_aggregate_level {
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -653,10 +715,17 @@ fn handle_mode_output(
 
             emit_snapshot_output(
                 &mut snapshot,
-                format,
-                explain,
-                total_function_count,
-                output,
+                SnapshotOutputOpts {
+                    format,
+                    explain,
+                    level,
+                    top,
+                    total_function_count,
+                    output,
+                    co_change_window_days: resolved_config.co_change_window_days,
+                    co_change_min_count: resolved_config.co_change_min_count,
+                    all_functions,
+                },
                 &repo_root,
             )?;
         }
@@ -670,6 +739,42 @@ fn handle_mode_output(
             } else {
                 delta::compute_delta(&repo_root, &snapshot)?
             };
+
+            // Compute import edges and co-change for delta aggregates
+            let mut unique_files: Vec<String> = snapshot
+                .functions
+                .iter()
+                .map(|f| f.file.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            unique_files.sort();
+            let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+            let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, &repo_root);
+            let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
+                &repo_root,
+                resolved_config.co_change_window_days,
+                resolved_config.co_change_min_count,
+            )
+            .unwrap_or_default();
+            hotspots_core::aggregates::annotate_static_deps(
+                &mut current_co_change,
+                &import_edges,
+                &repo_root,
+            );
+
+            // Try to get prev co-change from parent snapshot aggregates (empty if not stored)
+            let parent_sha = snapshot.commit.parents.first().cloned();
+            let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_sha
+                .as_deref()
+                .and_then(|sha| {
+                    hotspots_core::delta::load_parent_snapshot(&repo_root, sha)
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|s| s.aggregates)
+                .map(|a| a.co_change)
+                .unwrap_or_default();
 
             let mut delta_with_extras = delta.clone();
             if policy {
@@ -685,7 +790,11 @@ fn handle_mode_output(
                 }
             }
             delta_with_extras.aggregates =
-                Some(hotspots_core::aggregates::compute_delta_aggregates(&delta));
+                Some(hotspots_core::aggregates::compute_delta_aggregates(
+                    &delta,
+                    &current_co_change,
+                    &prev_co_change,
+                ));
 
             if emit_delta_output(&delta_with_extras, format, policy, output)? {
                 std::process::exit(1);
@@ -696,27 +805,87 @@ fn handle_mode_output(
     Ok(())
 }
 
-fn emit_snapshot_output(
-    snapshot: &mut Snapshot,
+struct SnapshotOutputOpts {
     format: OutputFormat,
     explain: bool,
+    level: Option<OutputLevel>,
+    top: Option<usize>,
     total_function_count: usize,
     output: Option<PathBuf>,
+    co_change_window_days: u64,
+    co_change_min_count: usize,
+    all_functions: bool,
+}
+
+fn emit_snapshot_output(
+    snapshot: &mut Snapshot,
+    opts: SnapshotOutputOpts,
     repo_root: &Path,
 ) -> anyhow::Result<()> {
+    let SnapshotOutputOpts {
+        format,
+        explain,
+        level,
+        top,
+        total_function_count,
+        output,
+        co_change_window_days,
+        co_change_min_count,
+        all_functions,
+    } = opts;
     match format {
         OutputFormat::Json => {
-            let aggregates =
-                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
-            snapshot.aggregates = Some(aggregates);
-            println!("{}", snapshot.to_json()?);
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                snapshot,
+                repo_root,
+                co_change_window_days,
+                co_change_min_count,
+            );
+            if all_functions {
+                snapshot.aggregates = Some(aggregates);
+                println!("{}", snapshot.to_json()?);
+            } else {
+                let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
+                    snapshot,
+                    &aggregates,
+                    repo_root,
+                );
+                println!(
+                    "{}",
+                    agent_output
+                        .to_json()
+                        .context("failed to serialize agent snapshot output")?
+                );
+            }
         }
         OutputFormat::Jsonl => {
             println!("{}", snapshot.to_jsonl()?);
         }
         OutputFormat::Text => {
-            if explain {
-                print_explain_output(snapshot, total_function_count)?;
+            if level == Some(OutputLevel::File) {
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
+                print_file_risk_output(&aggregates.file_risk, top)?;
+            } else if level == Some(OutputLevel::Module) {
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
+                print_module_output(&aggregates.modules, top)?;
+            } else if explain {
+                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                    snapshot,
+                    repo_root,
+                    co_change_window_days,
+                    co_change_min_count,
+                );
+                print_explain_output(snapshot, total_function_count, &aggregates.co_change)?;
             } else {
                 anyhow::bail!(
                     "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
@@ -724,10 +893,19 @@ fn emit_snapshot_output(
             }
         }
         OutputFormat::Html => {
-            let aggregates =
-                hotspots_core::aggregates::compute_snapshot_aggregates(snapshot, repo_root);
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+                snapshot,
+                repo_root,
+                co_change_window_days,
+                co_change_min_count,
+            );
             snapshot.aggregates = Some(aggregates);
-            let html = hotspots_core::html::render_html_snapshot(snapshot);
+            let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
+                .collect();
+            let html = hotspots_core::html::render_html_snapshot(snapshot, &history);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
@@ -842,8 +1020,58 @@ fn print_policy_text_output(delta: &Delta, policy_results: &PolicyResults) -> an
     );
     print_rapid_growth_section(delta, &policy_results.warnings);
     print_repo_warnings_section(&policy_results.warnings);
+    print_co_change_delta_section(delta);
     print_policy_summary(policy_results);
     Ok(())
+}
+
+fn print_co_change_delta_section(delta: &Delta) {
+    let co_change_delta = match delta.aggregates.as_ref().map(|a| &a.co_change_delta) {
+        Some(d) if !d.is_empty() => d,
+        _ => return,
+    };
+
+    // Build the set of files touched in this delta
+    let touched: std::collections::HashSet<String> = delta
+        .deltas
+        .iter()
+        .filter_map(|e| {
+            e.function_id
+                .rfind("::")
+                .map(|pos| e.function_id[..pos].to_string())
+        })
+        .collect();
+
+    // Show only pairs relevant to touched files (or all if none matched)
+    let relevant: Vec<&hotspots_core::aggregates::CoChangeDeltaEntry> = co_change_delta
+        .iter()
+        .filter(|e| {
+            e.status != "dropped" && (touched.contains(&e.file_a) || touched.contains(&e.file_b))
+        })
+        .collect();
+
+    if relevant.is_empty() {
+        return;
+    }
+
+    println!("\nCo-Change Coupling (files touched in this delta):");
+    println!("{}", "-".repeat(80));
+    for entry in &relevant {
+        let risk = entry.curr_risk.as_deref().unwrap_or("unknown");
+        let dep_tag = if entry.has_static_dep {
+            " [expected]"
+        } else {
+            ""
+        };
+        println!(
+            "  {} ↔ {}  [{}{}]  co-changed {:.0}% of the time",
+            entry.file_a,
+            entry.file_b,
+            risk,
+            dep_tag,
+            entry.coupling_ratio * 100.0,
+        );
+    }
 }
 
 fn print_failing_functions_section(delta: &Delta, policy_results: &PolicyResults) {
@@ -1042,10 +1270,242 @@ fn print_policy_summary(policy_results: &PolicyResults) {
     }
 }
 
+/// Print ranked file risk table
+fn print_file_risk_output(
+    file_risk: &[hotspots_core::aggregates::FileRiskView],
+    top: Option<usize>,
+) -> anyhow::Result<()> {
+    if file_risk.is_empty() {
+        println!("No files to display.");
+        return Ok(());
+    }
+
+    let total = file_risk.len();
+    let display_count = top.map(|n| n.min(total)).unwrap_or(total);
+    let title = if display_count < total {
+        format!("Top {} Files by Risk Score", display_count)
+    } else {
+        "All Files by Risk Score".to_string()
+    };
+
+    println!("{}", title);
+    println!("{}", "=".repeat(80));
+    println!();
+
+    for (i, view) in file_risk.iter().take(display_count).enumerate() {
+        println!("#{} {}", i + 1, view.file);
+        println!(
+            "   Functions: {} | LOC: {} | Max CC: {} | Avg CC: {:.1}",
+            view.function_count, view.loc, view.max_cc, view.avg_cc
+        );
+        println!("   Risk Score: {:.2}", view.file_risk_score);
+        if view.file_churn > 0 {
+            println!("   Churn: {} lines changed (30 days)", view.file_churn);
+        }
+        if view.critical_count > 0 {
+            println!("   Critical functions: {}", view.critical_count);
+        }
+        println!();
+    }
+
+    println!("{}", "-".repeat(80));
+    println!("Showing {}/{} files", display_count, total);
+
+    Ok(())
+}
+
+/// Print ranked module instability table
+fn print_module_output(
+    modules: &[hotspots_core::aggregates::ModuleInstability],
+    top: Option<usize>,
+) -> anyhow::Result<()> {
+    if modules.is_empty() {
+        println!("No modules to display (import resolution produced no in-project edges).");
+        return Ok(());
+    }
+
+    let total = modules.len();
+    let display_count = top.map(|n| n.min(total)).unwrap_or(total);
+    let title = if display_count < total {
+        format!("Top {} Modules by Instability Risk", display_count)
+    } else {
+        "All Modules by Instability".to_string()
+    };
+
+    println!("{}", title);
+    println!("{}", "=".repeat(80));
+    println!();
+    println!(
+        "{:<3} {:<40} {:>5} {:>5} {:>7} {:>9} {:>9} {:>11} {:>5}",
+        "#", "module", "files", "fns", "avg_cc", "afferent", "efferent", "instability", "risk"
+    );
+    println!("{}", "-".repeat(98));
+
+    for (i, m) in modules.iter().take(display_count).enumerate() {
+        let module_display = truncate_string(&m.module, 40);
+        println!(
+            "{:<3} {:<40} {:>5} {:>5} {:>7.1} {:>9} {:>9} {:>11.3} {:>5}",
+            i + 1,
+            module_display,
+            m.file_count,
+            m.function_count,
+            m.avg_complexity,
+            m.afferent,
+            m.efferent,
+            m.instability,
+            m.module_risk,
+        );
+    }
+
+    println!("{}", "-".repeat(98));
+    println!("Showing {}/{} modules", display_count, total);
+
+    let high_risk_count = modules
+        .iter()
+        .take(display_count)
+        .filter(|m| m.module_risk == "high")
+        .count();
+    if high_risk_count > 0 {
+        println!(
+            "High-risk modules (low instability + high complexity): {}",
+            high_risk_count
+        );
+    }
+
+    Ok(())
+}
+
+/// Format non-zero risk factor lines for a single function.
+fn format_risk_factor_lines(func: &hotspots_core::snapshot::FunctionSnapshot) -> Vec<String> {
+    let factors = match func.risk_factors.as_ref() {
+        Some(f) => f,
+        None => return Vec::new(),
+    };
+    let mut lines = Vec::new();
+    if factors.complexity > 0.0 {
+        lines.push(format!(
+            "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
+            factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
+        ));
+    }
+    if factors.churn > 0.0 {
+        let churn_lines = func
+            .churn
+            .as_ref()
+            .map(|c| c.lines_added + c.lines_deleted)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Churn:           {:>6.2}  ({} lines changed recently)",
+            factors.churn, churn_lines
+        ));
+    }
+    if factors.activity > 0.0 {
+        let touches = func.touch_count_30d.unwrap_or(0);
+        lines.push(format!(
+            "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
+            factors.activity, touches
+        ));
+    }
+    if factors.recency > 0.0 {
+        let days = func.days_since_last_change.unwrap_or(0);
+        lines.push(format!(
+            "     • Recency:         {:>6.2}  (last changed {} days ago)",
+            factors.recency, days
+        ));
+    }
+    if factors.fan_in > 0.0 {
+        let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+        lines.push(format!(
+            "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
+            factors.fan_in, fi
+        ));
+    }
+    if factors.cyclic_dependency > 0.0 {
+        let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
+        lines.push(format!(
+            "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
+            factors.cyclic_dependency, scc
+        ));
+    }
+    if factors.depth > 0.0 {
+        let depth = func
+            .callgraph
+            .as_ref()
+            .and_then(|cg| cg.dependency_depth)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Depth:           {:>6.2}  ({} levels from entry point)",
+            factors.depth, depth
+        ));
+    }
+    if factors.neighbor_churn > 0.0 {
+        let nc = func
+            .callgraph
+            .as_ref()
+            .and_then(|cg| cg.neighbor_churn)
+            .unwrap_or(0);
+        lines.push(format!(
+            "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
+            factors.neighbor_churn, nc
+        ));
+    }
+    lines
+}
+
+/// Print co-change coupling section (source files only).
+fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
+    const SRC_EXTS: &[&str] = &[
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
+    ];
+    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
+    let is_notable = |p: &&hotspots_core::git::CoChangePair| {
+        is_src(&p.file_a) && is_src(&p.file_b) && p.risk != "low"
+    };
+    let notable: Vec<_> = co_change.iter().filter(is_notable).take(10).collect();
+    if notable.is_empty() {
+        return;
+    }
+    println!();
+    println!("Co-Change Coupling (90-day window)");
+    println!("{}", "=".repeat(80));
+    for (i, pair) in notable.iter().enumerate() {
+        let label = if pair.has_static_dep {
+            "expected".to_string()
+        } else {
+            pair.risk.to_uppercase()
+        };
+        println!(
+            "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
+            i + 1,
+            label,
+            pair.coupling_ratio,
+            pair.co_change_count,
+            pair.file_a,
+            pair.file_b,
+        );
+    }
+    println!("{}", "-".repeat(80));
+    let hidden_count = co_change
+        .iter()
+        .filter(|p| {
+            (p.risk == "high" || p.risk == "moderate")
+                && !p.has_static_dep
+                && is_src(&p.file_a)
+                && is_src(&p.file_b)
+        })
+        .count();
+    let total_notable = co_change.iter().filter(is_notable).count();
+    println!(
+        "{} notable pairs ({} hidden coupling)  |  Run with --format json for full list",
+        total_notable, hidden_count
+    );
+}
+
 /// Print human-readable risk explanations for top functions
 fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
     total_count: usize,
+    co_change: &[hotspots_core::git::CoChangePair],
 ) -> anyhow::Result<()> {
     let display_count = snapshot.functions.len();
 
@@ -1064,7 +1524,6 @@ fn print_explain_output(
     println!("{}", "=".repeat(80));
     println!();
 
-    // Functions are already sorted by activity_risk before this is called
     for (i, func) in snapshot.functions.iter().take(display_count).enumerate() {
         let score = func.activity_risk.unwrap_or(func.lrs);
         let func_name = func
@@ -1072,101 +1531,35 @@ fn print_explain_output(
             .split("::")
             .last()
             .unwrap_or(&func.function_id);
-        let file_line = format!("{}:{}", func.file, func.line);
-
-        println!("#{} {} [{}]", i + 1, func_name, func.band.to_uppercase());
-        println!("   File: {}", file_line);
+        let (driver, action) = driving_dimension(func);
+        println!(
+            "#{} {} [{}] [{}]",
+            i + 1,
+            func_name,
+            func.band.to_uppercase(),
+            driver
+        );
+        println!("   File: {}:{}", func.file, func.line);
         println!(
             "   Risk Score: {:.2} (complexity base: {:.2})",
             score, func.lrs
         );
-
-        // Print risk factor breakdown if available
-        if let Some(ref factors) = func.risk_factors {
+        let factor_lines = format_risk_factor_lines(func);
+        if !factor_lines.is_empty() {
             println!("   Risk Breakdown:");
-
-            // Collect non-zero factors with their explanations
-            let mut factor_lines = Vec::new();
-
-            if factors.complexity > 0.0 {
-                factor_lines.push(format!(
-                    "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
-                    factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
-                ));
-            }
-            if factors.churn > 0.0 {
-                let churn_lines = func
-                    .churn
-                    .as_ref()
-                    .map(|c| c.lines_added + c.lines_deleted)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Churn:           {:>6.2}  ({} lines changed recently)",
-                    factors.churn, churn_lines
-                ));
-            }
-            if factors.activity > 0.0 {
-                let touches = func.touch_count_30d.unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
-                    factors.activity, touches
-                ));
-            }
-            if factors.recency > 0.0 {
-                let days = func.days_since_last_change.unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Recency:         {:>6.2}  (last changed {} days ago)",
-                    factors.recency, days
-                ));
-            }
-            if factors.fan_in > 0.0 {
-                let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
-                    factors.fan_in, fi
-                ));
-            }
-            if factors.cyclic_dependency > 0.0 {
-                let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
-                factor_lines.push(format!(
-                    "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
-                    factors.cyclic_dependency, scc
-                ));
-            }
-            if factors.depth > 0.0 {
-                let depth = func
-                    .callgraph
-                    .as_ref()
-                    .and_then(|cg| cg.dependency_depth)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Depth:           {:>6.2}  ({} levels from entry point)",
-                    factors.depth, depth
-                ));
-            }
-            if factors.neighbor_churn > 0.0 {
-                let nc = func
-                    .callgraph
-                    .as_ref()
-                    .and_then(|cg| cg.neighbor_churn)
-                    .unwrap_or(0);
-                factor_lines.push(format!(
-                    "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
-                    factors.neighbor_churn, nc
-                ));
-            }
-
             for line in factor_lines {
                 println!("{}", line);
             }
         }
-
-        // Print a recommendation
-        println!("   Action: {}", get_recommendation(func));
+        println!("   Action: {}", action);
+        if driver == "composite" {
+            if let Some(ref detail) = func.driver_detail {
+                println!("   Near-threshold: {}", detail);
+            }
+        }
         println!();
     }
 
-    // Summary
     println!("{}", "-".repeat(80));
     let critical_count = snapshot
         .functions
@@ -1180,48 +1573,24 @@ fn print_explain_output(
         .take(display_count)
         .filter(|f| f.band == "high")
         .count();
-
     println!(
         "Showing {}/{} functions  |  Critical: {}  High: {}",
         display_count, total_count, critical_count, high_count
     );
 
+    print_co_change_section(co_change);
+
     Ok(())
 }
 
-/// Generate a human-readable action recommendation based on risk factors
-fn get_recommendation(func: &hotspots_core::snapshot::FunctionSnapshot) -> &'static str {
-    let score = func.activity_risk.unwrap_or(func.lrs);
-    let in_cycle = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.scc_size > 1)
-        .unwrap_or(false);
-    let high_fan_in = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.fan_in > 10)
-        .unwrap_or(false);
-
-    if func.band == "critical" || score > 20.0 {
-        if in_cycle {
-            "URGENT: Break cyclic dependency and refactor this function"
-        } else if high_fan_in {
-            "URGENT: Stabilize or split this high-dependency function"
-        } else {
-            "URGENT: Reduce complexity - extract sub-functions"
-        }
-    } else if func.band == "high" || score > 10.0 {
-        if in_cycle {
-            "Refactor: Break cyclic dependency in this function cluster"
-        } else {
-            "Refactor: Reduce complexity and improve test coverage"
-        }
-    } else if func.band == "moderate" {
-        "Watch: Monitor for complexity growth on next change"
-    } else {
-        "OK: Low risk - consider refactoring only if modifying"
-    }
+/// Map a driving dimension label to its action text.
+fn driving_dimension(
+    func: &hotspots_core::snapshot::FunctionSnapshot,
+) -> (&'static str, &'static str) {
+    let label = hotspots_core::snapshot::normalize_driver_label(
+        func.driver.as_deref().unwrap_or("composite"),
+    );
+    (label, hotspots_core::snapshot::driver_action(label))
 }
 
 /// Truncate string to max length

@@ -194,6 +194,83 @@ Maximum number of functions to show.
 **Type:** `number`
 **Default:** No limit (show all)
 
+### Co-Change Analysis
+
+#### `co_change_window_days`
+Number of days of git history to mine for co-change pairs.
+
+```json
+{
+  "co_change_window_days": 180
+}
+```
+
+**Type:** `number` (integer ≥ 1)
+**Default:** `90`
+
+Projects with a slow commit cadence (e.g. once a week) benefit from a larger window.
+
+#### `co_change_min_count`
+Minimum number of co-changes required to report a pair. Pairs that appear fewer times are
+filtered out as noise.
+
+```json
+{
+  "co_change_min_count": 5
+}
+```
+
+**Type:** `number` (integer ≥ 1)
+**Default:** `3`
+
+High-traffic repositories (50+ commits/day) may want a higher threshold to reduce noise.
+
+#### `driver_threshold_percentile`
+Percentile of each metric that a function must exceed to receive a specific driver label.
+
+```json
+{
+  "driver_threshold_percentile": 75
+}
+```
+
+**Type:** integer 1–99
+**Default:** `75`
+
+At the default of 75, a function must have a cyclomatic complexity above the 75th percentile of
+all functions in the snapshot to trigger the `high_complexity` label (i.e. top 25%). The same
+percentile gate applies to `nd` (deep_nesting), `fan_out` (high_fanout_churning), `fan_in`
+(high_fanin_complex), and `touch_count` (high_churn_low_cc, high_fanout_churning).
+
+Compound checks:
+- `high_churn_low_cc`: touch above Pth percentile **and** cc below the (100-P)th percentile
+- `high_fanout_churning`: fan_out above Pth percentile **and** touch above the 50th percentile
+
+`cyclic_dep` stays absolute — being in a cycle is binary, not distribution-relative.
+
+**When to tune:**
+- Small or uniform repos → lower to 50–60 so more functions get specific labels
+- Large repos with high median complexity → raise to 85–90 to reduce noise
+
+#### `per_function_touches`
+Whether to use per-function `git log -L` for touch metrics instead of file-level batching.
+
+```json
+{
+  "per_function_touches": false
+}
+```
+
+**Type:** `boolean`
+**Default:** `true`
+
+Per-function touch metrics are more accurate (each function gets its own 30-day touch count
+rather than sharing the file's count). Warm runs use the on-disk cache
+(`.hotspots/touch-cache.json.zst`) and match file-level speed (~230 ms vs ~268 ms on this
+repo). The first run on a new commit is slow (~6 s for ~200 functions); subsequent runs are
+fast. Set to `false` to always use file-level batching (useful in CI without a persistent
+cache layer).
+
 ## Complete Example
 
 ```json
@@ -418,5 +495,87 @@ Fix the ordering and try again.
 ## Related Documentation
 
 - [CLI Reference](../reference/cli.md) - Command-line options
-- [LRS Specification](../reference/lrs-spec.md) - How LRS is calculated
+- [Metrics & LRS](../reference/metrics.md) - How LRS is calculated
 - [Policy Engine](../guide/usage.md#policy-engine) - Using policies
+
+---
+
+## Suppression Comments
+
+Suppression comments let you exclude specific functions from policy violations while keeping them visible in reports. Use this for legacy code, intentionally complex algorithms, or generated code.
+
+### Syntax
+
+Place a comment **immediately before** the function:
+
+```typescript
+// hotspots-ignore: legacy payment processor, rewrite scheduled Q2 2026
+function complexLegacyParser(input: string) {
+  // High complexity code...
+}
+```
+
+**Rules:**
+1. Comment must be on the line **immediately before** the function
+2. Format: `// hotspots-ignore: <reason>`
+3. Reason is **required** (warning generated if missing)
+4. Blank lines between comment and function break the suppression
+
+### Valid Suppressions
+
+```typescript
+// hotspots-ignore: RSA encryption algorithm, well-tested, cannot be simplified
+function rsaDecrypt(key: Buffer, data: Buffer): Buffer { ... }
+
+// hotspots-ignore: generated code from protocol buffers
+class MessageHandler { handle() { ... } }
+
+// hotspots-ignore: legacy parser, migration to TreeSitter in Q2 2026
+const parse = (input: string) => { ... };
+```
+
+### Invalid Suppressions
+
+```typescript
+// hotspots-ignore: reason here
+
+function foo() { }  // ❌ Blank line breaks suppression
+
+// hotspots-ignore:
+function bar() { }  // ⚠️  Warning: suppression without reason
+```
+
+### What Suppressions Affect
+
+**Excluded from policy:**
+- Critical Introduction
+- Excessive Risk Regression
+- Watch / Attention / Rapid Growth warnings
+
+**Still tracked in:**
+- Analysis reports (with `suppression_reason` field in JSON)
+- Net Repo Regression (total repository LRS)
+- Snapshots and HTML reports
+
+### Best Practices
+
+**Good reasons to suppress:**
+- Complex algorithms with established test coverage
+- Legacy code pending scheduled migration
+- Generated code (protocol buffers, GraphQL, etc.)
+- Intentionally complex code (e.g., optimized parsers, state machines)
+
+**Bad reasons to suppress:**
+- New code that should be refactored
+- "I'll fix it later" without a concrete plan
+- Avoiding code review feedback
+
+**Documentation guidelines:** Include what makes the code complex, why it's not being fixed now, and when it will be addressed (if applicable).
+
+### Auditing Suppressions
+
+Review suppressed functions periodically:
+```bash
+# Find all suppressed functions in JSON output
+hotspots analyze src/ --format json | jq '.functions[] | select(.suppression_reason != null)'
+```

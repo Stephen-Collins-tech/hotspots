@@ -455,29 +455,7 @@ fn compute_delete_delta(parent: &FunctionSnapshot) -> FunctionDelta {
 ///
 /// Returns error if snapshot exists but cannot be read/parsed.
 pub fn load_parent_snapshot(repo_root: &Path, parent_sha: &str) -> Result<Option<Snapshot>> {
-    let snapshot_path = crate::snapshot::snapshot_path(repo_root, parent_sha);
-
-    if !snapshot_path.exists() {
-        // Missing parent snapshot - baseline case
-        return Ok(None);
-    }
-
-    // Load and parse snapshot
-    let json = std::fs::read_to_string(&snapshot_path).with_context(|| {
-        format!(
-            "failed to read parent snapshot: {}",
-            snapshot_path.display()
-        )
-    })?;
-
-    let snapshot = Snapshot::from_json(&json).with_context(|| {
-        format!(
-            "failed to parse parent snapshot: {}",
-            snapshot_path.display()
-        )
-    })?;
-
-    Ok(Some(snapshot))
+    crate::snapshot::load_snapshot(repo_root, parent_sha)
 }
 
 /// Compute delta for a snapshot against its parent

@@ -63,7 +63,7 @@ jobs:
 
 | Input | Description | Default |
 |-------|-------------|---------|
-| `github-token` | GitHub token for posting PR comments | `${{ github.token }}` |
+| `github-token` | GitHub token for posting PR comments | `github.token` (auto) |
 
 ### Optional Inputs
 

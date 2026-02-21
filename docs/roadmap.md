@@ -1,6 +1,6 @@
 # Hotspots Roadmap
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-20
 **Current Version:** Pre-release (approaching v1.0.0)
 **Vision:** Universal complexity analysis for modern software development
 
@@ -25,19 +25,37 @@
 ### ✅ Completed (as of 2026-02-04)
 
 **Core Engine:**
-- ✅ LRS (Local Risk Score) calculation for TypeScript/JavaScript
+- ✅ LRS (Local Risk Score) calculation for all 6 supported languages
 - ✅ CFG (Control Flow Graph) construction
+- ✅ Activity Risk scoring (churn, touch, recency, fan_in, SCC, depth, neighbor_churn)
+- ✅ Call graph engine (import resolution, PageRank, betweenness centrality, SCC detection)
+- ✅ Branch-aware recency: divergence-point comparison instead of HEAD-only
+- ✅ Driver labels: `high_complexity`, `deep_nesting`, `high_churn_low_cc`,
+  `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, `composite`
+- ✅ `--explain` mode (dimension-specific refactoring guidance + near-miss detail)
+- ✅ `driver_detail` field: near-miss percentile context for composite functions
+- ✅ Quadrant classification: `fire`, `debt`, `watch`, `ok` (band × activity)
+- ✅ Quadrant-aware action text: single `driver_action_for_quadrant` source of truth
+- ✅ Per-function touch cache (warm-run speedup via on-disk cache)
+- ✅ `--level file` and `--level module` aggregation views
+- ✅ JSONL output format
 - ✅ Policy engine with 7 built-in policies
 - ✅ Suppression comments system
-- ✅ HTML report generation
+- ✅ HTML report: trend charts (band count, risk line, share line), action column in triage table
+- ✅ Agent-optimized JSON (schema v3): triage-first structure with quadrant buckets
+- ✅ `--all-functions` flag for agent/tooling consumption
 - ✅ Proactive warning system
 - ✅ Git delta mode (snapshot + trends)
-- ✅ Configuration file support
+- ✅ Configuration file support (`hotspots config show` / `hotspots config validate`)
 
 **Language Support:**
 - ✅ TypeScript (.ts, .tsx, .mts, .cts)
 - ✅ JavaScript (.js, .jsx, .mjs, .cjs)
 - ✅ JSX/TSX (React components)
+- ✅ Go (.go) — defer, goroutines, select, type switches
+- ✅ Python (.py) — comprehensions, context managers, match statements
+- ✅ Rust (.rs) — match, if-let, `?` operator, loop labels
+- ✅ Java (.java) — lambdas, try-with-resources, switch expressions
 
 **CI/CD Integration:**
 - ✅ GitHub Action (Task 2.1 - COMPLETED)
@@ -89,10 +107,10 @@ Hotspots should be the standard tool that prevents code complexity from growing 
 - If true: Focus on GitHub Action UX, PR comments, workflow polish
 - If false: Pivot to CLI-first, local development focus
 
-**Bet #2: TypeScript/JavaScript Market is Sufficient**
-- Hypothesis: TS/JS coverage captures 70%+ of potential users
-- If true: Defer multi-language, deepen TS/JS features
-- If false: Add Go/Python to expand addressable market
+**Bet #2: Multi-Language Expands Addressable Market** *(validated)*
+- Original hypothesis: TS/JS coverage may be sufficient
+- Outcome: Go, Python, Rust, and Java were added; full 6-language parity now shipped
+- Current focus: Deepening features across all languages, not expanding language count
 
 **Bet #3: Policy Engine Differentiates vs Competitors**
 - Hypothesis: Automated regression blocking > manual metric review
@@ -188,11 +206,11 @@ Hotspots should be the standard tool that prevents code complexity from growing 
 
 ---
 
-## Phase 2: Multi-Language Experiment (Q2 2026)
+## Phase 2: Multi-Language Support (Completed)
 
-**Timeline:** Apr - Jun 2026 (12 weeks)
-**Goal:** Validate multi-language demand and technical feasibility
-**Trigger:** Decision Point 1 → Scenario B
+**Status:** ✅ Complete — Go, Python, Rust, and Java were implemented ahead of the original
+Phase 2 timeline. Full language parity across all metrics and features is shipped.
+The experiment and decision-point process described below was superseded by implementation.
 
 ### Experimental Approach
 
@@ -877,8 +895,8 @@ For each language candidate:
 
 ---
 
-**Last Updated:** 2026-02-04
-**Next Review:** 2026-03-01 (after Phase 1 completion)
+**Last Updated:** 2026-02-20
+**Next Review:** 2026-03-15
 **Maintained By:** Core team
 
 **Changes to this roadmap require:**

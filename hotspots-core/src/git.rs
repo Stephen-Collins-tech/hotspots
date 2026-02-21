@@ -319,6 +319,47 @@ pub fn resolve_merge_base_auto() -> Option<String> {
     None
 }
 
+/// Find the merge-base SHA and Unix timestamp between HEAD and main/master.
+/// Returns None when already on main (merge-base == HEAD) or no divergence found.
+pub fn find_merge_base(repo_root: &Path) -> Option<(String, i64)> {
+    for branch in &["main", "master", "origin/HEAD"] {
+        if let Ok(sha) = git_at(repo_root, &["merge-base", "HEAD", branch]) {
+            let sha = sha.trim().to_string();
+            if sha.is_empty() {
+                continue;
+            }
+            if let Ok(head) = git_at(repo_root, &["rev-parse", "HEAD"]) {
+                if head.trim() == sha {
+                    return None; // already on main
+                }
+            }
+            if let Ok(ts_str) = git_at(repo_root, &["log", "-1", "--format=%ct", &sha]) {
+                if let Ok(ts) = ts_str.trim().parse::<i64>() {
+                    return Some((sha, ts));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Days since the last change to `file` at or before `before_sha`.
+/// Returns None if the file has no history before that SHA.
+pub fn days_since_last_change_at_sha(
+    repo_root: &Path,
+    file: &str,
+    before_sha: &str,
+    as_of_timestamp: i64,
+) -> Option<u32> {
+    git_at(
+        repo_root,
+        &["log", "-1", "--format=%ct", before_sha, "--", file],
+    )
+    .ok()
+    .and_then(|out| out.trim().parse::<i64>().ok())
+    .map(|ts| ((as_of_timestamp - ts).max(0) / 86400) as u32)
+}
+
 /// Extract commit churn (lines added/deleted per file)
 ///
 /// Uses `git show --numstat <sha>` to get churn data for all files in the commit.
@@ -780,6 +821,159 @@ pub fn extract_ticket_ids(message: &str, branch: Option<&str>) -> Vec<String> {
     }
 
     tickets
+}
+
+/// A pair of files that frequently change together in the same commit
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct CoChangePair {
+    pub file_a: String,
+    pub file_b: String,
+    /// Number of commits where both files changed
+    pub co_change_count: usize,
+    /// co_change_count / min(total_changes_a, total_changes_b)
+    pub coupling_ratio: f64,
+    /// "high" if ratio > 0.5 and no static dep, "moderate" if > 0.25 and no static dep,
+    /// "expected" if a direct import exists between the two files, else "low"
+    pub risk: String,
+    /// Whether a direct import relationship exists between file_a and file_b
+    pub has_static_dep: bool,
+}
+
+/// Returns true for pairs that are trivially expected to co-change (test+source,
+/// mod.rs+sibling) and should be excluded from coupling analysis.
+fn is_trivial_pair(file_a: &str, file_b: &str) -> bool {
+    // foo.rs + foo_test.rs or foo_tests.rs (same dir, same stem)
+    let dir_a = std::path::Path::new(file_a)
+        .parent()
+        .unwrap_or(std::path::Path::new(""));
+    let dir_b = std::path::Path::new(file_b)
+        .parent()
+        .unwrap_or(std::path::Path::new(""));
+    let stem_a = std::path::Path::new(file_a)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let stem_b = std::path::Path::new(file_b)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    if dir_a == dir_b {
+        // Test file paired with its source: foo + foo_test or foo_tests
+        if stem_b == format!("{}_test", stem_a) || stem_b == format!("{}_tests", stem_a) {
+            return true;
+        }
+        if stem_a == format!("{}_test", stem_b) || stem_a == format!("{}_tests", stem_b) {
+            return true;
+        }
+        // mod.rs paired with any sibling in the same directory
+        if stem_a == "mod" || stem_b == "mod" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Mine co-change pairs from git log over the last `window_days` days.
+///
+/// Returns pairs that co-changed at least `min_count` times, ranked by
+/// coupling_ratio descending. Pairs where both files are the same are excluded.
+pub fn extract_co_change_pairs(
+    repo_root: &Path,
+    window_days: u64,
+    min_count: usize,
+) -> Result<Vec<CoChangePair>> {
+    let since = format!("{} days ago", window_days);
+    let output = git_at(
+        repo_root,
+        &[
+            "log",
+            "--name-only",
+            "--format=COMMIT:%H",
+            &format!("--since={}", since),
+            "--diff-filter=AM",
+        ],
+    )
+    .unwrap_or_default();
+
+    // Parse into per-commit file sets
+    let mut commit_files: Vec<Vec<String>> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    for line in output.lines() {
+        if line.starts_with("COMMIT:") {
+            if !current.is_empty() {
+                commit_files.push(std::mem::take(&mut current));
+            }
+        } else if !line.trim().is_empty() {
+            current.push(line.trim().to_string());
+        }
+    }
+    if !current.is_empty() {
+        commit_files.push(current);
+    }
+
+    // Count per-file total appearances and per-pair co-occurrences
+    let mut file_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut pair_counts: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+
+    for files in &commit_files {
+        for f in files {
+            *file_counts.entry(f.clone()).or_insert(0) += 1;
+        }
+        // All unique pairs in this commit
+        let mut sorted = files.clone();
+        sorted.sort();
+        sorted.dedup();
+        for i in 0..sorted.len() {
+            for j in (i + 1)..sorted.len() {
+                let key = (sorted[i].clone(), sorted[j].clone());
+                *pair_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let mut pairs: Vec<CoChangePair> = pair_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= min_count)
+        .filter(|((file_a, file_b), _)| {
+            // Skip pairs where either file no longer exists (e.g. renamed/deleted files)
+            repo_root.join(file_a).exists() && repo_root.join(file_b).exists()
+        })
+        .filter(|((file_a, file_b), _)| !is_trivial_pair(file_a, file_b))
+        .map(|((file_a, file_b), co_change_count)| {
+            let count_a = file_counts.get(&file_a).copied().unwrap_or(1);
+            let count_b = file_counts.get(&file_b).copied().unwrap_or(1);
+            let coupling_ratio = co_change_count as f64 / count_a.min(count_b) as f64;
+            let risk = if coupling_ratio > 0.5 {
+                "high".to_string()
+            } else if coupling_ratio > 0.25 {
+                "moderate".to_string()
+            } else {
+                "low".to_string()
+            };
+            CoChangePair {
+                file_a,
+                file_b,
+                co_change_count,
+                coupling_ratio: (coupling_ratio * 1000.0).round() / 1000.0,
+                risk,
+                has_static_dep: false, // annotated later in compute_snapshot_aggregates
+            }
+        })
+        .collect();
+
+    pairs.sort_by(|a, b| {
+        b.coupling_ratio
+            .partial_cmp(&a.coupling_ratio)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file_a.cmp(&b.file_a))
+            .then(a.file_b.cmp(&b.file_b))
+    });
+
+    Ok(pairs)
 }
 
 #[cfg(test)]

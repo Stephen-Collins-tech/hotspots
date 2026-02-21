@@ -1,26 +1,4 @@
-# How to Use Hotspots
-
-## Installation
-
-### Build from Source
-
-```bash
-git clone <repo-url>
-cd hotspots
-cargo build --release
-```
-
-The binary will be at `target/release/hotspots`.
-
-### Install to System Path (Dev Version)
-
-```bash
-./install-dev.sh
-```
-
-This builds and installs `hotspots` to `~/.local/bin` (or a custom directory).
-
----
+# Usage & Workflows
 
 ## Basic Usage
 
@@ -383,6 +361,91 @@ This will:
 
 ---
 
+## Higher-Level Analysis
+
+In addition to per-function output, snapshot mode offers three higher-level views accessible
+with `--level` or `--explain`.
+
+### File-Level Risk View (`--level file`)
+
+Aggregate per-function data up to the file level and see a ranked file table:
+
+```bash
+# Ranked file risk table (requires --mode snapshot --format text)
+hotspots analyze . --mode snapshot --format text --level file
+
+# Limit to top 20 files
+hotspots analyze . --mode snapshot --format text --level file --top 20
+```
+
+Columns: `#`, `file`, `fns`, `loc`, `max_cc`, `avg_cc`, `critical`, `churn`, `file_risk`.
+
+A file with 40 functions averaging cc=12 is a maintenance liability even if no single
+function individually tops the per-function list. The composite `file_risk_score` captures this:
+
+```
+file_risk = max_cc × 0.4 + avg_cc × 0.3 + log2(fn_count + 1) × 0.2 + churn_factor × 0.1
+```
+
+### Module Instability View (`--level module`)
+
+See Robert Martin's instability metric at the directory level:
+
+```bash
+hotspots analyze . --mode snapshot --format text --level module
+```
+
+Columns: `#`, `module`, `files`, `fns`, `avg_cc`, `afferent`, `efferent`, `instability`, `risk`.
+
+- **Instability near 0.0** — everything depends on this module; risky to change
+- **Instability near 1.0** — depends on others but nothing depends on it; safe to change
+- **`module_risk = high`** — when `instability < 0.3` AND `avg_complexity > 10`
+
+The interesting hotspots are high-complexity modules with low instability (hard to change
+AND everything depends on them).
+
+### Per-Function Explanations (`--explain`)
+
+See a human-readable breakdown of each function's risk score including individual metric
+contributions, activity signals, and a co-change coupling section:
+
+```bash
+hotspots analyze . --mode snapshot --format text --explain
+hotspots analyze . --mode snapshot --format text --explain --top 10
+```
+
+The co-change section at the bottom shows pairs of files that frequently change together
+in the same commit. High co-change with no static dependency = hidden implicit coupling.
+This signal is mined from the last 90 days of git history.
+
+### Snapshot Without Persisting (`--no-persist`)
+
+Run analysis in snapshot mode without writing to disk — useful for one-off inspection:
+
+```bash
+hotspots analyze . --mode snapshot --no-persist --format json | jq .aggregates.file_risk
+```
+
+### Regenerating a Snapshot (`--force`)
+
+Snapshots are immutable by default. Use `--force` if you need to regenerate one:
+
+```bash
+hotspots analyze . --mode snapshot --force
+```
+
+### Precise Per-Function Touch Metrics (`--per-function-touches`)
+
+By default, touch metrics are file-level. For more accurate per-function activity signals:
+
+```bash
+hotspots analyze . --mode snapshot --per-function-touches
+```
+
+**Warning:** Approximately 50× slower. Only use when precise per-function touch counts are needed.
+
+---
+
 ## Common Workflows
 
 ### Daily Development
@@ -576,9 +639,20 @@ cd my-git-repo
 hotspots analyze . --mode snapshot
 ```
 
-### "snapshot already exists"
+### "snapshot already exists and differs"
 
-Snapshots are immutable. If you get this error, the snapshot already exists for this commit. This is safe to ignore if you're re-running the same command.
+Snapshots are immutable by default. This error means a snapshot already exists for the
+current commit but its content differs from the freshly-computed result.
+
+Repeated `analyze` runs on the same commit should be idempotent. If you see this error,
+common causes are:
+- A config change between runs that altered scores
+- A tool version upgrade that changed metric computation
+
+To regenerate the snapshot intentionally:
+```bash
+hotspots analyze . --mode snapshot --force
+```
 
 ### No output in delta mode
 
@@ -680,7 +754,7 @@ The policy engine evaluates complexity regressions and enforces quality gates in
 
 ```bash
 # Analyze with policy evaluation
-hotspots analyze . --mode delta --policies --format json
+hotspots analyze . --mode delta --policy --format json
 ```
 
 Output includes a `policy` section with failures and warnings.
@@ -853,14 +927,19 @@ function foo() { }  // ⚠️  Warning: suppressed without reason
 Generate interactive HTML reports for better visualization:
 
 ```bash
-hotspots analyze . --format html > report.html
+hotspots analyze . --mode snapshot --format html
 ```
 
 **HTML report features:**
 - Interactive sorting by any column
-- Filter by risk band
-- Filter by file path
-- Color-coded risk bands
+- Filter by risk band and driver label
+- Search by function name
+- Color-coded risk bands and driver badges
+- **Action column** in triage table: per-function refactoring recommendation (driver × quadrant)
+- **Trend charts** (snapshot mode, requires ≥2 prior snapshots):
+  - Stacked bar chart: band-count distribution over time (up to 30 snapshots)
+  - Line charts: activity risk and top-1% concentration over time
+  - Hover tooltip on band chart with per-band counts
 - Responsive design
 - Self-contained (no external dependencies)
 
@@ -879,17 +958,14 @@ Shows function changes with:
 **Open in browser:**
 
 ```bash
-hotspots analyze . --format html > report.html
-open report.html  # macOS
-xdg-open report.html  # Linux
-start report.html  # Windows
+hotspots analyze . --mode snapshot --format html
+open .hotspots/report.html  # macOS
+xdg-open .hotspots/report.html  # Linux
+start .hotspots/report.html  # Windows
 ```
 
 ---
 
 ## See Also
 
-- [Capabilities and Use Cases](capabilities-and-use-cases.md) - Detailed feature overview
-- [Metrics Calculation and Rationale](metrics-calculation-and-rationale.md) - How metrics are computed
-- [Git History Integration Summary](git-history-integration-summary.md) - Technical details
-- [LRS Specification](lrs-spec.md) - Local Risk Score details
+- [Metrics & LRS](../reference/metrics.md) - Local Risk Score details

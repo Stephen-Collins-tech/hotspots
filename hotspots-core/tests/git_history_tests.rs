@@ -78,11 +78,7 @@ fn get_commit_sha(repo_path: &Path, ref_name: &str) -> String {
 
 /// Verify snapshot exists for a commit
 fn verify_snapshot_exists(repo_path: &Path, commit_sha: &str) -> bool {
-    let snapshot_path = repo_path
-        .join(".hotspots")
-        .join("snapshots")
-        .join(format!("{}.json", commit_sha));
-    snapshot_path.exists()
+    snapshot::snapshot_path_existing(repo_path, commit_sha).is_some()
 }
 
 /// Create snapshot for current commit in the specified repo
@@ -361,7 +357,7 @@ fn test_force_push_does_not_corrupt_history() {
 
     // Read snapshot1 content before reset for comparison
     let content1_before =
-        std::fs::read_to_string(&snapshot_path1).expect("failed to read snapshot1 before reset");
+        std::fs::read(&snapshot_path1).expect("failed to read snapshot1 before reset");
 
     // Create new commit
     create_ts_file(repo_path, "simple.ts", "function simple() { return 2; }");
@@ -418,8 +414,8 @@ fn test_force_push_does_not_corrupt_history() {
     );
 
     // Verify snapshot content is unchanged (immutability)
-    let content1_after = std::fs::read_to_string(&snapshot_path1_check)
-        .expect("failed to read snapshot1 after reset");
+    let content1_after =
+        std::fs::read(&snapshot_path1_check).expect("failed to read snapshot1 after reset");
     assert_eq!(
         content1_before, content1_after,
         "snapshot1 content must be unchanged after reset (immutability)"

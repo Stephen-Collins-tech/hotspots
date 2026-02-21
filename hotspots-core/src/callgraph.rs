@@ -138,9 +138,11 @@ impl CallGraph {
             for node in &self.nodes {
                 let mut rank = (1.0 - damping) / n as f64;
 
-                // Sum contributions from all callers
+                // Sum contributions from all callers (sorted for determinism)
                 if let Some(callers) = reverse_edges.get(node) {
-                    for caller in callers {
+                    let mut sorted_callers = callers.clone();
+                    sorted_callers.sort();
+                    for caller in &sorted_callers {
                         let caller_rank = ranks.get(caller).copied().unwrap_or(initial_rank);
                         let caller_fan_out = self.fan_out(caller).max(1);
                         rank += damping * (caller_rank / caller_fan_out as f64);
@@ -205,7 +207,9 @@ impl CallGraph {
             scc_sizes: HashMap::new(),
         };
 
-        for node in &self.nodes {
+        let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
+        sorted_nodes.sort();
+        for node in sorted_nodes {
             if !state.indices.contains_key(node) {
                 self.tarjan_strongconnect(node, &mut state);
             }
@@ -231,7 +235,9 @@ impl CallGraph {
 
         // Consider successors of v
         if let Some(successors) = self.edges.get(v) {
-            for w in successors.clone() {
+            let mut sorted_successors = successors.clone();
+            sorted_successors.sort();
+            for w in sorted_successors {
                 if !state.indices.contains_key(&w) {
                     // Successor w has not yet been visited; recurse on it
                     self.tarjan_strongconnect(&w, state);

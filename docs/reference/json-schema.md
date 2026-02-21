@@ -6,8 +6,8 @@ Hotspots outputs structured JSON that can be consumed by CI/CD pipelines, analys
 
 Hotspots produces JSON output in two modes:
 
-- **Snapshot Mode** (`hotspots analyze --json`): Complete analysis of all functions in the codebase
-- **Delta Mode** (`hotspots analyze --delta --json`): Analysis of changed functions since the last commit
+- **Snapshot Mode** (`hotspots analyze --mode snapshot --format json`): Complete analysis of all functions in the codebase
+- **Delta Mode** (`hotspots analyze --mode delta --format json`): Analysis of changed functions since the last commit
 
 Both modes use the same JSON schema with consistent structure.
 
@@ -26,7 +26,7 @@ All schemas follow JSON Schema Draft 07 specification.
 
 ```typescript
 {
-  schema_version: 1,
+  schema_version: 2,
   commit: {
     sha: "abc123...",           // Git commit SHA (40 chars)
     parents: ["def456..."],     // Parent commit SHAs
@@ -50,12 +50,15 @@ All schemas follow JSON Schema Draft 07 specification.
       },
       lrs: 7.2,   // Logarithmic Risk Score
       band: "high",  // Risk band: low | moderate | high | critical
-      suppression_reason: "Legacy code, refactor planned"  // Optional
+      suppression_reason: "Legacy code, refactor planned",  // Optional
+      driver: "high_complexity",  // Primary risk driver (optional, see Driver Labels)
+      driver_detail: "cc (P72), nd (P68)"  // Near-miss detail for composite (optional)
     }
   ],
-  aggregates: {  // Optional (when --aggregates used)
-    files: [...],
-    directories: [...]
+  aggregates: {  // Present in snapshot mode output
+    file_risk: [...],   // Ranked file risk views (see Aggregates section)
+    co_change: [...],   // Co-change coupling pairs (see Aggregates section)
+    modules: [...]      // Module instability views (see Aggregates section)
   },
   policy_results: {  // Optional (when --policy used)
     failed: [...],    // Blocking failures
@@ -147,6 +150,139 @@ Functions are classified into risk bands based on LRS:
 | Moderate   | 3.0 - 6.0  | Moderate complexity, acceptable |
 | High       | 6.0 - 9.0  | Complex, consider refactoring  |
 | Critical   | ≥ 9.0      | Very complex, refactor recommended |
+
+## Driver Labels
+
+Each function in snapshot output includes an optional `driver` string identifying the primary
+source of its risk. This is computed by the enricher after activity risk and call graph metrics
+are populated.
+
+| Label | Condition | Recommended action |
+|---|---|---|
+| `cyclic_dep` | SCC size > 1 (function is in a dependency cycle) | Break the cycle before adding more callers |
+| `high_complexity` | CC above the Pth percentile of the snapshot | Schedule a refactor; extract sub-functions |
+| `high_churn_low_cc` | touch_count above Pth percentile and CC below (100-P)th | Add regression tests before next change |
+| `high_fanout_churning` | fan_out above Pth percentile and touch above 50th | Extract an interface boundary |
+| `deep_nesting` | ND above the Pth percentile of the snapshot | Flatten with early returns or guard clauses |
+| `high_fanin_complex` | fan_in above Pth percentile and CC above 50th | Extract and stabilize; wide blast radius |
+| `composite` | None of the above | Monitor complexity trends |
+
+Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`).
+`cyclic_dep` is the sole absolute check — being in a cycle is binary.
+
+### `driver_detail` — Near-miss context for composite functions
+
+When a function receives the `composite` label, an optional `driver_detail` string lists the
+top dimensions (up to 3) that came closest to firing a specific label, with their percentile
+rank. Example: `"cc (P72), nd (P68)"` means cyclomatic complexity is at the 72nd percentile
+and nesting depth at the 68th — both notable but below the P75 threshold. Only dimensions
+above the 40th percentile (above median) are included.
+
+`driver_detail` is omitted from JSON when null (`skip_serializing_if = "Option::is_none"`),
+so it is forward-compatible with parsers that read existing v2 snapshots.
+
+## Aggregates
+
+Snapshot mode output includes an `aggregates` object with three arrays providing higher-level
+views of codebase risk. These are computed from the per-function data at output time.
+
+### `aggregates.file_risk` — File-Level Risk
+
+Each entry covers one source file. Ranked by `file_risk_score` descending.
+
+```typescript
+{
+  file: "src/api.ts",          // Relative file path
+  function_count: 12,           // Number of functions in file
+  loc: 340,                     // Total lines of code
+  max_cc: 14,                   // Highest cyclomatic complexity in file
+  avg_cc: 6.8,                  // Mean CC across all functions
+  critical_count: 2,            // Functions in critical band
+  file_churn: 180,              // Lines changed in last 30 days
+  file_risk_score: 8.3          // Composite score: max_cc×0.4 + avg_cc×0.3
+                                //   + log2(fn_count+1)×0.2 + churn_factor×0.1
+}
+```
+
+Accessible via `--level file` text output or `aggregates.file_risk` in JSON.
+
+### `aggregates.co_change` — Co-Change Coupling
+
+Pairs of files that frequently change together in the same commit. High coupling with
+no static dependency indicates hidden implicit coupling — a classic maintenance risk.
+
+```typescript
+{
+  file_a: "hotspots-cli/src/main.rs",
+  file_b: "hotspots-core/src/aggregates.rs",
+  co_change_count: 14,          // Times changed in the same commit
+  coupling_ratio: 0.78,         // co_change_count / min(total_a, total_b)
+  has_static_dep: false,        // true if a direct import exists between the two files
+  risk: "high"                  // "high" | "moderate" | "expected" | "low"
+                                // "expected" if has_static_dep (coupling is explained)
+                                // "high" if ratio > 0.5 and no static dep
+                                // "moderate" if ratio > 0.25 and no static dep
+}
+```
+
+Only pairs where both files currently exist are emitted (ghost files from renames are
+filtered). Trivially expected pairs (e.g., `foo.rs` + `foo_test.rs`) are also filtered.
+
+`has_static_dep` uses the same import graph as module instability (D-3). Pairs with a
+static dependency are classified as `"expected"` — the co-change is explained by the
+import relationship and is lower risk than hidden coupling.
+
+Default window: 90 days; minimum co-occurrence count: 3.
+
+### `aggregates.modules` — Module Instability
+
+Each entry covers one directory. Applies Robert Martin's instability metric at directory
+level. `instability = efferent / (afferent + efferent)`.
+
+```typescript
+{
+  module: "hotspots-core/src",  // Directory path
+  file_count: 12,               // Number of files
+  function_count: 409,          // Number of functions
+  avg_complexity: 3.2,          // Mean CC of all functions
+  afferent: 8,                  // External modules depending on this one
+  efferent: 3,                  // External modules this one depends on
+  instability: 0.27,            // efferent / (afferent + efferent)
+  module_risk: "high"           // "high" if instability < 0.3 and avg_complexity > 10
+}
+```
+
+Instability near 0.0 means everything depends on this module — risky to change.
+Instability near 1.0 means this module depends on others but nothing depends on it — safe.
+
+Accessible via `--level module` text output or `aggregates.modules` in JSON.
+
+## Delta Aggregates
+
+Delta mode output (`--mode delta`) includes an `aggregates` object with file-level
+regression summaries and co-change coupling changes.
+
+### `aggregates.co_change_delta` — Co-Change Pair Diff
+
+Each entry describes a co-change pair that is **new**, **dropped**, or changed risk
+relative to the previous snapshot (if prior state is available). When no prior state
+exists, all current pairs appear as `"new"`.
+
+```typescript
+{
+  file_a: "hotspots-cli/src/main.rs",
+  file_b: "hotspots-core/src/aggregates.rs",
+  status: "new",           // "new" | "dropped" | "risk_increased" | "risk_decreased"
+  prev_risk: null,         // Previous risk level (absent for "new")
+  curr_risk: "high",       // Current risk level (absent for "dropped")
+  co_change_count: 14,     // Times changed in the same commit
+  coupling_ratio: 0.78,    // co_change_count / min(total_a, total_b)
+  has_static_dep: false    // true if a direct import exists between the two files
+}
+```
+
+In `--policy` text output, only pairs involving files touched in the current delta are
+shown. This surfaces "you changed A — did you forget B?" coupling alerts.
 
 ## TypeScript Integration
 
@@ -605,13 +741,16 @@ tools: [
 
 The `schema_version` field tracks schema compatibility:
 
-- **Version 1** (current): Initial stable schema
-- Future versions will increment for breaking changes
-- Tools should check `schema_version` and handle accordingly
+- **Version 2** (current): Snapshot and delta output — adds `driver`, `driver_detail`, and
+  enriched `aggregates` (file_risk, co_change, modules)
+- **Version 3**: Agent-optimized output (`--all-functions`): triage-first structure with
+  `fire`/`debt`/`watch`/`ok` quadrant buckets and per-function `action` text
+- **Version 1**: Delta output schema (separate constant from snapshot schema)
+- Tools should check `schema_version` before consuming output
 
 ## Additional Resources
 
 - [JSON Schema Specification](https://json-schema.org/)
-- [Hotspots GitHub Repository](https://github.com/yourusername/hotspots)
+- [Hotspots GitHub Repository](https://github.com/Stephen-Collins-tech/hotspots)
 - [@hotspots/types npm package](https://www.npmjs.com/package/@hotspots/types)
-- [Complexity Metrics Research](docs/metrics-research.md)
+- [Metrics Reference](./metrics.md)

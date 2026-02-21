@@ -16,50 +16,35 @@ This guide provides practical examples of AI agents using Hotspots for code revi
 
 ## Quick Start
 
-### Claude Desktop (Recommended)
+### Claude Code (Recommended)
 
-1. **Install MCP server:**
-   ```bash
-   npm install -g @hotspots/mcp-server
-   ```
+Claude Code can invoke Hotspots CLI commands directly in your project:
 
-2. **Configure Claude Desktop:**
+```bash
+# Analyze current changes
+hotspots analyze . --mode delta --format json
 
-   Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "hotspots": {
-         "command": "npx",
-         "args": ["@hotspots/mcp-server"]
-       }
-     }
-   }
-   ```
+# Full snapshot with agent-optimized output
+hotspots analyze . --mode snapshot --all-functions --format json
+```
 
-3. **Restart Claude Desktop**
+Ask Claude Code: *"Run hotspots analyze and show me which functions to refactor first."*
 
-4. **Test it:**
-   ```
-   User: Analyze the complexity of my src/ directory with Hotspots
+### Claude Desktop (MCP Server — Coming Soon)
 
-   Claude: I'll analyze your code using Hotspots.
-   [Uses hotspots_analyze tool]
+> Native MCP server integration is planned. See [AI Integration Guide](./mcp-server.md) for details.
 
-   Analysis complete! Found 47 functions:
-   - Critical risk: 2 functions
-   - High risk: 5 functions
-   - Moderate risk: 12 functions
-   - Low risk: 28 functions
+### Running Agents via CLI
 
-   The critical functions are:
-   - processPayment (src/payment.ts:120) - LRS 11.2
-   - validateOrder (src/orders.ts:89) - LRS 9.8
+For standalone scripts and CI agents, use the CLI directly:
 
-   Would you like me to help refactor these?
-   ```
+```bash
+# Get structured JSON for any agent to parse
+hotspots analyze src/ --format json > analysis.json
 
-See [MCP Server Guide](./mcp-server.md) for complete documentation.
+# Delta analysis for PR review agents
+hotspots analyze . --mode delta --policy --format json > delta.json
+```
 
 ---
 
