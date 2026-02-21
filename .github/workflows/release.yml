@@ -26,11 +26,6 @@ jobs:
             archive: tar.gz
             platform: linux
             arch: x86_64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            archive: tar.gz
-            platform: darwin
-            arch: x86_64
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
@@ -152,7 +147,6 @@ jobs:
           | Platform | Asset |
           |----------|-------|
           | macOS (Apple Silicon) | \`hotspots-darwin-aarch64.tar.gz\` |
-          | macOS (Intel) | \`hotspots-darwin-x86_64.tar.gz\` |
           | Linux x86_64 | \`hotspots-linux-x86_64.tar.gz\` |
           | Windows x86_64 | \`hotspots-windows-x86_64.zip\` |
 
