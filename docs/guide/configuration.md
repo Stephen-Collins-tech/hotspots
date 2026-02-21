@@ -495,5 +495,87 @@ Fix the ordering and try again.
 ## Related Documentation
 
 - [CLI Reference](../reference/cli.md) - Command-line options
-- [LRS Specification](../reference/lrs-spec.md) - How LRS is calculated
+- [Metrics & LRS](../reference/metrics.md) - How LRS is calculated
 - [Policy Engine](../guide/usage.md#policy-engine) - Using policies
+
+---
+
+## Suppression Comments
+
+Suppression comments let you exclude specific functions from policy violations while keeping them visible in reports. Use this for legacy code, intentionally complex algorithms, or generated code.
+
+### Syntax
+
+Place a comment **immediately before** the function:
+
+```typescript
+// hotspots-ignore: legacy payment processor, rewrite scheduled Q2 2026
+function complexLegacyParser(input: string) {
+  // High complexity code...
+}
+```
+
+**Rules:**
+1. Comment must be on the line **immediately before** the function
+2. Format: `// hotspots-ignore: <reason>`
+3. Reason is **required** (warning generated if missing)
+4. Blank lines between comment and function break the suppression
+
+### Valid Suppressions
+
+```typescript
+// hotspots-ignore: RSA encryption algorithm, well-tested, cannot be simplified
+function rsaDecrypt(key: Buffer, data: Buffer): Buffer { ... }
+
+// hotspots-ignore: generated code from protocol buffers
+class MessageHandler { handle() { ... } }
+
+// hotspots-ignore: legacy parser, migration to TreeSitter in Q2 2026
+const parse = (input: string) => { ... };
+```
+
+### Invalid Suppressions
+
+```typescript
+// hotspots-ignore: reason here
+
+function foo() { }  // ❌ Blank line breaks suppression
+
+// hotspots-ignore:
+function bar() { }  // ⚠️  Warning: suppression without reason
+```
+
+### What Suppressions Affect
+
+**Excluded from policy:**
+- Critical Introduction
+- Excessive Risk Regression
+- Watch / Attention / Rapid Growth warnings
+
+**Still tracked in:**
+- Analysis reports (with `suppression_reason` field in JSON)
+- Net Repo Regression (total repository LRS)
+- Snapshots and HTML reports
+
+### Best Practices
+
+**Good reasons to suppress:**
+- Complex algorithms with established test coverage
+- Legacy code pending scheduled migration
+- Generated code (protocol buffers, GraphQL, etc.)
+- Intentionally complex code (e.g., optimized parsers, state machines)
+
+**Bad reasons to suppress:**
+- New code that should be refactored
+- "I'll fix it later" without a concrete plan
+- Avoiding code review feedback
+
+**Documentation guidelines:** Include what makes the code complex, why it's not being fixed now, and when it will be addressed (if applicable).
+
+### Auditing Suppressions
+
+Review suppressed functions periodically:
+```bash
+# Find all suppressed functions in JSON output
+hotspots analyze src/ --format json | jq '.functions[] | select(.suppression_reason != null)'
+```

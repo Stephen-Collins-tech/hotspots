@@ -1,26 +1,4 @@
-# How to Use Hotspots
-
-## Installation
-
-### Build from Source
-
-```bash
-git clone <repo-url>
-cd hotspots
-cargo build --release
-```
-
-The binary will be at `target/release/hotspots`.
-
-### Install to System Path (Dev Version)
-
-```bash
-./install-dev.sh
-```
-
-This builds and installs `hotspots` to `~/.local/bin` (or a custom directory).
-
----
+# Usage & Workflows
 
 ## Basic Usage
 
@@ -990,4 +968,4 @@ start .hotspots/report.html  # Windows
 
 ## See Also
 
-- [LRS Specification](../reference/lrs-spec.md) - Local Risk Score details
+- [Metrics & LRS](../reference/metrics.md) - Local Risk Score details

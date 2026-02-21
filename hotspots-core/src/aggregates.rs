@@ -181,6 +181,9 @@ pub struct TriageView {
 }
 
 /// Co-change section for agent-optimized output (hidden coupling only, capped at top N)
+///
+/// `hidden_count` reflects only actionable pairs (risk == "high" or "moderate").
+/// Low-risk pairs are excluded to match text output semantics.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentCoChangeView {
@@ -326,7 +329,12 @@ pub fn compute_agent_snapshot_output(
     let mut hidden_pairs: Vec<&crate::git::CoChangePair> = aggregates
         .co_change
         .iter()
-        .filter(|p| !p.has_static_dep && is_src(&p.file_a) && is_src(&p.file_b))
+        .filter(|p| {
+            !p.has_static_dep
+                && is_src(&p.file_a)
+                && is_src(&p.file_b)
+                && (p.risk == "high" || p.risk == "moderate")
+        })
         .collect();
     let hidden_count = hidden_pairs.len();
     hidden_pairs.sort_by(|a, b| {
@@ -757,15 +765,18 @@ pub fn compute_snapshot_aggregates(
         .collect();
     unique_files.sort();
     let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-    let import_edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+    let mut all_edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
+    all_edges.extend(crate::imports::resolve_cargo_workspace_edges(
+        repo_root,
+        &files_as_str,
+    ));
 
     let mut co_change =
         crate::git::extract_co_change_pairs(repo_root, co_change_window_days, co_change_min_count)
             .unwrap_or_default();
-    annotate_static_deps(&mut co_change, &import_edges, repo_root);
+    annotate_static_deps(&mut co_change, &all_edges, repo_root);
 
-    let modules =
-        compute_module_instability_from_edges(&snapshot.functions, &import_edges, repo_root);
+    let modules = compute_module_instability_from_edges(&snapshot.functions, &all_edges, repo_root);
 
     SnapshotAggregates {
         files,

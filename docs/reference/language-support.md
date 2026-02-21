@@ -192,7 +192,7 @@ function calculate(x, y) {
 
 Both yield: `CC=5, ND=1, FO=0, NS=1, LRS=5.48`
 
-## Unsupported Features
+## Unsupported ECMAScript Features
 
 The following features are **not yet supported**:
 
@@ -201,7 +201,7 @@ The following features are **not yet supported**:
 - **Vue Single File Components**: `.vue` files are not supported yet.
 - **Svelte Components**: `.svelte` files are not supported yet.
 
-See [limitations.md](limitations.md) for full details on limitations and their impact.
+See [Known Limitations](#known-limitations) below for full details.
 
 ## Error Handling
 
@@ -1448,3 +1448,58 @@ Rust:
 All languages:
 - Incremental parsing for performance
 - Parallel analysis across files
+
+---
+
+## Known Limitations
+
+### Control Flow
+
+**Break/Continue** (partially supported)
+- Counted toward NS — metric is accurate
+- CFG routing to correct loop exit/header is simplified (does not affect LRS)
+
+**Labeled Break/Continue** (supported, simplified)
+- Counted and label-resolved statically
+- Routing to the correct labeled target is not fully implemented
+
+### TypeScript/JavaScript Features
+
+**Generator Functions** (`function*`) — not supported
+- Functions with generators are skipped and an error is emitted
+- Projects using generators will have incomplete analysis
+
+**Experimental Decorators** — not supported
+- Standard ES2022 decorators may work but are untested
+
+**Closures / anonymous functions** (Go, Rust, Python) — not yet supported
+- Named functions and methods are fully analyzed
+- Future release planned
+
+### Analysis Scope
+
+**Async control flow** (simplified)
+- Async/await is parsed correctly but treated as sequential
+- Promise chains are not analyzed as control flow
+- LRS for async functions may be slightly underestimated
+
+**Type complexity** — intentionally excluded
+- Type annotations are not used in analysis
+- Only structural control flow is analyzed
+
+### Output
+
+**Floating point precision**
+- Internal calculations use full `f64`
+- Results are deterministic within platform; may vary slightly across platforms
+
+**File path normalization**
+- Paths normalized to absolute paths; symlinks are not resolved
+- Results may vary slightly on case-insensitive filesystems
+
+### Performance
+
+**Large codebases**
+- Analysis is sequential; no parallel file processing yet
+- No incremental analysis — full re-analysis on every run
+- Very large codebases (>10,000 files) may be slow
