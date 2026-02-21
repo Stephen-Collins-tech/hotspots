@@ -9,7 +9,14 @@ Install Hotspots on your system.
 ```bash
 curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
 chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
+mkdir -p ~/.local/bin
+mv hotspots ~/.local/bin/
+```
+
+Then ensure `~/.local/bin` is in your PATH. Add this to `~/.zshrc` or `~/.bashrc` if it isn't already:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Verify installation:
@@ -20,18 +27,11 @@ hotspots --version
 ### From Source (Rust Required)
 
 ```bash
-# Clone the repository
 git clone https://github.com/Stephen-Collins-tech/hotspots.git
 cd hotspots
-
-# Build with cargo
 cargo build --release
-
-# Install to system
-sudo cp target/release/hotspots /usr/local/bin/
-
-# Or add to PATH
-export PATH="$PATH:$(pwd)/target/release"
+mkdir -p ~/.local/bin
+cp target/release/hotspots ~/.local/bin/
 ```
 
 ## Platform-Specific Instructions
@@ -45,23 +45,23 @@ brew install hotspots
 
 ### Linux (Debian/Ubuntu)
 
-Coming soon - `.deb` package
+Coming soon — `.deb` package
 
 ### Windows
 
-Coming soon - Windows support
+Coming soon — Windows support
 
 ## GitHub Action
 
-Use Hotspots in GitHub Actions:
+Use Hotspots in GitHub Actions without installing anything:
 
 ```yaml
-- uses: Stephen-Collins-tech/hotspots-action@v1
+- uses: Stephen-Collins-tech/hotspots@v1
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-See [GitHub Action Guide](../guide/github-action.md) for more.
+See [CI/CD & GitHub Action Guide](../guide/ci-cd.md) for complete usage.
 
 ## MCP Server (AI Integration)
 
@@ -77,48 +77,36 @@ hotspots analyze . --mode delta --format json
 hotspots analyze . --mode delta --all-functions --format json
 ```
 
-See [AI Integration Guide](../integrations/mcp-server.md) for complete AI workflow documentation.
+See [AI Integration Guide](../integrations/ai-integration.md) for complete AI workflow documentation.
 
 ## Verify Installation
 
-Run a quick test:
-
 ```bash
-hotspots analyze tests/fixtures/simple.ts
+hotspots --version
+hotspots analyze --help
 ```
-
-You should see complexity analysis output.
 
 ## Next Steps
 
-- [Quick Start Guide](./quick-start.md) - 5-minute tutorial
-- [Usage Guide](../guide/usage.md) - Complete CLI reference
-- [Configuration](../guide/configuration.md) - Config file setup
+- [Quick Start Guide](./quick-start.md) — 5-minute tutorial
+- [Usage Guide](../guide/usage.md) — Complete CLI reference
+- [Configuration](../guide/configuration.md) — Config file setup
 
 ## Troubleshooting
 
 ### Command not found
 
-Ensure `/usr/local/bin` is in your PATH:
+Ensure `~/.local/bin` is in your PATH:
 
 ```bash
 echo $PATH
 ```
 
-Add to `~/.bashrc` or `~/.zshrc`:
+If it's missing, add to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
-export PATH="/usr/local/bin:$PATH"
-```
-
-### Permission denied
-
-Use `sudo` for system-wide installation or install to user directory:
-
-```bash
-mkdir -p ~/.local/bin
-mv hotspots ~/.local/bin/
 export PATH="$HOME/.local/bin:$PATH"
+source ~/.zshrc  # or source ~/.bashrc
 ```
 
 ### Build from source fails
@@ -133,17 +121,14 @@ rustup update stable
 ## Upgrading
 
 ```bash
-# Download latest release
 curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
 chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
-
-# Verify new version
+mv hotspots ~/.local/bin/
 hotspots --version
 ```
 
 ## Uninstall
 
 ```bash
-sudo rm /usr/local/bin/hotspots
+rm ~/.local/bin/hotspots
 ```
