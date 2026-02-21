@@ -54,9 +54,9 @@ async function installFaultline(version: string): Promise<string> {
   let downloadUrl: string;
   if (version === 'latest') {
     // TODO: Fetch latest release from GitHub API
-    downloadUrl = `https://github.com/yourorg/hotspots/releases/latest/download/hotspots-${platform}-${arch}.tar.gz`;
+    downloadUrl = `https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-${platform}-${arch}.tar.gz`;
   } else {
-    downloadUrl = `https://github.com/yourorg/hotspots/releases/download/v${version}/hotspots-${platform}-${arch}.tar.gz`;
+    downloadUrl = `https://github.com/Stephen-Collins-tech/hotspots/releases/download/v${version}/hotspots-${platform}-${arch}.tar.gz`;
   }
 
   core.info(`Downloading hotspots from ${downloadUrl}`);
