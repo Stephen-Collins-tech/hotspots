@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="Hotspots" width="96" height="96" />
+</p>
+
 # Hotspots
 
 **Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Install:** `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`

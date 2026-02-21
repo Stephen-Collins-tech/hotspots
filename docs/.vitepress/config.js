@@ -4,6 +4,10 @@ export default defineConfig({
   title: 'Hotspots',
   description: 'Multi-language complexity analysis for high-leverage refactoring',
 
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }]
+  ],
+
   themeConfig: {
     logo: '/logo.svg',
 
