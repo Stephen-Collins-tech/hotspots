@@ -38,10 +38,12 @@ Instead of guessing what to refactor, you get a prioritized list:
 hotspots analyze src/
 
 # Output:
-LRS   File                  Line  Function            Risk
-12.4  src/api/billing.ts    142   processPlanUpgrade  Critical
-9.8   src/auth/session.ts    67   validateSession     High
-8.1   src/db/migrations.ts  203   applySchema         High
+Critical (LRS ≥ 9.0):
+processPlanUpgrade    src/api/billing.ts:142    LRS 12.4  CC 15  ND 4  FO 8  NS 3
+
+High (6.0 ≤ LRS < 9.0):
+validateSession       src/auth/session.ts:67    LRS 9.8   CC 11  ND 3  FO 7  NS 2
+applySchema           src/db/migrations.ts:203  LRS 8.1   CC 10  ND 2  FO 5  NS 2
 ```
 
 Now you know exactly where to focus.
@@ -74,15 +76,17 @@ Know which files are landmines before you touch them. See complexity trends over
 
 ### ✅ Get AI-Assisted Refactoring
 
-Hotspots integrates with Claude, Cursor, and GitHub Copilot. Point your AI at the hottest functions and get refactoring suggestions that actually improve your codebase.
+Hotspots integrates with Claude Code, Cursor, and GitHub Copilot. Point your AI at the hottest functions and get refactoring suggestions that actually improve your codebase.
 
 ```bash
-# Install MCP server for Claude Desktop
-npm install -g @hotspots/mcp-server
+# Analyze changes in your project
+hotspots analyze . --mode delta --format json
 
-# Then ask Claude:
-"Analyze my codebase for hotspots and suggest refactoring plans"
+# Get agent-optimized output (quadrant buckets + action text)
+hotspots analyze . --mode delta --all-functions --format json
 ```
+
+> **MCP server coming soon.** Use Hotspots CLI commands directly in Claude Code in the meantime.
 
 ---
 
@@ -90,12 +94,12 @@ npm install -g @hotspots/mcp-server
 
 ### 1. Install
 
-**macOS/Linux:**
+**macOS / Linux:**
 ```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
-chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
+
+Installs to `~/.local/bin/hotspots`. Verify with `hotspots --version`.
 
 **GitHub Action:** Coming soon. Use the CLI directly in your workflows for now.
 
@@ -109,13 +113,13 @@ hotspots analyze src/
 hotspots analyze src/ --min-lrs 9.0
 
 # Get per-function explanations with driver labels
-hotspots analyze . --mode snapshot --explain --top 10
+hotspots analyze . --mode snapshot --format text --explain --top 10
 
 # Get JSON for tooling/AI
 hotspots analyze src/ --format json
 
-# Stream JSONL for pipeline processing (requires --mode)
-hotspots analyze src/ --mode snapshot --format jsonl --no-persist
+# Stream JSONL for pipeline processing
+hotspots analyze src/ --format jsonl
 
 # Compare with previous commit (delta mode)
 hotspots analyze src/ --mode delta --policy
@@ -233,7 +237,7 @@ hotspots analyze src/ --mode delta --policy
 Understand *why* a function is flagged and get concrete refactoring advice:
 
 ```bash
-hotspots analyze . --mode snapshot --explain --top 10
+hotspots analyze . --mode snapshot --format text --explain --top 10
 ```
 
 Each function shows its primary **driver** (`high_complexity`, `deep_nesting`,
@@ -241,13 +245,10 @@ Each function shows its primary **driver** (`high_complexity`, `deep_nesting`,
 `composite`) plus an **Action** line with dimension-specific guidance:
 
 ```
-#1 processPayment [CRITICAL] [high_complexity]
-   Risk Score: 14.52 (complexity base: 12.88)
-   Risk Breakdown:
-     • Complexity:   12.88  (cyclomatic=15, nesting=3, fanout=13)
-     • Churn:         0.32  (63 lines changed recently)
-     • Activity:      0.33  (11 commits in last 30 days)
-   Action: Stable debt: schedule a refactor. Extract sub-functions to reduce CC.
+processPayment             /src/billing.ts:89
+   LRS: 14.52 | Band: critical | Driver: high_complexity
+   CC: 15, ND: 4, FO: 8, NS: 3
+   Action: Reduce branching; extract sub-functions
 ```
 
 Use `--level file` or `--level module` for higher-level aggregated views.
@@ -256,22 +257,26 @@ Use `--level file` or `--level module` for higher-level aggregated views.
 
 **Terminal (human-readable):**
 ```
-LRS   File                  Line  Function
-12.4  src/api/billing.ts    142   processPlanUpgrade
+Critical (LRS ≥ 9.0):
+processPlanUpgrade    src/api/billing.ts:142    LRS 12.4  CC 15  ND 4  FO 8  NS 3
 ```
 
 **JSON (machine-readable):**
 ```json
-[
-  {
-    "file": "src/api/billing.ts",
-    "function": "processPlanUpgrade",
-    "line": 142,
-    "lrs": 12.4,
-    "band": "critical",
-    "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
-  }
-]
+{
+  "schema_version": 2,
+  "functions": [
+    {
+      "function_id": "src/api/billing.ts::processPlanUpgrade",
+      "file": "src/api/billing.ts",
+      "line": 142,
+      "lrs": 12.4,
+      "band": "critical",
+      "driver": "high_complexity",
+      "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
+    }
+  ]
+}
 ```
 
 **JSONL (streaming per-function):**
@@ -322,18 +327,22 @@ See [docs/guide/configuration.md](docs/guide/configuration.md) for all options.
 
 ### 🤖 AI Integration
 
-**Claude Desktop/Code:**
+**Claude Code:**
 ```bash
-npm install -g @hotspots/mcp-server
+# Analyze changes and feed to Claude Code
+hotspots analyze . --mode delta --format json
+
+# Get agent-optimized output
+hotspots analyze . --mode delta --all-functions --format json
 ```
+
+> **MCP server coming soon.** See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
 
 **Cursor/GitHub Copilot:**
 ```bash
-hotspots analyze src/ --format json | jq '.[] | select(.lrs > 9)'
+hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
 # Feed results to your AI coding assistant
 ```
-
-See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
 
 ### 📈 Git History Analysis
 
@@ -347,7 +356,7 @@ hotspots analyze src/ --mode snapshot
 hotspots analyze src/ --mode delta
 
 # See complexity trends
-hotspots trends src/
+hotspots trends .
 
 # Prune unreachable snapshots (after force-push or branch deletion)
 hotspots prune --unreachable --older-than 30
@@ -429,36 +438,28 @@ hotspots config validate
 
 ## Installation
 
-### Prebuilt Binaries (Fastest)
+### Quick Install
 
-**macOS (Apple Silicon):**
+**macOS / Linux:**
 ```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-darwin-arm64 -o hotspots
-chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-**macOS (Intel):**
-```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-darwin-x64 -o hotspots
-chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
-```
+Installs to `~/.local/bin/hotspots`. Verify with `hotspots --version`.
 
-**Linux:**
+**Install a specific version:**
 ```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-linux-x64 -o hotspots
-chmod +x hotspots
-sudo mv hotspots /usr/local/bin/
+HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/Stephen-Collins-tech/hotspots
+git clone https://github.com/Stephen-Collins-tech/hotspots.git
 cd hotspots
 cargo build --release
-sudo mv target/release/hotspots /usr/local/bin/
+mkdir -p ~/.local/bin
+cp target/release/hotspots ~/.local/bin/
 ```
 
 **Requirements:** Rust 1.75 or later
