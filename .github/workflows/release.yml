@@ -25,22 +25,22 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
             platform: linux
-            arch: x64
+            arch: x86_64
           - os: macos-13
             target: x86_64-apple-darwin
             archive: tar.gz
             platform: darwin
-            arch: x64
+            arch: x86_64
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
             platform: darwin
-            arch: arm64
+            arch: aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             archive: zip
-            platform: win32
-            arch: x64
+            platform: windows
+            arch: x86_64
 
     steps:
       - name: Checkout code
@@ -122,7 +122,7 @@ jobs:
           cat > release-notes.md << EOF
           # Hotspots $VERSION
 
-          TypeScript/JavaScript complexity analysis tool for CI/CD pipelines.
+          Multi-language complexity analysis tool for CI/CD pipelines.
 
           ## What's New
 
@@ -130,37 +130,31 @@ jobs:
 
           ## Installation
 
+          ### One-line install (macOS / Linux)
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+          \`\`\`
+
+          Or install a specific version:
+          \`\`\`bash
+          HOTSPOTS_VERSION=$VERSION curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+          \`\`\`
+
           ### GitHub Action
 
           \`\`\`yaml
           - uses: ${{ github.repository }}@$VERSION
           \`\`\`
 
-          ### Binary Installation
+          ### Manual download
 
-          **Linux:**
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-linux-x64.tar.gz
-          tar -xzf hotspots-linux-x64.tar.gz
-          sudo mv hotspots /usr/local/bin/
-          \`\`\`
-
-          **macOS (Intel):**
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-darwin-x64.tar.gz
-          tar -xzf hotspots-darwin-x64.tar.gz
-          sudo mv hotspots /usr/local/bin/
-          \`\`\`
-
-          **macOS (Apple Silicon):**
-          \`\`\`bash
-          wget https://github.com/${{ github.repository }}/releases/download/$VERSION/hotspots-darwin-arm64.tar.gz
-          tar -xzf hotspots-darwin-arm64.tar.gz
-          sudo mv hotspots /usr/local/bin/
-          \`\`\`
-
-          **Windows:**
-          Download \`hotspots-win32-x64.zip\` and extract to a directory in your PATH.
+          | Platform | Asset |
+          |----------|-------|
+          | macOS (Apple Silicon) | \`hotspots-darwin-aarch64.tar.gz\` |
+          | macOS (Intel) | \`hotspots-darwin-x86_64.tar.gz\` |
+          | Linux x86_64 | \`hotspots-linux-x86_64.tar.gz\` |
+          | Windows x86_64 | \`hotspots-windows-x86_64.zip\` |
 
           ### Cargo
 
