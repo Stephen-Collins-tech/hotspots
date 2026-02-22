@@ -82,6 +82,7 @@ pub fn analyze_with_config(
     let source_files = collect_source_files(path)?;
 
     // Analyze each file (applying include/exclude from config)
+    let mut skipped_files: usize = 0;
     for file_path in source_files {
         // Apply config include/exclude filter
         if let Some(config) = resolved_config {
@@ -90,17 +91,26 @@ pub fn analyze_with_config(
             }
         }
 
-        let reports = analysis::analyze_file_with_config(
+        match analysis::analyze_file_with_config(
             &file_path,
             &cm,
             file_index,
             &options,
             weights.as_ref(),
             thresholds.as_ref(),
-        )
-        .with_context(|| format!("Failed to analyze file: {}", file_path.display()))?;
-        all_reports.extend(reports);
-        file_index += 1;
+        ) {
+            Ok(reports) => {
+                all_reports.extend(reports);
+                file_index += 1;
+            }
+            Err(e) => {
+                eprintln!("warning: skipping file {}: {}", file_path.display(), e);
+                skipped_files += 1;
+            }
+        }
+    }
+    if skipped_files > 0 {
+        eprintln!("Skipped {} file(s) due to analysis errors", skipped_files);
     }
 
     // Sort deterministically
