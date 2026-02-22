@@ -5,7 +5,17 @@ export default defineConfig({
   description: 'Multi-language complexity analysis for high-leverage refactoring',
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }]
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+
+    // Open Graph
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:site_name', content: 'Hotspots' }],
+    ['meta', { property: 'og:image', content: 'https://docs.hotspots.dev/logo.svg' }],
+    ['meta', { property: 'og:image:alt', content: 'Hotspots — Multi-language complexity analysis' }],
+
+    // Twitter / X
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:image', content: 'https://docs.hotspots.dev/logo.svg' }],
   ],
 
   themeConfig: {
