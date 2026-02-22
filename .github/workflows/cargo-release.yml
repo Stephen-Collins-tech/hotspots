@@ -68,6 +68,17 @@ jobs:
         run: |
           cargo release ${{ inputs.level }} --no-publish --no-confirm --execute
 
+      - name: Trigger release build
+        if: inputs.dry_run != true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          gh workflow run release.yml \
+            --repo ${{ github.repository }} \
+            --ref "$TAG" \
+            --field tag="$TAG"
+
       - name: Summary
         run: |
           echo "## cargo-release completed" >> $GITHUB_STEP_SUMMARY
