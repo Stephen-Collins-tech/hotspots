@@ -11,7 +11,6 @@ allow-branch = ["main"]
 tag-name = "v{{version}}"
 tag-message = "Release v{{version}}"
 pre-release-commit-message = "chore: release v{{version}}"
-post-release-commit-message = "chore: start next development cycle"
 
 # Push commits and tags back to origin
 push = true
