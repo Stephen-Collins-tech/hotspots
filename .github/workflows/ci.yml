@@ -51,6 +51,12 @@ jobs:
       - name: Run golden tests
         run: cargo test --package hotspots-core --test golden_tests
 
+      - name: Restore cached release binary (by commit)
+        uses: actions/cache@v4
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+
       - name: Build release binary
         run: cargo build --release
 
@@ -64,16 +70,31 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build hotspots
-        run: cargo build --release
+      - name: Restore cached release binary (by commit)
+        uses: actions/cache@v4
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
 
+      - name: Ensure binary present
+        run: |
+          if [ -x target/release/hotspots ]; then
+            echo "Using cached binary"
+          else
+            echo "Cache miss: building binary"
+            cargo build --release
+          fi
+      
       - name: Install Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
 
-      - name: Run comprehensive tests
-        run: python3 test_comprehensive.py
+      - name: Run integration suite
+        run: make test-comprehensive
 
       - name: Upload test artifacts
         if: always()

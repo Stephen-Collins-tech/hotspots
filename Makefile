@@ -1,4 +1,4 @@
-.PHONY: test test-comprehensive build install install-hooks clean
+.PHONY: test test-comprehensive test-integration test-all build install install-hooks clean fmt lint help
 
 # Build the release binary
 build:
@@ -18,7 +18,15 @@ test:
 
 # Run comprehensive integration tests
 test-comprehensive: build
-	python3 test_comprehensive.py
+	@if command -v pytest >/dev/null 2>&1; then \
+		pytest -q integration; \
+	else \
+		python3 integration/legacy/test_comprehensive.py; \
+	fi
+
+# Run integration tests (pytest suite)
+test-integration: build
+	pytest -q integration
 
 # Run all tests (unit + comprehensive)
 test-all: test test-comprehensive
@@ -27,6 +35,13 @@ test-all: test test-comprehensive
 clean:
 	cargo clean
 	rm -rf test-repo-comprehensive
+
+# Convenience targets
+fmt:
+	cargo fmt --all
+
+lint:
+	cargo clippy --all-targets --all-features -- -D warnings
 
 # Help target
 help:
@@ -37,4 +52,7 @@ help:
 	@echo "  test               - Run unit tests"
 	@echo "  test-comprehensive - Run comprehensive integration tests"
 	@echo "  test-all           - Run all tests"
+	@echo "  test-integration   - Run pytest integration suite"
+	@echo "  fmt                - Format code with rustfmt"
+	@echo "  lint               - Lint with clippy (deny warnings)"
 	@echo "  clean              - Clean build artifacts and test directories"

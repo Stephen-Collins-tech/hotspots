@@ -23,9 +23,10 @@ class Colors:
 
 class TestRunner:
     def __init__(self):
-        self.script_dir = Path(__file__).parent.resolve()
-        self.hotspots_bin = self.script_dir / "target" / "release" / "hotspots"
-        self.test_dir = self.script_dir / "test-repo-comprehensive"
+        # Resolve repository root (integration/legacy/ -> repo root)
+        self.repo_root = Path(__file__).resolve().parents[2]
+        self.hotspots_bin = self.repo_root / "target" / "release" / "hotspots"
+        self.test_dir = self.repo_root / "test-repo-comprehensive"
         self.commits: List[str] = []
 
         if not self.hotspots_bin.exists():
@@ -61,15 +62,19 @@ class TestRunner:
         """Run hotspots command"""
         cmd = [str(self.hotspots_bin)] + args
         if output_file:
+            # Write only stdout to file to avoid corrupting JSON with stderr logs
             with open(output_file, 'w') as f:
                 result = subprocess.run(
                     cmd,
                     cwd=self.test_dir,
                     stdout=f,
-                    stderr=subprocess.STDOUT,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    check=check
+                    check=check,
                 )
+                # Surface any warnings/errors without polluting JSON files
+                if result.stderr:
+                    sys.stderr.write(result.stderr)
                 return result
         else:
             return self.run_command(cmd, check=check)
@@ -132,7 +137,7 @@ function moderateFunction(x: number) {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot1.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
+            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
@@ -193,7 +198,7 @@ function highComplexityFunction(x: number, y: number, z: number) {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot2.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
+            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
@@ -278,7 +283,7 @@ function criticalFunction() {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot3.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "src/main.ts"],
+            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
@@ -421,7 +426,12 @@ function criticalFunction() {
         """Print test summary"""
         print("\n=== Test Summary ===")
         print(f"Commits created: {len(self.commits)}")
-        print(f"Snapshots: {len(list((self.test_dir / '.hotspots' / 'snapshots').glob('*.json')))}")
+        snapshots_dir = self.test_dir / '.hotspots' / 'snapshots'
+        snapshot_count = (
+            len(list(snapshots_dir.glob('*.json'))) +
+            len(list(snapshots_dir.glob('*.json.zst')))
+        )
+        print(f"Snapshots: {snapshot_count}")
         print(f"Deltas tested: {len(list(self.test_dir.glob('delta*.json')))}")
         print(f"\nTest files saved in: {self.test_dir}")
         print(f"\n{Colors.GREEN}✓ Comprehensive test completed{Colors.NC}")
