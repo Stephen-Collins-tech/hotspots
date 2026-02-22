@@ -326,12 +326,17 @@ impl Snapshot {
     fn populate_per_function_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
+        progress_fn: Option<&dyn Fn(usize, usize)>,
     ) -> anyhow::Result<()> {
         let sha = self.commit.sha.clone();
         let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
         let mut dirty = false;
 
-        for function in &mut self.functions {
+        let total = self.functions.len();
+        for (i, function) in self.functions.iter_mut().enumerate() {
+            if let Some(f) = progress_fn {
+                f(i, total);
+            }
             let rel = if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
                 r.to_string_lossy().replace('\\', "/")
             } else {
@@ -472,9 +477,10 @@ impl Snapshot {
         &mut self,
         repo_root: &std::path::Path,
         per_function: bool,
+        progress_fn: Option<&dyn Fn(usize, usize)>,
     ) -> anyhow::Result<()> {
         if per_function {
-            self.populate_per_function_touch_metrics(repo_root)
+            self.populate_per_function_touch_metrics(repo_root, progress_fn)
         } else {
             self.populate_file_level_touch_metrics(repo_root)
         }
@@ -1178,10 +1184,15 @@ impl SnapshotEnricher {
     ///
     /// When `per_function` is true, uses `git log -L` per function (accurate, slow).
     /// On error, emits a warning to stderr and continues.
-    pub fn with_touch_metrics(mut self, repo_root: &Path, per_function: bool) -> Self {
-        if let Err(e) = self
-            .snapshot
-            .populate_touch_metrics(repo_root, per_function)
+    pub fn with_touch_metrics(
+        mut self,
+        repo_root: &Path,
+        per_function: bool,
+        progress_fn: Option<Box<dyn Fn(usize, usize)>>,
+    ) -> Self {
+        if let Err(e) =
+            self.snapshot
+                .populate_touch_metrics(repo_root, per_function, progress_fn.as_deref())
         {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
