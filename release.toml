@@ -1,7 +1,6 @@
 ## Cargo Release configuration for the workspace
 
-# Operate across the entire workspace and keep a single shared version
-workspace = true
+# Keep a single shared version across the workspace
 shared-version = true
 
 # Only cut releases from main
