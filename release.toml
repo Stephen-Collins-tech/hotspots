@@ -1,0 +1,26 @@
+## Cargo Release configuration for the workspace
+
+# Operate across the entire workspace and keep a single shared version
+workspace = true
+shared-version = true
+
+# Only cut releases from main
+allow-branch = ["main"]
+
+# Tag/commit settings
+tag-name = "v{{version}}"
+tag-message = "Release v{{version}}"
+pre-release-commit-message = "chore: release v{{version}}"
+post-release-commit-message = "chore: start next development cycle"
+
+# Push commits and tags back to origin
+push = true
+
+# We are not publishing to crates.io as part of this workflow
+publish = false
+
+# Quality gates before tagging
+verify = true
+consolidate-commits = true
+dependent-version = "upgrade"
+
