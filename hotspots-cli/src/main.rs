@@ -560,6 +560,47 @@ fn handle_trends(
     Ok(())
 }
 
+fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
+    use std::io::IsTerminal;
+    if total == 0 {
+        return Box::new(|_i: usize, _total: usize| {});
+    }
+    if std::io::stderr().is_terminal() {
+        use indicatif::{ProgressBar, ProgressStyle};
+        let pb = ProgressBar::new(total as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("Building touch cache [{bar:40}] {pos}/{len}")
+                .unwrap()
+                .progress_chars("##-"),
+        );
+        Box::new(move |i: usize, t: usize| {
+            pb.set_position((i + 1) as u64);
+            if i + 1 >= t {
+                pb.finish_and_clear();
+            }
+        })
+    } else {
+        eprintln!(
+            "Building touch cache: 0/{} functions [next update in ~30s]",
+            total
+        );
+        let last_print = std::sync::Mutex::new(std::time::Instant::now());
+        Box::new(move |i: usize, t: usize| {
+            if i + 1 >= t {
+                eprintln!("Building touch cache: {}/{} functions [done]", i + 1, t);
+                return;
+            }
+            if let Ok(mut last) = last_print.try_lock() {
+                if last.elapsed().as_secs() >= 30 {
+                    eprintln!("Building touch cache: {}/{} functions", i + 1, t);
+                    *last = std::time::Instant::now();
+                }
+            }
+        })
+    }
+}
+
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
 ///
 /// Both snapshot and delta modes call this, then diverge for their mode-specific output.
@@ -589,6 +630,7 @@ fn build_enriched_snapshot(
         }
     }
 
+    let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
     // Populate churn metrics if a parent commit exists
@@ -619,7 +661,12 @@ fn build_enriched_snapshot(
     {
         eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
     }
-    enricher = enricher.with_touch_metrics(repo_root, per_function_touches);
+    let progress = if per_function_touches {
+        Some(make_progress_reporter(total_functions))
+    } else {
+        None
+    };
+    enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
     enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {

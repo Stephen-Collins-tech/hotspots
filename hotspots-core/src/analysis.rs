@@ -72,8 +72,15 @@ pub fn analyze_file_with_config(
         let cfg = builder.build(function);
 
         // Validate CFG
-        cfg.validate()
-            .map_err(|e| anyhow::anyhow!("Invalid CFG constructed: {}", e))?;
+        if let Err(e) = cfg.validate() {
+            eprintln!(
+                "warning: skipping function '{}' in {}: invalid CFG: {}",
+                function.name.as_deref().unwrap_or("<anonymous>"),
+                path.display(),
+                e
+            );
+            continue;
+        }
 
         // Extract metrics
         let raw_metrics = metrics::extract_metrics(function, &cfg);
