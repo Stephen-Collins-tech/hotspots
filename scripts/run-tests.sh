@@ -16,7 +16,7 @@ case "${1:-all}" in
         echo "Building release binary..."
         cargo build --release
         echo "Running comprehensive tests..."
-        python3 test_comprehensive.py
+        python3 integration/legacy/test_comprehensive.py
         ;;
     all)
         echo "Running all tests..."
@@ -27,7 +27,7 @@ case "${1:-all}" in
         cargo build --release
         echo ""
         echo "3. Comprehensive integration tests..."
-        python3 test_comprehensive.py
+        python3 integration/legacy/test_comprehensive.py
         ;;
     *)
         echo "Usage: $0 [unit|comprehensive|all]"

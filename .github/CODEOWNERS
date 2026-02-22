@@ -1,0 +1,16 @@
+# Default owners
+* @Stephen-Collins-tech
+
+# Rust workspace
+/hotspots-core/** @Stephen-Collins-tech
+/hotspots-cli/** @Stephen-Collins-tech
+
+# Docs and action
+/docs/** @Stephen-Collins-tech
+/action/** @Stephen-Collins-tech
+
+# CI
+/.github/** @Stephen-Collins-tech
+
+# Integration tests
+/integration/** @Stephen-Collins-tech

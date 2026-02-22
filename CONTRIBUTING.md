@@ -153,7 +153,25 @@ cargo test -- --nocapture
 
 # Run golden tests (deterministic output verification)
 cargo test --test golden_tests
+
+# Run integration tests (pytest suite)
+make test-integration
+
+# Run comprehensive tests (auto-detect pytest; falls back to legacy script)
+make test-comprehensive
 ```
+
+### Integration Tests
+
+- Location: `integration/` (pytest-based E2E tests) and `integration/legacy/` (fallback script).
+- Entry points:
+  - `make test-integration` — runs `pytest -q integration`.
+  - `make test-comprehensive` — runs pytest if available, else `python3 integration/legacy/test_comprehensive.py`.
+- CI runs `make test-comprehensive` and uploads artifacts from `test-repo-comprehensive/`.
+
+### Golden Files
+
+- No manual path fixing needed. Golden tests normalize file paths at assertion time for cross-platform consistency.
 
 ## Documentation
 
