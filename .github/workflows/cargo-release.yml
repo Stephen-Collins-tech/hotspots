@@ -47,6 +47,13 @@ jobs:
           cargo clippy --all-targets --all-features -- -D warnings
           cargo test --all
 
+      - name: Commit Cargo.lock if updated by verify
+        run: |
+          if ! git diff --quiet Cargo.lock; then
+            git add Cargo.lock
+            git commit -m "chore: update Cargo.lock"
+          fi
+
       - name: Run cargo-release (dry-run)
         if: inputs.dry_run == true
         env:
