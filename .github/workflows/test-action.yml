@@ -31,8 +31,20 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Build hotspots binary
-        run: cargo build --release --bin hotspots
+      - name: Restore cached release binary (by commit)
+        uses: actions/cache@v4
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+
+      - name: Ensure hotspots binary present
+        run: |
+          if [ -x target/release/hotspots ]; then
+            echo "Using cached binary"
+          else
+            echo "Cache miss: building binary"
+            cargo build --release --bin hotspots
+          fi
 
       - name: Create sample TypeScript project
         run: |
