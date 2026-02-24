@@ -22,7 +22,10 @@ pub fn build_cfg(function: &FunctionNode) -> Cfg {
 /// Context for break/continue target resolution
 struct BreakableContext {
     label: Option<String>,
-    break_target: NodeId,
+    /// `Some` when the join node has already been created (condition-guarded loops and
+    /// switch), `None` when it must be created on the first `break` statement
+    /// (do-while, infinite `for` loops).
+    break_target: Option<NodeId>,
     /// None for switch (not continuable), Some for loops
     continue_target: Option<NodeId>,
 }
@@ -53,6 +56,17 @@ impl CfgBuilder {
     /// Take the pending label (if any) for the next loop/switch context
     fn take_label(&mut self) -> Option<String> {
         self.pending_label.take()
+    }
+
+    /// Return the break-target join node for the given stack index, creating it
+    /// lazily if it has not been created yet (do-while, infinite for).
+    fn get_or_create_break_target(&mut self, idx: usize) -> NodeId {
+        if let Some(target) = self.breakable_stack[idx].break_target {
+            return target;
+        }
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        self.breakable_stack[idx].break_target = Some(join_node);
+        join_node
     }
 
     /// Build CFG from a block statement body
@@ -118,7 +132,10 @@ impl CfgBuilder {
     }
 
     fn visit_if(&mut self, if_stmt: &IfStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        // Dead code after a terminator — skip silently
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         // Condition node
         let condition_node = self.cfg.add_node(NodeKind::Condition);
@@ -172,7 +189,9 @@ impl CfgBuilder {
     }
 
     fn visit_while(&mut self, while_stmt: &WhileStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         // Loop header node
@@ -183,14 +202,15 @@ impl CfgBuilder {
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(header_node, condition_node);
 
-        // Create join node BEFORE body so break can target it
+        // The condition always provides a false-branch edge to join, so eager
+        // creation is safe — join is always reachable regardless of the body.
         let join_node = self.cfg.add_node(NodeKind::Join);
         self.cfg.add_edge(condition_node, join_node);
 
         // Push loop context for break/continue resolution
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: Some(join_node),
             continue_target: Some(header_node),
         });
 
@@ -213,20 +233,23 @@ impl CfgBuilder {
     }
 
     fn visit_do_while(&mut self, do_while_stmt: &DoWhileStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         // Loop header node
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(from_node, header_node);
 
-        // Create join node BEFORE body so break can target it
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
-        // Push loop context for break/continue resolution
+        // Unlike while/for, do-while has no pre-body condition that could provide
+        // a guaranteed edge to the join node.  The join is therefore created
+        // lazily: it only comes into existence when a `break` statement or the
+        // post-body condition needs it.  This prevents orphaned join nodes when
+        // the body always terminates (return/throw) and contains no break.
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: None,
             continue_target: Some(header_node),
         });
 
@@ -237,27 +260,34 @@ impl CfgBuilder {
         self.current_node = Some(body_start);
         self.visit_stmt(&do_while_stmt.body);
         let body_end = self.current_node.unwrap_or(body_start);
+        let body_completed = self.current_node.is_some();
 
-        self.breakable_stack.pop();
+        let ctx = self.breakable_stack.pop().unwrap();
+        let lazy_join = ctx.break_target;
 
-        // Condition node (checked after body)
-        // Only if body completed normally (didn't return/throw/break)
-        if self.current_node.is_some() {
+        if body_completed {
+            // Body completed normally — emit the post-body condition, back-edge
+            // and false-exit edge to the join node.
+            let join_node = lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
             let condition_node = self.cfg.add_node(NodeKind::Condition);
             self.cfg.add_edge(body_end, condition_node);
-
-            // Back-edge to header if condition true
             self.cfg.add_edge(condition_node, header_node);
-
-            // Exit edge to join if condition false
             self.cfg.add_edge(condition_node, join_node);
+            self.current_node = Some(join_node);
+        } else if let Some(join_node) = lazy_join {
+            // Body terminated (return/throw) but a break statement targeted the
+            // join node, so it is reachable and code after the loop is live.
+            self.current_node = Some(join_node);
+        } else {
+            // Body always terminates with no break — code after the loop is dead.
+            self.current_node = None;
         }
-
-        self.current_node = Some(join_node);
     }
 
     fn visit_for(&mut self, for_stmt: &ForStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         // Initialization (if present) - sequential node before header
@@ -273,26 +303,24 @@ impl CfgBuilder {
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
         self.cfg.add_edge(init_end, header_node);
 
-        // Condition node (if present)
-        let condition_node = if for_stmt.test.is_some() {
-            let node = self.cfg.add_node(NodeKind::Condition);
-            self.cfg.add_edge(header_node, node);
-            node
+        // When a condition is present it always provides a false-branch edge to
+        // join → eager creation.  Without a condition (infinite loop) the join
+        // is only reachable via break → lazy creation.
+        let (condition_node, initial_break_target) = if for_stmt.test.is_some() {
+            let cnode = self.cfg.add_node(NodeKind::Condition);
+            self.cfg.add_edge(header_node, cnode);
+            let join = self.cfg.add_node(NodeKind::Join);
+            self.cfg.add_edge(cnode, join);
+            (cnode, Some(join))
         } else {
-            // No condition means infinite loop - condition always true
-            header_node
+            // No condition — treat header as the implicit condition node
+            (header_node, None)
         };
-
-        // Create join node BEFORE body so break can target it
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        if condition_node != header_node {
-            self.cfg.add_edge(condition_node, join_node);
-        }
 
         // Push loop context for break/continue resolution
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: initial_break_target,
             continue_target: Some(header_node),
         });
 
@@ -304,7 +332,7 @@ impl CfgBuilder {
         self.visit_stmt(&for_stmt.body);
         let mut body_end = self.current_node.unwrap_or(body_start);
 
-        self.breakable_stack.pop();
+        let ctx = self.breakable_stack.pop().unwrap();
 
         // Only process update/back-edge if body completed normally
         if self.current_node.is_some() {
@@ -319,11 +347,18 @@ impl CfgBuilder {
             self.cfg.add_edge(body_end, header_node);
         }
 
-        self.current_node = Some(join_node);
+        if let Some(join_node) = ctx.break_target {
+            self.current_node = Some(join_node);
+        } else {
+            // Infinite loop whose body always terminates with no break.
+            self.current_node = None;
+        }
     }
 
     fn visit_for_in(&mut self, for_in_stmt: &ForInStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
@@ -339,7 +374,7 @@ impl CfgBuilder {
         // Push loop context
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: Some(join_node),
             continue_target: Some(header_node),
         });
 
@@ -361,7 +396,9 @@ impl CfgBuilder {
     }
 
     fn visit_for_of(&mut self, for_of_stmt: &ForOfStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         let header_node = self.cfg.add_node(NodeKind::LoopHeader);
@@ -377,7 +414,7 @@ impl CfgBuilder {
         // Push loop context
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: Some(join_node),
             continue_target: Some(header_node),
         });
 
@@ -399,19 +436,22 @@ impl CfgBuilder {
     }
 
     fn visit_switch(&mut self, switch_stmt: &SwitchStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
         let label = self.take_label();
 
         // Switch expression evaluation (implied)
         let switch_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, switch_node);
 
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
-        // Push switch context (breakable, not continuable)
+        // The join node is created lazily: it comes into existence on the first
+        // `break` statement or when a case falls through past the end.  This
+        // prevents orphaned unreachable nodes when every case terminates via
+        // return/throw with no break.
         self.breakable_stack.push(BreakableContext {
             label,
-            break_target: join_node,
+            break_target: None,
             continue_target: None, // switch is not continuable
         });
 
@@ -442,17 +482,28 @@ impl CfgBuilder {
             prev_case_end = self.current_node;
         }
 
-        // Last case flows to join if it didn't break/return/throw
-        if let Some(last_end) = prev_case_end {
-            self.cfg.add_edge(last_end, join_node);
-        }
+        let ctx = self.breakable_stack.pop().unwrap();
+        let lazy_join = ctx.break_target;
 
-        self.breakable_stack.pop();
-        self.current_node = Some(join_node);
+        if let Some(last_end) = prev_case_end {
+            // Last case fell through — wire it to the (possibly new) join node.
+            let join_node = lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
+            self.cfg.add_edge(last_end, join_node);
+            self.current_node = Some(join_node);
+        } else if let Some(join_node) = lazy_join {
+            // All cases terminated but at least one `break` already created join.
+            self.current_node = Some(join_node);
+        } else {
+            // All cases terminated with no break and no fallthrough.
+            // Code after the switch is dead.
+            self.current_node = None;
+        }
     }
 
     fn visit_return(&mut self, _return_stmt: &ReturnStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         // Return statement - edge directly to exit
         self.cfg.add_edge(from_node, self.cfg.exit);
@@ -462,7 +513,9 @@ impl CfgBuilder {
     }
 
     fn visit_throw(&mut self, _throw_stmt: &ThrowStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         // Throw statement - edge directly to exit
         self.cfg.add_edge(from_node, self.cfg.exit);
@@ -543,7 +596,9 @@ impl CfgBuilder {
     }
 
     fn visit_try(&mut self, try_stmt: &TryStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         let try_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(from_node, try_start);
@@ -570,18 +625,21 @@ impl CfgBuilder {
     }
 
     fn visit_break(&mut self, break_stmt: &BreakStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         let target = if let Some(label) = &break_stmt.label {
-            // Labeled break: find the matching labeled context
-            self.breakable_stack
+            // Labeled break: find the innermost context with this label
+            let idx = self
+                .breakable_stack
                 .iter()
-                .rev()
-                .find(|ctx| ctx.label.as_deref() == Some(&*label.sym))
-                .map(|ctx| ctx.break_target)
+                .rposition(|ctx| ctx.label.as_deref() == Some(&*label.sym));
+            idx.map(|i| self.get_or_create_break_target(i))
         } else {
             // Unlabeled break: find innermost breakable context (loop or switch)
-            self.breakable_stack.last().map(|ctx| ctx.break_target)
+            let idx = self.breakable_stack.len().checked_sub(1);
+            idx.map(|i| self.get_or_create_break_target(i))
         };
 
         if let Some(target) = target {
@@ -595,7 +653,9 @@ impl CfgBuilder {
     }
 
     fn visit_continue(&mut self, continue_stmt: &ContinueStmt) {
-        let from_node = self.current_node.expect("Current node should exist");
+        let Some(from_node) = self.current_node else {
+            return;
+        };
 
         let target = if let Some(label) = &continue_stmt.label {
             // Labeled continue: find the matching labeled loop
@@ -740,6 +800,128 @@ mod tests {
                     sum += item;
                 }
                 return sum;
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    // --- regression tests for the bugs fixed in this patch ---
+
+    /// do-while whose body always returns: body terminates, no break is executed,
+    /// so the join node must never be created (no orphaned unreachable node).
+    #[test]
+    fn test_do_while_body_always_returns() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                do {
+                    return x * 2;
+                } while (x > 0);
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// do-while with a break inside: join node must be created and reachable.
+    #[test]
+    fn test_do_while_with_break() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                do {
+                    if (x < 0) { break; }
+                    x--;
+                } while (x > 0);
+                return x;
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// do-while that completes normally (no early exit): standard case.
+    #[test]
+    fn test_do_while_normal_completion() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                do {
+                    x--;
+                } while (x > 0);
+                return x;
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// Infinite for-loop whose body always returns: no join node should be
+    /// created, so no orphaned unreachable node.
+    #[test]
+    fn test_infinite_for_body_always_returns() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                for (;;) {
+                    return x;
+                }
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// Infinite for-loop with a break: join node is created and reachable.
+    #[test]
+    fn test_infinite_for_with_break() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                for (;;) {
+                    if (x <= 0) { break; }
+                    x--;
+                }
+                return x;
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// Switch where every case terminates via return: join node must still be
+    /// reachable (via the switch_node → join_node "no match" edge).
+    #[test]
+    fn test_switch_all_cases_return() {
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): string {
+                switch (x) {
+                    case 1: return "one";
+                    case 2: return "two";
+                    default: return "other";
+                }
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// Dead code after a return inside an if-branch must not cause a panic.
+    /// The if/while/for in unreachable positions should be silently skipped.
+    #[test]
+    fn test_dead_code_after_return_no_panic() {
+        // The second `if` statement is dead code — current_node is None when we
+        // reach it.  The builder must not panic.
+        let cfg = build_cfg_for(
+            r#"
+            function f(x: number): number {
+                if (x > 0) {
+                    return x;
+                }
+                throw new Error("negative");
+                if (x < 0) { return -x; }
             }
         "#,
         );
