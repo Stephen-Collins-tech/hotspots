@@ -101,6 +101,7 @@ pub struct CallGraphMetrics {
     pub betweenness: f64,
     pub scc_id: usize,
     pub scc_size: usize,
+    pub is_entrypoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_depth: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -602,6 +603,7 @@ impl Snapshot {
                     betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
                     scc_id,
                     scc_size,
+                    is_entrypoint: call_graph.is_entry_point(function_id),
                     dependency_depth,
                     neighbor_churn,
                 });
@@ -680,24 +682,26 @@ impl Snapshot {
                 ns: function.metrics.ns,
                 loc: function.metrics.loc,
             };
-            let churn_lines = function
-                .churn
-                .as_ref()
-                .map(|c| c.lines_added + c.lines_deleted);
-            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
-                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
-            } else {
-                (None, None, None)
-            };
-            let is_entrypoint = function
-                .callgraph
-                .as_ref()
-                .map(|cg| cg.fan_in == 0)
-                .unwrap_or(false);
+            // churn_lines is intentionally None here: function.churn is file-level
+            // (all functions in a file share the same total), not per-function. Using
+            // it would cause systematic false positives for churn_magnet, shotgun_target,
+            // and volatile_god on any multi-function file. Churn-based patterns require
+            // per-function data that is not yet available in snapshot enrichment.
+            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.neighbor_churn,
+                        cg.is_entrypoint,
+                    )
+                } else {
+                    (None, None, None, false)
+                };
             let t2 = crate::patterns::Tier2Input {
                 fan_in,
                 scc_size,
-                churn_lines,
+                churn_lines: None,
                 days_since_last_change: function.days_since_last_change,
                 neighbor_churn,
                 is_entrypoint,
@@ -719,24 +723,21 @@ impl Snapshot {
                 ns: function.metrics.ns,
                 loc: function.metrics.loc,
             };
-            let churn_lines = function
-                .churn
-                .as_ref()
-                .map(|c| c.lines_added + c.lines_deleted);
-            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
-                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
-            } else {
-                (None, None, None)
-            };
-            let is_entrypoint = function
-                .callgraph
-                .as_ref()
-                .map(|cg| cg.fan_in == 0)
-                .unwrap_or(false);
+            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.neighbor_churn,
+                        cg.is_entrypoint,
+                    )
+                } else {
+                    (None, None, None, false)
+                };
             let t2 = crate::patterns::Tier2Input {
                 fan_in,
                 scc_size,
-                churn_lines,
+                churn_lines: None,
                 days_since_last_change: function.days_since_last_change,
                 neighbor_churn,
                 is_entrypoint,
