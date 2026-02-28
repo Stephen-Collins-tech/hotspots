@@ -15,10 +15,10 @@ pub fn analyze_file(
     file_index: usize,
     options: &crate::AnalysisOptions,
 ) -> Result<Vec<report::FunctionRiskReport>> {
-    analyze_file_with_config(path, source_map, file_index, options, None, None)
+    analyze_file_with_config(path, source_map, file_index, options, None, None, None)
 }
 
-/// Analyze a file with optional custom weights and thresholds
+/// Analyze a file with optional custom weights, thresholds, and pattern thresholds
 pub fn analyze_file_with_config(
     path: &Path,
     source_map: &Lrc<SourceMap>,
@@ -26,11 +26,14 @@ pub fn analyze_file_with_config(
     options: &crate::AnalysisOptions,
     weights: Option<&risk::LrsWeights>,
     thresholds: Option<&risk::RiskThresholds>,
+    pattern_thresholds: Option<&crate::patterns::Thresholds>,
 ) -> Result<Vec<report::FunctionRiskReport>> {
     let default_weights = risk::LrsWeights::default();
     let default_thresholds = risk::RiskThresholds::default();
+    let default_pattern_thresholds = crate::patterns::Thresholds::default();
     let w = weights.unwrap_or(&default_weights);
     let t = thresholds.unwrap_or(&default_thresholds);
+    let pt = pattern_thresholds.unwrap_or(&default_pattern_thresholds);
 
     // Read file
     let src = std::fs::read_to_string(path)
@@ -95,6 +98,24 @@ pub fn analyze_file_with_config(
             }
         }
 
+        // Classify Tier 1 patterns (Tier 2 requires snapshot mode enrichment)
+        let t1 = crate::patterns::Tier1Input {
+            cc: raw_metrics.cc,
+            nd: raw_metrics.nd,
+            fo: raw_metrics.fo,
+            ns: raw_metrics.ns,
+            loc: raw_metrics.loc,
+        };
+        let t2 = crate::patterns::Tier2Input {
+            fan_in: None,
+            scc_size: None,
+            churn_lines: None,
+            days_since_last_change: None,
+            neighbor_churn: None,
+            is_entrypoint: false,
+        };
+        let patterns = crate::patterns::classify(&t1, &t2, pt);
+
         // Create report
         let report = report::FunctionRiskReport::new(
             function,
@@ -105,6 +126,7 @@ pub fn analyze_file_with_config(
                 risk: risk_components,
                 lrs,
                 band,
+                patterns,
             },
             source_map,
         );

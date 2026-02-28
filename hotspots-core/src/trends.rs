@@ -457,6 +457,8 @@ mod tests {
                 lrs: f.lrs,
                 band: f.band.clone(),
                 suppression_reason: None,
+                patterns: vec![],
+                pattern_details: None,
                 callees: vec![],
             })
             .collect();
@@ -495,6 +497,8 @@ mod tests {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: vec![],
+                    pattern_details: None,
                 }],
             ),
             create_test_snapshot(
@@ -525,6 +529,8 @@ mod tests {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: vec![],
+                    pattern_details: None,
                 }],
             ),
         ];
@@ -567,6 +573,8 @@ mod tests {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: vec![],
+                    pattern_details: None,
                 }],
             ),
             create_test_snapshot(
@@ -597,6 +605,8 @@ mod tests {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: vec![],
+                    pattern_details: None,
                 }],
             ),
         ];
@@ -638,6 +648,8 @@ mod tests {
                         driver: None,
                         driver_detail: None,
                         quadrant: None,
+                        patterns: vec![],
+                        pattern_details: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -664,6 +676,8 @@ mod tests {
                         driver: None,
                         driver_detail: None,
                         quadrant: None,
+                        patterns: vec![],
+                        pattern_details: None,
                     },
                 ],
             ),
@@ -696,6 +710,8 @@ mod tests {
                         driver: None,
                         driver_detail: None,
                         quadrant: None,
+                        patterns: vec![],
+                        pattern_details: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -722,6 +738,8 @@ mod tests {
                         driver: None,
                         driver_detail: None,
                         quadrant: None,
+                        patterns: vec![],
+                        pattern_details: None,
                     },
                 ],
             ),

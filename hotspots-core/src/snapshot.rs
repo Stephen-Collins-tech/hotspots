@@ -151,6 +151,13 @@ pub struct FunctionSnapshot {
     /// Populated by the enricher after driver labels. None before enrichment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quadrant: Option<String>,
+    /// Pattern labels derived from metrics. Tier 1 patterns are carried forward
+    /// from the analysis report; Tier 2 are added by `populate_patterns()`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub patterns: Vec<String>,
+    /// Full pattern detail for `--explain-patterns`. None unless requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
 }
 
 /// Risk distribution by band
@@ -273,6 +280,8 @@ impl Snapshot {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: report.patterns,
+                    pattern_details: None,
                 }
             })
             .collect();
@@ -653,6 +662,87 @@ impl Snapshot {
                 function.activity_risk = Some(activity_risk);
                 function.risk_factors = Some(risk_factors);
             }
+        }
+    }
+
+    /// Populate pattern labels using full Tier 1 + Tier 2 data.
+    ///
+    /// Re-classifies each function with complete enriched inputs, replacing the
+    /// Tier 1–only patterns carried from the analysis report. Must be called
+    /// after `populate_churn()`, `populate_callgraph()`, and
+    /// `populate_touch_metrics()` for accurate Tier 2 patterns.
+    pub fn populate_patterns(&mut self, thresholds: &crate::patterns::Thresholds) {
+        for function in &mut self.functions {
+            let t1 = crate::patterns::Tier1Input {
+                cc: function.metrics.cc,
+                nd: function.metrics.nd,
+                fo: function.metrics.fo,
+                ns: function.metrics.ns,
+                loc: function.metrics.loc,
+            };
+            let churn_lines = function
+                .churn
+                .as_ref()
+                .map(|c| c.lines_added + c.lines_deleted);
+            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
+                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
+            } else {
+                (None, None, None)
+            };
+            let is_entrypoint = function
+                .callgraph
+                .as_ref()
+                .map(|cg| cg.fan_in == 0)
+                .unwrap_or(false);
+            let t2 = crate::patterns::Tier2Input {
+                fan_in,
+                scc_size,
+                churn_lines,
+                days_since_last_change: function.days_since_last_change,
+                neighbor_churn,
+                is_entrypoint,
+            };
+            function.patterns = crate::patterns::classify(&t1, &t2, thresholds);
+        }
+    }
+
+    /// Populate full pattern details for `--explain-patterns`.
+    ///
+    /// Stores `PatternDetail` (triggered conditions) in each function.
+    /// Must be called after `populate_patterns()`.
+    pub fn populate_pattern_details(&mut self, thresholds: &crate::patterns::Thresholds) {
+        for function in &mut self.functions {
+            let t1 = crate::patterns::Tier1Input {
+                cc: function.metrics.cc,
+                nd: function.metrics.nd,
+                fo: function.metrics.fo,
+                ns: function.metrics.ns,
+                loc: function.metrics.loc,
+            };
+            let churn_lines = function
+                .churn
+                .as_ref()
+                .map(|c| c.lines_added + c.lines_deleted);
+            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
+                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
+            } else {
+                (None, None, None)
+            };
+            let is_entrypoint = function
+                .callgraph
+                .as_ref()
+                .map(|cg| cg.fan_in == 0)
+                .unwrap_or(false);
+            let t2 = crate::patterns::Tier2Input {
+                fan_in,
+                scc_size,
+                churn_lines,
+                days_since_last_change: function.days_since_last_change,
+                neighbor_churn,
+                is_entrypoint,
+            };
+            function.pattern_details =
+                Some(crate::patterns::classify_detailed(&t1, &t2, thresholds));
         }
     }
 
@@ -1633,6 +1723,8 @@ mod tests {
             lrs: 4.8,
             band: "moderate".to_string(),
             suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
             callees: vec![],
         };
 

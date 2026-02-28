@@ -24,6 +24,7 @@ pub mod imports;
 pub mod language;
 pub mod metrics;
 pub mod parser;
+pub mod patterns;
 pub mod policy;
 pub mod prune;
 pub mod report;
@@ -98,6 +99,7 @@ pub fn analyze_with_config(
             &options,
             weights.as_ref(),
             thresholds.as_ref(),
+            resolved_config.map(|c| &c.pattern_thresholds),
         ) {
             Ok(reports) => {
                 all_reports.extend(reports);

@@ -997,6 +997,8 @@ mod tests {
             driver: None,
             driver_detail: None,
             quadrant: None,
+            patterns: vec![],
+            pattern_details: None,
         }
     }
 

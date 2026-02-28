@@ -18,6 +18,10 @@
       "r_ns": 3.0
     },
     "lrs": 11.29231742277876,
-    "band": "critical"
+    "band": "critical",
+    "patterns": [
+      "complex_branching",
+      "deeply_nested"
+    ]
   }
 ]

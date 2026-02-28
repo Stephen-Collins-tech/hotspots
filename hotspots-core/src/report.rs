@@ -23,6 +23,10 @@ pub struct FunctionRiskReport {
     pub band: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub patterns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
     #[serde(skip, default)]
     pub callees: Vec<String>,
 }
@@ -56,6 +60,7 @@ pub struct FunctionAnalysis {
     pub risk: RiskComponents,
     pub lrs: f64,
     pub band: RiskBand,
+    pub patterns: Vec<String>,
 }
 
 impl FunctionRiskReport {
@@ -95,6 +100,8 @@ impl FunctionRiskReport {
             lrs: analysis.lrs,
             band: analysis.band.as_str().to_string(),
             suppression_reason: function.suppression_reason.clone(),
+            patterns: analysis.patterns,
+            pattern_details: None,
             callees: analysis.metrics.callee_names,
         }
     }
@@ -120,23 +127,59 @@ pub fn sort_reports(mut reports: Vec<FunctionRiskReport>) -> Vec<FunctionRiskRep
 /// Render reports as text output
 pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     let mut output = String::new();
+    let show_patterns = reports.iter().any(|r| !r.patterns.is_empty());
 
     // Header
-    output.push_str(&format!(
-        "{:<8} {:<20} {:<6} {}\n",
-        "LRS", "File", "Line", "Function"
-    ));
+    if show_patterns {
+        output.push_str(&format!(
+            "{:<8} {:<10} {:<20} {:<6} {:<30} {}\n",
+            "LRS", "BAND", "FILE", "LINE", "FUNCTION", "PATTERNS"
+        ));
+    } else {
+        output.push_str(&format!(
+            "{:<8} {:<20} {:<6} {}\n",
+            "LRS", "File", "Line", "Function"
+        ));
+    }
 
     // Reports
     for report in reports {
         let lrs_str = format!("{:.2}", report.lrs);
-        output.push_str(&format!(
-            "{:<8} {:<20} {:<6} {}\n",
-            lrs_str,
-            truncate_or_pad(&report.file, 20),
-            report.line,
-            report.function
-        ));
+        if show_patterns {
+            let patterns_str = if report.patterns.is_empty() {
+                "-".to_string()
+            } else {
+                report.patterns.join(", ")
+            };
+            output.push_str(&format!(
+                "{:<8} {:<10} {:<20} {:<6} {:<30} {}\n",
+                lrs_str,
+                report.band,
+                truncate_or_pad(&report.file, 20),
+                report.line,
+                truncate_or_pad(&report.function, 30),
+                patterns_str,
+            ));
+            if let Some(ref details) = report.pattern_details {
+                for d in details {
+                    let conds = d
+                        .triggered_by
+                        .iter()
+                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    output.push_str(&format!("           {}: {}\n", d.id, conds));
+                }
+            }
+        } else {
+            output.push_str(&format!(
+                "{:<8} {:<20} {:<6} {}\n",
+                lrs_str,
+                truncate_or_pad(&report.file, 20),
+                report.line,
+                report.function
+            ));
+        }
     }
 
     output
