@@ -120,6 +120,11 @@ fn test_golden_pathological() {
 }
 
 #[test]
+fn test_golden_patterns_tier1() {
+    test_golden("patterns_tier1");
+}
+
+#[test]
 fn test_golden_determinism() {
     // Test that running analysis twice produces identical output
     let fixture = fixture_path("simple.ts");

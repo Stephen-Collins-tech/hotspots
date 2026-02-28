@@ -92,6 +92,10 @@ pub struct HotspotsConfig {
     /// Lower values = more functions get specific labels; higher = only extreme outliers.
     #[serde(default)]
     pub driver_threshold_percentile: Option<u8>,
+
+    /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
+    #[serde(default)]
+    pub patterns: Option<PatternThresholdsConfig>,
 }
 
 /// Custom risk band thresholds
@@ -138,6 +142,35 @@ pub struct ScoringWeightsConfig {
     pub depth: Option<f64>,
     /// Weight for neighbor churn factor (default: 0.2)
     pub neighbor_churn: Option<f64>,
+}
+
+/// Pattern detection thresholds — override defaults from `docs/patterns.md`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PatternThresholdsConfig {
+    pub complex_branching_cc: Option<usize>,
+    pub complex_branching_nd: Option<usize>,
+    pub deeply_nested_nd: Option<usize>,
+    pub exit_heavy_ns: Option<usize>,
+    pub god_function_loc: Option<usize>,
+    pub god_function_fo: Option<usize>,
+    pub long_function_loc: Option<usize>,
+    pub churn_magnet_churn: Option<usize>,
+    pub churn_magnet_cc: Option<usize>,
+    pub cyclic_hub_scc: Option<usize>,
+    pub cyclic_hub_fan_in: Option<usize>,
+    pub hub_function_fan_in: Option<usize>,
+    pub hub_function_cc: Option<usize>,
+    pub middle_man_fan_in: Option<usize>,
+    pub middle_man_fo: Option<usize>,
+    pub middle_man_cc_max: Option<usize>,
+    pub neighbor_risk_churn: Option<usize>,
+    pub neighbor_risk_fo: Option<usize>,
+    pub shotgun_target_fan_in: Option<usize>,
+    pub shotgun_target_churn: Option<usize>,
+    pub stale_complex_cc: Option<usize>,
+    pub stale_complex_loc: Option<usize>,
+    pub stale_complex_days: Option<u32>,
 }
 
 /// Warning thresholds for proactive alerts
@@ -190,6 +223,8 @@ pub struct ResolvedConfig {
     pub driver_threshold_percentile: u8,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
+    /// Pattern detection thresholds
+    pub pattern_thresholds: crate::patterns::Thresholds,
     /// Path the config was loaded from (None if defaults)
     pub config_path: Option<PathBuf>,
 }
@@ -209,37 +244,49 @@ impl HotspotsConfig {
         if let Some(ref s) = self.scoring {
             validate_scoring(s)?;
         }
-        if let Some(min) = self.min_lrs {
-            if min < 0.0 {
-                anyhow::bail!("min_lrs must be non-negative (got {})", min);
-            }
+        if let Some(ref p) = self.patterns {
+            validate_pattern_thresholds(p)?;
         }
-        if let Some(w) = self.co_change_window_days {
-            if w == 0 {
-                anyhow::bail!("co_change_window_days must be at least 1");
-            }
-        }
-        if let Some(m) = self.co_change_min_count {
-            if m == 0 {
-                anyhow::bail!("co_change_min_count must be at least 1");
-            }
-        }
-        if let Some(p) = self.driver_threshold_percentile {
-            if p == 0 || p >= 100 {
-                anyhow::bail!(
-                    "driver_threshold_percentile must be between 1 and 99 (got {})",
-                    p
-                );
-            }
-        }
-        for pattern in &self.include {
-            Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
-        }
-        for pattern in &self.exclude {
-            Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
-        }
-        Ok(())
+        validate_scalar_fields(self)?;
+        validate_glob_patterns(&self.include, &self.exclude)
     }
+}
+
+fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
+    if let Some(min) = c.min_lrs {
+        if min < 0.0 {
+            anyhow::bail!("min_lrs must be non-negative (got {})", min);
+        }
+    }
+    if let Some(w) = c.co_change_window_days {
+        if w == 0 {
+            anyhow::bail!("co_change_window_days must be at least 1");
+        }
+    }
+    if let Some(m) = c.co_change_min_count {
+        if m == 0 {
+            anyhow::bail!("co_change_min_count must be at least 1");
+        }
+    }
+    if let Some(p) = c.driver_threshold_percentile {
+        if p == 0 || p >= 100 {
+            anyhow::bail!(
+                "driver_threshold_percentile must be between 1 and 99 (got {})",
+                p
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_glob_patterns(include: &[String], exclude: &[String]) -> Result<()> {
+    for pattern in include {
+        Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
+    }
+    for pattern in exclude {
+        Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
+    }
+    Ok(())
 }
 
 fn validate_thresholds(t: &ThresholdConfig) -> Result<()> {
@@ -361,6 +408,47 @@ fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
     Ok(())
 }
 
+fn validate_pattern_thresholds(p: &PatternThresholdsConfig) -> Result<()> {
+    // All thresholds must be at least 1 when specified
+    let usize_fields: &[(&str, Option<usize>)] = &[
+        ("complex_branching_cc", p.complex_branching_cc),
+        ("complex_branching_nd", p.complex_branching_nd),
+        ("deeply_nested_nd", p.deeply_nested_nd),
+        ("exit_heavy_ns", p.exit_heavy_ns),
+        ("god_function_loc", p.god_function_loc),
+        ("god_function_fo", p.god_function_fo),
+        ("long_function_loc", p.long_function_loc),
+        ("churn_magnet_churn", p.churn_magnet_churn),
+        ("churn_magnet_cc", p.churn_magnet_cc),
+        ("cyclic_hub_scc", p.cyclic_hub_scc),
+        ("cyclic_hub_fan_in", p.cyclic_hub_fan_in),
+        ("hub_function_fan_in", p.hub_function_fan_in),
+        ("hub_function_cc", p.hub_function_cc),
+        ("middle_man_fan_in", p.middle_man_fan_in),
+        ("middle_man_fo", p.middle_man_fo),
+        ("middle_man_cc_max", p.middle_man_cc_max),
+        ("neighbor_risk_churn", p.neighbor_risk_churn),
+        ("neighbor_risk_fo", p.neighbor_risk_fo),
+        ("shotgun_target_fan_in", p.shotgun_target_fan_in),
+        ("shotgun_target_churn", p.shotgun_target_churn),
+        ("stale_complex_cc", p.stale_complex_cc),
+        ("stale_complex_loc", p.stale_complex_loc),
+    ];
+    for (name, val) in usize_fields {
+        if let Some(v) = val {
+            if *v == 0 {
+                anyhow::bail!("patterns.{} must be at least 1 (got 0)", name);
+            }
+        }
+    }
+    if let Some(v) = p.stale_complex_days {
+        if v == 0 {
+            anyhow::bail!("patterns.stale_complex_days must be at least 1 (got 0)");
+        }
+    }
+    Ok(())
+}
+
 impl HotspotsConfig {
     /// Resolve config into compiled form ready for use
     pub fn resolve(&self) -> Result<ResolvedConfig> {
@@ -440,6 +528,40 @@ impl HotspotsConfig {
             None => crate::scoring::ScoringWeights::default(),
         };
 
+        let pattern_thresholds = match &self.patterns {
+            Some(p) => {
+                let d = crate::patterns::Thresholds::default();
+                crate::patterns::Thresholds {
+                    complex_branching_cc: p.complex_branching_cc.unwrap_or(d.complex_branching_cc),
+                    complex_branching_nd: p.complex_branching_nd.unwrap_or(d.complex_branching_nd),
+                    deeply_nested_nd: p.deeply_nested_nd.unwrap_or(d.deeply_nested_nd),
+                    exit_heavy_ns: p.exit_heavy_ns.unwrap_or(d.exit_heavy_ns),
+                    god_function_loc: p.god_function_loc.unwrap_or(d.god_function_loc),
+                    god_function_fo: p.god_function_fo.unwrap_or(d.god_function_fo),
+                    long_function_loc: p.long_function_loc.unwrap_or(d.long_function_loc),
+                    churn_magnet_churn: p.churn_magnet_churn.unwrap_or(d.churn_magnet_churn),
+                    churn_magnet_cc: p.churn_magnet_cc.unwrap_or(d.churn_magnet_cc),
+                    cyclic_hub_scc: p.cyclic_hub_scc.unwrap_or(d.cyclic_hub_scc),
+                    cyclic_hub_fan_in: p.cyclic_hub_fan_in.unwrap_or(d.cyclic_hub_fan_in),
+                    hub_function_fan_in: p.hub_function_fan_in.unwrap_or(d.hub_function_fan_in),
+                    hub_function_cc: p.hub_function_cc.unwrap_or(d.hub_function_cc),
+                    middle_man_fan_in: p.middle_man_fan_in.unwrap_or(d.middle_man_fan_in),
+                    middle_man_fo: p.middle_man_fo.unwrap_or(d.middle_man_fo),
+                    middle_man_cc_max: p.middle_man_cc_max.unwrap_or(d.middle_man_cc_max),
+                    neighbor_risk_churn: p.neighbor_risk_churn.unwrap_or(d.neighbor_risk_churn),
+                    neighbor_risk_fo: p.neighbor_risk_fo.unwrap_or(d.neighbor_risk_fo),
+                    shotgun_target_fan_in: p
+                        .shotgun_target_fan_in
+                        .unwrap_or(d.shotgun_target_fan_in),
+                    shotgun_target_churn: p.shotgun_target_churn.unwrap_or(d.shotgun_target_churn),
+                    stale_complex_cc: p.stale_complex_cc.unwrap_or(d.stale_complex_cc),
+                    stale_complex_loc: p.stale_complex_loc.unwrap_or(d.stale_complex_loc),
+                    stale_complex_days: p.stale_complex_days.unwrap_or(d.stale_complex_days),
+                }
+            }
+            None => crate::patterns::Thresholds::default(),
+        };
+
         Ok(ResolvedConfig {
             include,
             exclude,
@@ -458,6 +580,7 @@ impl HotspotsConfig {
             min_lrs: self.min_lrs,
             top_n: self.top,
             scoring_weights,
+            pattern_thresholds,
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(true),

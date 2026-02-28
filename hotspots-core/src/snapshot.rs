@@ -101,6 +101,7 @@ pub struct CallGraphMetrics {
     pub betweenness: f64,
     pub scc_id: usize,
     pub scc_size: usize,
+    pub is_entrypoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_depth: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,6 +152,13 @@ pub struct FunctionSnapshot {
     /// Populated by the enricher after driver labels. None before enrichment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quadrant: Option<String>,
+    /// Pattern labels derived from metrics. Tier 1 patterns are carried forward
+    /// from the analysis report; Tier 2 are added by `populate_patterns()`.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub patterns: Vec<String>,
+    /// Full pattern detail for `--explain-patterns`. None unless requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
 }
 
 /// Risk distribution by band
@@ -273,6 +281,8 @@ impl Snapshot {
                     driver: None,
                     driver_detail: None,
                     quadrant: None,
+                    patterns: report.patterns,
+                    pattern_details: None,
                 }
             })
             .collect();
@@ -593,6 +603,7 @@ impl Snapshot {
                     betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
                     scc_id,
                     scc_size,
+                    is_entrypoint: call_graph.is_entry_point(function_id),
                     dependency_depth,
                     neighbor_churn,
                 });
@@ -653,6 +664,86 @@ impl Snapshot {
                 function.activity_risk = Some(activity_risk);
                 function.risk_factors = Some(risk_factors);
             }
+        }
+    }
+
+    /// Populate pattern labels using full Tier 1 + Tier 2 data.
+    ///
+    /// Re-classifies each function with complete enriched inputs, replacing the
+    /// Tier 1–only patterns carried from the analysis report. Must be called
+    /// after `populate_churn()`, `populate_callgraph()`, and
+    /// `populate_touch_metrics()` for accurate Tier 2 patterns.
+    pub fn populate_patterns(&mut self, thresholds: &crate::patterns::Thresholds) {
+        for function in &mut self.functions {
+            let t1 = crate::patterns::Tier1Input {
+                cc: function.metrics.cc,
+                nd: function.metrics.nd,
+                fo: function.metrics.fo,
+                ns: function.metrics.ns,
+                loc: function.metrics.loc,
+            };
+            // churn_lines is intentionally None here: function.churn is file-level
+            // (all functions in a file share the same total), not per-function. Using
+            // it would cause systematic false positives for churn_magnet, shotgun_target,
+            // and volatile_god on any multi-function file. Churn-based patterns require
+            // per-function data that is not yet available in snapshot enrichment.
+            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.neighbor_churn,
+                        cg.is_entrypoint,
+                    )
+                } else {
+                    (None, None, None, false)
+                };
+            let t2 = crate::patterns::Tier2Input {
+                fan_in,
+                scc_size,
+                churn_lines: None,
+                days_since_last_change: function.days_since_last_change,
+                neighbor_churn,
+                is_entrypoint,
+            };
+            function.patterns = crate::patterns::classify(&t1, &t2, thresholds);
+        }
+    }
+
+    /// Populate full pattern details for `--explain-patterns`.
+    ///
+    /// Stores `PatternDetail` (triggered conditions) in each function.
+    /// Must be called after `populate_patterns()`.
+    pub fn populate_pattern_details(&mut self, thresholds: &crate::patterns::Thresholds) {
+        for function in &mut self.functions {
+            let t1 = crate::patterns::Tier1Input {
+                cc: function.metrics.cc,
+                nd: function.metrics.nd,
+                fo: function.metrics.fo,
+                ns: function.metrics.ns,
+                loc: function.metrics.loc,
+            };
+            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
+                if let Some(ref cg) = function.callgraph {
+                    (
+                        Some(cg.fan_in),
+                        Some(cg.scc_size),
+                        cg.neighbor_churn,
+                        cg.is_entrypoint,
+                    )
+                } else {
+                    (None, None, None, false)
+                };
+            let t2 = crate::patterns::Tier2Input {
+                fan_in,
+                scc_size,
+                churn_lines: None,
+                days_since_last_change: function.days_since_last_change,
+                neighbor_churn,
+                is_entrypoint,
+            };
+            function.pattern_details =
+                Some(crate::patterns::classify_detailed(&t1, &t2, thresholds));
         }
     }
 
@@ -795,7 +886,6 @@ impl Snapshot {
             return;
         }
 
-        // Collect scores sorted descending
         let mut scored: Vec<f64> = self
             .functions
             .iter()
@@ -804,79 +894,17 @@ impl Snapshot {
         scored.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         let total_risk: f64 = scored.iter().sum();
-
-        // Top-K share calculations
-        let top1_n = (n / 100).max(1);
-        let top5_n = (n * 5 / 100).max(1);
-        let top10_n = (n / 10).max(1);
-
-        let top1_sum: f64 = scored.iter().take(top1_n).sum();
-        let top5_sum: f64 = scored.iter().take(top5_n).sum();
-        let top10_sum: f64 = scored.iter().take(top10_n).sum();
-
-        let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
-
-        // Band distribution
-        let mut by_band: std::collections::BTreeMap<String, BandStats> =
-            std::collections::BTreeMap::new();
-        for func in &self.functions {
-            let score = func.activity_risk.unwrap_or(func.lrs);
-            let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
-                count: 0,
-                sum_risk: 0.0,
-            });
-            entry.count += 1;
-            entry.sum_risk += score;
-        }
-
-        // Call graph stats
-        let has_callgraph = self.functions.iter().any(|f| f.callgraph.is_some());
-        let call_graph = if has_callgraph {
-            let total_edges: usize = self
-                .functions
-                .iter()
-                .filter_map(|f| f.callgraph.as_ref())
-                .map(|cg| cg.fan_out)
-                .sum();
-            let total_fan_in: usize = self
-                .functions
-                .iter()
-                .filter_map(|f| f.callgraph.as_ref())
-                .map(|cg| cg.fan_in)
-                .sum();
-            let avg_fan_in = total_fan_in as f64 / n as f64;
-
-            // SCC analysis: group by scc_id, count SCCs with size > 1
-            let mut scc_sizes: std::collections::HashMap<usize, usize> =
-                std::collections::HashMap::new();
-            for func in &self.functions {
-                if let Some(ref cg) = func.callgraph {
-                    if cg.scc_size > 1 {
-                        scc_sizes.insert(cg.scc_id, cg.scc_size);
-                    }
-                }
-            }
-            let scc_count = scc_sizes.len();
-            let largest_scc_size = scc_sizes.values().copied().max().unwrap_or(0);
-
-            Some(CallGraphStats {
-                total_edges,
-                avg_fan_in,
-                scc_count,
-                largest_scc_size,
-            })
-        } else {
-            None
-        };
+        let (top_1_pct_share, top_5_pct_share, top_10_pct_share) =
+            compute_top_k_shares(&scored, total_risk);
 
         self.summary = Some(SnapshotSummary {
             total_functions: n,
             total_activity_risk: total_risk,
-            top_1_pct_share: safe_div(top1_sum, total_risk),
-            top_5_pct_share: safe_div(top5_sum, total_risk),
-            top_10_pct_share: safe_div(top10_sum, total_risk),
-            by_band,
-            call_graph,
+            top_1_pct_share,
+            top_5_pct_share,
+            top_10_pct_share,
+            by_band: compute_band_distribution(&self.functions),
+            call_graph: compute_call_graph_stats(&self.functions, n),
         });
     }
 
@@ -933,6 +961,69 @@ impl Snapshot {
     pub fn commit_sha(&self) -> &str {
         &self.commit.sha
     }
+}
+
+/// Returns (top_1_pct_share, top_5_pct_share, top_10_pct_share) from a
+/// descending-sorted score slice and the pre-computed total.
+fn compute_top_k_shares(scored: &[f64], total_risk: f64) -> (f64, f64, f64) {
+    let n = scored.len();
+    let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+    let top1_sum: f64 = scored.iter().take((n / 100).max(1)).sum();
+    let top5_sum: f64 = scored.iter().take((n * 5 / 100).max(1)).sum();
+    let top10_sum: f64 = scored.iter().take((n / 10).max(1)).sum();
+    (
+        safe_div(top1_sum, total_risk),
+        safe_div(top5_sum, total_risk),
+        safe_div(top10_sum, total_risk),
+    )
+}
+
+/// Builds a band → BandStats map from the function list.
+fn compute_band_distribution(
+    functions: &[FunctionSnapshot],
+) -> std::collections::BTreeMap<String, BandStats> {
+    let mut by_band = std::collections::BTreeMap::new();
+    for func in functions {
+        let score = func.activity_risk.unwrap_or(func.lrs);
+        let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
+            count: 0,
+            sum_risk: 0.0,
+        });
+        entry.count += 1;
+        entry.sum_risk += score;
+    }
+    by_band
+}
+
+/// Computes call-graph-level summary statistics, or None if no call graph data.
+fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
+    if !functions.iter().any(|f| f.callgraph.is_some()) {
+        return None;
+    }
+    let total_edges: usize = functions
+        .iter()
+        .filter_map(|f| f.callgraph.as_ref())
+        .map(|cg| cg.fan_out)
+        .sum();
+    let total_fan_in: usize = functions
+        .iter()
+        .filter_map(|f| f.callgraph.as_ref())
+        .map(|cg| cg.fan_in)
+        .sum();
+    let mut scc_sizes: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for func in functions {
+        if let Some(ref cg) = func.callgraph {
+            if cg.scc_size > 1 {
+                scc_sizes.insert(cg.scc_id, cg.scc_size);
+            }
+        }
+    }
+    Some(CallGraphStats {
+        total_edges,
+        avg_fan_in: total_fan_in as f64 / n as f64,
+        scc_count: scc_sizes.len(),
+        largest_scc_size: scc_sizes.values().copied().max().unwrap_or(0),
+    })
 }
 
 /// Percentile-derived thresholds for driving dimension detection.
@@ -1633,6 +1724,8 @@ mod tests {
             lrs: 4.8,
             band: "moderate".to_string(),
             suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
             callees: vec![],
         };
 

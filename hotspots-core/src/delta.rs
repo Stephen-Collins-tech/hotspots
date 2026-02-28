@@ -535,6 +535,8 @@ mod tests {
             lrs,
             band: band.to_string(),
             suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
             callees: vec![],
         };
 

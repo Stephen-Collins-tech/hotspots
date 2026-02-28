@@ -90,6 +90,11 @@ enum Commands {
         /// Only valid with --mode snapshot --format json.
         #[arg(long)]
         all_functions: bool,
+
+        /// Populate and emit pattern details (triggered conditions) for --explain-patterns.
+        /// Adds pattern_details to JSON output; shows details in --explain text output.
+        #[arg(long)]
+        explain_patterns: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -191,6 +196,7 @@ fn main() -> anyhow::Result<()> {
             level,
             per_function_touches,
             all_functions,
+            explain_patterns,
         } => handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -206,6 +212,7 @@ fn main() -> anyhow::Result<()> {
             level,
             per_function_touches,
             all_functions,
+            explain_patterns,
         })?,
         Commands::Prune {
             unreachable,
@@ -240,6 +247,7 @@ struct AnalyzeArgs {
     level: Option<OutputLevel>,
     per_function_touches: bool,
     all_functions: bool,
+    explain_patterns: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -254,6 +262,7 @@ fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         force,
         level,
         all_functions,
+        explain_patterns,
         ..
     } = args;
     if *policy && *mode != Some(OutputMode::Delta) {
@@ -289,6 +298,9 @@ fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     {
         anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
     }
+    if *explain_patterns && *mode != Some(OutputMode::Snapshot) && mode.is_some() {
+        anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
+    }
     Ok(())
 }
 
@@ -310,6 +322,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         level,
         per_function_touches,
         all_functions,
+        explain_patterns,
     } = args;
 
     // Normalize path to absolute
@@ -358,6 +371,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 per_function_touches: effective_per_function_touches,
                 all_functions,
+                explain_patterns,
             },
         );
     }
@@ -367,7 +381,33 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         min_lrs: effective_min_lrs,
         top_n: effective_top,
     };
-    let reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+    let mut reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+
+    // Populate pattern_details when --explain-patterns is requested (basic mode)
+    if explain_patterns {
+        for report in &mut reports {
+            let t1 = hotspots_core::patterns::Tier1Input {
+                cc: report.metrics.cc,
+                nd: report.metrics.nd,
+                fo: report.metrics.fo,
+                ns: report.metrics.ns,
+                loc: report.metrics.loc,
+            };
+            let t2 = hotspots_core::patterns::Tier2Input {
+                fan_in: None,
+                scc_size: None,
+                churn_lines: None,
+                days_since_last_change: None,
+                neighbor_churn: None,
+                is_entrypoint: false,
+            };
+            report.pattern_details = Some(hotspots_core::patterns::classify_detailed(
+                &t1,
+                &t2,
+                &resolved_config.pattern_thresholds,
+            ));
+        }
+    }
 
     match format {
         OutputFormat::Text => {
@@ -693,6 +733,7 @@ struct ModeOutputOptions {
     level: Option<OutputLevel>,
     per_function_touches: bool,
     all_functions: bool,
+    explain_patterns: bool,
 }
 
 /// Handle snapshot or delta mode output
@@ -714,6 +755,7 @@ fn handle_mode_output(
         level,
         per_function_touches,
         all_functions,
+        explain_patterns,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -734,6 +776,12 @@ fn handle_mode_output(
             let mut snapshot =
                 build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
                     .context("failed to build enriched snapshot")?;
+
+            // Compute Tier 2 patterns now that churn and call graph are available
+            snapshot.populate_patterns(&resolved_config.pattern_thresholds);
+            if explain_patterns {
+                snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
+            }
 
             // Persist only in mainline mode; skip when --no-persist is set
             if !pr_context.is_pr && !no_persist {
@@ -1602,6 +1650,20 @@ fn print_explain_output(
         if driver == "composite" {
             if let Some(ref detail) = func.driver_detail {
                 println!("   Near-threshold: {}", detail);
+            }
+        }
+        if !func.patterns.is_empty() {
+            println!("   Patterns: {}", func.patterns.join(", "));
+            if let Some(ref details) = func.pattern_details {
+                for pd in details {
+                    let triggered = pd
+                        .triggered_by
+                        .iter()
+                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!("     • {}: {}", pd.id, triggered);
+                }
             }
         }
         println!();

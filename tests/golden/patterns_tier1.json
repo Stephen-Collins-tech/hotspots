@@ -1,0 +1,127 @@
+[
+  {
+    "file": "tests/fixtures/patterns_tier1.ts",
+    "function": "allFiveTier1",
+    "line": 148,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 28,
+      "nd": 6,
+      "fo": 10,
+      "ns": 10,
+      "loc": 83
+    },
+    "risk": {
+      "r_cc": 4.857980995127572,
+      "r_nd": 6.0,
+      "r_fo": 3.4594316186372973,
+      "r_ns": 6.0
+    },
+    "lrs": 15.93363996630995,
+    "band": "critical",
+    "patterns": [
+      "complex_branching",
+      "deeply_nested",
+      "exit_heavy",
+      "god_function",
+      "long_function"
+    ]
+  },
+  {
+    "file": "tests/fixtures/patterns_tier1.ts",
+    "function": "exitHeavy",
+    "line": 137,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 13,
+      "nd": 1,
+      "fo": 0,
+      "ns": 5,
+      "loc": 8
+    },
+    "risk": {
+      "r_cc": 3.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 5.0
+    },
+    "lrs": 8.107354922057604,
+    "band": "high",
+    "patterns": [
+      "exit_heavy"
+    ]
+  },
+  {
+    "file": "tests/fixtures/patterns_tier1.ts",
+    "function": "complexBranching",
+    "line": 99,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 15,
+      "nd": 4,
+      "fo": 0,
+      "ns": 0,
+      "loc": 19
+    },
+    "risk": {
+      "r_cc": 4.0,
+      "r_nd": 4.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 7.2,
+    "band": "high",
+    "patterns": [
+      "complex_branching"
+    ]
+  },
+  {
+    "file": "tests/fixtures/patterns_tier1.ts",
+    "function": "deeplyNested",
+    "line": 120,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 8,
+      "nd": 5,
+      "fo": 0,
+      "ns": 0,
+      "loc": 15
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 5.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 7.169925001442312,
+    "band": "high",
+    "patterns": [
+      "deeply_nested"
+    ]
+  },
+  {
+    "file": "tests/fixtures/patterns_tier1.ts",
+    "function": "godAndLong",
+    "line": 16,
+    "language": "TypeScript",
+    "metrics": {
+      "cc": 3,
+      "nd": 0,
+      "fo": 10,
+      "ns": 0,
+      "loc": 80
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 0.0,
+      "r_fo": 3.4594316186372973,
+      "r_ns": 0.0
+    },
+    "lrs": 4.075658971182378,
+    "band": "moderate",
+    "patterns": [
+      "god_function",
+      "long_function"
+    ]
+  }
+]

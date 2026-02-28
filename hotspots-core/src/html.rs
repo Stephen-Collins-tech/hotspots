@@ -20,6 +20,7 @@ pub fn render_html_snapshot(
     } else {
         render_trends_section(&history_json)
     };
+    let patterns_breakdown = render_pattern_breakdown(&snapshot.functions);
 
     format!(
         r#"<!DOCTYPE html>
@@ -36,6 +37,7 @@ pub fn render_html_snapshot(
         {summary}
         {trends}
         {triage}
+        {patterns_breakdown}
         {functions_table}
         {aggregates_section}
         {footer}
@@ -50,6 +52,7 @@ pub fn render_html_snapshot(
         summary = render_summary(snapshot),
         trends = trends,
         triage = render_triage_panel(&snapshot.functions),
+        patterns_breakdown = patterns_breakdown,
         functions_table = render_functions_table(&snapshot.functions),
         aggregates_section = aggregates.map(render_aggregates).unwrap_or_default(),
         footer = render_footer(),
@@ -442,6 +445,87 @@ footer {
 /* Safe-to-refactor indicator */
 .refactor-ready { color: #22c55e; font-weight: 600; }
 
+/* Pattern pill badges */
+.pattern {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-family: monospace;
+    cursor: default;
+    white-space: nowrap;
+}
+.pattern-cell { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+
+/* Tier 1 — structural (warm palette) */
+.pattern-complex_branching { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.pattern-deeply_nested     { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.pattern-exit_heavy        { background: #f5f3ff; color: #7c3aed; border-color: #ddd6fe; }
+.pattern-god_function      { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+.pattern-long_function     { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+/* Tier 2 — behavioral (cool palette) */
+.pattern-churn_magnet      { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.pattern-cyclic_hub        { background: #fdf4ff; color: #a21caf; border-color: #f0abfc; }
+.pattern-hub_function      { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+.pattern-middle_man        { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.pattern-neighbor_risk     { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.pattern-shotgun_target    { background: #fdf2f8; color: #be185d; border-color: #fbcfe8; }
+.pattern-stale_complex     { background: #fefce8; color: #854d0e; border-color: #fef08a; }
+/* volatile_god — derived, most severe: inverted dark badge */
+.pattern-volatile_god      { background: #7f1d1d; color: #fef2f2; border-color: #991b1b; }
+
+/* Pattern breakdown widget */
+.pattern-breakdown {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    background: #f9fafb;
+    margin-bottom: 2rem;
+}
+.pattern-breakdown h2 { color: #374151; margin-bottom: 0.4rem; font-size: 1.1rem; }
+.pattern-breakdown-subtitle { font-size: 0.85rem; color: #6b7280; margin-bottom: 1rem; }
+.pattern-chips { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.pattern-chip {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid;
+    min-width: 130px;
+    flex: 1 1 130px;
+    max-width: 185px;
+}
+.pattern-chip-count { font-size: 1.75rem; font-weight: 800; line-height: 1.2; }
+.pattern-chip-name  { font-size: 0.7rem; font-weight: 700; font-family: monospace; margin-top: 0.25rem; }
+.pattern-chip-desc  { font-size: 0.65rem; color: #9ca3af; margin-top: 0.15rem; }
+
+.pattern-chip-complex_branching { border-left-color: #b45309; background: #fffbeb; }
+.pattern-chip-complex_branching .pattern-chip-count { color: #b45309; }
+.pattern-chip-deeply_nested     { border-left-color: #c2410c; background: #fff7ed; }
+.pattern-chip-deeply_nested     .pattern-chip-count { color: #c2410c; }
+.pattern-chip-exit_heavy        { border-left-color: #7c3aed; background: #f5f3ff; }
+.pattern-chip-exit_heavy        .pattern-chip-count { color: #7c3aed; }
+.pattern-chip-god_function      { border-left-color: #dc2626; background: #fef2f2; }
+.pattern-chip-god_function      .pattern-chip-count { color: #dc2626; }
+.pattern-chip-long_function     { border-left-color: #be123c; background: #fff1f2; }
+.pattern-chip-long_function     .pattern-chip-count { color: #be123c; }
+.pattern-chip-churn_magnet      { border-left-color: #1d4ed8; background: #eff6ff; }
+.pattern-chip-churn_magnet      .pattern-chip-count { color: #1d4ed8; }
+.pattern-chip-cyclic_hub        { border-left-color: #a21caf; background: #fdf4ff; }
+.pattern-chip-cyclic_hub        .pattern-chip-count { color: #a21caf; }
+.pattern-chip-hub_function      { border-left-color: #4338ca; background: #eef2ff; }
+.pattern-chip-hub_function      .pattern-chip-count { color: #4338ca; }
+.pattern-chip-middle_man        { border-left-color: #475569; background: #f1f5f9; }
+.pattern-chip-middle_man        .pattern-chip-count { color: #475569; }
+.pattern-chip-neighbor_risk     { border-left-color: #0f766e; background: #f0fdfa; }
+.pattern-chip-neighbor_risk     .pattern-chip-count { color: #0f766e; }
+.pattern-chip-shotgun_target    { border-left-color: #be185d; background: #fdf2f8; }
+.pattern-chip-shotgun_target    .pattern-chip-count { color: #be185d; }
+.pattern-chip-stale_complex     { border-left-color: #854d0e; background: #fefce8; }
+.pattern-chip-stale_complex     .pattern-chip-count { color: #854d0e; }
+.pattern-chip-volatile_god      { border-left-color: #7f1d1d; background: #fef2f2; }
+.pattern-chip-volatile_god      .pattern-chip-count { color: #7f1d1d; }
+
 /* Driver badges */
 .driver-badge { font-size: 0.75rem; padding: 0.15rem 0.4rem; border-radius: 0.25rem; margin-left: 0.4rem; }
 .driver-high_complexity    { background: #fff3e0; color: #e65100; }
@@ -644,6 +728,53 @@ th.sortable.desc::after {
     .recency-cold { color: #4b5563; }
     .triage-action { color: #9ca3af; }
     .trends-section canvas { background:#1f2937; }
+
+    /* Pattern badges — dark mode */
+    .pattern-complex_branching { background: #2d1b00; color: #fbbf24; border-color: #92400e; }
+    .pattern-deeply_nested     { background: #3a1500; color: #fb923c; border-color: #c2410c; }
+    .pattern-exit_heavy        { background: #1e0050; color: #c4b5fd; border-color: #6d28d9; }
+    .pattern-god_function      { background: #3a0000; color: #fca5a5; border-color: #991b1b; }
+    .pattern-long_function     { background: #3b0018; color: #fda4af; border-color: #9f1239; }
+    .pattern-churn_magnet      { background: #001a3d; color: #93c5fd; border-color: #1e40af; }
+    .pattern-cyclic_hub        { background: #2a0035; color: #e879f9; border-color: #86198f; }
+    .pattern-hub_function      { background: #13104a; color: #a5b4fc; border-color: #3730a3; }
+    .pattern-middle_man        { background: #1a2030; color: #94a3b8; border-color: #334155; }
+    .pattern-neighbor_risk     { background: #002020; color: #5eead4; border-color: #0f766e; }
+    .pattern-shotgun_target    { background: #3b0020; color: #f9a8d4; border-color: #9d174d; }
+    .pattern-stale_complex     { background: #1a1200; color: #fde047; border-color: #854d0e; }
+    .pattern-volatile_god      { background: #450a0a; color: #fef2f2; border-color: #7f1d1d; }
+
+    /* Pattern breakdown widget — dark mode */
+    .pattern-breakdown         { border-color: #374151; background: #1f2937; }
+    .pattern-breakdown h2      { color: #f9fafb; }
+    .pattern-breakdown-subtitle { color: #9ca3af; }
+    .pattern-chip-desc         { color: #6b7280; }
+    .pattern-chip-complex_branching { background: #2d1b00; }
+    .pattern-chip-complex_branching .pattern-chip-count { color: #fbbf24; }
+    .pattern-chip-deeply_nested     { background: #3a1500; }
+    .pattern-chip-deeply_nested     .pattern-chip-count { color: #fb923c; }
+    .pattern-chip-exit_heavy        { background: #1e0050; }
+    .pattern-chip-exit_heavy        .pattern-chip-count { color: #c4b5fd; }
+    .pattern-chip-god_function      { background: #3a0000; }
+    .pattern-chip-god_function      .pattern-chip-count { color: #fca5a5; }
+    .pattern-chip-long_function     { background: #3b0018; }
+    .pattern-chip-long_function     .pattern-chip-count { color: #fda4af; }
+    .pattern-chip-churn_magnet      { background: #001a3d; }
+    .pattern-chip-churn_magnet      .pattern-chip-count { color: #93c5fd; }
+    .pattern-chip-cyclic_hub        { background: #2a0035; }
+    .pattern-chip-cyclic_hub        .pattern-chip-count { color: #e879f9; }
+    .pattern-chip-hub_function      { background: #13104a; }
+    .pattern-chip-hub_function      .pattern-chip-count { color: #a5b4fc; }
+    .pattern-chip-middle_man        { background: #1a2030; }
+    .pattern-chip-middle_man        .pattern-chip-count { color: #94a3b8; }
+    .pattern-chip-neighbor_risk     { background: #002020; }
+    .pattern-chip-neighbor_risk     .pattern-chip-count { color: #5eead4; }
+    .pattern-chip-shotgun_target    { background: #3b0020; }
+    .pattern-chip-shotgun_target    .pattern-chip-count { color: #f9a8d4; }
+    .pattern-chip-stale_complex     { background: #1a1200; }
+    .pattern-chip-stale_complex     .pattern-chip-count { color: #fde047; }
+    .pattern-chip-volatile_god      { background: #450a0a; }
+    .pattern-chip-volatile_god      .pattern-chip-count { color: #fef2f2; }
 }
 "#
 }
@@ -1030,6 +1161,63 @@ fn render_summary(snapshot: &Snapshot) -> String {
     )
 }
 
+/// Render pattern breakdown widget — shows per-pattern counts sorted by frequency.
+/// Returns empty string when no functions have patterns.
+fn render_pattern_breakdown(functions: &[FunctionSnapshot]) -> String {
+    use std::collections::HashMap;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for f in functions {
+        for p in &f.patterns {
+            *counts.entry(p.as_str()).or_insert(0) += 1;
+        }
+    }
+    if counts.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<(&str, usize)> = counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+
+    let chips: String = sorted
+        .iter()
+        .map(|(id, count)| {
+            let desc = pattern_description(id);
+            format!(
+                r#"<div class="pattern-chip pattern-chip-{id}"><div class="pattern-chip-count">{count}</div><div class="pattern-chip-name">{id}</div><div class="pattern-chip-desc">{desc}</div></div>"#,
+                id = html_escape(id),
+                count = count,
+                desc = desc,
+            )
+        })
+        .collect();
+
+    let affected = functions.iter().filter(|f| !f.patterns.is_empty()).count();
+    format!(
+        r#"<div class="pattern-breakdown"><h2>Pattern Breakdown</h2><p class="pattern-breakdown-subtitle">Detected across {affected} function{s}</p><div class="pattern-chips">{chips}</div></div>"#,
+        affected = affected,
+        s = if affected == 1 { "" } else { "s" },
+        chips = chips,
+    )
+}
+
+fn pattern_description(id: &str) -> &'static str {
+    match id {
+        "complex_branching" => "High cyclomatic complexity and nesting",
+        "deeply_nested" => "Nesting depth \u{2265} 5 levels",
+        "exit_heavy" => "Many early returns",
+        "god_function" => "Too many responsibilities",
+        "long_function" => "Exceeds recommended length",
+        "churn_magnet" => "Complex and frequently changed",
+        "cyclic_hub" => "Node in a dependency cycle",
+        "hub_function" => "High fan-in and complex",
+        "middle_man" => "High fan-out, trivial logic",
+        "neighbor_risk" => "Called from high-churn functions",
+        "shotgun_target" => "Many callers and high churn",
+        "stale_complex" => "Complex but rarely touched",
+        "volatile_god" => "God function under heavy churn",
+        _ => "",
+    }
+}
+
 /// Render functions table
 fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     // Only show churn/fanin columns when enough functions actually have data
@@ -1039,6 +1227,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     let has_touches = functions.iter().any(|f| f.touch_count_30d.is_some());
     let has_recency = functions.iter().any(|f| f.days_since_last_change.is_some());
     let has_fanin = functions.iter().filter(|f| f.callgraph.is_some()).count() >= sparse_min;
+    let has_patterns = functions.iter().any(|f| !f.patterns.is_empty());
 
     let rows: String = functions
         .iter()
@@ -1114,6 +1303,47 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
             } else {
                 String::new()
             };
+            let patterns_cell = if has_patterns {
+                if f.patterns.is_empty() {
+                    "<td>—</td>".to_string()
+                } else {
+                    let spans: String = f
+                        .patterns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, id)| {
+                            let title = f
+                                .pattern_details
+                                .as_ref()
+                                .and_then(|ds| ds.get(i))
+                                .map(|d| {
+                                    let conds = d
+                                        .triggered_by
+                                        .iter()
+                                        .map(|t| {
+                                            format!(
+                                                "{}={} ({}{})",
+                                                t.metric, t.value, t.op, t.threshold
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    format!(" title=\"{}\"", html_escape(&conds))
+                                })
+                                .unwrap_or_default();
+                            format!(
+                                r#"<span class="pattern pattern-{}"{title}>{}</span>"#,
+                                html_escape(id),
+                                html_escape(id),
+                                title = title,
+                            )
+                        })
+                        .collect();
+                    format!("<td><div class=\"pattern-cell\">{}</div></td>", spans)
+                }
+            } else {
+                String::new()
+            };
 
             format!(
                 "<tr data-file=\"{file}\" data-function=\"{function}\" data-band=\"{band}\" \
@@ -1130,7 +1360,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                  <td>{nd}</td>\n\
                  <td>{fo}</td>\n\
                  <td>{ns}</td>\n\
-                 {activity_cell}{churn_cell}{touches_cell}{recency_cell}{fanin_cell}\
+                 {activity_cell}{churn_cell}{touches_cell}{recency_cell}{fanin_cell}{patterns_cell}\
                  </tr>",
                 file = html_escape(&f.file),
                 file_display = html_escape(&f.file),
@@ -1165,6 +1395,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 touches_cell = touches_cell,
                 recency_cell = recency_cell,
                 fanin_cell = fanin_cell,
+                patterns_cell = patterns_cell,
             )
         })
         .collect();
@@ -1191,6 +1422,11 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     };
     let fanin_header = if has_fanin {
         "<th class=\"sortable\" data-column=\"fanin\" title=\"Number of functions that call this one — higher means more callers, riskier to change\">Fan-in</th>"
+    } else {
+        ""
+    };
+    let patterns_header = if has_patterns {
+        "<th title=\"Detected structural and behavioral patterns\">Patterns</th>"
     } else {
         ""
     };
@@ -1248,6 +1484,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 {touches_header}
                 {recency_header}
                 {fanin_header}
+                {patterns_header}
             </tr>
         </thead>
         <tbody>
@@ -1262,6 +1499,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
         touches_header = touches_header,
         recency_header = recency_header,
         fanin_header = fanin_header,
+        patterns_header = patterns_header,
     )
 }
 

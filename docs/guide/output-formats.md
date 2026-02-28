@@ -56,7 +56,19 @@ hotspots analyze src/ --mode delta --policy --format json
         "ns": 2
       },
       "lrs": 7.2,
-      "band": "high"
+      "band": "high",
+      "patterns": ["complex_branching", "god_function"],
+      "pattern_details": [
+        {
+          "id": "complex_branching",
+          "tier": 1,
+          "kind": "primitive",
+          "triggered_by": [
+            { "metric": "cc", "op": ">=", "value": 8, "threshold": 10 },
+            { "metric": "nd", "op": ">=", "value": 2, "threshold": 4 }
+          ]
+        }
+      ]
     }
   ],
   "aggregates": {
@@ -131,6 +143,17 @@ See the [JSON Schema Reference section](#json-schema-reference) below for comple
 | `lrs` | number | Leverage Risk Score |
 | `band` | string | Risk band: `low`, `moderate`, `high`, `critical` |
 | `suppression_reason` | string | Optional suppression comment |
+| `patterns` | string[] | Code patterns detected (e.g. `"god_function"`, `"complex_branching"`). Omitted when empty. |
+| `pattern_details` | object[] | Per-pattern trigger details. Present only when `--explain-patterns` is set. |
+
+**`pattern_details` entry:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Pattern identifier (e.g. `"complex_branching"`) |
+| `tier` | number | `1` = structural (always available), `2` = enriched (snapshot mode only) |
+| `kind` | string | `"primitive"` or `"derived"` |
+| `triggered_by` | object[] | Each condition that caused the pattern to fire: `metric`, `op`, `value`, `threshold` |
 
 #### Metrics Object
 
@@ -207,6 +230,15 @@ jq '[.functions[].lrs] | add / length' output.json
 
 # Functions with policy violations
 jq '.policy_results.failed[] | .function_id' output.json
+
+# Functions carrying any pattern
+jq '.functions[] | select(.patterns | length > 0) | {id: .function_id, patterns}' output.json
+
+# Count functions per pattern
+jq '[.functions[].patterns[]?] | group_by(.) | map({pattern: .[0], count: length})' output.json
+
+# Functions with god_function pattern
+jq '.functions[] | select(.patterns[]? == "god_function") | .function_id' output.json
 ```
 
 ---
@@ -238,11 +270,18 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 - Average LRS
 - Policy violations summary
 
+**Pattern Breakdown Panel** (shown above the function table when any patterns are detected):
+- Frequency chips for each detected pattern, sorted by count descending
+- One chip per pattern: count, name, and short description
+- Per-pattern color coding — warm reds/ambers for Tier 1 structural patterns, cool blues/purples for Tier 2 enriched patterns, dark crimson for `volatile_god`
+- Dark mode support
+
 **Function Table:**
 - Sortable by LRS, CC, ND, FO, NS
 - Filterable by risk band and driver label
 - Searchable by function name
 - Color-coded risk levels and driver badges
+- Pattern column: colored pill badges per detected pattern
 - Action column: per-function refactoring recommendation (driver × quadrant)
 
 **Charts (snapshot mode):**
@@ -325,6 +364,10 @@ hotspots analyze src/ --format text
 
 # Delta mode with policy
 hotspots analyze src/ --mode delta --policy --format text
+
+# Show pattern trigger details inline
+hotspots analyze src/ --explain-patterns
+hotspots analyze src/ --mode snapshot --format text --explain --explain-patterns
 ```
 
 ### Snapshot Mode Output
@@ -540,7 +583,7 @@ Hotspots produces versioned JSON output. The `schema_version` field indicates th
 
 | Version | Scope | Added fields |
 |---------|-------|--------------|
-| **v2** (current) | Snapshot and delta output | `driver`, `driver_detail`, enriched `aggregates` (file_risk, co_change, modules) |
+| **v2** (current) | Snapshot and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
 | **v3** | Agent-optimized (`--all-functions`) | `fire`/`debt`/`watch`/`ok` quadrant buckets, per-function `action` text |
 | **v1** | Delta output (legacy constant) | — |
 
