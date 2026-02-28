@@ -885,7 +885,6 @@ impl Snapshot {
             return;
         }
 
-        // Collect scores sorted descending
         let mut scored: Vec<f64> = self
             .functions
             .iter()
@@ -894,79 +893,17 @@ impl Snapshot {
         scored.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
         let total_risk: f64 = scored.iter().sum();
-
-        // Top-K share calculations
-        let top1_n = (n / 100).max(1);
-        let top5_n = (n * 5 / 100).max(1);
-        let top10_n = (n / 10).max(1);
-
-        let top1_sum: f64 = scored.iter().take(top1_n).sum();
-        let top5_sum: f64 = scored.iter().take(top5_n).sum();
-        let top10_sum: f64 = scored.iter().take(top10_n).sum();
-
-        let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
-
-        // Band distribution
-        let mut by_band: std::collections::BTreeMap<String, BandStats> =
-            std::collections::BTreeMap::new();
-        for func in &self.functions {
-            let score = func.activity_risk.unwrap_or(func.lrs);
-            let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
-                count: 0,
-                sum_risk: 0.0,
-            });
-            entry.count += 1;
-            entry.sum_risk += score;
-        }
-
-        // Call graph stats
-        let has_callgraph = self.functions.iter().any(|f| f.callgraph.is_some());
-        let call_graph = if has_callgraph {
-            let total_edges: usize = self
-                .functions
-                .iter()
-                .filter_map(|f| f.callgraph.as_ref())
-                .map(|cg| cg.fan_out)
-                .sum();
-            let total_fan_in: usize = self
-                .functions
-                .iter()
-                .filter_map(|f| f.callgraph.as_ref())
-                .map(|cg| cg.fan_in)
-                .sum();
-            let avg_fan_in = total_fan_in as f64 / n as f64;
-
-            // SCC analysis: group by scc_id, count SCCs with size > 1
-            let mut scc_sizes: std::collections::HashMap<usize, usize> =
-                std::collections::HashMap::new();
-            for func in &self.functions {
-                if let Some(ref cg) = func.callgraph {
-                    if cg.scc_size > 1 {
-                        scc_sizes.insert(cg.scc_id, cg.scc_size);
-                    }
-                }
-            }
-            let scc_count = scc_sizes.len();
-            let largest_scc_size = scc_sizes.values().copied().max().unwrap_or(0);
-
-            Some(CallGraphStats {
-                total_edges,
-                avg_fan_in,
-                scc_count,
-                largest_scc_size,
-            })
-        } else {
-            None
-        };
+        let (top_1_pct_share, top_5_pct_share, top_10_pct_share) =
+            compute_top_k_shares(&scored, total_risk);
 
         self.summary = Some(SnapshotSummary {
             total_functions: n,
             total_activity_risk: total_risk,
-            top_1_pct_share: safe_div(top1_sum, total_risk),
-            top_5_pct_share: safe_div(top5_sum, total_risk),
-            top_10_pct_share: safe_div(top10_sum, total_risk),
-            by_band,
-            call_graph,
+            top_1_pct_share,
+            top_5_pct_share,
+            top_10_pct_share,
+            by_band: compute_band_distribution(&self.functions),
+            call_graph: compute_call_graph_stats(&self.functions, n),
         });
     }
 
@@ -1023,6 +960,69 @@ impl Snapshot {
     pub fn commit_sha(&self) -> &str {
         &self.commit.sha
     }
+}
+
+/// Returns (top_1_pct_share, top_5_pct_share, top_10_pct_share) from a
+/// descending-sorted score slice and the pre-computed total.
+fn compute_top_k_shares(scored: &[f64], total_risk: f64) -> (f64, f64, f64) {
+    let n = scored.len();
+    let safe_div = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+    let top1_sum: f64 = scored.iter().take((n / 100).max(1)).sum();
+    let top5_sum: f64 = scored.iter().take((n * 5 / 100).max(1)).sum();
+    let top10_sum: f64 = scored.iter().take((n / 10).max(1)).sum();
+    (
+        safe_div(top1_sum, total_risk),
+        safe_div(top5_sum, total_risk),
+        safe_div(top10_sum, total_risk),
+    )
+}
+
+/// Builds a band → BandStats map from the function list.
+fn compute_band_distribution(
+    functions: &[FunctionSnapshot],
+) -> std::collections::BTreeMap<String, BandStats> {
+    let mut by_band = std::collections::BTreeMap::new();
+    for func in functions {
+        let score = func.activity_risk.unwrap_or(func.lrs);
+        let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
+            count: 0,
+            sum_risk: 0.0,
+        });
+        entry.count += 1;
+        entry.sum_risk += score;
+    }
+    by_band
+}
+
+/// Computes call-graph-level summary statistics, or None if no call graph data.
+fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
+    if !functions.iter().any(|f| f.callgraph.is_some()) {
+        return None;
+    }
+    let total_edges: usize = functions
+        .iter()
+        .filter_map(|f| f.callgraph.as_ref())
+        .map(|cg| cg.fan_out)
+        .sum();
+    let total_fan_in: usize = functions
+        .iter()
+        .filter_map(|f| f.callgraph.as_ref())
+        .map(|cg| cg.fan_in)
+        .sum();
+    let mut scc_sizes: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for func in functions {
+        if let Some(ref cg) = func.callgraph {
+            if cg.scc_size > 1 {
+                scc_sizes.insert(cg.scc_id, cg.scc_size);
+            }
+        }
+    }
+    Some(CallGraphStats {
+        total_edges,
+        avg_fan_in: total_fan_in as f64 / n as f64,
+        scc_count: scc_sizes.len(),
+        largest_scc_size: scc_sizes.values().copied().max().unwrap_or(0),
+    })
 }
 
 /// Percentile-derived thresholds for driving dimension detection.

@@ -247,37 +247,46 @@ impl HotspotsConfig {
         if let Some(ref p) = self.patterns {
             validate_pattern_thresholds(p)?;
         }
-        if let Some(min) = self.min_lrs {
-            if min < 0.0 {
-                anyhow::bail!("min_lrs must be non-negative (got {})", min);
-            }
-        }
-        if let Some(w) = self.co_change_window_days {
-            if w == 0 {
-                anyhow::bail!("co_change_window_days must be at least 1");
-            }
-        }
-        if let Some(m) = self.co_change_min_count {
-            if m == 0 {
-                anyhow::bail!("co_change_min_count must be at least 1");
-            }
-        }
-        if let Some(p) = self.driver_threshold_percentile {
-            if p == 0 || p >= 100 {
-                anyhow::bail!(
-                    "driver_threshold_percentile must be between 1 and 99 (got {})",
-                    p
-                );
-            }
-        }
-        for pattern in &self.include {
-            Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
-        }
-        for pattern in &self.exclude {
-            Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
-        }
-        Ok(())
+        validate_scalar_fields(self)?;
+        validate_glob_patterns(&self.include, &self.exclude)
     }
+}
+
+fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
+    if let Some(min) = c.min_lrs {
+        if min < 0.0 {
+            anyhow::bail!("min_lrs must be non-negative (got {})", min);
+        }
+    }
+    if let Some(w) = c.co_change_window_days {
+        if w == 0 {
+            anyhow::bail!("co_change_window_days must be at least 1");
+        }
+    }
+    if let Some(m) = c.co_change_min_count {
+        if m == 0 {
+            anyhow::bail!("co_change_min_count must be at least 1");
+        }
+    }
+    if let Some(p) = c.driver_threshold_percentile {
+        if p == 0 || p >= 100 {
+            anyhow::bail!(
+                "driver_threshold_percentile must be between 1 and 99 (got {})",
+                p
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_glob_patterns(include: &[String], exclude: &[String]) -> Result<()> {
+    for pattern in include {
+        Glob::new(pattern).with_context(|| format!("invalid include pattern: {}", pattern))?;
+    }
+    for pattern in exclude {
+        Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
+    }
+    Ok(())
 }
 
 fn validate_thresholds(t: &ThresholdConfig) -> Result<()> {
