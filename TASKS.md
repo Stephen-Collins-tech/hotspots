@@ -462,16 +462,16 @@ cargo test
 
 ## Definition of done
 
-- [ ] All 13 patterns implemented in `patterns.rs` with full unit test coverage
-- [ ] `Thresholds` struct with `Default` impl; all `classify()` calls accept `&Thresholds`
-- [ ] Entrypoint suppression for `middle_man` and `neighbor_risk`
-- [ ] `FunctionRiskReport.patterns` populated in analyze mode (Tier 1)
-- [ ] `FunctionSnapshot.patterns` populated in snapshot mode (Tier 1 + Tier 2)
-- [ ] `neighbor_churn` computed and stored in snapshot enrichment
-- [ ] Tabular output shows `PATTERNS` column when non-empty
-- [ ] HTML output shows `Patterns` column
-- [ ] JSON output includes `patterns` array; `pattern_details` absent unless `--explain-patterns`
-- [ ] `--explain-patterns` populates `pattern_details` with triggered conditions
-- [ ] `.hotspotsrc.json` `patterns` section overrides thresholds per-field; partial configs work
-- [ ] Golden test fixture and expected output committed
-- [ ] `cargo fmt`, `cargo clippy`, `cargo test` all pass clean
+- [x] All 13 patterns implemented in `patterns.rs` with full unit test coverage
+- [x] `Thresholds` struct with `Default` impl; all `classify()` calls accept `&Thresholds`
+- [x] Entrypoint suppression for `middle_man` and `neighbor_risk`
+- [x] `FunctionRiskReport.patterns` populated in analyze mode (Tier 1)
+- [x] `FunctionSnapshot.patterns` populated in snapshot mode (Tier 1 + Tier 2)
+- [x] `neighbor_churn` computed and stored in snapshot enrichment
+- [x] Tabular output shows `PATTERNS` column when non-empty
+- [x] HTML output shows `Patterns` column with colored pill badges and pattern breakdown panel
+- [x] JSON output includes `patterns` array; `pattern_details` absent unless `--explain-patterns`
+- [x] `--explain-patterns` populates `pattern_details` with triggered conditions
+- [x] `.hotspotsrc.json` `patterns` section overrides thresholds per-field; partial configs work
+- [x] Golden test fixture and expected output committed
+- [x] `cargo fmt`, `cargo clippy`, `cargo test` all pass clean

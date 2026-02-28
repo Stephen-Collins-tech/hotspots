@@ -190,6 +190,34 @@ the top 10 high/moderate source-file pairs.
 **Note:** In snapshot mode with `--format text`, you must specify either `--explain`
 or `--level <LEVEL>`.
 
+##### `--explain-patterns`
+**Optional.** Populate and emit per-pattern trigger details (`pattern_details`).
+**Valid with:** all modes and formats.
+**Cannot be used with:** `--mode delta` when a mode is specified.
+
+```bash
+# Basic mode: Tier 1 pattern details in text output
+hotspots analyze src/ --explain-patterns
+
+# Snapshot mode: Tier 1 + Tier 2 details, JSON output
+hotspots analyze src/ --mode snapshot --format json --explain-patterns
+
+# Combined with --explain for full per-function breakdown
+hotspots analyze src/ --mode snapshot --format text --explain --explain-patterns
+```
+
+In **text** output, each function row is followed by indented lines showing the metric values that triggered each pattern:
+
+```
+14.10    critical   src/imports.rs    622    resolve_cargo_workspace_edges  complex_branching, god_function
+           complex_branching: cc=15 (>=10), nd=5 (>=4)
+           god_function: loc=120 (>=60), fo=14 (>=10)
+```
+
+In **JSON** output, the `pattern_details` array is populated on each function object (otherwise omitted).
+
+In **snapshot mode**, Tier 2 enriched patterns (those requiring call graph and git history) are also included in the details.
+
 ##### `--level <LEVEL>`
 **Optional.** Switch to a higher-level ranked view instead of per-function output.
 **Only valid with:** `--mode snapshot --format text`
@@ -307,6 +335,15 @@ hotspots analyze . --mode snapshot --format text --explain
 **Snapshot without persisting (read-only inspection):**
 ```bash
 hotspots analyze . --mode snapshot --no-persist --format json
+```
+
+**Pattern trigger details:**
+```bash
+# Show what triggered each pattern (text)
+hotspots analyze src/ --explain-patterns
+
+# Pattern details in JSON for tooling
+hotspots analyze src/ --mode snapshot --format json --explain-patterns
 ```
 
 ---

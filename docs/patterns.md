@@ -85,18 +85,35 @@ Patterns appear in all output modes under a stable schema:
 patterns: string[]
 ```
 
-An optional extended form is available with `--explain-patterns` (planned):
+Detailed trigger information is available with `--explain-patterns`:
+
+```json
+"pattern_details": [
+  {
+    "id": "complex_branching",
+    "tier": 1,
+    "kind": "primitive",
+    "triggered_by": [
+      { "metric": "cc", "op": ">=", "value": 12, "threshold": 10 },
+      { "metric": "nd", "op": ">=", "value": 5,  "threshold": 4  }
+    ]
+  }
+]
+```
+
+`pattern_details` is omitted from JSON output when `--explain-patterns` is not set (forward-compatible field).
+
+In tabular text output, patterns appear as a comma-separated list in a `PATTERNS` column. With `--explain-patterns`, each function row is followed by indented detail lines showing the exact metric values that triggered each pattern:
 
 ```
-pattern_details?: {
-  id: string,
-  tier: 1 | 2,
-  kind: "primitive" | "derived",
-  triggered_by: { metric: string, op: string, value: number, threshold: number }[]
-}[]
+14.10    critical   src/imports.rs    622    resolve_cargo_workspace_edges  complex_branching, deeply_nested
+           complex_branching: cc=15 (>=10), nd=5 (>=4)
+           deeply_nested: nd=5 (>=5)
 ```
 
-In tabular output, patterns appear as a comma-separated list in a `patterns` column. Ordering within the list is deterministic: Tier 1 patterns before Tier 2, then alphabetical within each tier.
+In the HTML report, patterns appear as colored pill badges inline in the function table. A pattern breakdown panel above the table shows pattern frequencies across the entire repository, sorted by count. See [HTML Output Format](./guide/output-formats.md#html-format) for details.
+
+Ordering within the patterns list is deterministic: Tier 1 patterns before Tier 2, then alphabetical within each tier.
 
 ---
 
@@ -367,45 +384,6 @@ Some patterns frequently co-occur and together signal a higher-priority concern 
 | `middle_man` + `churn_magnet` | A routing layer that keeps absorbing logic — the routing function is growing into the thing it was meant to dispatch away from |
 | `stale_complex` + `hub_function` | Feared bottleneck — high blast radius if it needs to change, and it hasn't been touched in a long time; schedule familiarisation proactively |
 | `shotgun_target` + `churn_magnet` | Interface instability compounded by internal complexity — the function is changing a lot and breaking callers; interface stabilisation is urgent |
-
----
-
-## Engineering requirements
-
-This section describes what the pattern engine must implement. It is intended to drive the implementation plan directly.
-
-### Pattern engine
-
-- Input: a `FunctionMetrics` record (Tier 1 fields) plus optional `EnrichedMetrics` (Tier 2 fields; absent outside snapshot mode)
-- Output: `Vec<PatternId>` with deterministic ordering (Tier 1 before Tier 2, then alphabetical within each tier)
-- Derived patterns are computed by checking whether component primitive patterns fired, not by re-evaluating raw metric conditions — this prevents threshold drift between a primitive and its derived pattern
-- The engine must be pure and stateless: same inputs always produce same outputs
-
-### Threshold registry
-
-- Central map: `PatternId -> ThresholdSet`
-- All defaults embedded in code; config overrides layered on top
-- Even if `.hotspotsrc.json` config is not yet implemented, the internal type should accommodate a `ThresholdOverride` layer so the config path is a thin addition, not a refactor
-
-### Test matrix
-
-For each primitive pattern:
-- Just below threshold (must not fire)
-- Exactly at threshold (must fire)
-- Above threshold (must fire)
-- Opposite end of any compound condition at threshold, other metric below (must not fire)
-
-For derived patterns:
-- Each component primitive below threshold (must not fire)
-- All component primitives at threshold (must fire)
-
-Golden tests:
-- At least one synthetic function triggering 4–5 patterns simultaneously, with expected output verified
-- Snapshot-only tests using a small synthetic call graph + git history fixture covering all Tier 2 patterns
-
-### Raw vs normalised metrics
-
-All thresholds in this document operate on **raw metrics** — no normalisation, no z-scores, no per-language adjustment. This is intentional for v1. Percentile-based thresholds are a planned extension and are explicitly accommodated in the threshold registry design (see above). Deciding to normalise later will require adding a normalisation layer, not changing the pattern definitions.
 
 ---
 
