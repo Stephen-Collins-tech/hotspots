@@ -43,13 +43,13 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_parse_rejects_jsx_in_plain_javascript() {
+    fn test_parse_accepts_jsx_in_plain_javascript() {
         let src = "function foo() { return <div>hello</div>; }";
         let result = parse_test(src, "test.js");
-        // JSX syntax should cause a parse error in .js files (use .jsx for JSX)
+        // JSX is accepted in .js files because React webpack projects use .js for JSX by convention
         assert!(
-            result.is_err(),
-            "JSX syntax should cause parse error in .js files (use .jsx instead)"
+            result.is_ok(),
+            "JSX syntax should parse successfully in .js files"
         );
     }
 
