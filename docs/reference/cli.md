@@ -280,6 +280,22 @@ is written after the first run; subsequent warm runs are significantly faster. D
 touch metrics are file-level (all functions in a file share the same `touch_count_30d`).
 Use this flag when precise per-function activity signals are required.
 
+##### `--all-functions`
+**Optional.** Output all functions as a flat array instead of the default triage-first
+structure (quadrant buckets).
+**Only valid with:** `--mode snapshot --format json`
+
+```bash
+hotspots analyze . --mode snapshot --format json --all-functions
+```
+
+Produces schema v3 output: a flat `functions` array containing every function, regardless
+of quadrant. The default triage-first structure groups functions into `fire`, `debt`,
+`watch`, and `ok` buckets. Use `--all-functions` when consuming output in tooling or AI
+agents that prefer a flat list.
+
+See [JSON Schema Reference](../guide/output-formats.md#schema-versions) for the v3 schema.
+
 #### Examples
 
 **Basic analysis (text output):**
@@ -469,11 +485,12 @@ hotspots trends . --format json > trends.json
 **Required.** Path to repository root.
 
 ##### `--format <format>`
-**Optional.** Output format: `json` or `text`.
+**Optional.** Output format: `text`, `json`, `jsonl`, or `html`.
 **Default:** `json`
 
 ```bash
 hotspots trends . --format text
+hotspots trends . --format html
 ```
 
 ##### `--window <N>`

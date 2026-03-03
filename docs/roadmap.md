@@ -1,7 +1,7 @@
 # Hotspots Roadmap
 
-**Last Updated:** 2026-02-20
-**Current Version:** Pre-release (approaching v1.0.0)
+**Last Updated:** 2026-03-03
+**Current Version:** v1.2.1
 **Vision:** Universal complexity analysis for modern software development
 
 ---
@@ -895,8 +895,8 @@ For each language candidate:
 
 ---
 
-**Last Updated:** 2026-02-20
-**Next Review:** 2026-03-15
+**Last Updated:** 2026-03-03
+**Next Review:** 2026-04-01
 **Maintained By:** Core team
 
 **Changes to this roadmap require:**
