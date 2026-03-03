@@ -530,7 +530,6 @@ impl CfgBuilder {
         try_end: NodeId,
         try_completed: bool,
         catch_end: Option<NodeId>,
-        has_handler: bool,
     ) {
         let finally_start = self.cfg.add_node(NodeKind::Statement);
         if try_completed {
@@ -541,13 +540,12 @@ impl CfgBuilder {
                 self.cfg.add_edge(catch, finally_start);
             }
         }
-        // Add exception-propagation edge when finally_start would otherwise have
-        // no predecessor:
-        //   - no handler: exception goes directly from try body to finally
-        //   - handler terminates (catch_end is None): catch re-throws/returns,
-        //     so the normal-flow path through catch never reaches finally_start;
-        //     the try_start edge ensures finally_start stays reachable.
-        if !has_handler || catch_end.is_none() {
+        // Add a fallback edge only when finally_start would otherwise have zero
+        // predecessors: try always terminates (!try_completed) AND catch always
+        // terminates (catch_end is None, either no handler or handler throws).
+        // When try_completed=true, try_end already reaches finally_start so this
+        // edge would be spurious (bypasses try body, inflates CC by +1).
+        if !try_completed && catch_end.is_none() {
             self.cfg.add_edge(try_start, finally_start);
         }
         self.current_node = Some(finally_start);
@@ -608,14 +606,7 @@ impl CfgBuilder {
         let has_handler = try_stmt.handler.is_some();
 
         if let Some(finally_block) = &try_stmt.finalizer {
-            self.connect_finally(
-                finally_block,
-                try_start,
-                try_end,
-                try_completed,
-                catch_end,
-                has_handler,
-            );
+            self.connect_finally(finally_block, try_start, try_end, try_completed, catch_end);
         } else {
             self.connect_no_finally(try_start, try_end, try_completed, catch_end, has_handler);
         }

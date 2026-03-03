@@ -194,7 +194,8 @@ fn test_react_jsx_in_plain_js_file() {
     let counter_cc = counter.unwrap().metrics.cc;
     assert!(
         counter_cc < 10,
-        "JSX elements must not inflate CC; got CC={counter_cc}"
+        "JSX elements must not inflate CC; got CC={}",
+        counter_cc
     );
 }
 

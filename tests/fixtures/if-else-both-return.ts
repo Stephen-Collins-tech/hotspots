@@ -1,4 +1,4 @@
-// if/else where both branches return — validates no spurious edges and CC=1
+// if/else where both branches return — validates no spurious edges
 function bothBranchesReturn(x: number): number {
   if (x > 0) {
     return x;
