@@ -125,6 +125,16 @@ fn test_golden_patterns_tier1() {
 }
 
 #[test]
+fn test_golden_try_finally_early_exit() {
+    test_golden("try-finally-early-exit");
+}
+
+#[test]
+fn test_golden_if_else_both_return() {
+    test_golden("if-else-both-return");
+}
+
+#[test]
 fn test_golden_determinism() {
     // Test that running analysis twice produces identical output
     let fixture = fixture_path("simple.ts");

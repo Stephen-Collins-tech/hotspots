@@ -144,47 +144,37 @@ impl CfgBuilder {
         // Then branch
         let then_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(condition_node, then_start);
-
         self.current_node = Some(then_start);
         self.visit_stmt(&if_stmt.cons);
-        let then_end = self.current_node.unwrap_or(then_start);
-
-        // Else branch (if exists)
-        let join_node = self.cfg.add_node(NodeKind::Join);
+        let then_end = self.current_node; // None if branch terminates
 
         if let Some(alt) = &if_stmt.alt {
             let else_start = self.cfg.add_node(NodeKind::Statement);
             self.cfg.add_edge(condition_node, else_start);
-
             self.current_node = Some(else_start);
             self.visit_stmt(alt);
-            let else_end = self.current_node.unwrap_or(else_start);
+            let else_end = self.current_node; // None if branch terminates
 
-            // Connect both branches to join
-            // Only connect then branch if it completed normally
-            if then_end != self.cfg.exit {
-                self.cfg.add_edge(then_end, join_node);
-            }
-            // Only connect else branch if it completed normally
-            if else_end != self.cfg.exit && self.current_node.is_some() {
-                self.cfg.add_edge(else_end, join_node);
-            }
-
-            // Set current_node to join only if at least one branch completed normally
-            if then_end != self.cfg.exit
-                || (else_end != self.cfg.exit && self.current_node.is_some())
-            {
+            if then_end.is_some() || else_end.is_some() {
+                let join_node = self.cfg.add_node(NodeKind::Join);
+                if let Some(t) = then_end {
+                    self.cfg.add_edge(t, join_node);
+                }
+                if let Some(e) = else_end {
+                    self.cfg.add_edge(e, join_node);
+                }
                 self.current_node = Some(join_node);
+            } else {
+                self.current_node = None; // both branches terminate
             }
         } else {
-            // No else - condition false edge goes directly to join
+            // No else: condition false-edge always reaches join
+            let join_node = self.cfg.add_node(NodeKind::Join);
             self.cfg.add_edge(condition_node, join_node);
-            // Only connect then branch if it completed normally
-            if then_end != self.cfg.exit {
-                self.cfg.add_edge(then_end, join_node);
-                self.current_node = Some(join_node);
+            if let Some(t) = then_end {
+                self.cfg.add_edge(t, join_node);
             }
-            // If then branch terminated, current_node is already None
+            self.current_node = Some(join_node);
         }
     }
 
@@ -540,9 +530,7 @@ impl CfgBuilder {
         try_end: NodeId,
         try_completed: bool,
         catch_end: Option<NodeId>,
-        has_handler: bool,
     ) {
-        let join_node = self.cfg.add_node(NodeKind::Join);
         let finally_start = self.cfg.add_node(NodeKind::Statement);
         if try_completed {
             self.cfg.add_edge(try_end, finally_start);
@@ -552,16 +540,23 @@ impl CfgBuilder {
                 self.cfg.add_edge(catch, finally_start);
             }
         }
-        if !has_handler || catch_end == Some(self.cfg.exit) {
+        // Add a fallback edge only when finally_start would otherwise have zero
+        // predecessors: try always terminates (!try_completed) AND catch always
+        // terminates (catch_end is None, either no handler or handler throws).
+        // When try_completed=true, try_end already reaches finally_start so this
+        // edge would be spurious (bypasses try body, inflates CC by +1).
+        if !try_completed && catch_end.is_none() {
             self.cfg.add_edge(try_start, finally_start);
         }
         self.current_node = Some(finally_start);
         self.build_from_body(finally_block);
-        let finally_end = self.current_node.unwrap_or(finally_start);
         if self.current_node.is_some() {
+            let finally_end = self.current_node.unwrap();
+            let join_node = self.cfg.add_node(NodeKind::Join);
             self.cfg.add_edge(finally_end, join_node);
+            self.current_node = Some(join_node);
         }
-        self.current_node = Some(join_node);
+        // else: finally always terminates; current_node stays None
     }
 
     fn connect_no_finally(
@@ -611,14 +606,7 @@ impl CfgBuilder {
         let has_handler = try_stmt.handler.is_some();
 
         if let Some(finally_block) = &try_stmt.finalizer {
-            self.connect_finally(
-                finally_block,
-                try_start,
-                try_end,
-                try_completed,
-                catch_end,
-                has_handler,
-            );
+            self.connect_finally(finally_block, try_start, try_end, try_completed, catch_end);
         } else {
             self.connect_no_finally(try_start, try_end, try_completed, catch_end, has_handler);
         }
@@ -901,6 +889,28 @@ mod tests {
                     case 1: return "one";
                     case 2: return "two";
                     default: return "other";
+                }
+            }
+        "#,
+        );
+        cfg.validate().expect("CFG should be valid");
+    }
+
+    /// try { return } catch { throw } finally { stmt } — the TanStack/query
+    /// pattern: try returns, catch re-throws, finally falls through.
+    /// finally_start must be reachable (via try_start → finally_start) even
+    /// though both the try and catch bodies terminate.
+    #[test]
+    fn test_try_return_catch_throw_finally_reachable() {
+        let cfg = build_cfg_for(
+            r#"
+            async function execute(x: number): Promise<number> {
+                try {
+                    return x * 2;
+                } catch (error) {
+                    throw error;
+                } finally {
+                    cleanup();
                 }
             }
         "#,

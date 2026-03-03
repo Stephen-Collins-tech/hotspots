@@ -125,6 +125,80 @@ fn test_deterministic_output() {
     assert_eq!(json1, json2, "Output should be byte-for-byte identical");
 }
 
+/// Angular-style TypeScript with class decorators (@Component, @Injectable, @Input)
+/// must parse without error and produce function reports with correct metrics.
+/// Decorators must not inflate CC or be counted as functions.
+#[test]
+fn test_angular_decorators_parse_and_analyze() {
+    let path = fixture_path("angular-component.ts");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&path, options).expect("Angular decorated TypeScript should parse");
+    assert!(
+        !reports.is_empty(),
+        "Should discover functions in Angular component"
+    );
+
+    // getUser has one if/throw branch
+    let get_user = reports.iter().find(|r| r.function == "getUser");
+    assert!(get_user.is_some(), "Should find getUser method");
+    assert!(
+        get_user.unwrap().metrics.cc >= 2,
+        "getUser with if/throw should have CC >= 2"
+    );
+
+    // Decorators must not appear as function reports
+    let decorator_fn = reports
+        .iter()
+        .find(|r| r.function.contains("Component") || r.function.contains("Injectable"));
+    assert!(
+        decorator_fn.is_none(),
+        "Decorator expressions must not be counted as functions"
+    );
+}
+
+/// React JSX in a plain .js file (React webpack convention).
+/// Must parse without error and produce function reports.
+/// JSX elements must not inflate CC beyond the actual control flow.
+#[test]
+fn test_react_jsx_in_plain_js_file() {
+    let path = fixture_path("react-component.js");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&path, options).expect("JSX in .js file should parse");
+    assert!(
+        !reports.is_empty(),
+        "Should discover functions in .js React component"
+    );
+
+    // Counter component should be found
+    let counter = reports.iter().find(|r| r.function == "Counter");
+    assert!(counter.is_some(), "Should find Counter function");
+
+    // Arrow functions inside Counter are reported as anonymous; verify at least
+    // one discovered function has conditional logic (CC >= 2) from the if branches
+    let has_branching_fn = reports.iter().any(|r| r.metrics.cc >= 2);
+    assert!(
+        has_branching_fn,
+        "At least one function should have CC >= 2 from if branches"
+    );
+
+    // JSX return statement must not add CC — Counter's CC comes only from its
+    // logic, not from the JSX element tree
+    let counter_cc = counter.unwrap().metrics.cc;
+    assert!(
+        counter_cc < 10,
+        "JSX elements must not inflate CC; got CC={}",
+        counter_cc
+    );
+}
+
 #[test]
 fn test_whitespace_invariance() {
     // Test that whitespace changes don't affect output

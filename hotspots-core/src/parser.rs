@@ -15,9 +15,9 @@ fn syntax_for_file(filename: &str) -> Syntax {
     if filename.ends_with(".tsx") || filename.ends_with(".mtsx") || filename.ends_with(".ctsx") {
         // TypeScript with JSX (TSX)
         Syntax::Typescript(swc_ecma_parser::TsSyntax {
-            tsx: true,         // Enable JSX in TypeScript
-            decorators: false, // No experimental decorators
-            dts: false,        // TSX files are not declaration files
+            tsx: true,
+            decorators: true, // Angular and other decorator-heavy frameworks
+            dts: false,
             ..Default::default()
         })
     } else if filename.ends_with(".ts") || filename.ends_with(".mts") || filename.ends_with(".cts")
@@ -25,9 +25,9 @@ fn syntax_for_file(filename: &str) -> Syntax {
         // TypeScript without JSX
         let is_dts = filename.ends_with(".d.ts");
         Syntax::Typescript(swc_ecma_parser::TsSyntax {
-            tsx: false,        // No JSX in plain TS
-            decorators: false, // No experimental decorators
-            dts: is_dts,       // Enable dts mode only for .d.ts files
+            tsx: false,
+            decorators: true, // Angular uses @Component, @Injectable, etc.
+            dts: is_dts,
             ..Default::default()
         })
     } else if filename.ends_with(".jsx")
@@ -36,15 +36,15 @@ fn syntax_for_file(filename: &str) -> Syntax {
     {
         // JavaScript with JSX
         Syntax::Es(swc_ecma_parser::EsSyntax {
-            jsx: true,         // Enable JSX in JavaScript
-            decorators: false, // No experimental decorators
+            jsx: true,
+            decorators: false,
             ..Default::default()
         })
     } else {
-        // Plain JavaScript (for .js, .mjs, .cjs)
+        // Plain JavaScript (.js, .mjs, .cjs) — jsx: true is a superset of plain JS
         Syntax::Es(swc_ecma_parser::EsSyntax {
-            jsx: false,        // No JSX in plain JS
-            decorators: false, // No experimental decorators
+            jsx: true, // React webpack projects put JSX in .js files by convention
+            decorators: false,
             ..Default::default()
         })
     }
