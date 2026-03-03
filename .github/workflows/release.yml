@@ -1,21 +1,88 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Tag to release (e.g., v1.0.0)'
+      level:
+        description: "Version bump level"
         required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: "Dry run (no push, no release)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
+  bump-and-tag:
+    name: Bump version & tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install tools
+        run: cargo install cargo-release git-cliff --locked
+
+      - name: Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Quality gates
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all
+
+      - name: Commit Cargo.lock if updated
+        run: |
+          if ! git diff --quiet Cargo.lock; then
+            git add Cargo.lock
+            git commit -m "chore: update Cargo.lock"
+          fi
+
+      - name: Run cargo-release (dry-run)
+        if: inputs.dry_run == true
+        run: cargo release ${{ inputs.level }} --no-publish --no-confirm --execute --dry-run
+
+      - name: Run cargo-release
+        if: inputs.dry_run != true
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: cargo release ${{ inputs.level }} --no-publish --no-confirm --execute
+
+      - name: Get released tag
+        if: inputs.dry_run != true
+        id: tag
+        run: echo "tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
+
+      - name: Summary
+        run: |
+          echo "## Release: ${{ inputs.level }} bump" >> $GITHUB_STEP_SUMMARY
+          echo "Dry run: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo "Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
   build-binaries:
     name: Build ${{ matrix.target }}
+    needs: bump-and-tag
+    if: inputs.dry_run != true
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -38,10 +105,10 @@ jobs:
             arch: x86_64
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ needs.bump-and-tag.outputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -60,7 +127,6 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           tar -czf ../../../hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }} hotspots
-          cd ../../..
 
       - name: Create archive (Windows)
         if: matrix.archive == 'zip'
@@ -68,126 +134,59 @@ jobs:
         run: |
           cd target/${{ matrix.target }}/release
           Compress-Archive -Path hotspots.exe -DestinationPath ../../../hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
-          cd ../../..
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: hotspots-${{ matrix.platform }}-${{ matrix.arch }}
           path: hotspots-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
-          retention-days: 7
+          retention-days: 1
 
-  create-release:
-    name: Create Release
-    needs: build-binaries
+  publish-release:
+    name: Publish GitHub Release
+    needs: [bump-and-tag, build-binaries]
+    if: inputs.dry_run != true
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.bump-and-tag.outputs.tag }}
 
-      - name: Download all artifacts
+      - name: Install git-cliff
+        run: cargo install git-cliff --locked
+
+      - name: Generate changelog for this release
+        run: git-cliff --latest --output release-body.md
+
+      - name: Build release notes
+        run: |
+          TAG="${{ needs.bump-and-tag.outputs.tag }}"
+          sed "s/__VERSION__/$TAG/g" .github/release-template.md > release-header.md
+          cat release-header.md release-body.md > full-release-notes.md
+
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: List artifacts
-        run: |
-          echo "Downloaded artifacts:"
-          find artifacts -type f
-
-      - name: Prepare release files
-        run: |
-          mkdir -p release-files
-          find artifacts -type f -exec cp {} release-files/ \;
-          ls -lh release-files/
-
-      - name: Extract version from tag
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Generate release notes
-        id: notes
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          cat > release-notes.md << EOF
-          # Hotspots $VERSION
-
-          Multi-language complexity analysis tool for CI/CD pipelines.
-
-          ## What's New
-
-          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
-
-          ## Installation
-
-          ### One-line install (macOS / Linux)
-
-          \`\`\`bash
-          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-          \`\`\`
-
-          Or install a specific version:
-          \`\`\`bash
-          HOTSPOTS_VERSION=$VERSION curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
-          \`\`\`
-
-          ### GitHub Action
-
-          \`\`\`yaml
-          - uses: ${{ github.repository }}@$VERSION
-          \`\`\`
-
-          ### Manual download
-
-          | Platform | Asset |
-          |----------|-------|
-          | macOS (Apple Silicon) | \`hotspots-darwin-aarch64.tar.gz\` |
-          | Linux x86_64 | \`hotspots-linux-x86_64.tar.gz\` |
-          | Windows x86_64 | \`hotspots-windows-x86_64.zip\` |
-
-          ### Cargo
-
-          \`\`\`bash
-          cargo install --git https://github.com/${{ github.repository }} --tag $VERSION
-          \`\`\`
-
-          ## Documentation
-
-          - [Getting Started](https://github.com/${{ github.repository }}#readme)
-          - [GitHub Action Usage](https://github.com/${{ github.repository }}/tree/main/action)
-          - [Configuration Guide](https://github.com/${{ github.repository }}/blob/main/docs)
-
-          ## Support
-
-          - Report issues: https://github.com/${{ github.repository }}/issues
-          - Discussions: https://github.com/${{ github.repository }}/discussions
-          EOF
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: ${{ steps.version.outputs.version }}
-          body_path: release-notes.md
-          files: release-files/*
+          tag_name: ${{ needs.bump-and-tag.outputs.tag }}
+          name: ${{ needs.bump-and-tag.outputs.tag }}
+          body_path: full-release-notes.md
+          files: artifacts/*
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
 
       - name: Summary
         run: |
-          echo "## Release Created! 🎉" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          ls -lh release-files/ >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "## Release published!" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ needs.bump-and-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
+          ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
