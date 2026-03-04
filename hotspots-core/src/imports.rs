@@ -743,6 +743,45 @@ pub fn resolve_cargo_workspace_edges(
 }
 
 #[cfg(test)]
+mod parse_workspace_members_tests {
+    use super::parse_workspace_members;
+
+    #[test]
+    fn non_workspace_toml_returns_empty() {
+        let toml = r#"
+            [package]
+            name = "example"
+        "#;
+        assert!(parse_workspace_members(toml).is_empty());
+    }
+
+    #[test]
+    fn workspace_without_members_returns_empty() {
+        let toml = r#"
+            [workspace]
+            resolver = "2"
+        "#;
+        assert!(parse_workspace_members(toml).is_empty());
+    }
+
+    #[test]
+    fn workspace_with_members_parses_names() {
+        let toml = r#"
+            [workspace]
+            members = [
+                "core",
+                "utils",
+                "cli"
+            ]
+        "#;
+        assert_eq!(
+            parse_workspace_members(toml),
+            vec!["core".to_string(), "utils".to_string(), "cli".to_string()]
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
