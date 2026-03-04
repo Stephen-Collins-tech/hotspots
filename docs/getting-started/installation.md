@@ -36,9 +36,8 @@ cp target/release/hotspots ~/.local/bin/
 
 ### macOS (Homebrew)
 
-Coming soon:
 ```bash
-brew install hotspots
+brew install Stephen-Collins-tech/tap/hotspots
 ```
 
 ### Linux (Debian/Ubuntu)
