@@ -4,7 +4,13 @@ Install Hotspots on your system.
 
 ## Quick Install
 
-### macOS / Linux
+### macOS (Homebrew)
+
+```bash
+brew install Stephen-Collins-tech/tap/hotspots
+```
+
+### Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
@@ -17,10 +23,9 @@ This installs the binary to `~/.local/bin/hotspots` and prints a PATH reminder i
 HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-Verify installation:
-```bash
-hotspots --version
-```
+### Windows
+
+Download the latest binary from the [GitHub releases page](https://github.com/Stephen-Collins-tech/hotspots/releases/latest) and add it to your PATH.
 
 ### From Source (Rust Required)
 
@@ -31,22 +36,6 @@ cargo build --release
 mkdir -p ~/.local/bin
 cp target/release/hotspots ~/.local/bin/
 ```
-
-## Platform-Specific Instructions
-
-### macOS (Homebrew)
-
-```bash
-brew install Stephen-Collins-tech/tap/hotspots
-```
-
-### Linux (Debian/Ubuntu)
-
-Coming soon — `.deb` package
-
-### Windows
-
-Coming soon — Windows support
 
 ## GitHub Action
 
@@ -117,15 +106,24 @@ rustup update stable
 
 ## Upgrading
 
+**macOS (Homebrew):**
 ```bash
-curl -L https://github.com/Stephen-Collins-tech/hotspots/releases/latest/download/hotspots-$(uname -s)-$(uname -m) -o hotspots
-chmod +x hotspots
-mv hotspots ~/.local/bin/
-hotspots --version
+brew upgrade Stephen-Collins-tech/tap/hotspots
+```
+
+**Linux (curl install):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
 ## Uninstall
 
+**macOS (Homebrew):**
+```bash
+brew uninstall hotspots
+```
+
+**Linux (curl install):**
 ```bash
 rm ~/.local/bin/hotspots
 ```
