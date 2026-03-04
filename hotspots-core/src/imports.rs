@@ -619,6 +619,62 @@ pub fn resolve_file_deps(source_files: &[&str], repo_root: &Path) -> Vec<(String
     edges
 }
 
+/// Extract workspace member names from a workspace `Cargo.toml` string.
+///
+/// Returns an empty vec if the toml is not a workspace root or has no members block.
+fn parse_workspace_members(workspace_toml: &str) -> Vec<String> {
+    use regex::Regex;
+
+    if !workspace_toml.contains("[workspace]") {
+        return Vec::new();
+    }
+
+    static MEMBERS_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let members_re =
+        MEMBERS_RE.get_or_init(|| Regex::new(r#"members\s*=\s*\[([^\]]+)\]"#).unwrap());
+
+    let members_block = match members_re.captures(workspace_toml) {
+        Some(c) => c[1].to_string(),
+        None => return Vec::new(),
+    };
+
+    static QUOTED_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let quoted_re = QUOTED_RE.get_or_init(|| Regex::new(r#""([^"]+)""#).unwrap());
+
+    quoted_re
+        .captures_iter(&members_block)
+        .map(|c| c[1].to_string())
+        .collect()
+}
+
+/// Resolve repo-relative `src/lib.rs` paths for each path-dependency of a workspace member.
+///
+/// Reads the member's `Cargo.toml`, finds `path = "..."` entries, and returns the
+/// repo-relative paths to their `src/lib.rs` files (only those that exist on disk).
+fn resolve_member_dep_libs(repo_root: &Path, member: &str) -> Vec<String> {
+    use regex::Regex;
+
+    static PATH_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let path_re = PATH_RE.get_or_init(|| Regex::new(r#"path\s*=\s*"([^"]+)""#).unwrap());
+
+    let member_toml = match std::fs::read_to_string(repo_root.join(member).join("Cargo.toml")) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut dep_libs = Vec::new();
+    for cap in path_re.captures_iter(&member_toml) {
+        let dep_dir = normalize_path_lexically(&repo_root.join(member).join(&cap[1]));
+        let lib_rs = dep_dir.join("src").join("lib.rs");
+        if lib_rs.exists() {
+            if let Ok(rel) = lib_rs.strip_prefix(repo_root) {
+                dep_libs.push(rel.to_string_lossy().into_owned());
+            }
+        }
+    }
+    dep_libs
+}
+
 /// Resolve virtual dependency edges from Cargo workspace path-dependencies.
 ///
 /// For each workspace member that has `path = "..."` dependencies in its `Cargo.toml`,
@@ -628,80 +684,38 @@ pub fn resolve_cargo_workspace_edges(
     repo_root: &Path,
     source_files: &[&str],
 ) -> Vec<(String, String)> {
-    use regex::Regex;
-
-    let workspace_toml_path = repo_root.join("Cargo.toml");
-    let workspace_toml = match std::fs::read_to_string(&workspace_toml_path) {
+    let workspace_toml = match std::fs::read_to_string(repo_root.join("Cargo.toml")) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
     };
 
-    // Only process workspace roots
-    if !workspace_toml.contains("[workspace]") {
+    let members = parse_workspace_members(&workspace_toml);
+    if members.is_empty() {
         return Vec::new();
     }
 
-    // Extract members list
-    static MEMBERS_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let members_re =
-        MEMBERS_RE.get_or_init(|| Regex::new(r#"members\s*=\s*\[([^\]]+)\]"#).unwrap());
-
-    let members_block = match members_re.captures(&workspace_toml) {
-        Some(c) => c[1].to_string(),
-        None => return Vec::new(),
-    };
-
-    static QUOTED_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let quoted_re = QUOTED_RE.get_or_init(|| Regex::new(r#""([^"]+)""#).unwrap());
-
-    let members: Vec<String> = quoted_re
-        .captures_iter(&members_block)
-        .map(|c| c[1].to_string())
-        .collect();
-
-    // For each member, find path deps and build member_prefix → [dep_lib_rs] map
-    static PATH_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let path_re = PATH_RE.get_or_init(|| Regex::new(r#"path\s*=\s*"([^"]+)""#).unwrap());
-
-    // member_prefix (e.g. "hotspots-cli/") → Vec of repo-relative dep lib.rs paths
-    let mut prefix_to_libs: Vec<(String, Vec<String>)> = Vec::new();
-
-    for member in &members {
-        let member_cargo = repo_root.join(member).join("Cargo.toml");
-        let member_toml = match std::fs::read_to_string(&member_cargo) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        let mut dep_libs: Vec<String> = Vec::new();
-        for cap in path_re.captures_iter(&member_toml) {
-            let rel_path = &cap[1]; // e.g. "../hotspots-core"
-            let dep_dir = normalize_path_lexically(&repo_root.join(member).join(rel_path));
-            let lib_rs = dep_dir.join("src").join("lib.rs");
-            if lib_rs.exists() {
-                // Make it repo-relative
-                if let Ok(rel) = lib_rs.strip_prefix(repo_root) {
-                    dep_libs.push(rel.to_string_lossy().into_owned());
-                }
+    // Build member_prefix (e.g. "hotspots-cli/") → [dep_lib_rs] map
+    let prefix_to_libs: Vec<(String, Vec<String>)> = members
+        .iter()
+        .filter_map(|member| {
+            let dep_libs = resolve_member_dep_libs(repo_root, member);
+            if dep_libs.is_empty() {
+                None
+            } else {
+                Some((format!("{}/", member), dep_libs))
             }
-        }
-
-        if !dep_libs.is_empty() {
-            let prefix = format!("{}/", member);
-            prefix_to_libs.push((prefix, dep_libs));
-        }
-    }
+        })
+        .collect();
 
     if prefix_to_libs.is_empty() {
         return Vec::new();
     }
 
-    // For each source file, add edges to dep lib.rs files for matching member prefixes
+    // For each source file, emit edges to dep lib.rs files for matching member prefixes
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut seen: HashSet<(String, String)> = HashSet::new();
 
     for &file in source_files {
-        // Normalize to repo-relative for prefix matching
         let rel_file = if Path::new(file).is_absolute() {
             match Path::new(file).strip_prefix(repo_root) {
                 Ok(r) => r.to_string_lossy().into_owned(),
@@ -714,12 +728,11 @@ pub fn resolve_cargo_workspace_edges(
         for (prefix, dep_libs) in &prefix_to_libs {
             if rel_file.starts_with(prefix.as_str()) {
                 for dep_lib in dep_libs {
-                    if rel_file == dep_lib.as_str() {
-                        continue; // skip self-edges
-                    }
-                    let edge = (file.to_string(), dep_lib.clone());
-                    if seen.insert(edge.clone()) {
-                        edges.push(edge);
+                    if rel_file != dep_lib.as_str() {
+                        let edge = (file.to_string(), dep_lib.clone());
+                        if seen.insert(edge.clone()) {
+                            edges.push(edge);
+                        }
                     }
                 }
             }
@@ -727,6 +740,45 @@ pub fn resolve_cargo_workspace_edges(
     }
 
     edges
+}
+
+#[cfg(test)]
+mod parse_workspace_members_tests {
+    use super::parse_workspace_members;
+
+    #[test]
+    fn non_workspace_toml_returns_empty() {
+        let toml = r#"
+            [package]
+            name = "example"
+        "#;
+        assert!(parse_workspace_members(toml).is_empty());
+    }
+
+    #[test]
+    fn workspace_without_members_returns_empty() {
+        let toml = r#"
+            [workspace]
+            resolver = "2"
+        "#;
+        assert!(parse_workspace_members(toml).is_empty());
+    }
+
+    #[test]
+    fn workspace_with_members_parses_names() {
+        let toml = r#"
+            [workspace]
+            members = [
+                "core",
+                "utils",
+                "cli"
+            ]
+        "#;
+        assert_eq!(
+            parse_workspace_members(toml),
+            vec!["core".to_string(), "utils".to_string(), "cli".to_string()]
+        );
+    }
 }
 
 #[cfg(test)]
