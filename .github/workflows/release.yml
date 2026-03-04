@@ -190,3 +190,74 @@ jobs:
           echo "**Tag:** ${{ needs.bump-and-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
           ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: [bump-and-tag, publish-release]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release archives
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.bump-and-tag.outputs.tag }}"
+          gh release download "$TAG" \
+            --repo Stephen-Collins-tech/hotspots \
+            --pattern "hotspots-darwin-aarch64.tar.gz" \
+            --pattern "hotspots-linux-x86_64.tar.gz"
+
+      - name: Compute SHA256 hashes
+        id: sha
+        run: |
+          echo "darwin_arm=$(sha256sum hotspots-darwin-aarch64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_x86=$(sha256sum hotspots-linux-x86_64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Clone tap repo
+        run: |
+          git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/Stephen-Collins-tech/homebrew-tap.git tap
+
+      - name: Update formula
+        run: |
+          TAG="${{ needs.bump-and-tag.outputs.tag }}"
+          VERSION_NUM="${TAG#v}"
+          SHA_DARWIN_ARM="${{ steps.sha.outputs.darwin_arm }}"
+          SHA_LINUX_X86="${{ steps.sha.outputs.linux_x86 }}"
+          cat > tap/Formula/hotspots.rb <<EOF
+          class Hotspots < Formula
+            desc "Static analysis CLI for TypeScript that computes Local Risk Score (LRS)"
+            homepage "https://hotspots.dev"
+            version "${VERSION_NUM}"
+            license "MIT"
+
+            on_macos do
+              url "https://github.com/Stephen-Collins-tech/hotspots/releases/download/${TAG}/hotspots-darwin-aarch64.tar.gz"
+              sha256 "${SHA_DARWIN_ARM}"
+            end
+
+            on_linux do
+              on_amd64 do
+                url "https://github.com/Stephen-Collins-tech/hotspots/releases/download/${TAG}/hotspots-linux-x86_64.tar.gz"
+                sha256 "${SHA_LINUX_X86}"
+              end
+            end
+
+            def install
+              bin.install "hotspots"
+            end
+
+            test do
+              system "#{bin}/hotspots", "--version"
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/hotspots.rb
+          git commit -m "chore: update hotspots to ${{ needs.bump-and-tag.outputs.tag }}"
+          git push
