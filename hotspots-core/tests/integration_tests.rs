@@ -261,19 +261,22 @@ fn test_progress_callback_sequence_directory() {
     );
     let total = recorded[0].1;
     assert!(total > 1, "rust fixtures dir should have multiple files");
-    // Exact sequence: (0, total), (1, total), ..., (total, total)
+    // First call is always the discovery notification (sequential, before parallel work)
+    assert_eq!(recorded[0], (0, total));
+    // Total calls: 1 discovery + N per-file
     assert_eq!(
         recorded.len(),
         total + 1,
         "expected 1 discovery + N per-file calls"
     );
-    for (i, &(done, t)) in recorded.iter().enumerate() {
-        assert_eq!(
-            (done, t),
-            (i, total),
-            "call {i}: expected ({i}, {total}), got ({done}, {t})"
-        );
+    // All per-file calls carry the correct total
+    for &(_, t) in recorded.iter().skip(1) {
+        assert_eq!(t, total);
     }
+    // done values 1..=total each appear exactly once (order varies due to parallelism)
+    let mut done_values: Vec<usize> = recorded.iter().skip(1).map(|&(done, _)| done).collect();
+    done_values.sort_unstable();
+    assert_eq!(done_values, (1..=total).collect::<Vec<_>>());
 }
 
 #[test]

@@ -70,16 +70,16 @@ pub fn analyze_with_config(
 /// `progress`, when provided, is called as `(files_done, total_files)`:
 /// - Once with `(0, total)` immediately after file discovery (skipped when no
 ///   source files are found)
-/// - Once with `(n, total)` after each file is processed
+/// - Once with `(n, total)` after each file is processed (order not guaranteed
+///   across parallel workers)
 pub fn analyze_with_progress(
     path: &std::path::Path,
     options: AnalysisOptions,
     resolved_config: Option<&ResolvedConfig>,
-    progress: Option<&dyn Fn(usize, usize)>,
+    progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
 ) -> anyhow::Result<Vec<FunctionRiskReport>> {
-    let cm: Lrc<SourceMap> = Default::default();
-    let mut all_reports = Vec::new();
-    let mut file_index = 0;
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // Build weights/thresholds from config
     let weights = resolved_config.map(|c| risk::LrsWeights {
@@ -93,6 +93,7 @@ pub fn analyze_with_progress(
         high: c.high_threshold,
         critical: c.critical_threshold,
     });
+    let pattern_thresholds = resolved_config.map(|c| &c.pattern_thresholds);
 
     // Collect and filter source files upfront so the total is known before analysis begins
     let source_files: Vec<_> = collect_source_files(path)?
@@ -107,29 +108,44 @@ pub fn analyze_with_progress(
         }
     }
 
-    // Analyze each file
+    // Parallel file analysis: each worker creates its own SourceMap (Lrc is !Send
+    // so it cannot be shared, but creating one per-task on a single thread is safe).
+    let counter = AtomicUsize::new(0);
+    let mut raw_results: Vec<(usize, &std::path::Path, Result<Vec<FunctionRiskReport>>)> =
+        source_files
+            .par_iter()
+            .enumerate()
+            .map(|(file_index, file_path)| {
+                let cm: Lrc<SourceMap> = Default::default();
+                let result = analysis::analyze_file_with_config(
+                    file_path,
+                    &cm,
+                    file_index,
+                    &options,
+                    weights.as_ref(),
+                    thresholds.as_ref(),
+                    pattern_thresholds,
+                );
+                let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                if let Some(f) = progress {
+                    f(done, total_files);
+                }
+                (file_index, file_path.as_path(), result)
+            })
+            .collect();
+
+    // Restore deterministic ordering (parallel workers complete out of order)
+    raw_results.sort_by_key(|(idx, _, _)| *idx);
+
+    let mut all_reports = Vec::new();
     let mut skipped_files: usize = 0;
-    for (files_done, file_path) in source_files.into_iter().enumerate() {
-        match analysis::analyze_file_with_config(
-            &file_path,
-            &cm,
-            file_index,
-            &options,
-            weights.as_ref(),
-            thresholds.as_ref(),
-            resolved_config.map(|c| &c.pattern_thresholds),
-        ) {
-            Ok(reports) => {
-                all_reports.extend(reports);
-                file_index += 1;
-            }
+    for (_file_index, file_path, result) in raw_results {
+        match result {
+            Ok(reports) => all_reports.extend(reports),
             Err(e) => {
                 eprintln!("warning: skipping file {}: {}", file_path.display(), e);
                 skipped_files += 1;
             }
-        }
-        if let Some(f) = progress {
-            f(files_done + 1, total_files);
         }
     }
     if skipped_files > 0 {
