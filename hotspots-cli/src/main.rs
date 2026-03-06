@@ -651,7 +651,7 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
 ///
 /// On a TTY, renders an indicatif progress bar with ETA to stderr.
 /// Called with `(0, total)` once after file discovery, then `(n, total)` per file.
-fn make_analysis_progress() -> Box<dyn Fn(usize, usize)> {
+fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
         return Box::new(|_: usize, _: usize| {});
