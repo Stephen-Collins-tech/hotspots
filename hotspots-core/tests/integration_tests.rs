@@ -1,7 +1,8 @@
 //! Integration tests for hotspots analysis
 
-use hotspots_core::{analyze, render_json, AnalysisOptions};
+use hotspots_core::{analyze, analyze_with_progress, render_json, AnalysisOptions};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -197,6 +198,82 @@ fn test_react_jsx_in_plain_js_file() {
         "JSX elements must not inflate CC; got CC={}",
         counter_cc
     );
+}
+
+/// Progress callback must be called with (0, total) after discovery, then
+/// (n, total) once per file analyzed, ending with (total, total).
+#[test]
+fn test_progress_callback_sequence_single_file() {
+    let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+    let calls_ref = calls.clone();
+    let path = fixture_path("simple.ts");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    analyze_with_progress(
+        &path,
+        options,
+        None,
+        Some(&move |done: usize, total: usize| {
+            calls_ref.lock().unwrap().push((done, total));
+        }),
+    )
+    .unwrap();
+
+    let recorded = calls.lock().unwrap();
+    // Single file: (0, 1) discovery + (1, 1) after the file
+    assert_eq!(*recorded, vec![(0, 1), (1, 1)]);
+}
+
+/// For a directory of N files, progress is called N+1 times total:
+/// once with (0, N) and once with (i, N) for each file i in 1..=N.
+#[test]
+fn test_progress_callback_sequence_directory() {
+    let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+    let calls_ref = calls.clone();
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("rust");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    analyze_with_progress(
+        &path,
+        options,
+        None,
+        Some(&move |done: usize, total: usize| {
+            calls_ref.lock().unwrap().push((done, total));
+        }),
+    )
+    .unwrap();
+
+    let recorded = calls.lock().unwrap();
+    assert!(
+        !recorded.is_empty(),
+        "progress must be called for non-empty dir"
+    );
+    let total = recorded[0].1;
+    assert!(total > 1, "rust fixtures dir should have multiple files");
+    // Exact sequence: (0, total), (1, total), ..., (total, total)
+    assert_eq!(
+        recorded.len(),
+        total + 1,
+        "expected 1 discovery + N per-file calls"
+    );
+    for (i, &(done, t)) in recorded.iter().enumerate() {
+        assert_eq!(
+            (done, t),
+            (i, total),
+            "call {i}: expected ({i}, {total}), got ({done}, {t})"
+        );
+    }
 }
 
 #[test]
