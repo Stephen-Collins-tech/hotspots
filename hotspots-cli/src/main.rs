@@ -13,7 +13,7 @@ use hotspots_core::delta::Delta;
 use hotspots_core::policy::{PolicyResult, PolicyResults};
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::trends::TrendsAnalysis;
-use hotspots_core::{analyze_with_config, render_json, render_text, AnalysisOptions};
+use hotspots_core::{analyze_with_progress, render_json, render_text, AnalysisOptions};
 use hotspots_core::{delta, git, prune};
 use std::path::{Path, PathBuf};
 
@@ -382,7 +382,7 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         top_n: effective_top,
     };
     let analysis_progress = make_analysis_progress();
-    let mut reports = analyze_with_config(
+    let mut reports = analyze_with_progress(
         &normalized_path,
         options,
         Some(&resolved_config),
@@ -666,7 +666,13 @@ fn make_analysis_progress() -> Box<dyn Fn(usize, usize)> {
     );
     Box::new(move |done: usize, total: usize| {
         if done == 0 {
+            if total == 0 {
+                pb.finish_and_clear();
+                return;
+            }
             pb.set_length(total as u64);
+            // Force an initial draw so the bar appears immediately after discovery
+            pb.set_position(0);
         } else {
             pb.set_position(done as u64);
             if done >= total {
@@ -797,7 +803,7 @@ fn handle_mode_output(
     // top_n is NOT applied here — applied post-scoring so functions are ranked by
     // activity_risk (not just LRS) before truncation
     let analysis_progress = make_analysis_progress();
-    let reports = analyze_with_config(
+    let reports = analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs,

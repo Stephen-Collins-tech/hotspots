@@ -53,15 +53,25 @@ pub fn analyze(
     path: &std::path::Path,
     options: AnalysisOptions,
 ) -> anyhow::Result<Vec<FunctionRiskReport>> {
-    analyze_with_config(path, options, None, None)
+    analyze_with_config(path, options, None)
 }
 
-/// Analyze files at the given path with optional resolved configuration.
+/// Analyze files at the given path with optional resolved configuration
+pub fn analyze_with_config(
+    path: &std::path::Path,
+    options: AnalysisOptions,
+    resolved_config: Option<&ResolvedConfig>,
+) -> anyhow::Result<Vec<FunctionRiskReport>> {
+    analyze_with_progress(path, options, resolved_config, None)
+}
+
+/// Like [`analyze_with_config`] but accepts an optional progress callback.
 ///
 /// `progress`, when provided, is called as `(files_done, total_files)`:
-/// - Once with `(0, total)` immediately after file discovery
+/// - Once with `(0, total)` immediately after file discovery (skipped when no
+///   source files are found)
 /// - Once with `(n, total)` after each file is processed
-pub fn analyze_with_config(
+pub fn analyze_with_progress(
     path: &std::path::Path,
     options: AnalysisOptions,
     resolved_config: Option<&ResolvedConfig>,

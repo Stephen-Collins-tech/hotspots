@@ -1,6 +1,6 @@
 //! Integration tests for hotspots analysis
 
-use hotspots_core::{analyze, analyze_with_config, render_json, AnalysisOptions};
+use hotspots_core::{analyze, analyze_with_progress, render_json, AnalysisOptions};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -212,7 +212,7 @@ fn test_progress_callback_sequence_single_file() {
         top_n: None,
     };
 
-    analyze_with_config(
+    analyze_with_progress(
         &path,
         options,
         None,
@@ -244,7 +244,7 @@ fn test_progress_callback_sequence_directory() {
         top_n: None,
     };
 
-    analyze_with_config(
+    analyze_with_progress(
         &path,
         options,
         None,
@@ -261,12 +261,19 @@ fn test_progress_callback_sequence_directory() {
     );
     let total = recorded[0].1;
     assert!(total > 1, "rust fixtures dir should have multiple files");
-    // First call: discovery notification
-    assert_eq!(recorded[0], (0, total));
-    // Last call: all files done
-    assert_eq!(recorded.last(), Some(&(total, total)));
-    // Total calls: 1 discovery + N per-file
-    assert_eq!(recorded.len(), total + 1);
+    // Exact sequence: (0, total), (1, total), ..., (total, total)
+    assert_eq!(
+        recorded.len(),
+        total + 1,
+        "expected 1 discovery + N per-file calls"
+    );
+    for (i, &(done, t)) in recorded.iter().enumerate() {
+        assert_eq!(
+            (done, t),
+            (i, total),
+            "call {i}: expected ({i}, {total}), got ({done}, {t})"
+        );
+    }
 }
 
 #[test]
