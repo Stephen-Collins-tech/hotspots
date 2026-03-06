@@ -53,14 +53,19 @@ pub fn analyze(
     path: &std::path::Path,
     options: AnalysisOptions,
 ) -> anyhow::Result<Vec<FunctionRiskReport>> {
-    analyze_with_config(path, options, None)
+    analyze_with_config(path, options, None, None)
 }
 
-/// Analyze files at the given path with optional resolved configuration
+/// Analyze files at the given path with optional resolved configuration.
+///
+/// `progress`, when provided, is called as `(files_done, total_files)`:
+/// - Once with `(0, total)` immediately after file discovery
+/// - Once with `(n, total)` after each file is processed
 pub fn analyze_with_config(
     path: &std::path::Path,
     options: AnalysisOptions,
     resolved_config: Option<&ResolvedConfig>,
+    progress: Option<&dyn Fn(usize, usize)>,
 ) -> anyhow::Result<Vec<FunctionRiskReport>> {
     let cm: Lrc<SourceMap> = Default::default();
     let mut all_reports = Vec::new();
@@ -79,19 +84,22 @@ pub fn analyze_with_config(
         critical: c.critical_threshold,
     });
 
-    // Collect source files (TypeScript, JavaScript, Go, Java, Python, Rust)
-    let source_files = collect_source_files(path)?;
+    // Collect and filter source files upfront so the total is known before analysis begins
+    let source_files: Vec<_> = collect_source_files(path)?
+        .into_iter()
+        .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
+        .collect();
+    let total_files = source_files.len();
 
-    // Analyze each file (applying include/exclude from config)
-    let mut skipped_files: usize = 0;
-    for file_path in source_files {
-        // Apply config include/exclude filter
-        if let Some(config) = resolved_config {
-            if !config.should_include(&file_path) {
-                continue;
-            }
+    if total_files > 0 {
+        if let Some(f) = progress {
+            f(0, total_files);
         }
+    }
 
+    // Analyze each file
+    let mut skipped_files: usize = 0;
+    for (files_done, file_path) in source_files.into_iter().enumerate() {
         match analysis::analyze_file_with_config(
             &file_path,
             &cm,
@@ -109,6 +117,9 @@ pub fn analyze_with_config(
                 eprintln!("warning: skipping file {}: {}", file_path.display(), e);
                 skipped_files += 1;
             }
+        }
+        if let Some(f) = progress {
+            f(files_done + 1, total_files);
         }
     }
     if skipped_files > 0 {

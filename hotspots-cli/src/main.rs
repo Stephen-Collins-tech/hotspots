@@ -381,7 +381,13 @@ fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         min_lrs: effective_min_lrs,
         top_n: effective_top,
     };
-    let mut reports = analyze_with_config(&normalized_path, options, Some(&resolved_config))?;
+    let analysis_progress = make_analysis_progress();
+    let mut reports = analyze_with_config(
+        &normalized_path,
+        options,
+        Some(&resolved_config),
+        Some(analysis_progress.as_ref()),
+    )?;
 
     // Populate pattern_details when --explain-patterns is requested (basic mode)
     if explain_patterns {
@@ -641,6 +647,35 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
     }
 }
 
+/// Returns a progress callback for the static analysis phase.
+///
+/// On a TTY, renders an indicatif progress bar with ETA to stderr.
+/// Called with `(0, total)` once after file discovery, then `(n, total)` per file.
+fn make_analysis_progress() -> Box<dyn Fn(usize, usize)> {
+    use std::io::IsTerminal;
+    if !std::io::stderr().is_terminal() {
+        return Box::new(|_: usize, _: usize| {});
+    }
+    use indicatif::{ProgressBar, ProgressStyle};
+    let pb = ProgressBar::new(0);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("Analyzing [{bar:40}] {pos}/{len} files  {elapsed} · ~{eta} remaining")
+            .unwrap()
+            .progress_chars("##-"),
+    );
+    Box::new(move |done: usize, total: usize| {
+        if done == 0 {
+            pb.set_length(total as u64);
+        } else {
+            pb.set_position(done as u64);
+            if done >= total {
+                pb.finish_and_clear();
+            }
+        }
+    })
+}
+
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
 ///
 /// Both snapshot and delta modes call this, then diverge for their mode-specific output.
@@ -761,6 +796,7 @@ fn handle_mode_output(
     let repo_root = find_repo_root(path)?;
     // top_n is NOT applied here — applied post-scoring so functions are ranked by
     // activity_risk (not just LRS) before truncation
+    let analysis_progress = make_analysis_progress();
     let reports = analyze_with_config(
         path,
         AnalysisOptions {
@@ -768,6 +804,7 @@ fn handle_mode_output(
             top_n: None,
         },
         Some(resolved_config),
+        Some(analysis_progress.as_ref()),
     )?;
     let pr_context = git::detect_pr_context();
 
