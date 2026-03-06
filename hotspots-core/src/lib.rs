@@ -5,7 +5,8 @@
 // Global invariants enforced in this crate:
 // - Analysis is strictly per-function
 // - No global mutable state
-// - No randomness, clocks, threads, or async
+// - No randomness, clocks, or async
+// - File analysis is parallelized via rayon; all other logic is single-threaded
 // - Deterministic traversal order must be explicit
 // - Formatting, comments, and whitespace must not affect results
 // - Identical input yields byte-for-byte identical output
