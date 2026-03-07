@@ -1,0 +1,12 @@
+# cargo-audit configuration
+# https://github.com/rustsec/rustsec/tree/main/cargo-audit#configuration
+#
+# To ignore an advisory, add it below with a justification comment and
+# an expiry date so it gets reviewed periodically.
+#
+# Example:
+# [advisories.ignore]
+# RUSTSEC-2021-0001 = "Transitive dep, not reachable from our code. Review by 2026-06-01."
+
+[advisories]
+ignore = []

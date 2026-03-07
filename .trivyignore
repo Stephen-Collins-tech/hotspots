@@ -1,0 +1,11 @@
+# Trivy ignore file
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/#trivyignore
+#
+# Suppress known false positives. Each entry MUST include:
+#   - The CVE or finding ID
+#   - An expiry date (exp:YYYY-MM-DD) so it gets reviewed
+#   - A justification comment on the preceding line
+#
+# Example:
+# # Not affected: we never call the vulnerable code path. Review by 2026-12-01.
+# CVE-2021-12345 exp:2026-12-01
