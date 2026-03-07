@@ -55,6 +55,12 @@ export default defineConfig({
         ]
       },
       {
+        text: 'Security',
+        items: [
+          { text: 'Supply Chain Security', link: '/security/supply-chain' },
+        ]
+      },
+      {
         text: 'Contributing',
         items: [
           { text: 'Contributing Guide', link: '/contributing/' },
