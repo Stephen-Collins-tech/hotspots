@@ -1,0 +1,13 @@
+title = "Gitleaks config for hotspots"
+
+# Extend the default ruleset rather than replacing it.
+[extend]
+useDefault = true
+
+# Add allowlist entries below with a justification comment.
+# Each allowlist MUST explain why the pattern is safe to ignore.
+#
+# Example:
+# [[rules.allowlist]]
+# description = "Test fixture — not a real credential"
+# paths = ['''tests/fixtures/fake_token\.txt''']

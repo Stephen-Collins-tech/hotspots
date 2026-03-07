@@ -5,6 +5,7 @@
 # Hotspots
 
 [![CI](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml)
+[![Security](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml)
 
 **Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Install:** `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`
 

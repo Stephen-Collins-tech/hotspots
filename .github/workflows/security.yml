@@ -1,0 +1,100 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly, Monday 06:00 UTC
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+  checks: write
+
+jobs:
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo-audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy:
+    name: Trivy
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
+      - name: Run Trivy (full scan → SARIF)
+        run: |
+          trivy fs . \
+            --scanners vuln,secret,misconfig \
+            --format sarif \
+            --output trivy-results.sarif \
+            --ignorefile .trivyignore \
+            --exit-code 0
+
+      - name: Upload SARIF to Security tab
+        if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Fail on CRITICAL findings
+        run: |
+          trivy fs . \
+            --scanners vuln,secret \
+            --severity CRITICAL \
+            --ignorefile .trivyignore \
+            --exit-code 1 \
+            --format table
+
+  gitleaks:
+    name: Gitleaks (full history)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Gitleaks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(gh release view --repo gitleaks/gitleaks --json tagName -q '.tagName | ltrimstr("v")')
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar xz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/
+
+      - name: Run full history scan
+        id: scan
+        run: gitleaks detect --config .gitleaks.toml --log-opts="--all" --report-path gitleaks-report.json
+        continue-on-error: true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          retention-days: 90
+
+      - name: Create issue on findings
+        if: steps.scan.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Security: Gitleaks detected secrets in git history" \
+            --body "The weekly Gitleaks full-history scan detected potential secrets. Review the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and the uploaded \`gitleaks-report.json\` artifact for details."
