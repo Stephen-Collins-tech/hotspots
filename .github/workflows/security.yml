@@ -33,15 +33,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+
       - name: Run Trivy (full scan → SARIF)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scanners: vuln,secret,misconfig
-          format: sarif
-          output: trivy-results.sarif
-          exit-code: '0'
-          trivyignores: .trivyignore
+        run: |
+          trivy fs . \
+            --scanners vuln,secret,misconfig \
+            --format sarif \
+            --output trivy-results.sarif \
+            --ignorefile .trivyignore \
+            --exit-code 0
 
       - name: Upload SARIF to Security tab
         if: always()
@@ -50,14 +52,13 @@ jobs:
           sarif_file: trivy-results.sarif
 
       - name: Fail on CRITICAL findings
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scanners: vuln,secret
-          severity: CRITICAL
-          exit-code: '1'
-          format: table
-          trivyignores: .trivyignore
+        run: |
+          trivy fs . \
+            --scanners vuln,secret \
+            --severity CRITICAL \
+            --ignorefile .trivyignore \
+            --exit-code 1 \
+            --format table
 
   gitleaks:
     name: Gitleaks (full history)
