@@ -29,6 +29,7 @@ tag_pattern = "v[0-9]*"
 commit_parsers = [
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
   { message = "^docs", group = "Documentation" },
   { message = "^chore: release", skip = true },
   { message = "^chore", skip = true },
