@@ -19,7 +19,9 @@ trim = true
 
 footer = """
 {% for release in releases %}\
+{% if release.version %}\
 [{{ release.version | trim_start_matches(pat="v") }}]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/{{ release.version }}
+{% endif %}\
 {% endfor %}"""
 
 [git]
