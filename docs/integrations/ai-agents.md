@@ -6,7 +6,6 @@ Example AI agent implementations and workflows using Hotspots for automated code
 
 Hotspots is designed for AI-assisted development with:
 - 🤖 **Structured JSON output** - Machine-readable complexity metrics
-- 🔧 **MCP server integration** - Direct tool access in Claude Desktop/Code
 - 🎯 **Deterministic analysis** - Consistent results for AI reasoning
 - ⚡ **Fast execution** - Suitable for iterative AI workflows
 
@@ -29,10 +28,6 @@ hotspots analyze . --mode snapshot --all-functions --format json
 ```
 
 Ask Claude Code: *"Run hotspots analyze and show me which functions to refactor first."*
-
-### Claude Desktop (MCP Server — Coming Soon)
-
-> Native MCP server integration is planned. See [AI Integration Guide](./mcp-server.md) for details.
 
 ### Running Agents via CLI
 
@@ -641,7 +636,6 @@ Use GitHub Actions, GitLab CI, or pre-commit hooks.
 
 ## Related Documentation
 
-- [MCP Server Guide](./mcp-server.md) - Claude Desktop integration
 - [CI/CD Integration](../guide/ci-integration.md) - Automate in pipelines
 - [Output Formats](../guide/output-formats.md) - JSON schema for parsing
 - [CLI Reference](../reference/cli.md) - Command-line usage

@@ -12,7 +12,7 @@ Complete guide to setting up your development environment for Hotspots.
 
 ### Optional (for full development)
 
-- **Node.js 18+** - For MCP server and GitHub Action development
+- **Node.js 18+** - For GitHub Action development
 - **npm 8+** - For JavaScript packages
 - **jq** - For JSON validation and testing
 
@@ -108,9 +108,6 @@ hotspots/
 │       └── main.rs        # CLI entry point, argument parsing
 │
 ├── packages/               # TypeScript packages
-│   ├── mcp-server/        # Model Context Protocol server
-│   │   ├── src/
-│   │   └── package.json
 │   └── types/             # TypeScript type definitions
 │       └── package.json
 │
@@ -149,7 +146,6 @@ hotspots/
 2. **Make your changes** in the appropriate directory
    - Core logic: `hotspots-core/src/`
    - CLI: `hotspots-cli/src/`
-   - MCP server: `packages/mcp-server/`
    - Docs: `docs/`
 
 3. **Run formatting and linting:**
@@ -325,25 +321,6 @@ cargo run --package hotspots-cli -- analyze src/
 # Install locally for testing
 cargo install --path hotspots-cli
 hotspots --version
-```
-
-### MCP Server (TypeScript)
-
-```bash
-# Navigate to MCP server directory
-cd packages/mcp-server
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Test locally
-npm start
-
-# Link for local development
-npm link
 ```
 
 ### GitHub Action

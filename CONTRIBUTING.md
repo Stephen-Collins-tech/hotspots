@@ -19,7 +19,7 @@ Thank you for your interest in contributing to Hotspots! 🎉
 
 - Rust 1.70+ (`rustup install stable`)
 - Git
-- Node.js 18+ (for MCP server and action)
+- Node.js 18+ (for action)
 
 ### Build
 
@@ -132,7 +132,6 @@ hotspots/
 │   └── tests/         # Integration & unit tests
 ├── hotspots-cli/       # CLI binary
 ├── packages/           # TypeScript packages
-│   ├── mcp-server/    # Model Context Protocol server
 │   └── types/         # TypeScript type definitions
 ├── action/             # GitHub Action
 ├── docs/               # Documentation
