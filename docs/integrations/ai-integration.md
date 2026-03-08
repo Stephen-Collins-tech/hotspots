@@ -121,26 +121,6 @@ jobs:
 
 ---
 
-## MCP Server
-
-> **Coming Soon** — A native MCP server (`@hotspots/mcp-server`) is planned for a future release. It will allow Claude Desktop to call `hotspots_analyze` as a tool directly, without any manual command execution.
->
-> Track progress: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues)
-
-Once available, Claude Desktop configuration will look like:
-```json
-{
-  "mcpServers": {
-    "hotspots": {
-      "command": "npx",
-      "args": ["@hotspots/mcp-server"]
-    }
-  }
-}
-```
-
----
-
 ## Agent Examples
 
 ### Refactoring Assistant (Python)

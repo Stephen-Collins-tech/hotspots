@@ -93,8 +93,6 @@ hotspots analyze . --mode delta --format json
 hotspots analyze . --mode delta --all-functions --format json
 ```
 
-> **MCP server coming soon.** Use Hotspots CLI commands directly in Claude Code in the meantime.
-
 ---
 
 ## Quick Start
@@ -343,7 +341,7 @@ hotspots analyze . --mode delta --format json
 hotspots analyze . --mode delta --all-functions --format json
 ```
 
-> **MCP server coming soon.** See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
+See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
 
 **Cursor/GitHub Copilot:**
 ```bash

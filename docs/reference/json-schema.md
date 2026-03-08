@@ -712,31 +712,6 @@ AI assistants can use Hotspots output to:
 3. **Test Prioritization**: Focus testing on high-complexity areas
 4. **Documentation**: Generate complexity reports and visualizations
 
-### Example: Claude with MCP
-
-```typescript
-// In MCP tool definition
-tools: [
-  {
-    name: "analyze_complexity",
-    description: "Analyze code complexity using Hotspots",
-    inputSchema: {
-      type: "object",
-      properties: {
-        path: { type: "string" }
-      }
-    },
-    async handler({ path }) {
-      const output = await runHotspots(path);
-      const highRisk = output.functions.filter(f =>
-        f.band === 'high' || f.band === 'critical'
-      );
-      return { highRisk, summary: generateSummary(output) };
-    }
-  }
-]
-```
-
 ## Schema Versioning
 
 The `schema_version` field tracks schema compatibility:

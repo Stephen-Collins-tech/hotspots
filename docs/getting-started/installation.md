@@ -49,11 +49,9 @@ Use Hotspots in GitHub Actions without installing anything:
 
 See [CI/CD & GitHub Action Guide](../guide/ci-cd.md) for complete usage.
 
-## MCP Server (AI Integration)
+## AI Integration
 
-> **Coming Soon** — Native MCP server integration is planned for a future release.
-
-Until then, use Hotspots with Claude Code directly via CLI commands:
+Use Hotspots with Claude Code directly via CLI commands:
 
 ```bash
 # Analyze changes in your project

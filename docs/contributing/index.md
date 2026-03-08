@@ -9,7 +9,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - **Cargo** — Comes with Rust
 
 Optional for full development:
-- **Node.js 18+** — For MCP server and GitHub Action development
+- **Node.js 18+** — For GitHub Action development
 - **jq** — For JSON validation and testing
 
 ## Quick Setup
@@ -60,7 +60,6 @@ hotspots/
 │   └── src/main.rs        # CLI entry point
 │
 ├── packages/               # TypeScript packages
-│   ├── mcp-server/        # Model Context Protocol server
 │   └── types/             # TypeScript type definitions
 │
 ├── action/                 # GitHub Action
