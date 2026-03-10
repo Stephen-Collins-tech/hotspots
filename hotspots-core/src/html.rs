@@ -8,10 +8,15 @@ use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use crate::policy::{PolicyId, PolicyResults};
 use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot, SnapshotSummary};
 
-/// Render a snapshot as an HTML report
+/// Render a snapshot as an HTML report.
+///
+/// `source_url` — optional URL of the corresponding written analysis post (e.g. a
+/// hotspots.dev blog post). When set, a banner linking to that post is shown below
+/// the header. Pass `None` for local CLI and CI use where no post exists.
 pub fn render_html_snapshot(
     snapshot: &Snapshot,
     history: &[(CommitInfo, SnapshotSummary)],
+    source_url: Option<&str>,
 ) -> String {
     let aggregates = snapshot.aggregates.as_ref();
     let history_json = render_history_json(history);
@@ -21,6 +26,7 @@ pub fn render_html_snapshot(
         render_trends_section(&history_json)
     };
     let patterns_breakdown = render_pattern_breakdown(&snapshot.functions);
+    let source_banner = render_source_banner(source_url);
 
     format!(
         r#"<!DOCTYPE html>
@@ -34,6 +40,7 @@ pub fn render_html_snapshot(
 <body>
     <div class="container">
         {header}
+        {source_banner}
         {summary}
         {trends}
         {triage}
@@ -49,6 +56,7 @@ pub fn render_html_snapshot(
         css = inline_css(),
         js = inline_javascript(),
         header = render_header(&snapshot.commit),
+        source_banner = source_banner,
         summary = render_summary(snapshot),
         trends = trends,
         triage = render_triage_panel(&snapshot.functions),
@@ -111,9 +119,14 @@ fn render_trends_section(json: &str) -> String {
     )
 }
 
-/// Render a delta as an HTML report
-pub fn render_html_delta(delta: &Delta) -> String {
+/// Render a delta as an HTML report.
+///
+/// `source_url` — optional URL of the corresponding written analysis post. When set,
+/// a banner linking to that post is shown below the header. Pass `None` for local
+/// CLI and CI use where no post exists.
+pub fn render_html_delta(delta: &Delta, source_url: Option<&str>) -> String {
     let commit_sha = &delta.commit.sha[..8];
+    let source_banner = render_source_banner(source_url);
 
     format!(
         r#"<!DOCTYPE html>
@@ -127,6 +140,7 @@ pub fn render_html_delta(delta: &Delta) -> String {
 <body>
     <div class="container">
         {header}
+        {source_banner}
         {summary}
         {policy_section}
         {delta_table}
@@ -139,6 +153,7 @@ pub fn render_html_delta(delta: &Delta) -> String {
         css = inline_css(),
         js = inline_javascript(),
         header = render_delta_header(&delta.commit),
+        source_banner = source_banner,
         summary = render_delta_summary(delta),
         policy_section = delta
             .policy
@@ -293,6 +308,71 @@ tbody tr:hover {
     font-size: 0.875rem;
 }
 
+/* Source banner — links back to the written analysis post */
+.source-banner {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.875rem;
+    color: #1e40af;
+}
+.source-banner a {
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+/* Summary legend — band thresholds + activity risk formula */
+.summary-legend {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-top: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Metric glossary — collapsible <details> above functions table */
+.metric-glossary {
+    font-size: 0.875rem;
+    color: #374151;
+    margin-bottom: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+}
+.metric-glossary summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #4b5563;
+    user-select: none;
+}
+.metric-glossary dl {
+    margin: 0.75rem 0 0.25rem 0;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.3rem 1rem;
+}
+.metric-glossary dt {
+    font-weight: 700;
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: #111827;
+}
+.metric-glossary dd {
+    margin: 0;
+    color: #6b7280;
+}
+
+/* Triage zero-state note */
+.triage-zero-note {
+    font-size: 0.875rem;
+    color: #6b7280;
+    background: #f9fafb;
+    border-left: 3px solid #8b5cf6;
+    padding: 0.5rem 0.75rem;
+    margin: 0.5rem 0 1rem;
+    border-radius: 0 4px 4px 0;
+}
+
 /* Footer */
 footer {
     margin-top: 3rem;
@@ -301,6 +381,9 @@ footer {
     text-align: center;
     color: #6b7280;
     font-size: 0.875rem;
+}
+footer a {
+    color: #4b5563;
 }
 
 /* Mobile */
@@ -1152,7 +1235,15 @@ fn render_summary(snapshot: &Snapshot) -> String {
         <h3>Average LRS</h3>
         <div class="value">{avg:.2}</div>
     </div>{extra}
-</div>"#,
+</div>
+<p class="summary-legend">
+    <strong>Risk bands (LRS):</strong>
+    <span class="band-critical">critical</span> ≥ 9 ·
+    <span class="band-high">high</span> 6–8.9 ·
+    <span class="band-moderate">moderate</span> 3–5.9 ·
+    <span class="band-low">low</span> &lt; 3 ·
+    <strong>Activity Risk</strong> = LRS × recent commit frequency (weighted by recency) — the primary sort signal.
+</p>"#,
         total = total_functions,
         critical = critical_count,
         high = high_count,
@@ -1435,6 +1526,20 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
         r#"<section class="section">
     <h2>Functions (<span id="visible-count">{count}</span> of {count})</h2>
 
+    <details class="metric-glossary">
+        <summary>Metric definitions</summary>
+        <dl>
+            <dt>LRS</dt><dd>Local Risk Score — composite of CC, ND, FO, and NS. Higher = harder to change safely. Bands: critical ≥ 9, high ≥ 6, moderate ≥ 3, low &lt; 3.</dd>
+            <dt>CC</dt><dd>Cyclomatic Complexity — number of independent execution paths through the function. Each path is a potential bug surface and a required test case.</dd>
+            <dt>ND</dt><dd>Nesting Depth — maximum level of nested control structures (if / for / while / try). Depth ≥ 5 is considered deeply nested.</dd>
+            <dt>FO</dt><dd>Fan-out — number of distinct functions this function calls. High fan-out means broad coupling; a change here can ripple into many call sites.</dd>
+            <dt>NS</dt><dd>Nesting Statements — total count of control-flow statements. Drives the exit_heavy and long_function patterns.</dd>
+            <dt>Activity Risk</dt><dd>LRS × recent commit frequency (weighted by recency). The core hotspots signal: complexity × churn. A function that is both hard to change and actively changing is higher priority than one that is merely complex.</dd>
+            <dt>Fan-in</dt><dd>Number of functions that call this one. Higher fan-in = more callers affected by a change here.</dd>
+            <dt>Churn</dt><dd>Lines added + deleted in recent git history. High churn on a complex function amplifies regression risk.</dd>
+        </dl>
+    </details>
+
     <div class="filters">
         <div class="filter-group">
             <label for="band-filter">Risk Band</label>
@@ -1665,6 +1770,17 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
         })
         .collect();
 
+    let zero_active_note = if has_quadrant && fire == 0 && debt > 0 {
+        format!(
+            r#"<p class="triage-zero-note">No high/critical functions with recent activity — but <strong>{debt}</strong> stable-debt function{s} {are} awaiting a refactor sprint. Address these before the next period of active change.</p>"#,
+            debt = debt,
+            s = if debt == 1 { "" } else { "s" },
+            are = if debt == 1 { "is" } else { "are" },
+        )
+    } else {
+        String::new()
+    };
+
     let chips_html = if has_quadrant {
         format!(
             r#"<div class="quadrant-chips">
@@ -1688,11 +1804,13 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
         <div class="chip-count">{ok}</div>
         <div class="chip-desc">low risk, not recently active</div>
     </div>
-</div>"#,
+</div>
+{zero_active_note}"#,
             fire = fire,
             debt = debt,
             watch = watch,
             ok = ok,
+            zero_active_note = zero_active_note,
         )
     } else {
         String::new()
@@ -2315,9 +2433,28 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
 /// Render footer
 fn render_footer() -> String {
     r#"<footer>
-    <p>Generated by Hotspots</p>
+    <p>
+        Generated by <a href="https://github.com/Stephen-Collins-tech/hotspots" target="_blank" rel="noopener">hotspots</a>
+        — activity-weighted code risk analysis. ·
+        <a href="https://hotspots.dev/docs/reference/metrics" target="_blank" rel="noopener">How metrics are calculated →</a>
+    </p>
 </footer>"#
         .to_string()
+}
+
+/// Render an optional banner linking back to a written analysis post.
+/// Returns empty string when `url` is `None`.
+fn render_source_banner(url: Option<&str>) -> String {
+    match url {
+        Some(u) => format!(
+            r#"<div class="source-banner">
+    This report is accompanied by a written analysis with function-specific recommendations:
+    <a href="{url}" target="_blank" rel="noopener">Read the full analysis →</a>
+</div>"#,
+            url = html_escape(u),
+        ),
+        None => String::new(),
+    }
 }
 
 /// Format Unix timestamp as human-readable UTC string ("YYYY-MM-DD HH:MM UTC")

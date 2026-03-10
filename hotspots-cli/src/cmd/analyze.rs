@@ -477,7 +477,7 @@ fn emit_snapshot_output(
                 .into_iter()
                 .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
                 .collect();
-            let html = hotspots_core::html::render_html_snapshot(snapshot, &history);
+            let html = hotspots_core::html::render_html_snapshot(snapshot, &history, None);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
@@ -526,7 +526,7 @@ fn emit_delta_output(
             }
         }
         OutputFormat::Html => {
-            let html = hotspots_core::html::render_html_delta(delta_val);
+            let html = hotspots_core::html::render_html_delta(delta_val, None);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
