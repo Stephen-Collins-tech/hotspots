@@ -6,6 +6,7 @@
 use crate::aggregates::SnapshotAggregates;
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use crate::policy::{PolicyId, PolicyResults};
+use crate::risk::RiskThresholds;
 use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot, SnapshotSummary};
 
 /// Render a snapshot as an HTML report.
@@ -17,6 +18,7 @@ pub fn render_html_snapshot(
     snapshot: &Snapshot,
     history: &[(CommitInfo, SnapshotSummary)],
     source_url: Option<&str>,
+    thresholds: &RiskThresholds,
 ) -> String {
     let aggregates = snapshot.aggregates.as_ref();
     let history_json = render_history_json(history);
@@ -57,7 +59,7 @@ pub fn render_html_snapshot(
         js = inline_javascript(),
         header = render_header(&snapshot.commit),
         source_banner = source_banner,
-        summary = render_summary(snapshot),
+        summary = render_summary(snapshot, thresholds),
         trends = trends,
         triage = render_triage_panel(&snapshot.functions),
         patterns_breakdown = patterns_breakdown,
@@ -1184,7 +1186,7 @@ fn render_header(commit: &CommitInfo) -> String {
 }
 
 /// Render summary section
-fn render_summary(snapshot: &Snapshot) -> String {
+fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
     let total_functions = snapshot.functions.len();
     let critical_count = snapshot
         .functions
@@ -1238,6 +1240,21 @@ fn render_summary(snapshot: &Snapshot) -> String {
         }
     }
 
+    // Format threshold values: show as integer when whole, else 1 decimal place.
+    let fmt_t = |v: f64| -> String {
+        if v.fract() == 0.0 {
+            format!("{}", v as i64)
+        } else {
+            format!("{:.1}", v)
+        }
+    };
+    let t_critical = fmt_t(thresholds.critical);
+    let t_high = fmt_t(thresholds.high);
+    let t_moderate = fmt_t(thresholds.moderate);
+    // Upper-bound labels for ranges (e.g. "8.9" when critical=9)
+    let t_high_max = fmt_t(thresholds.critical - 0.1);
+    let t_mod_max = fmt_t(thresholds.high - 0.1);
+
     format!(
         r#"<div class="summary">
     <div class="summary-card">
@@ -1259,17 +1276,17 @@ fn render_summary(snapshot: &Snapshot) -> String {
 </div>
 <p class="summary-legend">
     <strong>Risk bands (LRS):</strong>
-    <span class="band-critical">critical</span> ≥ 9 ·
-    <span class="band-high">high</span> 6–8.9 ·
-    <span class="band-moderate">moderate</span> 3–5.9 ·
-    <span class="band-low">low</span> &lt; 3
+    <span class="band-critical">critical</span> ≥ {t_critical} ·
+    <span class="band-high">high</span> {t_high}–{t_high_max} ·
+    <span class="band-moderate">moderate</span> {t_moderate}–{t_mod_max} ·
+    <span class="band-low">low</span> &lt; {t_moderate}
 </p>
 <div class="metric-legend">
     <span class="metric-legend-label">Metrics:</span>
     <span class="metric-pill" title="Cyclomatic Complexity — number of independent execution paths through the function. Each path is a potential bug surface and a required test case."><strong>CC</strong> independent code paths</span>
     <span class="metric-pill" title="Nesting Depth — maximum level of nested control structures (if / for / while / try). Deeper = harder to reason about."><strong>ND</strong> nesting depth</span>
     <span class="metric-pill" title="Fan-out — number of distinct functions this function calls. High fan-out = a change here ripples into many call sites."><strong>FO</strong> functions called</span>
-    <span class="metric-pill" title="Local Risk Score — weighted composite of CC, ND, FO, and NS (nesting statements). The structural complexity score for a single function."><strong>LRS</strong> structural complexity (CC + ND + FO combined)</span>
+    <span class="metric-pill" title="Local Risk Score — weighted composite of CC, ND, FO, and NS (non-structured exits — early returns, throws, panics). The structural complexity score for a single function."><strong>LRS</strong> structural complexity (CC + ND + FO + NS combined)</span>
     <span class="metric-pill" title="Activity Risk = LRS × recent commit frequency, weighted by recency. The primary sort signal: a structurally complex function that is actively being changed is higher priority than one that is merely complex but untouched."><strong>Activity Risk</strong> LRS × how often this function has been committed to recently</span>
 </div>"#,
         total = total_functions,
@@ -1277,6 +1294,11 @@ fn render_summary(snapshot: &Snapshot) -> String {
         high = high_count,
         avg = avg_lrs,
         extra = extra,
+        t_critical = t_critical,
+        t_high = t_high,
+        t_moderate = t_moderate,
+        t_high_max = t_high_max,
+        t_mod_max = t_mod_max,
     )
 }
 

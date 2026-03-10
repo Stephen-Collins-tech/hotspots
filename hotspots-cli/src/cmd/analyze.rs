@@ -302,6 +302,11 @@ pub(crate) fn handle_mode_output(
                     co_change_min_count: resolved_config.co_change_min_count,
                     all_functions,
                     source_url: source_url.clone(),
+                    risk_thresholds: hotspots_core::risk::RiskThresholds {
+                        moderate: resolved_config.moderate_threshold,
+                        high: resolved_config.high_threshold,
+                        critical: resolved_config.critical_threshold,
+                    },
                 },
                 &repo_root,
             )?;
@@ -397,6 +402,7 @@ struct SnapshotOutputOpts {
     co_change_min_count: usize,
     all_functions: bool,
     source_url: Option<String>,
+    risk_thresholds: hotspots_core::risk::RiskThresholds,
 }
 
 fn emit_snapshot_output(
@@ -415,6 +421,7 @@ fn emit_snapshot_output(
         co_change_min_count,
         all_functions,
         source_url,
+        risk_thresholds,
     } = opts;
     match format {
         OutputFormat::Json => {
@@ -496,6 +503,7 @@ fn emit_snapshot_output(
                 snapshot,
                 &history,
                 source_url.as_deref(),
+                &risk_thresholds,
             );
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
