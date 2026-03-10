@@ -87,6 +87,10 @@ enum Commands {
         /// Populate and emit pattern details for --explain-patterns
         #[arg(long)]
         explain_patterns: bool,
+
+        /// URL of the written analysis post to link from the HTML report (HTML format only)
+        #[arg(long, value_name = "URL")]
+        source_url: Option<String>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -173,6 +177,7 @@ fn main() -> anyhow::Result<()> {
             per_function_touches,
             all_functions,
             explain_patterns,
+            source_url,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -189,6 +194,7 @@ fn main() -> anyhow::Result<()> {
             per_function_touches,
             all_functions,
             explain_patterns,
+            source_url,
         })?,
         Commands::Prune {
             unreachable,
