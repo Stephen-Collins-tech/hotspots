@@ -113,25 +113,7 @@ Example:
 
 ### Metric glossary (P1)
 
-Option A — **Collapsible panel above the functions table.** Renders once, can be dismissed. Low visual noise.
-
-Option B — **Inline tooltip expansion on `?` icon next to each column header.** Lower page weight but requires JS click handler; hover-only is already there and not sufficient.
-
-Recommendation: Option A. A single collapsible `<details>` element above the table with a one-line definition per metric. No JS required. Example:
-
-```html
-<details class="metric-glossary">
-  <summary>Metric definitions</summary>
-  <dl>
-    <dt>LRS</dt><dd>Local Risk Score — composite of CC, ND, FO, and NS. Higher = harder to change safely.</dd>
-    <dt>CC</dt><dd>Cyclomatic Complexity — number of independent execution paths. Each path is a required test case.</dd>
-    <dt>ND</dt><dd>Nesting Depth — maximum level of nested control structures (if/for/while/try). ≥5 is deep.</dd>
-    <dt>FO</dt><dd>Fan-out — number of distinct functions this function calls. High fan-out = broad coupling footprint.</dd>
-    <dt>NS</dt><dd>Nesting Statements — total count of control-flow statements. Drives exit_heavy and long_function patterns.</dd>
-    <dt>Activity Risk</dt><dd>LRS × recent commit frequency (weighted by recency). The core hotspots signal: complexity × churn.</dd>
-  </dl>
-</details>
-```
+**Implemented as a compact always-visible legend bar** above the functions table — a row of pill elements (`CC · ND · FO · LRS · Activity Risk`) with hover tooltips for full definitions. No interaction required; definitions are visible the moment the reader reaches the table. The `<details>` collapsible pattern was rejected because it signals "optional detail" when metric definitions are not optional for a new reader.
 
 ### Band threshold legend (P2)
 

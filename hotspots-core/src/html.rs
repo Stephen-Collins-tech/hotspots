@@ -331,35 +331,32 @@ tbody tr:hover {
     margin-bottom: 1.5rem;
 }
 
-/* Metric glossary — collapsible <details> above functions table */
-.metric-glossary {
-    font-size: 0.875rem;
-    color: #374151;
-    margin-bottom: 1rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    padding: 0.5rem 1rem;
-}
-.metric-glossary summary {
-    cursor: pointer;
-    font-weight: 600;
-    color: #4b5563;
-    user-select: none;
-}
-.metric-glossary dl {
-    margin: 0.75rem 0 0.25rem 0;
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 0.3rem 1rem;
-}
-.metric-glossary dt {
-    font-weight: 700;
-    font-family: 'Monaco', 'Courier New', monospace;
-    color: #111827;
-}
-.metric-glossary dd {
-    margin: 0;
+/* Metric legend bar — always visible, above the functions table */
+.metric-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+    font-size: 0.8rem;
     color: #6b7280;
+    margin-bottom: 0.75rem;
+}
+.metric-legend-label {
+    font-weight: 600;
+    color: #374151;
+}
+.metric-pill {
+    background: transparent;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 0.15rem 0.5rem;
+    cursor: help;
+    white-space: nowrap;
+    color: #6b7280;
+}
+.metric-pill strong {
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: #4b5563;
 }
 
 /* Triage zero-state note */
@@ -780,6 +777,30 @@ th.sortable.desc::after {
 
     footer {
         border-top-color: #374151;
+    }
+    footer a { color: #9ca3af; }
+
+    .source-banner {
+        background: #1e3a5f;
+        border-color: #2563eb;
+        color: #93c5fd;
+    }
+    .source-banner a { color: #60a5fa; }
+
+    .summary-legend { color: #6b7280; }
+
+    .metric-legend-label { color: #9ca3af; }
+    .metric-pill {
+        background: #1f2937;
+        border-color: #374151;
+        color: #d1d5db;
+    }
+    .metric-pill strong { color: #f9fafb; }
+
+    .triage-zero-note {
+        background: #1a1030;
+        border-left-color: #7c3aed;
+        color: #9ca3af;
     }
 
     .driver-high_complexity    { background: #3d2000; color: #ffab76; }
@@ -1241,9 +1262,16 @@ fn render_summary(snapshot: &Snapshot) -> String {
     <span class="band-critical">critical</span> ≥ 9 ·
     <span class="band-high">high</span> 6–8.9 ·
     <span class="band-moderate">moderate</span> 3–5.9 ·
-    <span class="band-low">low</span> &lt; 3 ·
-    <strong>Activity Risk</strong> = LRS × recent commit frequency (weighted by recency) — the primary sort signal.
-</p>"#,
+    <span class="band-low">low</span> &lt; 3
+</p>
+<div class="metric-legend">
+    <span class="metric-legend-label">Metrics:</span>
+    <span class="metric-pill" title="Cyclomatic Complexity — number of independent execution paths through the function. Each path is a potential bug surface and a required test case."><strong>CC</strong> independent code paths</span>
+    <span class="metric-pill" title="Nesting Depth — maximum level of nested control structures (if / for / while / try). Deeper = harder to reason about."><strong>ND</strong> nesting depth</span>
+    <span class="metric-pill" title="Fan-out — number of distinct functions this function calls. High fan-out = a change here ripples into many call sites."><strong>FO</strong> functions called</span>
+    <span class="metric-pill" title="Local Risk Score — weighted composite of CC, ND, FO, and NS (nesting statements). The structural complexity score for a single function."><strong>LRS</strong> structural complexity (CC + ND + FO combined)</span>
+    <span class="metric-pill" title="Activity Risk = LRS × recent commit frequency, weighted by recency. The primary sort signal: a structurally complex function that is actively being changed is higher priority than one that is merely complex but untouched."><strong>Activity Risk</strong> LRS × how often this function has been committed to recently</span>
+</div>"#,
         total = total_functions,
         critical = critical_count,
         high = high_count,
@@ -1525,20 +1553,6 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     format!(
         r#"<section class="section">
     <h2>Functions (<span id="visible-count">{count}</span> of {count})</h2>
-
-    <details class="metric-glossary">
-        <summary>Metric definitions</summary>
-        <dl>
-            <dt>LRS</dt><dd>Local Risk Score — composite of CC, ND, FO, and NS. Higher = harder to change safely. Bands: critical ≥ 9, high ≥ 6, moderate ≥ 3, low &lt; 3.</dd>
-            <dt>CC</dt><dd>Cyclomatic Complexity — number of independent execution paths through the function. Each path is a potential bug surface and a required test case.</dd>
-            <dt>ND</dt><dd>Nesting Depth — maximum level of nested control structures (if / for / while / try). Depth ≥ 5 is considered deeply nested.</dd>
-            <dt>FO</dt><dd>Fan-out — number of distinct functions this function calls. High fan-out means broad coupling; a change here can ripple into many call sites.</dd>
-            <dt>NS</dt><dd>Nesting Statements — total count of control-flow statements. Drives the exit_heavy and long_function patterns.</dd>
-            <dt>Activity Risk</dt><dd>LRS × recent commit frequency (weighted by recency). The core hotspots signal: complexity × churn. A function that is both hard to change and actively changing is higher priority than one that is merely complex.</dd>
-            <dt>Fan-in</dt><dd>Number of functions that call this one. Higher fan-in = more callers affected by a change here.</dd>
-            <dt>Churn</dt><dd>Lines added + deleted in recent git history. High churn on a complex function amplifies regression risk.</dd>
-        </dl>
-    </details>
 
     <div class="filters">
         <div class="filter-group">
