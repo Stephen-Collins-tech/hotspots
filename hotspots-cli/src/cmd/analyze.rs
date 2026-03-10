@@ -24,6 +24,8 @@ pub(crate) struct AnalyzeArgs {
     pub per_function_touches: bool,
     pub all_functions: bool,
     pub explain_patterns: bool,
+    /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
+    pub source_url: Option<String>,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -99,6 +101,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         per_function_touches,
         all_functions,
         explain_patterns,
+        source_url,
     } = args;
 
     let normalized_path = if path.is_relative() {
@@ -143,6 +146,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 per_function_touches: effective_per_function_touches,
                 all_functions,
                 explain_patterns,
+                source_url,
             },
         );
     }
@@ -213,6 +217,7 @@ pub(crate) struct ModeOutputOptions {
     pub per_function_touches: bool,
     pub all_functions: bool,
     pub explain_patterns: bool,
+    pub source_url: Option<String>,
 }
 
 pub(crate) fn handle_mode_output(
@@ -234,6 +239,7 @@ pub(crate) fn handle_mode_output(
         per_function_touches,
         all_functions,
         explain_patterns,
+        source_url,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -295,6 +301,7 @@ pub(crate) fn handle_mode_output(
                     co_change_window_days: resolved_config.co_change_window_days,
                     co_change_min_count: resolved_config.co_change_min_count,
                     all_functions,
+                    source_url: source_url.clone(),
                 },
                 &repo_root,
             )?;
@@ -364,7 +371,13 @@ pub(crate) fn handle_mode_output(
                     &prev_co_change,
                 ));
 
-            if emit_delta_output(&delta_with_extras, format, policy, output)? {
+            if emit_delta_output(
+                &delta_with_extras,
+                format,
+                policy,
+                output,
+                source_url.as_deref(),
+            )? {
                 std::process::exit(1);
             }
         }
@@ -383,6 +396,7 @@ struct SnapshotOutputOpts {
     co_change_window_days: u64,
     co_change_min_count: usize,
     all_functions: bool,
+    source_url: Option<String>,
 }
 
 fn emit_snapshot_output(
@@ -400,6 +414,7 @@ fn emit_snapshot_output(
         co_change_window_days,
         co_change_min_count,
         all_functions,
+        source_url,
     } = opts;
     match format {
         OutputFormat::Json => {
@@ -477,7 +492,11 @@ fn emit_snapshot_output(
                 .into_iter()
                 .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
                 .collect();
-            let html = hotspots_core::html::render_html_snapshot(snapshot, &history, None);
+            let html = hotspots_core::html::render_html_snapshot(
+                snapshot,
+                &history,
+                source_url.as_deref(),
+            );
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
@@ -492,6 +511,7 @@ fn emit_delta_output(
     format: OutputFormat,
     with_policy: bool,
     output: Option<PathBuf>,
+    source_url: Option<&str>,
 ) -> anyhow::Result<bool> {
     let has_blocking_failures = delta_val
         .policy
@@ -526,7 +546,7 @@ fn emit_delta_output(
             }
         }
         OutputFormat::Html => {
-            let html = hotspots_core::html::render_html_delta(delta_val, None);
+            let html = hotspots_core::html::render_html_delta(delta_val, source_url);
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
