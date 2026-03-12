@@ -29,6 +29,8 @@ pub fn render_html_snapshot(
     };
     let patterns_breakdown = render_pattern_breakdown(&snapshot.functions);
     let source_banner = render_source_banner(source_url);
+    let scatter_json = render_scatter_json(&snapshot.functions);
+    let scatter = render_scatter_section(&scatter_json);
 
     format!(
         r#"<!DOCTYPE html>
@@ -44,6 +46,7 @@ pub fn render_html_snapshot(
         {header}
         {source_banner}
         {summary}
+        {scatter}
         {trends}
         {triage}
         {patterns_breakdown}
@@ -60,6 +63,7 @@ pub fn render_html_snapshot(
         header = render_header(&snapshot.commit),
         source_banner = source_banner,
         summary = render_summary(snapshot, thresholds),
+        scatter = scatter,
         trends = trends,
         triage = render_triage_panel(&snapshot.functions),
         patterns_breakdown = patterns_breakdown,
@@ -114,6 +118,79 @@ fn render_trends_section(json: &str) -> String {
         <div>
             <div class="chart-label">Top-1% Risk Concentration</div>
             <canvas id="hs-share-chart" height="180"></canvas>
+        </div>
+    </div>
+</section>"#,
+        json = json,
+    )
+}
+
+/// Serialize per-function scatter data for the Risk Landscape chart.
+///
+/// Emits a compact JSON array: `[{"n":"fn","f":"file","x":lrs,"y":churn,"b":"h"},…]`
+/// y = touch_count_30d, falling back to total churn lines, then 0.
+/// `b` is a single letter: c=critical, h=high, m=moderate, l=low.
+fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
+    if functions.is_empty() {
+        return "[]".to_string();
+    }
+    let entries: Vec<String> = functions
+        .iter()
+        .map(|f| {
+            let y = f
+                .touch_count_30d
+                .map(|t| t as f64)
+                .or_else(|| {
+                    f.churn
+                        .as_ref()
+                        .map(|c| (c.lines_added + c.lines_deleted) as f64)
+                })
+                .unwrap_or(0.0);
+            let b = match f.band.as_str() {
+                "critical" => "c",
+                "high" => "h",
+                "moderate" => "m",
+                _ => "l",
+            };
+            let name = f.function_id.replace('\\', "\\\\").replace('"', "\\\"");
+            let file = f.file.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(
+                r#"{{"n":"{name}","f":"{file}","x":{x:.2},"y":{y:.2},"b":"{b}"}}"#,
+                name = name,
+                file = file,
+                x = f.lrs,
+                y = y,
+                b = b,
+            )
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
+}
+
+/// Render the Risk Landscape scatter chart section.
+fn render_scatter_section(json: &str) -> String {
+    format!(
+        r#"<script>window.__hsScatter = {json};</script>
+<section class="section" id="landscape">
+    <h2>Risk Landscape</h2>
+    <div class="chart-label">Complexity (LRS) vs Change Frequency — each dot is a function; top-right quadrant are your hotspots</div>
+    <canvas id="hs-scatter-chart" height="340"></canvas>
+    <div class="scatter-legend">
+        <div class="scatter-legend-bands">
+            <span class="scatter-dot band-critical">●</span><span class="scatter-legend-label">Critical</span>
+            <span class="scatter-dot band-high">●</span><span class="scatter-legend-label">High</span>
+            <span class="scatter-dot band-moderate">●</span><span class="scatter-legend-label">Moderate</span>
+            <span class="scatter-dot band-low">●</span><span class="scatter-legend-label">Low</span>
+        </div>
+        <div class="scatter-legend-axes">
+            <div class="scatter-axis-row">
+                <span class="scatter-axis-key">X: LRS</span>
+                <span class="scatter-axis-desc">complexity score — cyclomatic paths · nesting depth · fan-out · exits</span>
+            </div>
+            <div class="scatter-axis-row">
+                <span class="scatter-axis-key">Y: Touches</span>
+                <span class="scatter-axis-desc">commits to this function in the last 30 days</span>
+            </div>
         </div>
     </div>
 </section>"#,
@@ -722,6 +799,15 @@ th.sortable.desc::after {
 
 /* Trend charts */
 .trends-section canvas { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
+#hs-scatter-chart { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
+.scatter-legend { display:flex; flex-wrap:wrap; align-items:flex-start; gap:0.75rem 2rem; margin-top:0.75rem; font-size:0.8rem; color:#6b7280; }
+.scatter-legend-bands { display:flex; align-items:center; gap:0.5rem; flex-shrink:0; }
+.scatter-dot { font-size:1rem; line-height:1; }
+.scatter-legend-label { color:#6b7280; margin-right:0.25rem; }
+.scatter-legend-axes { display:flex; flex-direction:column; gap:0.2rem; }
+.scatter-axis-row { display:flex; align-items:baseline; gap:0.5rem; }
+.scatter-axis-key { font-weight:700; color:#374151; white-space:nowrap; min-width:5.5rem; }
+.scatter-axis-desc { color:#9ca3af; }
 .trends-charts { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; }
 @media (max-width:768px) { .trends-charts { grid-template-columns:1fr; } }
 .chart-label { font-size:0.75rem; font-weight:600; color:#6b7280; margin-bottom:0.25rem; }
@@ -834,6 +920,11 @@ th.sortable.desc::after {
     .recency-cold { color: #4b5563; }
     .triage-action { color: #9ca3af; }
     .trends-section canvas { background:#1f2937; }
+    #hs-scatter-chart { background:#1f2937; }
+    .scatter-legend { color:#9ca3af; }
+    .scatter-legend-label { color:#9ca3af; }
+    .scatter-axis-key { color:#e5e7eb; }
+    .scatter-axis-desc { color:#6b7280; }
 
     /* Pattern badges — dark mode */
     .pattern-complex_branching { background: #2d1b00; color: #fbbf24; border-color: #92400e; }
@@ -1160,6 +1251,148 @@ fn inline_javascript() -> &'static str {
                 bandRaf = requestAnimationFrame(drawBandChart);
             });
             window.addEventListener('resize', function() { drawAll(); });
+        });
+    })();
+
+    // Risk Landscape scatter chart — reads window.__hsScatter
+    ;(function() {
+        var pts = window.__hsScatter;
+        if (!pts || pts.length === 0) return;
+        var hoveredIdx = -1, scatterRaf = null;
+        var bandColor = { c: '#ef4444', h: '#f97316', m: '#eab308', l: '#22c55e' };
+
+        function isDarkSc() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+
+        function drawScatter() {
+            var el = document.getElementById('hs-scatter-chart');
+            if (!el) return;
+            el.width = el.offsetWidth || 800;
+            var ctx = el.getContext('2d'), W = el.width, H = el.height;
+            var lP = 56, rP = 16, tP = 16, bP = 36;
+            var cW = W - lP - rP, cH = H - tP - bP;
+            var dark = isDarkSc(), fg = dark ? '#9ca3af' : '#6b7280', grd = dark ? '#374151' : '#e5e7eb';
+
+            var xs = pts.map(function(p) { return p.x; });
+            var ys = pts.map(function(p) { return p.y; });
+            var maxX = (Math.max.apply(null, xs) || 1) * 1.08;
+            var maxY = (Math.max.apply(null, ys) || 1) * 1.08;
+
+            // medians for quadrant dividers
+            var sxs = xs.slice().sort(function(a, b) { return a - b; });
+            var sys = ys.slice().sort(function(a, b) { return a - b; });
+            var medX = sxs[Math.floor(sxs.length / 2)];
+            var medY = sys[Math.floor(sys.length / 2)];
+
+            ctx.clearRect(0, 0, W, H);
+            ctx.font = '10px system-ui,sans-serif';
+
+            // grid lines
+            for (var t = 0; t <= 4; t++) {
+                var xv = maxX * t / 4, xp = lP + (t / 4) * cW;
+                var yv = maxY * t / 4, yp = tP + cH - (t / 4) * cH;
+                ctx.fillStyle = fg; ctx.textAlign = 'center';
+                ctx.fillText(xv.toFixed(1), xp, tP + cH + 16);
+                ctx.fillStyle = fg; ctx.textAlign = 'right';
+                ctx.fillText(Math.round(yv), lP - 4, yp + 4);
+                ctx.strokeStyle = grd; ctx.lineWidth = 0.5;
+                ctx.beginPath(); ctx.moveTo(lP, yp); ctx.lineTo(lP + cW, yp); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(xp, tP); ctx.lineTo(xp, tP + cH); ctx.stroke();
+            }
+
+            // quadrant dividers at median
+            var qx = lP + (medX / maxX) * cW;
+            var qy = tP + cH - (medY / maxY) * cH;
+            ctx.strokeStyle = dark ? '#4b5563' : '#d1d5db'; ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(qx, tP); ctx.lineTo(qx, tP + cH); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(lP, qy); ctx.lineTo(lP + cW, qy); ctx.stroke();
+            ctx.setLineDash([]);
+
+            // dots
+            var r = Math.max(3, Math.min(7, Math.round(cW / Math.sqrt(pts.length) * 0.18)));
+            pts.forEach(function(p, i) {
+                var cx = lP + (p.x / maxX) * cW;
+                var cy = tP + cH - (p.y / maxY) * cH;
+                var col = bandColor[p.b] || '#6b7280';
+                ctx.beginPath();
+                ctx.arc(cx, cy, i === hoveredIdx ? r + 2 : r, 0, Math.PI * 2);
+                ctx.fillStyle = col;
+                ctx.globalAlpha = i === hoveredIdx ? 1.0 : 0.72;
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            });
+
+            // tooltip
+            if (hoveredIdx >= 0 && hoveredIdx < pts.length) {
+                var hp = pts[hoveredIdx];
+                var hcx = lP + (hp.x / maxX) * cW;
+                var hcy = tP + cH - (hp.y / maxY) * cH;
+                var label = hp.n + '  LRS:' + hp.x.toFixed(1) + '  Touches:' + hp.y.toFixed(0);
+                ctx.font = 'bold 10px system-ui,sans-serif';
+                var tw = ctx.measureText(label).width + 18;
+                var ttx = Math.min(Math.max(hcx, lP + tw / 2), lP + cW - tw / 2);
+                var tty = hcy - 14;
+                if (tty - 20 < tP) tty = hcy + 26;
+                ctx.fillStyle = dark ? '#1f2937' : '#ffffff';
+                ctx.strokeStyle = dark ? '#374151' : '#d1d5db'; ctx.lineWidth = 1;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(ttx - tw / 2, tty - 16, tw, 22, 4);
+                else ctx.rect(ttx - tw / 2, tty - 16, tw, 22);
+                ctx.fill(); ctx.stroke();
+                ctx.fillStyle = dark ? '#f9fafb' : '#111827'; ctx.textAlign = 'center';
+                ctx.fillText(label, ttx, tty);
+                // file path beneath
+                ctx.font = '9px system-ui,sans-serif';
+                ctx.fillStyle = dark ? '#6b7280' : '#9ca3af';
+                ctx.fillText(hp.f, ttx, tty + 14);
+            }
+
+            // axis labels
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = fg; ctx.font = '10px system-ui,sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Complexity (LRS)', lP + cW / 2, H - 4);
+            ctx.save();
+            ctx.translate(12, tP + cH / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText('Change Frequency', 0, 0);
+            ctx.restore();
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('hs-scatter-chart');
+            if (!el) return;
+            drawScatter();
+            el.addEventListener('mousemove', function(e) {
+                var r2 = el.getBoundingClientRect();
+                var mx = (e.clientX - r2.left) * (el.width / r2.width);
+                var my = (e.clientY - r2.top) * (el.height / r2.height);
+                var lP2 = 56, rP2 = 16, tP2 = 16, bP2 = 36;
+                var cW2 = el.width - lP2 - rP2, cH2 = el.height - tP2 - bP2;
+                var xs2 = pts.map(function(p) { return p.x; });
+                var ys2 = pts.map(function(p) { return p.y; });
+                var maxX2 = (Math.max.apply(null, xs2) || 1) * 1.08;
+                var maxY2 = (Math.max.apply(null, ys2) || 1) * 1.08;
+                var best = -1, bestD = 400;
+                pts.forEach(function(p, i) {
+                    var cx = lP2 + (p.x / maxX2) * cW2;
+                    var cy = tP2 + cH2 - (p.y / maxY2) * cH2;
+                    var d = (mx - cx) * (mx - cx) + (my - cy) * (my - cy);
+                    if (d < bestD) { bestD = d; best = i; }
+                });
+                if (best !== hoveredIdx) {
+                    hoveredIdx = best;
+                    if (scatterRaf) cancelAnimationFrame(scatterRaf);
+                    scatterRaf = requestAnimationFrame(drawScatter);
+                }
+            });
+            el.addEventListener('mouseleave', function() {
+                hoveredIdx = -1;
+                if (scatterRaf) cancelAnimationFrame(scatterRaf);
+                scatterRaf = requestAnimationFrame(drawScatter);
+            });
+            window.addEventListener('resize', drawScatter);
         });
     })();
 })();
