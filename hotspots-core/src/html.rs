@@ -800,6 +800,14 @@ th.sortable.desc::after {
 /* Trend charts */
 .trends-section canvas { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
 #hs-scatter-chart { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
+.scatter-legend { display:flex; flex-wrap:wrap; align-items:flex-start; gap:0.75rem 2rem; margin-top:0.75rem; font-size:0.8rem; color:#6b7280; }
+.scatter-legend-bands { display:flex; align-items:center; gap:0.5rem; flex-shrink:0; }
+.scatter-dot { font-size:1rem; line-height:1; }
+.scatter-legend-label { color:#6b7280; margin-right:0.25rem; }
+.scatter-legend-axes { display:flex; flex-direction:column; gap:0.2rem; }
+.scatter-axis-row { display:flex; align-items:baseline; gap:0.5rem; }
+.scatter-axis-key { font-weight:700; color:#374151; white-space:nowrap; min-width:5.5rem; }
+.scatter-axis-desc { color:#9ca3af; }
 .trends-charts { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; }
 @media (max-width:768px) { .trends-charts { grid-template-columns:1fr; } }
 .chart-label { font-size:0.75rem; font-weight:600; color:#6b7280; margin-bottom:0.25rem; }
@@ -913,6 +921,10 @@ th.sortable.desc::after {
     .triage-action { color: #9ca3af; }
     .trends-section canvas { background:#1f2937; }
     #hs-scatter-chart { background:#1f2937; }
+    .scatter-legend { color:#9ca3af; }
+    .scatter-legend-label { color:#9ca3af; }
+    .scatter-axis-key { color:#e5e7eb; }
+    .scatter-axis-desc { color:#6b7280; }
 
     /* Pattern badges — dark mode */
     .pattern-complex_branching { background: #2d1b00; color: #fbbf24; border-color: #92400e; }
@@ -1281,7 +1293,7 @@ fn inline_javascript() -> &'static str {
                 ctx.fillStyle = fg; ctx.textAlign = 'center';
                 ctx.fillText(xv.toFixed(1), xp, tP + cH + 16);
                 ctx.fillStyle = fg; ctx.textAlign = 'right';
-                ctx.fillText(yv.toFixed(1), lP - 4, yp + 4);
+                ctx.fillText(Math.round(yv), lP - 4, yp + 4);
                 ctx.strokeStyle = grd; ctx.lineWidth = 0.5;
                 ctx.beginPath(); ctx.moveTo(lP, yp); ctx.lineTo(lP + cW, yp); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(xp, tP); ctx.lineTo(xp, tP + cH); ctx.stroke();
@@ -1315,7 +1327,7 @@ fn inline_javascript() -> &'static str {
                 var hp = pts[hoveredIdx];
                 var hcx = lP + (hp.x / maxX) * cW;
                 var hcy = tP + cH - (hp.y / maxY) * cH;
-                var label = hp.n + '  LRS:' + hp.x.toFixed(1) + '  Risk:' + hp.y.toFixed(1);
+                var label = hp.n + '  LRS:' + hp.x.toFixed(1) + '  Touches:' + hp.y.toFixed(0);
                 ctx.font = 'bold 10px system-ui,sans-serif';
                 var tw = ctx.measureText(label).width + 18;
                 var ttx = Math.min(Math.max(hcx, lP + tw / 2), lP + cW - tw / 2);
@@ -1344,7 +1356,7 @@ fn inline_javascript() -> &'static str {
             ctx.translate(12, tP + cH / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText('Activity Risk', 0, 0);
+            ctx.fillText('Change Frequency', 0, 0);
             ctx.restore();
         }
 
