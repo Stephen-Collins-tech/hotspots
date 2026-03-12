@@ -286,6 +286,7 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 
 **Charts (snapshot mode):**
 - Risk band distribution (donut chart)
+- **Risk Landscape scatter plot:** all functions plotted by Complexity (LRS, x-axis) vs Change Frequency (recent touches, y-axis). Dots are color-coded by risk band (critical = orange, high = amber, moderate = teal, low = grey). Dashed median lines divide the chart into four quadrants — the top-right quadrant (high complexity + high churn) is the classic Tornhill hotspot zone. Hover any dot to see function name, file path, LRS, and touch count.
 - Historical trend charts: stacked band count, activity risk line, top-1% share line
   (requires ≥2 prior snapshots; up to 30 history points; hover for per-bar detail)
 
