@@ -1,6 +1,6 @@
 # HTML Report UX Improvements
 
-**Status:** Proposed
+**Status:** Partially implemented — see status column in the priority table below.
 **Informed by:** Real-world usage review of reports hosted at `reports.hotspots.dev`
 **Relevant source:** `hotspots-core/src/html.rs`
 
@@ -52,23 +52,15 @@ This document tracks specific, scoped improvements to the HTML report's usabilit
 
 ---
 
-### P5 — No back-link to blog analysis post
+### P5 — No back-link to blog analysis post ✅ Implemented
 
 **Current state:** Reports are self-contained HTML files. The `render_header()` and `render_footer()` functions have no knowledge of a corresponding blog post URL. When reports are hosted at `reports.hotspots.dev`, users who land on a report directly have no path to the written analysis (which contains function-specific recommendations, context, and interpretation).
 
-**Proposed fix:** Accept an optional `source_url: Option<&str>` parameter in `render_html_snapshot()`. When set, add a banner below the header:
-
-```html
-<div class="source-banner">
-  This report is accompanied by a written analysis: <a href="{url}">Read the full analysis →</a>
-</div>
-```
-
-When not set (local CLI use, CI use), render nothing. The upload pipeline in `hotspots-cloud` can pass the blog post URL at upload time.
+**Implemented:** `render_html_snapshot()` accepts `source_url: Option<&str>`. When set, `render_source_banner()` renders a banner below the header linking to the analysis post. When not set (local CLI use, CI use), renders nothing. `hotspots-cloud/scripts/crawl.py` passes the blog post URL at upload time.
 
 **Files:**
-- `html.rs` → `render_html_snapshot()` signature + `render_header()` or new `render_source_banner()`
-- `hotspots-cloud/scripts/upload_report.py` (or equivalent) passes the post URL
+- `html.rs` → `render_source_banner()`, `render_html_snapshot()` signature
+- `hotspots-cloud/scripts/crawl.py` — passes `--source-url` at report generation time
 
 ---
 
@@ -98,14 +90,15 @@ Example:
 
 ## Implementation priority
 
-| # | Problem | Effort | Impact | Priority |
+| # | Problem | Effort | Impact | Status |
 |---|---|---|---|---|
-| P6 | Footer upgrade with links | ~5 min | Low (SEO / discoverability) | Now — trivial |
-| P2 | Band threshold legend | ~30 min | High (calibration context) | Soon |
-| P1 | Visible metric glossary | ~1h | High (new user orientation) | Soon |
-| P4 | Triage zero-state messaging | ~30 min | Medium (avoids false signal) | Soon |
-| P5 | Back-link to blog post | ~1h + pipeline wiring | High (closes the loop) | Next sprint |
-| P3 | Activity Risk formula explanation | ~30 min | Medium (explains differentiator) | Next sprint |
+| P0 | Risk Landscape scatter plot | Done | High (Tornhill hotspot quadrant) | ✅ Implemented |
+| P5 | Back-link to blog post | Done | High (closes the loop) | ✅ Implemented |
+| P6 | Footer upgrade with links | ~5 min | Low (SEO / discoverability) | Pending |
+| P2 | Band threshold legend | ~30 min | High (calibration context) | Pending |
+| P1 | Visible metric glossary | ~1h | High (new user orientation) | Pending |
+| P4 | Triage zero-state messaging | ~30 min | Medium (avoids false signal) | Pending |
+| P3 | Activity Risk formula explanation | ~30 min | Medium (explains differentiator) | Pending |
 
 ---
 
@@ -132,8 +125,33 @@ Thresholds sourced from `hotspots-core/src/risk.rs` → `RiskThresholds::default
 
 ---
 
+## Implemented features
+
+### P0 — Risk Landscape scatter plot ✅
+
+**Added in:** March 2026
+**Source:** `html.rs` → `render_scatter_section()`, `render_scatter_json()`
+
+Every snapshot-mode HTML report now includes a **Risk Landscape** chart above the functions table. Each function is plotted as a dot:
+
+- **X-axis:** Complexity (LRS) — static structural risk
+- **Y-axis:** Change Frequency (recent touches, 30-day window) — behavioral churn
+- **Dot color:** risk band (critical = orange, high = amber, moderate = teal, low = grey)
+- **Dashed median lines** divide the chart into four quadrants — the top-right quadrant (high complexity + high churn) is the classic Tornhill hotspot zone
+- **Hover tooltip** shows function name, file path, LRS, and touch count
+
+These axes are independent: a function can have high complexity but low churn (stable debt) or low complexity but high churn (active but clean). The top-right quadrant is the actionable hotspot — complex *and* actively changing.
+
+A legend below the chart shows the band color pills and explains both axes.
+
+**Files:**
+- `html.rs` → `render_scatter_json()` — serializes `[{n, f, x:lrs, y:touch_count, b}]` per function
+- `html.rs` → `render_scatter_section()` — emits canvas, legend HTML, and `window.__hsScatter` JS global
+- Inline JS IIFE draws dots, median quadrant lines, and hover tooltip
+
+---
+
 ## Out of scope
 
 - Per-function "how to fix" sections in the HTML report (this is the blog post's job — see P5)
-- Chart redesigns or new visualization types
 - Internationalization
