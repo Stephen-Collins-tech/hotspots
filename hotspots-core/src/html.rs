@@ -1251,9 +1251,6 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
     let t_critical = fmt_t(thresholds.critical);
     let t_high = fmt_t(thresholds.high);
     let t_moderate = fmt_t(thresholds.moderate);
-    // Upper-bound labels for ranges (e.g. "8.9" when critical=9)
-    let t_high_max = fmt_t(thresholds.critical - 0.1);
-    let t_mod_max = fmt_t(thresholds.high - 0.1);
 
     format!(
         r#"<div class="summary">
@@ -1277,8 +1274,8 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
 <p class="summary-legend">
     <strong>Risk bands (LRS):</strong>
     <span class="band-critical">critical</span> ≥ {t_critical} ·
-    <span class="band-high">high</span> {t_high}–{t_high_max} ·
-    <span class="band-moderate">moderate</span> {t_moderate}–{t_mod_max} ·
+    <span class="band-high">high</span> {t_high}–&lt;{t_critical} ·
+    <span class="band-moderate">moderate</span> {t_moderate}–&lt;{t_high} ·
     <span class="band-low">low</span> &lt; {t_moderate}
 </p>
 <div class="metric-legend">
@@ -1297,8 +1294,6 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
         t_critical = t_critical,
         t_high = t_high,
         t_moderate = t_moderate,
-        t_high_max = t_high_max,
-        t_mod_max = t_mod_max,
     )
 }
 
