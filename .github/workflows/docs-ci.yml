@@ -31,11 +31,3 @@ jobs:
 
       - name: Build VitePress
         run: npm run docs:build
-
-      - name: Deploy to Cloudflare Pages
-        if: github.event_name == 'push'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: '.'
