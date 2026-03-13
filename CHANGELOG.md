@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Add missing NS metric pill to report legend (#39)
+
+
 ### Documentation
 - Add Cloudflare Pages deploy + document scatter plot
 - Document scatter plot and update HTML report improvements tracker
