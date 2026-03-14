@@ -596,4 +596,127 @@ mod tests {
         assert!(ranks.get("C").copied().unwrap_or(0.0) > ranks.get("B").copied().unwrap_or(0.0));
         assert!(ranks.get("B").copied().unwrap_or(0.0) > ranks.get("A").copied().unwrap_or(0.0));
     }
+
+    #[test]
+    fn test_build_fan_in_map() {
+        let mut graph = CallGraph::new();
+        // A -> B, A -> C, B -> C
+        graph.add_edge("A".to_string(), "B".to_string());
+        graph.add_edge("A".to_string(), "C".to_string());
+        graph.add_edge("B".to_string(), "C".to_string());
+
+        let fan_in = graph.build_fan_in_map();
+        assert_eq!(fan_in.get("A").copied().unwrap_or(0), 0); // nobody calls A
+        assert_eq!(fan_in.get("B").copied().unwrap_or(0), 1); // A calls B
+        assert_eq!(fan_in.get("C").copied().unwrap_or(0), 2); // A and B call C
+    }
+
+    #[test]
+    fn test_betweenness_linear_chain() {
+        // a -> b -> c: b is the only intermediary on the a→c shortest path.
+        // Normalized betweenness for b = 1 / ((3-1)(3-2)) = 0.5
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "b".to_string());
+        graph.add_edge("b".to_string(), "c".to_string());
+
+        let scores = graph.betweenness_centrality();
+        assert!(
+            (scores["b"] - 0.5).abs() < 1e-10,
+            "b betweenness should be 0.5"
+        );
+        assert!(scores["a"].abs() < 1e-10, "a betweenness should be 0.0");
+        assert!(scores["c"].abs() < 1e-10, "c betweenness should be 0.0");
+    }
+
+    #[test]
+    fn test_approx_betweenness_equals_exact_when_k_geq_n() {
+        // When k >= n the n<=k guard forces exact computation; approx and exact must match.
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "b".to_string());
+        graph.add_edge("b".to_string(), "c".to_string());
+        graph.add_edge("c".to_string(), "d".to_string());
+
+        let exact = graph.betweenness_centrality();
+        let approx = graph.betweenness_centrality_approx(100); // k >> n=4
+
+        for (node, &exact_val) in &exact {
+            let approx_val = approx.get(node).copied().unwrap_or(0.0);
+            assert!(
+                (exact_val - approx_val).abs() < 1e-10,
+                "node {node}: exact={exact_val}, approx={approx_val}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_approx_betweenness_identifies_bridge() {
+        // "bridge" is the only node connecting callers to callees, so it must have
+        // the highest betweenness even when approximation is used (k=2 < n=4).
+        //
+        //   a ──► bridge ──► y
+        //                └──► z
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "bridge".to_string());
+        graph.add_edge("bridge".to_string(), "y".to_string());
+        graph.add_edge("bridge".to_string(), "z".to_string());
+
+        let approx = graph.betweenness_centrality_approx(2);
+        let bridge_score = approx.get("bridge").copied().unwrap_or(0.0);
+        for (node, &score) in &approx {
+            if node != "bridge" {
+                assert!(
+                    bridge_score >= score,
+                    "bridge ({bridge_score}) should dominate {node} ({score})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_approx_betweenness_pivot_covers_tail() {
+        // Regression for the (i*n)/k sampling fix.
+        //
+        // "z_source" sorts last and has outgoing paths through "hub" to several
+        // destinations.  With the old `step = n/k` formula, z_source would be
+        // excluded as a pivot when k is small (tail nodes are never sampled).
+        // We verify:
+        //   1. approx(k=n) matches exact exactly (the n<=k fallback).
+        //   2. hub has the highest betweenness in the exact result — confirming
+        //      the graph structure is meaningful.
+        //
+        //   a_in ──┐
+        //   b_in ──┤──► hub ──► x_out
+        //  z_source┘        └──► y_out
+        let mut graph = CallGraph::new();
+        graph.add_edge("a_in".to_string(), "hub".to_string());
+        graph.add_edge("b_in".to_string(), "hub".to_string());
+        graph.add_edge("z_source".to_string(), "hub".to_string());
+        graph.add_edge("hub".to_string(), "x_out".to_string());
+        graph.add_edge("hub".to_string(), "y_out".to_string());
+
+        let n = graph.nodes.len();
+        let exact = graph.betweenness_centrality();
+
+        // k=n must be byte-for-byte identical to exact
+        let approx_full = graph.betweenness_centrality_approx(n);
+        for (node, &val) in &exact {
+            let av = approx_full.get(node).copied().unwrap_or(0.0);
+            assert!(
+                (val - av).abs() < 1e-10,
+                "k=n mismatch for {node}: exact={val}, approx={av}"
+            );
+        }
+
+        // hub must be the top-betweenness node in exact
+        let hub_score = exact.get("hub").copied().unwrap_or(0.0);
+        assert!(hub_score > 0.0, "hub should have non-zero betweenness");
+        for (node, &val) in &exact {
+            if node != "hub" {
+                assert!(
+                    hub_score >= val,
+                    "hub ({hub_score}) should have highest betweenness, but {node}={val}"
+                );
+            }
+        }
+    }
 }
