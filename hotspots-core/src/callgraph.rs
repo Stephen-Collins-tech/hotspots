@@ -184,14 +184,17 @@ impl CallGraph {
         let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
         sorted_nodes.sort();
 
-        let step = n / k;
         let scale = n as f64 / k as f64;
 
         let mut betweenness: HashMap<String, f64> =
             self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
 
         for i in 0..k {
-            let source = sorted_nodes[i * step];
+            // Use (i * n) / k rather than i * (n / k) so that samples are spread
+            // evenly across [0, n-1]. The naive step = n/k approach truncates the
+            // tail: e.g. n=300, k=256 gives step=1 and only samples indices 0–255,
+            // permanently excluding the last 44 nodes.
+            let source = sorted_nodes[(i * n) / k];
             let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
             let delta = brandes_accumulate(&stack, &predecessors, &sigma);
             for w in &stack {
