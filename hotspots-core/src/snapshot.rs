@@ -177,6 +177,10 @@ pub struct CallGraphStats {
     pub avg_fan_in: f64,
     pub scc_count: usize,
     pub largest_scc_size: usize,
+    /// True when betweenness was computed via k-source approximation rather than
+    /// exact Brandes. Consumers can use this to annotate displayed values.
+    #[serde(default)]
+    pub betweenness_approximate: bool,
 }
 
 /// Repo-level summary statistics
@@ -548,18 +552,28 @@ impl Snapshot {
 
     /// Populate call graph metrics
     ///
-    /// Computes PageRank, betweenness centrality, fan-in, fan-out, SCC, dependency depth,
-    /// and neighbor churn metrics for all functions.
+    /// Populate call graph metrics (PageRank, betweenness, fan-in, SCC, depth, neighbor churn).
     ///
-    /// # Arguments
-    ///
-    /// * `call_graph` - Pre-computed call graph for the codebase
-    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+    /// Betweenness is computed exactly when `call_graph.nodes.len() <= exact_threshold`,
+    /// and via k-source approximation otherwise. Returns `true` if approximation was used.
+    pub fn populate_callgraph(
+        &mut self,
+        call_graph: &crate::callgraph::CallGraph,
+        exact_threshold: usize,
+        approx_k: usize,
+    ) -> bool {
         use std::collections::HashMap;
+
+        let n = call_graph.nodes.len();
+        let approximate = n > exact_threshold;
 
         // Compute global metrics once
         let pagerank_scores = call_graph.pagerank(0.85, 30);
-        let betweenness_scores = call_graph.betweenness_centrality();
+        let betweenness_scores = if approximate {
+            call_graph.betweenness_centrality_approx(approx_k)
+        } else {
+            call_graph.betweenness_centrality()
+        };
         let scc_info = call_graph.find_strongly_connected_components();
         let dependency_depths = call_graph.compute_dependency_depth();
         // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls below
@@ -611,6 +625,8 @@ impl Snapshot {
                 });
             }
         }
+
+        approximate
     }
 
     /// Compute and populate activity risk scores
@@ -873,7 +889,7 @@ impl Snapshot {
     /// Compute repo-level summary statistics
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
-    pub fn compute_summary(&mut self) {
+    pub fn compute_summary(&mut self, betweenness_approximate: bool) {
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -906,7 +922,7 @@ impl Snapshot {
             top_5_pct_share,
             top_10_pct_share,
             by_band: compute_band_distribution(&self.functions),
-            call_graph: compute_call_graph_stats(&self.functions, n),
+            call_graph: compute_call_graph_stats(&self.functions, n, betweenness_approximate),
         });
     }
 
@@ -998,7 +1014,11 @@ fn compute_band_distribution(
 }
 
 /// Computes call-graph-level summary statistics, or None if no call graph data.
-fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
+fn compute_call_graph_stats(
+    functions: &[FunctionSnapshot],
+    n: usize,
+    betweenness_approximate: bool,
+) -> Option<CallGraphStats> {
     if !functions.iter().any(|f| f.callgraph.is_some()) {
         return None;
     }
@@ -1025,6 +1045,7 @@ fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<
         avg_fan_in: total_fan_in as f64 / n as f64,
         scc_count: scc_sizes.len(),
         largest_scc_size: scc_sizes.values().copied().max().unwrap_or(0),
+        betweenness_approximate,
     })
 }
 
@@ -1256,12 +1277,16 @@ fn compute_near_miss_detail(
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
+    betweenness_approximate: bool,
 }
 
 impl SnapshotEnricher {
     /// Create a new enricher wrapping the given snapshot.
     pub fn new(snapshot: Snapshot) -> Self {
-        SnapshotEnricher { snapshot }
+        SnapshotEnricher {
+            snapshot,
+            betweenness_approximate: false,
+        }
     }
 
     /// Populate churn metrics from a file churn map.
@@ -1305,9 +1330,19 @@ impl SnapshotEnricher {
         self
     }
 
-    /// Populate call graph metrics (PageRank, fan-in, SCC, etc).
-    pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
-        self.snapshot.populate_callgraph(call_graph);
+    /// Populate call graph metrics (PageRank, fan-in, betweenness, SCC, etc).
+    ///
+    /// Betweenness is computed exactly when `call_graph.nodes.len() <= exact_threshold`,
+    /// and via k-source approximation otherwise.
+    pub fn with_callgraph(
+        mut self,
+        call_graph: &crate::callgraph::CallGraph,
+        exact_threshold: usize,
+        approx_k: usize,
+    ) -> Self {
+        self.betweenness_approximate =
+            self.snapshot
+                .populate_callgraph(call_graph, exact_threshold, approx_k);
         self
     }
 
@@ -1324,7 +1359,7 @@ impl SnapshotEnricher {
         self.snapshot
             .populate_driver_labels(driver_threshold_percentile);
         self.snapshot.compute_quadrants(driver_threshold_percentile);
-        self.snapshot.compute_summary();
+        self.snapshot.compute_summary(self.betweenness_approximate);
         self
     }
 

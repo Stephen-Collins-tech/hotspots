@@ -161,12 +161,64 @@ impl CallGraph {
         ranks
     }
 
-    /// Calculate betweenness centrality for all functions
+    /// Calculate betweenness centrality using pivoted source sampling (approximate).
+    ///
+    /// Uses systematic k-source sampling: selects k sources evenly spaced through the
+    /// sorted node list and scales contributions by N/k. This gives an unbiased estimator
+    /// of exact betweenness with O(k × (N+E)) complexity instead of O(N × (N+E)).
+    ///
+    /// Falls back to exact computation when `self.nodes.len() <= k`.
+    ///
+    /// The source selection is deterministic (no RNG): sorting + stride gives identical
+    /// output for identical input, preserving the codebase's byte-for-byte invariant.
+    ///
+    /// # Arguments
+    ///
+    /// * `k` - Number of pivot sources to sample (higher = more accurate, more time)
+    pub fn betweenness_centrality_approx(&self, k: usize) -> HashMap<String, f64> {
+        let n = self.nodes.len();
+        if n <= k {
+            return self.betweenness_centrality();
+        }
+
+        let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
+        sorted_nodes.sort();
+
+        let step = n / k;
+        let scale = n as f64 / k as f64;
+
+        let mut betweenness: HashMap<String, f64> =
+            self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
+
+        for i in 0..k {
+            let source = sorted_nodes[i * step];
+            let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
+            let delta = brandes_accumulate(&stack, &predecessors, &sigma);
+            for w in &stack {
+                if w != source {
+                    *betweenness.entry(w.clone()).or_insert(0.0) +=
+                        delta.get(w).copied().unwrap_or(0.0) * scale;
+                }
+            }
+        }
+
+        if n > 2 {
+            let normalization = 1.0 / ((n - 1) * (n - 2)) as f64;
+            for value in betweenness.values_mut() {
+                *value *= normalization;
+            }
+        }
+
+        betweenness
+    }
+
+    /// Calculate betweenness centrality for all functions (exact).
     ///
     /// Betweenness measures how often a function appears on shortest paths between other functions.
     /// High betweenness indicates a function is a critical bridge/bottleneck.
     ///
-    /// Uses Brandes' algorithm for efficient computation.
+    /// Uses Brandes' algorithm: O(N × (N+E)). For large graphs use
+    /// `betweenness_centrality_approx` instead.
     pub fn betweenness_centrality(&self) -> HashMap<String, f64> {
         let mut betweenness: HashMap<String, f64> =
             self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();

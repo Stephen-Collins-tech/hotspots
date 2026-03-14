@@ -93,6 +93,18 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub driver_threshold_percentile: Option<u8>,
 
+    /// Node count above which betweenness centrality switches from exact to approximate
+    /// (default: 2000). Below this threshold the exact O(N²) Brandes algorithm runs;
+    /// above it, k-source pivot sampling is used instead.
+    #[serde(default)]
+    pub betweenness_exact_threshold: Option<usize>,
+
+    /// Number of pivot sources for approximate betweenness centrality (default: 256).
+    /// Higher values improve accuracy at proportional cost. Only used when the graph
+    /// exceeds `betweenness_exact_threshold`. Must be at least 1.
+    #[serde(default)]
+    pub betweenness_approx_k: Option<usize>,
+
     /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
     #[serde(default)]
     pub patterns: Option<PatternThresholdsConfig>,
@@ -221,6 +233,10 @@ pub struct ResolvedConfig {
     pub per_function_touches: bool,
     /// Percentile threshold for driving dimension detection (1–99)
     pub driver_threshold_percentile: u8,
+    /// Node count above which betweenness switches to approximate algorithm
+    pub betweenness_exact_threshold: usize,
+    /// Number of pivot sources for approximate betweenness
+    pub betweenness_approx_k: usize,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Pattern detection thresholds
@@ -274,6 +290,11 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
                 "driver_threshold_percentile must be between 1 and 99 (got {})",
                 p
             );
+        }
+    }
+    if let Some(k) = c.betweenness_approx_k {
+        if k == 0 {
+            anyhow::bail!("betweenness_approx_k must be at least 1");
         }
     }
     Ok(())
@@ -585,6 +606,8 @@ impl HotspotsConfig {
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(true),
             driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
+            betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
+            betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
             config_path: None,
         })
     }
