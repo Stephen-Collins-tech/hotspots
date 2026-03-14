@@ -562,6 +562,8 @@ impl Snapshot {
         let betweenness_scores = call_graph.betweenness_centrality();
         let scc_info = call_graph.find_strongly_connected_components();
         let dependency_depths = call_graph.compute_dependency_depth();
+        // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls below
+        let fan_in_map = call_graph.build_fan_in_map();
 
         // Build a map of function_id -> total churn (lines_added + lines_deleted)
         let mut churn_map: HashMap<String, usize> = HashMap::new();
@@ -597,7 +599,7 @@ impl Snapshot {
                 };
 
                 function.callgraph = Some(CallGraphMetrics {
-                    fan_in: call_graph.fan_in(function_id),
+                    fan_in: fan_in_map.get(function_id).copied().unwrap_or(0),
                     fan_out: call_graph.fan_out(function_id),
                     pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
                     betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),

@@ -18,7 +18,7 @@
 //! architecture. Advanced call tracking (including external dependencies and runtime
 //! analysis) is reserved for future cloud/pro versions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Call graph for a codebase
 #[derive(Debug, Clone)]
@@ -131,6 +131,11 @@ impl CallGraph {
             }
         }
 
+        // Sort caller lists once for deterministic computation across all iterations
+        for callers in reverse_edges.values_mut() {
+            callers.sort();
+        }
+
         // Iterative PageRank calculation
         for _ in 0..iterations {
             let mut new_ranks = HashMap::new();
@@ -138,11 +143,9 @@ impl CallGraph {
             for node in &self.nodes {
                 let mut rank = (1.0 - damping) / n as f64;
 
-                // Sum contributions from all callers (sorted for determinism)
+                // Sum contributions from all callers
                 if let Some(callers) = reverse_edges.get(node) {
-                    let mut sorted_callers = callers.clone();
-                    sorted_callers.sort();
-                    for caller in &sorted_callers {
+                    for caller in callers {
                         let caller_rank = ranks.get(caller).copied().unwrap_or(initial_rank);
                         let caller_fan_out = self.fan_out(caller).max(1);
                         rank += damping * (caller_rank / caller_fan_out as f64);
@@ -293,10 +296,12 @@ impl CallGraph {
             }
         }
 
-        // If no explicit entry points found, use all functions with fan_in = 0
+        // If no explicit entry points found, use all functions with fan_in = 0.
+        // Build fan-in counts in O(N+E) instead of calling fan_in() per node (O(N*E)).
         if entry_points.is_empty() {
-            for node in &self.nodes {
-                if self.fan_in(node) == 0 {
+            let fan_in_map = self.build_fan_in_map();
+            for (node, count) in &fan_in_map {
+                if *count == 0 {
                     entry_points.push(node.clone());
                 }
             }
@@ -334,6 +339,19 @@ impl CallGraph {
         }
 
         depths
+    }
+
+    /// Build a map from function ID to its fan-in count in O(N + E).
+    ///
+    /// Prefer this over repeated `fan_in()` calls when computing fan-in for many functions.
+    pub fn build_fan_in_map(&self) -> HashMap<String, usize> {
+        let mut map: HashMap<String, usize> = self.nodes.iter().map(|n| (n.clone(), 0)).collect();
+        for callees in self.edges.values() {
+            for callee in callees {
+                *map.entry(callee.clone()).or_insert(0) += 1;
+            }
+        }
+        map
     }
 
     /// Check if a function is likely an entry point
@@ -420,14 +438,14 @@ fn brandes_bfs(
     distance.insert(source.to_string(), 0);
     sigma.insert(source.to_string(), 1.0);
 
-    // BFS: insert at front, pop from back (FIFO ordering)
-    let mut queue = vec![source.to_string()];
-    while let Some(v) = queue.pop() {
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(source.to_string());
+    while let Some(v) = queue.pop_front() {
         stack.push(v.clone());
         if let Some(neighbors) = edges.get(&v) {
             for w in neighbors {
                 if distance.get(w).copied().unwrap_or(-1) < 0 {
-                    queue.insert(0, w.clone());
+                    queue.push_back(w.clone());
                     distance.insert(w.clone(), distance.get(&v).copied().unwrap_or(0) + 1);
                 }
                 if distance.get(w).copied().unwrap_or(0)
