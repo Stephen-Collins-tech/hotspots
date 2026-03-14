@@ -719,4 +719,71 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_approx_betweenness_top_hubs_rank_preserved() {
+        // Core invariant: approximate betweenness surfaces the biggest structural
+        // offenders in the right order, even at k << n.
+        //
+        // Three dumbbell clusters, each with a single hub bridging its in- and
+        // out-nodes. Different cluster sizes give separated exact betweenness so
+        // we can assert strict rank ordering, not just set membership.
+        //
+        //   in_hub_a_0..49 ──► hub_a ──► out_hub_a_0..49   (50×50 = 2500 paths)
+        //   in_hub_b_0..29 ──► hub_b ──► out_hub_b_0..29   (30×30 =  900 paths)
+        //   in_hub_c_0..14 ──► hub_c ──► out_hub_c_0..14   (15×15 =  225 paths)
+        //
+        // ~193 nodes total, k=32. The three hubs are the only non-leaf nodes so
+        // they must be the top-3 in both exact and approximate rankings.
+        let mut graph = CallGraph::new();
+        for (hub, size) in [("hub_a", 50usize), ("hub_b", 30), ("hub_c", 15)] {
+            for i in 0..size {
+                graph.add_edge(format!("in_{hub}_{i}"), hub.to_string());
+                graph.add_edge(hub.to_string(), format!("out_{hub}_{i}"));
+            }
+        }
+
+        assert!(
+            graph.nodes.len() > 32,
+            "graph must be large enough that k=32 is a real approximation"
+        );
+
+        let exact = graph.betweenness_centrality();
+        let approx = graph.betweenness_centrality_approx(32);
+
+        // Exact ranking must be hub_a > hub_b > hub_c (structural guarantee from cluster sizes)
+        let ex_a = exact.get("hub_a").copied().unwrap_or(0.0);
+        let ex_b = exact.get("hub_b").copied().unwrap_or(0.0);
+        let ex_c = exact.get("hub_c").copied().unwrap_or(0.0);
+        assert!(
+            ex_a > ex_b && ex_b > ex_c,
+            "exact: hub_a={ex_a} hub_b={ex_b} hub_c={ex_c}"
+        );
+
+        // Approximate ranking must preserve hub_a > hub_b > hub_c
+        let ap_a = approx.get("hub_a").copied().unwrap_or(0.0);
+        let ap_b = approx.get("hub_b").copied().unwrap_or(0.0);
+        let ap_c = approx.get("hub_c").copied().unwrap_or(0.0);
+        assert!(
+            ap_a > ap_b && ap_b > ap_c,
+            "approx rank broken: hub_a={ap_a} hub_b={ap_b} hub_c={ap_c}"
+        );
+
+        // All three hubs must appear in the top-3 — no leaf node should outrank them
+        let mut ranked: Vec<(&str, f64)> = approx.iter().map(|(k, &v)| (k.as_str(), v)).collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let top3: Vec<&str> = ranked.iter().take(3).map(|(name, _)| *name).collect();
+        assert!(
+            top3.contains(&"hub_a"),
+            "hub_a missing from top-3: {top3:?}"
+        );
+        assert!(
+            top3.contains(&"hub_b"),
+            "hub_b missing from top-3: {top3:?}"
+        );
+        assert!(
+            top3.contains(&"hub_c"),
+            "hub_c missing from top-3: {top3:?}"
+        );
+    }
 }
