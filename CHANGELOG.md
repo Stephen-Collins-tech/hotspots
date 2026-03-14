@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Bug Fixes
+- Use (i*n)/k for full-range pivot sampling in approx betweenness
+
+
+### Features
+- Approximate betweenness centrality for large codebases
+- Warn on minified and vendored files during analysis
+
+
+### Performance
+- Fix O(N³) BFS queue, O(N×E) fan-in, and redundant sorts
+
 ## [1.7.1] - 2026-03-13
 
 ### Bug Fixes
