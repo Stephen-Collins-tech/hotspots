@@ -12,6 +12,7 @@
 use crate::git::GitContext;
 use crate::report::{FunctionRiskReport, MetricsReport};
 use anyhow::{Context, Result};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -337,6 +338,11 @@ impl Snapshot {
     // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
     // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
     // functions whose line ranges have not changed since the last run (warm path).
+    //
+    // Three-phase implementation to parallelize cache misses:
+    //   Phase 1 (serial): read cache, apply hits, collect misses with their indices.
+    //   Phase 2 (parallel): run git subprocesses for all misses via rayon.
+    //   Phase 3 (serial): apply results, write cache.
     fn populate_per_function_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
@@ -344,19 +350,17 @@ impl Snapshot {
     ) -> anyhow::Result<()> {
         let sha = self.commit.sha.clone();
         let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
-        let mut dirty = false;
-
         let total = self.functions.len();
+
+        // Phase 1: apply cache hits, collect misses.
+        // Each miss: (function_index, cache_key, rel_path, start_line, end_line)
+        let mut misses: Vec<(usize, String, String, u32, u32)> = Vec::new();
         for (i, function) in self.functions.iter_mut().enumerate() {
-            if let Some(f) = progress_fn {
-                f(i, total);
-            }
             let rel = if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
                 r.to_string_lossy().replace('\\', "/")
             } else {
                 function.file.replace('\\', "/")
             };
-
             let start_line = function.line;
             let end_line =
                 (start_line + (function.metrics.loc as u32).saturating_sub(1)).max(start_line);
@@ -366,45 +370,65 @@ impl Snapshot {
                 function.touch_count_30d = Some(count);
                 function.days_since_last_change = days;
             } else {
-                match crate::git::function_touch_metrics_at(
-                    repo_root,
-                    &rel,
-                    start_line,
-                    end_line,
-                    self.commit.timestamp,
-                ) {
-                    Ok((count, days)) => {
-                        function.touch_count_30d = Some(count);
-                        function.days_since_last_change = days;
-                        cache.insert(key, (count, days));
-                        dirty = true;
-                    }
-                    Err(_) => {
-                        function.touch_count_30d = Some(0);
-                        cache.insert(key, (0, None));
-                        dirty = true;
-                    }
-                }
+                misses.push((i, key, rel, start_line, end_line));
             }
         }
 
-        if dirty {
-            // Evict stale entries (most-recent SHAs first) then write.
-            // Always include the current SHA first so we don't evict entries we just
-            // wrote — this matters when --no-persist is used and the SHA isn't in the index yet.
-            let known_shas: Vec<String> = {
-                let mut commits = Index::load_or_new(&index_path(repo_root))
-                    .map(|idx| idx.commits)
-                    .unwrap_or_default();
-                commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-                let mut shas = vec![sha.clone()];
-                shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
-                shas
-            };
-            crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
-            if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
-                eprintln!("warning: failed to write touch cache: {e}");
-            }
+        if let Some(f) = progress_fn {
+            f(total - misses.len(), total);
+        }
+
+        if misses.is_empty() {
+            return Ok(());
+        }
+
+        // Phase 2: run git subprocesses in parallel for all cache misses.
+        // Progress is not reported per-item here (progress_fn is not Sync);
+        // the caller sees a jump from cache-hits-done to total at phase end.
+        let timestamp = self.commit.timestamp;
+        let results: Vec<(usize, String, (usize, Option<u32>))> = misses
+            .par_iter()
+            .map(|(idx, key, rel, start_line, end_line)| {
+                let value = match crate::git::function_touch_metrics_at(
+                    repo_root,
+                    rel,
+                    *start_line,
+                    *end_line,
+                    timestamp,
+                ) {
+                    Ok((count, days)) => (count, days),
+                    Err(_) => (0usize, None),
+                };
+                (*idx, key.clone(), value)
+            })
+            .collect();
+
+        // Phase 3: apply results and write cache.
+        for (idx, key, (count, days)) in results {
+            self.functions[idx].touch_count_30d = Some(count);
+            self.functions[idx].days_since_last_change = days;
+            cache.insert(key, (count, days));
+        }
+
+        if let Some(f) = progress_fn {
+            f(total, total);
+        }
+
+        // Evict stale entries (most-recent SHAs first) then write.
+        // Always include the current SHA first so we don't evict entries we just
+        // wrote — this matters when --no-persist is used and the SHA isn't in the index yet.
+        let known_shas: Vec<String> = {
+            let mut commits = Index::load_or_new(&index_path(repo_root))
+                .map(|idx| idx.commits)
+                .unwrap_or_default();
+            commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            let mut shas = vec![sha.clone()];
+            shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
+            shas
+        };
+        crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
+        if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
+            eprintln!("warning: failed to write touch cache: {e}");
         }
 
         Ok(())
@@ -1868,5 +1892,60 @@ mod tests {
         assert_eq!(index.commits[0].sha, "aaa");
         assert_eq!(index.commits[1].sha, "mmm");
         assert_eq!(index.commits[2].sha, "zzz");
+    }
+
+    // Cache key for the test snapshot's single function:
+    //   sha="abc123", file="src/foo.ts", line=42, loc=10 → end=51
+    fn test_cache_key() -> String {
+        crate::touch_cache::cache_key("abc123", "src/foo.ts", 42, 51)
+    }
+
+    #[test]
+    fn test_populate_touch_metrics_applies_cache_hits() {
+        let snapshot = create_test_snapshot();
+        let mut cache = crate::touch_cache::TouchCache::new();
+        cache.insert(test_cache_key(), (7, Some(3)));
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
+
+        let mut snapshot = snapshot;
+        snapshot
+            .populate_touch_metrics(dir.path(), true, None)
+            .unwrap();
+
+        assert_eq!(snapshot.functions[0].touch_count_30d, Some(7));
+        assert_eq!(snapshot.functions[0].days_since_last_change, Some(3));
+    }
+
+    #[test]
+    fn test_populate_touch_metrics_progress_fires_on_all_cache_hits() {
+        use std::sync::{Arc, Mutex};
+
+        let snapshot = create_test_snapshot();
+        let mut cache = crate::touch_cache::TouchCache::new();
+        cache.insert(test_cache_key(), (3, Some(1)));
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
+
+        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let calls_ref = calls.clone();
+
+        let mut snapshot = snapshot;
+        snapshot
+            .populate_touch_metrics(
+                dir.path(),
+                true,
+                Some(&|i, n| {
+                    calls_ref.lock().unwrap().push((i, n));
+                }),
+            )
+            .unwrap();
+
+        let calls = calls.lock().unwrap();
+        // Phase 1 fires once; misses=0 so we return early with (total, total)
+        assert!(!calls.is_empty(), "progress should have been called");
+        assert_eq!(*calls.last().unwrap(), (1, 1));
     }
 }
