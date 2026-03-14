@@ -1893,4 +1893,59 @@ mod tests {
         assert_eq!(index.commits[1].sha, "mmm");
         assert_eq!(index.commits[2].sha, "zzz");
     }
+
+    // Cache key for the test snapshot's single function:
+    //   sha="abc123", file="src/foo.ts", line=42, loc=10 → end=51
+    fn test_cache_key() -> String {
+        crate::touch_cache::cache_key("abc123", "src/foo.ts", 42, 51)
+    }
+
+    #[test]
+    fn test_populate_touch_metrics_applies_cache_hits() {
+        let snapshot = create_test_snapshot();
+        let mut cache = crate::touch_cache::TouchCache::new();
+        cache.insert(test_cache_key(), (7, Some(3)));
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
+
+        let mut snapshot = snapshot;
+        snapshot
+            .populate_touch_metrics(dir.path(), true, None)
+            .unwrap();
+
+        assert_eq!(snapshot.functions[0].touch_count_30d, Some(7));
+        assert_eq!(snapshot.functions[0].days_since_last_change, Some(3));
+    }
+
+    #[test]
+    fn test_populate_touch_metrics_progress_fires_on_all_cache_hits() {
+        use std::sync::{Arc, Mutex};
+
+        let snapshot = create_test_snapshot();
+        let mut cache = crate::touch_cache::TouchCache::new();
+        cache.insert(test_cache_key(), (3, Some(1)));
+
+        let dir = tempfile::tempdir().unwrap();
+        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
+
+        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let calls_ref = calls.clone();
+
+        let mut snapshot = snapshot;
+        snapshot
+            .populate_touch_metrics(
+                dir.path(),
+                true,
+                Some(&|i, n| {
+                    calls_ref.lock().unwrap().push((i, n));
+                }),
+            )
+            .unwrap();
+
+        let calls = calls.lock().unwrap();
+        // Phase 1 fires once; misses=0 so we return early with (total, total)
+        assert!(!calls.is_empty(), "progress should have been called");
+        assert_eq!(*calls.last().unwrap(), (1, 1));
+    }
 }
