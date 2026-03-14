@@ -38,6 +38,24 @@ pub fn analyze_file_with_config(
 
     let src = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
+
+    let (max_line, long_line_count) = long_line_stats(&src, 1000);
+    if long_line_count >= 3 {
+        eprintln!(
+            "warning: {} looks minified or machine-generated ({} lines exceed 1000 chars, max: {}). \
+             Consider adding it to 'exclude' in .hotspotsrc.json",
+            path.display(),
+            long_line_count,
+            max_line
+        );
+    } else if looks_vendored(path) {
+        eprintln!(
+            "warning: {} appears to be vendored or generated (path suggests third-party code). \
+             Consider adding it to 'exclude' in .hotspotsrc.json",
+            path.display()
+        );
+    }
+
     let language = Language::from_path(path)
         .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
     let parser = create_parser(language, source_map)?;
@@ -58,6 +76,46 @@ pub fn analyze_file_with_config(
         }
     }
     Ok(reports)
+}
+
+/// Returns the length of the longest line and the count of lines exceeding `threshold` chars.
+///
+/// Used to detect minified or machine-generated files before full analysis.
+fn long_line_stats(src: &str, threshold: usize) -> (usize, usize) {
+    let mut max_len = 0;
+    let mut count = 0;
+    for line in src.lines() {
+        let len = line.len();
+        if len > max_len {
+            max_len = len;
+        }
+        if len > threshold {
+            count += 1;
+        }
+    }
+    (max_len, count)
+}
+
+/// Returns true if a file path suggests it contains vendored or generated third-party code.
+///
+/// Checks for common directory conventions used to store vendor dependencies, static assets,
+/// and generated files that are typically not authored code (e.g. `vendor/`, `assets/js/`,
+/// `third_party/`, `fixtures/`).
+fn looks_vendored(path: &Path) -> bool {
+    const VENDORED_SEGMENTS: &[&str] = &[
+        "vendor",
+        "vendors",
+        "third_party",
+        "thirdparty",
+        "assets/js",
+        "static/js",
+        "public/js",
+        "dist/js",
+    ];
+    let path_str = path.to_string_lossy().to_lowercase();
+    VENDORED_SEGMENTS.iter().any(|seg| {
+        path_str.contains(&format!("/{seg}/")) || path_str.contains(&format!("/{seg}\\"))
+    })
 }
 
 /// Instantiates the correct parser for the given language.

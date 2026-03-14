@@ -657,7 +657,11 @@ pub(crate) fn build_enriched_snapshot(
     enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {
-        enricher = enricher.with_callgraph(graph);
+        enricher = enricher.with_callgraph(
+            graph,
+            resolved_config.betweenness_exact_threshold,
+            resolved_config.betweenness_approx_k,
+        );
     }
 
     Ok(enricher

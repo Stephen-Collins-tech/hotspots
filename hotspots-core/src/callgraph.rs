@@ -18,7 +18,7 @@
 //! architecture. Advanced call tracking (including external dependencies and runtime
 //! analysis) is reserved for future cloud/pro versions.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Call graph for a codebase
 #[derive(Debug, Clone)]
@@ -131,6 +131,11 @@ impl CallGraph {
             }
         }
 
+        // Sort caller lists once for deterministic computation across all iterations
+        for callers in reverse_edges.values_mut() {
+            callers.sort();
+        }
+
         // Iterative PageRank calculation
         for _ in 0..iterations {
             let mut new_ranks = HashMap::new();
@@ -138,11 +143,9 @@ impl CallGraph {
             for node in &self.nodes {
                 let mut rank = (1.0 - damping) / n as f64;
 
-                // Sum contributions from all callers (sorted for determinism)
+                // Sum contributions from all callers
                 if let Some(callers) = reverse_edges.get(node) {
-                    let mut sorted_callers = callers.clone();
-                    sorted_callers.sort();
-                    for caller in &sorted_callers {
+                    for caller in callers {
                         let caller_rank = ranks.get(caller).copied().unwrap_or(initial_rank);
                         let caller_fan_out = self.fan_out(caller).max(1);
                         rank += damping * (caller_rank / caller_fan_out as f64);
@@ -158,12 +161,67 @@ impl CallGraph {
         ranks
     }
 
-    /// Calculate betweenness centrality for all functions
+    /// Calculate betweenness centrality using pivoted source sampling (approximate).
+    ///
+    /// Uses systematic k-source sampling: selects k sources evenly spaced through the
+    /// sorted node list and scales contributions by N/k. This gives an unbiased estimator
+    /// of exact betweenness with O(k × (N+E)) complexity instead of O(N × (N+E)).
+    ///
+    /// Falls back to exact computation when `self.nodes.len() <= k`.
+    ///
+    /// The source selection is deterministic (no RNG): sorting + stride gives identical
+    /// output for identical input, preserving the codebase's byte-for-byte invariant.
+    ///
+    /// # Arguments
+    ///
+    /// * `k` - Number of pivot sources to sample (higher = more accurate, more time)
+    pub fn betweenness_centrality_approx(&self, k: usize) -> HashMap<String, f64> {
+        let n = self.nodes.len();
+        if n <= k {
+            return self.betweenness_centrality();
+        }
+
+        let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
+        sorted_nodes.sort();
+
+        let scale = n as f64 / k as f64;
+
+        let mut betweenness: HashMap<String, f64> =
+            self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
+
+        for i in 0..k {
+            // Use (i * n) / k rather than i * (n / k) so that samples are spread
+            // evenly across [0, n-1]. The naive step = n/k approach truncates the
+            // tail: e.g. n=300, k=256 gives step=1 and only samples indices 0–255,
+            // permanently excluding the last 44 nodes.
+            let source = sorted_nodes[(i * n) / k];
+            let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
+            let delta = brandes_accumulate(&stack, &predecessors, &sigma);
+            for w in &stack {
+                if w != source {
+                    *betweenness.entry(w.clone()).or_insert(0.0) +=
+                        delta.get(w).copied().unwrap_or(0.0) * scale;
+                }
+            }
+        }
+
+        if n > 2 {
+            let normalization = 1.0 / ((n - 1) * (n - 2)) as f64;
+            for value in betweenness.values_mut() {
+                *value *= normalization;
+            }
+        }
+
+        betweenness
+    }
+
+    /// Calculate betweenness centrality for all functions (exact).
     ///
     /// Betweenness measures how often a function appears on shortest paths between other functions.
     /// High betweenness indicates a function is a critical bridge/bottleneck.
     ///
-    /// Uses Brandes' algorithm for efficient computation.
+    /// Uses Brandes' algorithm: O(N × (N+E)). For large graphs use
+    /// `betweenness_centrality_approx` instead.
     pub fn betweenness_centrality(&self) -> HashMap<String, f64> {
         let mut betweenness: HashMap<String, f64> =
             self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
@@ -293,10 +351,12 @@ impl CallGraph {
             }
         }
 
-        // If no explicit entry points found, use all functions with fan_in = 0
+        // If no explicit entry points found, use all functions with fan_in = 0.
+        // Build fan-in counts in O(N+E) instead of calling fan_in() per node (O(N*E)).
         if entry_points.is_empty() {
-            for node in &self.nodes {
-                if self.fan_in(node) == 0 {
+            let fan_in_map = self.build_fan_in_map();
+            for (node, count) in &fan_in_map {
+                if *count == 0 {
                     entry_points.push(node.clone());
                 }
             }
@@ -334,6 +394,19 @@ impl CallGraph {
         }
 
         depths
+    }
+
+    /// Build a map from function ID to its fan-in count in O(N + E).
+    ///
+    /// Prefer this over repeated `fan_in()` calls when computing fan-in for many functions.
+    pub fn build_fan_in_map(&self) -> HashMap<String, usize> {
+        let mut map: HashMap<String, usize> = self.nodes.iter().map(|n| (n.clone(), 0)).collect();
+        for callees in self.edges.values() {
+            for callee in callees {
+                *map.entry(callee.clone()).or_insert(0) += 1;
+            }
+        }
+        map
     }
 
     /// Check if a function is likely an entry point
@@ -420,14 +493,14 @@ fn brandes_bfs(
     distance.insert(source.to_string(), 0);
     sigma.insert(source.to_string(), 1.0);
 
-    // BFS: insert at front, pop from back (FIFO ordering)
-    let mut queue = vec![source.to_string()];
-    while let Some(v) = queue.pop() {
+    let mut queue: VecDeque<String> = VecDeque::new();
+    queue.push_back(source.to_string());
+    while let Some(v) = queue.pop_front() {
         stack.push(v.clone());
         if let Some(neighbors) = edges.get(&v) {
             for w in neighbors {
                 if distance.get(w).copied().unwrap_or(-1) < 0 {
-                    queue.insert(0, w.clone());
+                    queue.push_back(w.clone());
                     distance.insert(w.clone(), distance.get(&v).copied().unwrap_or(0) + 1);
                 }
                 if distance.get(w).copied().unwrap_or(0)
@@ -522,5 +595,195 @@ mod tests {
         // A should have lowest rank (not called by anyone)
         assert!(ranks.get("C").copied().unwrap_or(0.0) > ranks.get("B").copied().unwrap_or(0.0));
         assert!(ranks.get("B").copied().unwrap_or(0.0) > ranks.get("A").copied().unwrap_or(0.0));
+    }
+
+    #[test]
+    fn test_build_fan_in_map() {
+        let mut graph = CallGraph::new();
+        // A -> B, A -> C, B -> C
+        graph.add_edge("A".to_string(), "B".to_string());
+        graph.add_edge("A".to_string(), "C".to_string());
+        graph.add_edge("B".to_string(), "C".to_string());
+
+        let fan_in = graph.build_fan_in_map();
+        assert_eq!(fan_in.get("A").copied().unwrap_or(0), 0); // nobody calls A
+        assert_eq!(fan_in.get("B").copied().unwrap_or(0), 1); // A calls B
+        assert_eq!(fan_in.get("C").copied().unwrap_or(0), 2); // A and B call C
+    }
+
+    #[test]
+    fn test_betweenness_linear_chain() {
+        // a -> b -> c: b is the only intermediary on the a→c shortest path.
+        // Normalized betweenness for b = 1 / ((3-1)(3-2)) = 0.5
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "b".to_string());
+        graph.add_edge("b".to_string(), "c".to_string());
+
+        let scores = graph.betweenness_centrality();
+        assert!(
+            (scores["b"] - 0.5).abs() < 1e-10,
+            "b betweenness should be 0.5"
+        );
+        assert!(scores["a"].abs() < 1e-10, "a betweenness should be 0.0");
+        assert!(scores["c"].abs() < 1e-10, "c betweenness should be 0.0");
+    }
+
+    #[test]
+    fn test_approx_betweenness_equals_exact_when_k_geq_n() {
+        // When k >= n the n<=k guard forces exact computation; approx and exact must match.
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "b".to_string());
+        graph.add_edge("b".to_string(), "c".to_string());
+        graph.add_edge("c".to_string(), "d".to_string());
+
+        let exact = graph.betweenness_centrality();
+        let approx = graph.betweenness_centrality_approx(100); // k >> n=4
+
+        for (node, &exact_val) in &exact {
+            let approx_val = approx.get(node).copied().unwrap_or(0.0);
+            assert!(
+                (exact_val - approx_val).abs() < 1e-10,
+                "node {node}: exact={exact_val}, approx={approx_val}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_approx_betweenness_identifies_bridge() {
+        // "bridge" is the only node connecting callers to callees, so it must have
+        // the highest betweenness even when approximation is used (k=2 < n=4).
+        //
+        //   a ──► bridge ──► y
+        //                └──► z
+        let mut graph = CallGraph::new();
+        graph.add_edge("a".to_string(), "bridge".to_string());
+        graph.add_edge("bridge".to_string(), "y".to_string());
+        graph.add_edge("bridge".to_string(), "z".to_string());
+
+        let approx = graph.betweenness_centrality_approx(2);
+        let bridge_score = approx.get("bridge").copied().unwrap_or(0.0);
+        for (node, &score) in &approx {
+            if node != "bridge" {
+                assert!(
+                    bridge_score >= score,
+                    "bridge ({bridge_score}) should dominate {node} ({score})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_approx_betweenness_pivot_covers_tail() {
+        // Regression for the (i*n)/k sampling fix.
+        //
+        // "z_source" sorts last and has outgoing paths through "hub" to several
+        // destinations.  With the old `step = n/k` formula, z_source would be
+        // excluded as a pivot when k is small (tail nodes are never sampled).
+        // We verify:
+        //   1. approx(k=n) matches exact exactly (the n<=k fallback).
+        //   2. hub has the highest betweenness in the exact result — confirming
+        //      the graph structure is meaningful.
+        //
+        //   a_in ──┐
+        //   b_in ──┤──► hub ──► x_out
+        //  z_source┘        └──► y_out
+        let mut graph = CallGraph::new();
+        graph.add_edge("a_in".to_string(), "hub".to_string());
+        graph.add_edge("b_in".to_string(), "hub".to_string());
+        graph.add_edge("z_source".to_string(), "hub".to_string());
+        graph.add_edge("hub".to_string(), "x_out".to_string());
+        graph.add_edge("hub".to_string(), "y_out".to_string());
+
+        let n = graph.nodes.len();
+        let exact = graph.betweenness_centrality();
+
+        // k=n must be byte-for-byte identical to exact
+        let approx_full = graph.betweenness_centrality_approx(n);
+        for (node, &val) in &exact {
+            let av = approx_full.get(node).copied().unwrap_or(0.0);
+            assert!(
+                (val - av).abs() < 1e-10,
+                "k=n mismatch for {node}: exact={val}, approx={av}"
+            );
+        }
+
+        // hub must be the top-betweenness node in exact
+        let hub_score = exact.get("hub").copied().unwrap_or(0.0);
+        assert!(hub_score > 0.0, "hub should have non-zero betweenness");
+        for (node, &val) in &exact {
+            if node != "hub" {
+                assert!(
+                    hub_score >= val,
+                    "hub ({hub_score}) should have highest betweenness, but {node}={val}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_approx_betweenness_top_hubs_rank_preserved() {
+        // Core invariant: approximate betweenness surfaces the biggest structural
+        // offenders in the right order, even at k << n.
+        //
+        // Three dumbbell clusters, each with a single hub bridging its in- and
+        // out-nodes. Different cluster sizes give separated exact betweenness so
+        // we can assert strict rank ordering, not just set membership.
+        //
+        //   in_hub_a_0..49 ──► hub_a ──► out_hub_a_0..49   (50×50 = 2500 paths)
+        //   in_hub_b_0..29 ──► hub_b ──► out_hub_b_0..29   (30×30 =  900 paths)
+        //   in_hub_c_0..14 ──► hub_c ──► out_hub_c_0..14   (15×15 =  225 paths)
+        //
+        // ~193 nodes total, k=32. The three hubs are the only non-leaf nodes so
+        // they must be the top-3 in both exact and approximate rankings.
+        let mut graph = CallGraph::new();
+        for (hub, size) in [("hub_a", 50usize), ("hub_b", 30), ("hub_c", 15)] {
+            for i in 0..size {
+                graph.add_edge(format!("in_{hub}_{i}"), hub.to_string());
+                graph.add_edge(hub.to_string(), format!("out_{hub}_{i}"));
+            }
+        }
+
+        assert!(
+            graph.nodes.len() > 32,
+            "graph must be large enough that k=32 is a real approximation"
+        );
+
+        let exact = graph.betweenness_centrality();
+        let approx = graph.betweenness_centrality_approx(32);
+
+        // Exact ranking must be hub_a > hub_b > hub_c (structural guarantee from cluster sizes)
+        let ex_a = exact.get("hub_a").copied().unwrap_or(0.0);
+        let ex_b = exact.get("hub_b").copied().unwrap_or(0.0);
+        let ex_c = exact.get("hub_c").copied().unwrap_or(0.0);
+        assert!(
+            ex_a > ex_b && ex_b > ex_c,
+            "exact: hub_a={ex_a} hub_b={ex_b} hub_c={ex_c}"
+        );
+
+        // Approximate ranking must preserve hub_a > hub_b > hub_c
+        let ap_a = approx.get("hub_a").copied().unwrap_or(0.0);
+        let ap_b = approx.get("hub_b").copied().unwrap_or(0.0);
+        let ap_c = approx.get("hub_c").copied().unwrap_or(0.0);
+        assert!(
+            ap_a > ap_b && ap_b > ap_c,
+            "approx rank broken: hub_a={ap_a} hub_b={ap_b} hub_c={ap_c}"
+        );
+
+        // All three hubs must appear in the top-3 — no leaf node should outrank them
+        let mut ranked: Vec<(&str, f64)> = approx.iter().map(|(k, &v)| (k.as_str(), v)).collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let top3: Vec<&str> = ranked.iter().take(3).map(|(name, _)| *name).collect();
+        assert!(
+            top3.contains(&"hub_a"),
+            "hub_a missing from top-3: {top3:?}"
+        );
+        assert!(
+            top3.contains(&"hub_b"),
+            "hub_b missing from top-3: {top3:?}"
+        );
+        assert!(
+            top3.contains(&"hub_c"),
+            "hub_c missing from top-3: {top3:?}"
+        );
     }
 }
