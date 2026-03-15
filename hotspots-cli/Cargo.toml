@@ -9,7 +9,7 @@ repository = { workspace = true }
 homepage = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
-description = "Static analysis CLI for TypeScript that computes Local Risk Score (LRS) based on control flow complexity"
+description = "Static analysis CLI for TypeScript, JavaScript, Go, Python, Rust, and Java that computes Local Risk Score (LRS)"
 readme = "../README.md"
 
 [[bin]]
