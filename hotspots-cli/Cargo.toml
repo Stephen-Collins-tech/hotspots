@@ -3,6 +3,7 @@ name = "hotspots-cli"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
+authors = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
@@ -16,7 +17,7 @@ name = "hotspots"
 path = "src/main.rs"
 
 [dependencies]
-hotspots-core = { path = "../hotspots-core" }
+hotspots-core = { version = "1.8.0", path = "../hotspots-core" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 indicatif = "0.17"
