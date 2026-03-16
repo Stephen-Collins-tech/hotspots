@@ -161,21 +161,21 @@ async function runFaultline(
   inputs: FaultlineInputs,
   context: 'pr' | 'push'
 ): Promise<FaultlineResult> {
-  const args: string[] = ['analyze'];
+  // PATH must come first as a positional argument
+  const args: string[] = ['analyze', inputs.path];
 
   // Determine mode based on context
   if (context === 'pr') {
     args.push('--mode', 'delta');
-    // Note: hotspots automatically detects merge-base from git context in PR mode
   } else {
     args.push('--mode', 'snapshot');
   }
 
+  // --policy is a boolean flag; any truthy value from the input enables it
   if (inputs.policy && context === 'pr') {
-    args.push('--policy', inputs.policy);
+    args.push('--policy');
   }
 
-  // Add optional parameters
   if (inputs.minLrs) {
     args.push('--min-lrs', inputs.minLrs);
   }
@@ -186,9 +186,6 @@ async function runFaultline(
 
   // Always generate JSON output for parsing
   args.push('--format', 'json');
-
-  // Add path as positional argument (must be last)
-  args.push(inputs.path);
 
   // Also generate HTML report
   const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-report.html');
