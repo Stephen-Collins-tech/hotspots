@@ -4,6 +4,10 @@
 
 Hotspots analyzes your codebase to find functions that are both complex and frequently changed — the 20% of code responsible for 80% of your bugs, incidents, and feature delays.
 
+![Hotspots Example Report](/hotspots-example-report.png)
+
+*Risk Landscape from a real 7,911-function codebase: 284 Critical (red), 491 High (orange). Each dot is a function — top-right are your hotspots.*
+
 ```bash
 hotspots analyze src/
 
