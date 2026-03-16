@@ -64,4 +64,4 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 
 # Sample outputs
-samples/
+samples/hotspots-example-report.png

@@ -45,6 +45,8 @@ Instead of guessing what to refactor, you get a prioritized list:
 
 ![Hotspots Example Report](assets/hotspots-example-report.png)
 
+*Risk Landscape from a real 7,911-function codebase: 284 Critical (red), 491 High (orange). Each dot is a function — top-right are your hotspots.*
+
 ```bash
 hotspots analyze src/
 
