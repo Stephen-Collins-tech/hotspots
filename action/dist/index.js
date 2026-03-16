@@ -32533,36 +32533,73 @@ async function getInputs() {
         postComment: core.getBooleanInput('post-comment')
     };
 }
-async function installFaultline(version) {
+function getPlatformInfo() {
+    const nodePlatform = os.platform();
+    const nodeArch = os.arch();
+    const platformMap = {
+        linux: 'linux',
+        darwin: 'darwin',
+        win32: 'windows'
+    };
+    const archMap = {
+        x64: 'x86_64',
+        arm64: 'aarch64'
+    };
+    const platform = platformMap[nodePlatform];
+    const arch = archMap[nodeArch];
+    if (!platform)
+        throw new Error(`Unsupported platform: ${nodePlatform}`);
+    if (!arch)
+        throw new Error(`Unsupported architecture: ${nodeArch}`);
+    const ext = nodePlatform === 'win32' ? 'zip' : 'tar.gz';
+    const binaryName = nodePlatform === 'win32' ? 'hotspots.exe' : 'hotspots';
+    return { platform, arch, ext, binaryName };
+}
+async function resolveVersion(version, token) {
+    if (version !== 'latest') {
+        return version;
+    }
+    core.info('Resolving latest hotspots release from GitHub API...');
+    const headers = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'hotspots-action'
+    };
+    if (token) {
+        headers['Authorization'] = `token ${token}`;
+    }
+    const response = await fetch('https://api.github.com/repos/Stephen-Collins-tech/hotspots/releases/latest', { headers });
+    if (!response.ok) {
+        throw new Error(`Failed to resolve latest version: ${response.status} ${response.statusText}`);
+    }
+    const data = (await response.json());
+    const resolved = data.tag_name.replace(/^v/, '');
+    core.info(`Resolved latest version: ${resolved}`);
+    return resolved;
+}
+async function installFaultline(version, token) {
     core.info(`Installing hotspots version: ${version}`);
+    const resolvedVersion = await resolveVersion(version, token);
     // Check if already cached
-    const cachedPath = tc.find('hotspots', version);
+    const cachedPath = tc.find('hotspots', resolvedVersion);
     if (cachedPath) {
         core.info(`Found cached hotspots at ${cachedPath}`);
-        return path.join(cachedPath, 'hotspots');
+        const { binaryName } = getPlatformInfo();
+        return path.join(cachedPath, binaryName);
     }
-    // Determine platform and architecture
-    const platform = os.platform();
-    const arch = os.arch();
-    let downloadUrl;
-    if (version === 'latest') {
-        // TODO: Fetch latest release from GitHub API
-        downloadUrl = `https://github.com/yourorg/hotspots/releases/latest/download/hotspots-${platform}-${arch}.tar.gz`;
-    }
-    else {
-        downloadUrl = `https://github.com/yourorg/hotspots/releases/download/v${version}/hotspots-${platform}-${arch}.tar.gz`;
-    }
+    const { platform, arch, ext, binaryName } = getPlatformInfo();
+    const downloadUrl = `https://github.com/Stephen-Collins-tech/hotspots/releases/download/v${resolvedVersion}/hotspots-${platform}-${arch}.${ext}`;
     core.info(`Downloading hotspots from ${downloadUrl}`);
     try {
         const downloadPath = await tc.downloadTool(downloadUrl);
-        const extractPath = await tc.extractTar(downloadPath);
-        const cachedDir = await tc.cacheDir(extractPath, 'hotspots', version);
-        const binaryPath = path.join(cachedDir, 'hotspots');
-        // Make binary executable
-        if (platform !== 'win32') {
+        const extractPath = ext === 'zip'
+            ? await tc.extractZip(downloadPath)
+            : await tc.extractTar(downloadPath);
+        const cachedDir = await tc.cacheDir(extractPath, 'hotspots', resolvedVersion);
+        const binaryPath = path.join(cachedDir, binaryName);
+        if (os.platform() !== 'win32') {
             await exec.exec('chmod', ['+x', binaryPath]);
         }
-        core.info(`Faultline installed successfully at ${binaryPath}`);
+        core.info(`Hotspots installed successfully at ${binaryPath}`);
         return binaryPath;
     }
     catch (error) {
@@ -32591,23 +32628,19 @@ async function detectContext() {
     return 'push';
 }
 async function runFaultline(binaryPath, inputs, context) {
-    const args = ['analyze'];
+    // PATH must come first as a positional argument
+    const args = ['analyze', inputs.path];
     // Determine mode based on context
     if (context === 'pr') {
         args.push('--mode', 'delta');
-        // Note: hotspots automatically detects merge-base from git context in PR mode
     }
     else {
         args.push('--mode', 'snapshot');
     }
-    // Add optional parameters before the path
-    if (inputs.policy) {
-        // Policy is only valid with delta mode
-        if (context === 'pr') {
-            args.push('--policy');
-        }
+    // --policy is a boolean flag; any truthy value from the input enables it
+    if (inputs.policy && context === 'pr') {
+        args.push('--policy');
     }
-    // Add optional parameters
     if (inputs.minLrs) {
         args.push('--min-lrs', inputs.minLrs);
     }
@@ -32616,8 +32649,6 @@ async function runFaultline(binaryPath, inputs, context) {
     }
     // Always generate JSON output for parsing
     args.push('--format', 'json');
-    // Add path as positional argument (must be last)
-    args.push(inputs.path);
     // Also generate HTML report
     const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-report.html');
     core.info(`Running: ${binaryPath} ${args.join(' ')}`);
@@ -32677,7 +32708,7 @@ function generateSummary(result, context) {
     const errors = violations.filter((v) => v.level === 'error');
     const warnings = violations.filter((v) => v.level === 'warning');
     const infos = violations.filter((v) => v.level === 'info');
-    let summary = '# Faultline Analysis Results\n\n';
+    let summary = '# Hotspots Analysis Results\n\n';
     if (context === 'pr') {
         summary += '**Mode:** Delta (PR analysis)\n\n';
     }
@@ -32739,7 +32770,7 @@ async function postPRComment(token, summary, reportPath) {
         repo,
         issue_number: prNumber
     });
-    const botComment = comments.data.find(comment => comment.user?.type === 'Bot' && comment.body?.includes('Faultline Analysis Results'));
+    const botComment = comments.data.find(comment => comment.user?.type === 'Bot' && comment.body?.includes('Hotspots Analysis Results'));
     if (botComment) {
         // Update existing comment
         await octokit.rest.issues.updateComment({
@@ -32767,7 +32798,7 @@ async function run() {
         core.info('Starting Faultline analysis...');
         core.info(`Inputs: ${JSON.stringify(inputs, null, 2)}`);
         // Install hotspots
-        const binaryPath = await installFaultline(inputs.version);
+        const binaryPath = await installFaultline(inputs.version, inputs.githubToken);
         // Detect context (PR or push)
         const context = await detectContext();
         core.info(`Detected context: ${context}`);
@@ -32790,7 +32821,7 @@ async function run() {
         }
         // Fail if needed
         if (!result.passed) {
-            core.setFailed(`Faultline analysis failed: ${result.violations.length} violation(s)`);
+            core.setFailed(`Hotspots analysis failed: ${result.violations.length} violation(s)`);
         }
         else {
             core.info('✅ Faultline analysis passed!');

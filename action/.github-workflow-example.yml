@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0  # Required for delta analysis
 
       - name: Run Hotspots
-        uses: yourorg/hotspots@v1  # Replace with actual action path
+        uses: Stephen-Collins-tech/hotspots/action@v1
         id: hotspots
         with:
           path: '.'
