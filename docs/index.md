@@ -4,6 +4,8 @@
 
 Hotspots analyzes your codebase to find functions that are both complex and frequently changed — the 20% of code responsible for 80% of your bugs, incidents, and feature delays.
 
+![Hotspots Example Report](/hotspots-example-report.png)
+
 ```bash
 hotspots analyze src/
 

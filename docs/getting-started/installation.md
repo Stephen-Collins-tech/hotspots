@@ -4,6 +4,14 @@ Install Hotspots on your system.
 
 ## Quick Install
 
+### cargo (Rust toolchain)
+
+```bash
+cargo install hotspots-cli
+```
+
+Available on [crates.io/crates/hotspots-cli](https://crates.io/crates/hotspots-cli). Works on macOS, Linux, and Windows wherever Rust is installed.
+
 ### macOS (Homebrew)
 
 ```bash

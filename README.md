@@ -7,7 +7,9 @@
 [![CI](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml)
 [![Security](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml)
 
-**Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Install:** `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`
+**Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Crates.io:** [![crates.io](https://img.shields.io/crates/v/hotspots-cli.svg)](https://crates.io/crates/hotspots-cli)
+
+**Install:** `cargo install hotspots-cli` &nbsp;|&nbsp; `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`
 
 **Find the code that's actually causing problems.**
 
@@ -40,6 +42,8 @@ Hotspots analyzes your codebase and git history to find functions that are:
 3. **Risky** - The dangerous combination of both
 
 Instead of guessing what to refactor, you get a prioritized list:
+
+![Hotspots Example Report](assets/hotspots-example-report.png)
 
 ```bash
 hotspots analyze src/
@@ -98,6 +102,11 @@ hotspots analyze . --mode delta --all-functions --format json
 ## Quick Start
 
 ### 1. Install
+
+**cargo (Rust toolchain):**
+```bash
+cargo install hotspots-cli
+```
 
 **macOS / Linux:**
 ```bash
@@ -444,6 +453,11 @@ hotspots config validate
 ## Installation
 
 ### Quick Install
+
+**cargo (Rust toolchain):**
+```bash
+cargo install hotspots-cli
+```
 
 **macOS / Linux:**
 ```bash
