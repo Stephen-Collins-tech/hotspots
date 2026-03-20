@@ -41,3 +41,22 @@
 
 ## Agent-Specific Notes
 - Follow `CLAUDE.md`: keep diffs minimal, batch edits, and always run fmt + clippy + tests before proposing changes.
+
+## Understanding Quadrants and Activity Risk
+
+Every function in a Hotspots snapshot has a `quadrant` field. Use it — not the raw risk score — to determine urgency:
+
+| Quadrant | Complexity | Recent Activity | What to do |
+|---|---|---|---|
+| `fire` | High | High | Act now — live regression risk |
+| `debt` | High | Low | Schedule proactively — structural debt |
+| `simple-active` | Low | High | Monitor only |
+| `simple-stable` | Low | Low | Ignore |
+
+**Critical:** `activity_risk` (the composite score) is a decay function over git history. It **never reaches zero** even if a function hasn't been touched in months. A high score alone does NOT mean a function is actively changing.
+
+To determine true activity, always check **both**:
+- `quadrant` — the authoritative fire/debt classification
+- `touches_30d` — commits touching this function in the last 30 days
+
+A `debt`-quadrant function with `touches_30d == 0` is structural debt (stable but complex). Never describe it as "actively changing." A `fire`-quadrant function with `touches_30d > 0` is a live regression surface.

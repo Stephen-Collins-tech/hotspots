@@ -758,6 +758,46 @@ Hotspots prioritizes structural properties that directly affect reasoning and co
 
 ---
 
+## Activity-Weighted Risk and Quadrants
+
+LRS measures structural complexity — but structural complexity alone doesn't tell you *when* to act. A function with LRS 15 that hasn't been touched in two years is a very different problem from one that gets edited every week.
+
+Hotspots combines LRS with git activity signals to produce an **activity-weighted risk score** and assigns every function to one of four **quadrants**:
+
+| Quadrant | LRS | Recent Activity | Priority |
+|---|---|---|---|
+| **fire** | High | High | Act now — complex AND actively changing, live regression risk |
+| **debt** | High | Low | Schedule proactively — complex but stable; high blast radius when next changed |
+| **simple-active** | Low | High | Monitor — active but manageable, low structural risk |
+| **simple-stable** | Low | Low | Ignore — lowest priority |
+
+### Key fields in JSON output
+
+| Field | Type | What it means |
+|---|---|---|
+| `quadrant` | string | One of `fire`, `debt`, `simple-active`, `simple-stable` |
+| `touches_30d` | integer | Number of commits that touched this function in the last 30 days |
+| `days_since_changed` | integer | Days since this function was last modified |
+| `activity_risk` | number | Activity-weighted risk score (LRS × activity multiplier) |
+| `lrs` | number | Local Risk Score — structural complexity only (see above) |
+
+### Critical distinction: activity_risk vs lrs
+
+`activity_risk` (sometimes labeled "risk score" in output) and `lrs` are **different fields**:
+
+- `lrs` — pure structural complexity, computed from CC/ND/FO/NS
+- `activity_risk` — `lrs` multiplied by a decay function over git commit history
+
+The decay function is applied over the last N commits (controlled by `--clone-depth`). It **never reaches zero** — even a function untouched for a year will have a non-zero `activity_risk` if it has any commit history. A high `activity_risk` therefore does not mean a function is actively changing right now.
+
+**Always check `quadrant` and `touches_30d`** to determine true activity:
+- `quadrant: "fire"` + `touches_30d > 0` → function is changing now (live regression surface)
+- `quadrant: "debt"` + `touches_30d == 0` → structural debt; stable but complex
+
+This distinction matters most when interpreting analysis output or writing tools on top of Hotspots's JSON. A high risk score in a `debt`-quadrant function is a scheduling concern, not an emergency.
+
+---
+
 ## Conclusion
 
 The Hotspots metrics and LRS calculation are based on established software engineering research and practical considerations. The four-metric system (CC, ND, FO, NS) captures multiple dimensions of complexity, and the weighted, logarithmic transforms ensure balanced, interpretable scores. Risk bands provide actionable thresholds for code review and refactoring prioritization.

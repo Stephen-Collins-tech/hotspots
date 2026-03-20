@@ -185,6 +185,24 @@ LRS is then combined with **Activity Risk** signals from git history and the cal
 
 The call graph engine resolves imports to detect fan-in, PageRank, betweenness centrality, and SCC membership. Functions that are both complex AND heavily depended upon by other changing code rise to the top.
 
+### Understanding Quadrants
+
+Every function is placed in one of four quadrants based on its structural complexity and recent activity:
+
+| Quadrant | Complexity | Recent Activity | What it means |
+|---|---|---|---|
+| **fire** | High | High | Live regression risk — complex AND actively changing right now |
+| **debt** | High | Low | Structural debt — complex but not recently touched; high blast radius when next changed |
+| **simple-active** | Low | High | Active but manageable — monitor, low structural risk |
+| **simple-stable** | Low | Low | Lowest priority |
+
+**Important:** The activity-weighted risk score (and `lrs`) is a decay function computed over git history — it never reaches zero even if a function hasn't been touched in months. A high risk score alone does **not** mean a function is actively changing. Always check `quadrant` and `touches_30d` to determine whether a function is a live regression risk (fire) or structural debt (debt).
+
+- **fire**: Refactor now — every commit is landing on a complex function
+- **debt**: Schedule proactively — refactor before the next development push into that area, not urgently
+- **simple-active**: Watch closely but don't over-invest in refactoring
+- **simple-stable**: Leave it alone unless metrics change
+
 **Example:**
 
 ```typescript
