@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Correct binary download URL, Windows zip, and latest version resolution (#44)
 
+
+### Documentation
+- Add quadrant and activity risk documentation
+
 ## [1.8.1] - 2026-03-15
 
 ### Performance
