@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Add quadrant and activity risk documentation
 
+
+### Features
+- Add Vue SFC (.vue) language support (#46)
+
 ## [1.8.1] - 2026-03-15
 
 ### Performance
