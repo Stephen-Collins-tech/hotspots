@@ -73,10 +73,19 @@ impl FunctionRiskReport {
         source_map: &swc_common::SourceMap,
     ) -> Self {
         let line = function.start_line(source_map);
+        let display_file = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| {
+                std::path::Path::new(&file)
+                    .strip_prefix(&cwd)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| file.clone());
         let function_name = function
             .name
             .as_deref()
-            .unwrap_or(&format!("<anonymous>@{}:{}", file, line))
+            .unwrap_or(&format!("<anonymous>@{}:{}", display_file, line))
             .to_string();
 
         FunctionRiskReport {

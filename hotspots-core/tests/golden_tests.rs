@@ -47,10 +47,26 @@ fn normalize_paths(json: &mut serde_json::Value, project_root: &PathBuf) {
         serde_json::Value::Object(obj) => {
             if let Some(serde_json::Value::String(path)) = obj.get_mut("file") {
                 let path_buf = PathBuf::from(path.as_str());
-                // Strip the project root prefix to get the relative path
                 if let Ok(relative) = path_buf.strip_prefix(project_root) {
-                    // Use relative path with forward slashes for cross-platform compatibility
                     *path = relative.to_string_lossy().replace('\\', "/");
+                }
+            }
+            // Normalize absolute paths embedded in anonymous function names:
+            // "<anonymous>@/abs/path/to/file.ts:42" -> "<anonymous>@relative/path/file.ts:42"
+            if let Some(serde_json::Value::String(func)) = obj.get_mut("function") {
+                if let Some(rest) = func.strip_prefix("<anonymous>@") {
+                    if let Some(colon) = rest.rfind(':') {
+                        let path_part = &rest[..colon];
+                        let line_part = &rest[colon..];
+                        let path_buf = PathBuf::from(path_part);
+                        if let Ok(relative) = path_buf.strip_prefix(project_root) {
+                            *func = format!(
+                                "<anonymous>@{}{}",
+                                relative.to_string_lossy().replace('\\', "/"),
+                                line_part
+                            );
+                        }
+                    }
                 }
             }
             for (_, value) in obj {
@@ -810,6 +826,21 @@ fn test_vue_golden(fixture_name: &str) {
 #[test]
 fn test_vue_golden_simple() {
     test_vue_golden("simple-component");
+}
+
+#[test]
+fn test_vue_golden_options_api() {
+    test_vue_golden("options-api");
+}
+
+#[test]
+fn test_vue_golden_complex_logic() {
+    test_vue_golden("complex-logic");
+}
+
+#[test]
+fn test_vue_golden_plain_js() {
+    test_vue_golden("plain-js");
 }
 
 /// Vue script block metrics must match equivalent TypeScript code
