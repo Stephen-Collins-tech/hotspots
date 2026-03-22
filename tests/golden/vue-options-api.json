@@ -1,0 +1,65 @@
+[
+  {
+    "file": "tests/fixtures/vue/options-api.vue",
+    "function": "handleSubmit",
+    "line": 17,
+    "language": "Vue",
+    "metrics": {
+      "cc": 6,
+      "nd": 2,
+      "fo": 0,
+      "ns": 2,
+      "loc": 11
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.807354922057604,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/vue/options-api.vue",
+    "function": "validate",
+    "line": 28,
+    "language": "Vue",
+    "metrics": {
+      "cc": 7,
+      "nd": 1,
+      "fo": 1,
+      "ns": 2,
+      "loc": 9
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.799999999999999,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/vue/options-api.vue",
+    "function": "data",
+    "line": 10,
+    "language": "Vue",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 6
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]

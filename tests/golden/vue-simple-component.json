@@ -1,0 +1,44 @@
+[
+  {
+    "file": "tests/fixtures/vue/simple-component.vue",
+    "function": "greet",
+    "line": 8,
+    "language": "Vue",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1,
+      "loc": 6
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.8219280948873626,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/vue/simple-component.vue",
+    "function": "add",
+    "line": 15,
+    "language": "Vue",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]
