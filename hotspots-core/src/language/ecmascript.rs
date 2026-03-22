@@ -5,6 +5,7 @@ use super::parser::{LanguageParser, ParsedModule};
 use crate::ast::FunctionNode;
 use crate::cfg::Cfg;
 use anyhow::Result;
+use regex::Regex;
 use swc_common::{sync::Lrc, SourceMap};
 use swc_ecma_ast::Module;
 
@@ -55,6 +56,107 @@ impl CfgBuilder for ECMAScriptCfgBuilder {
         // Delegate to the existing cfg::builder::build_cfg function
         // which already knows how to build CFGs from ECMAScript functions
         crate::cfg::builder::build_cfg(function)
+    }
+}
+
+/// Extracted script block from a Vue SFC
+struct ScriptBlock {
+    /// The raw content between `<script ...>` and `</script>`
+    content: String,
+    /// 1-indexed line number of the first line of `content` in the original file
+    start_line: u32,
+    /// Whether `lang="ts"` (or `lang='ts'`) was detected on the script tag
+    is_typescript: bool,
+}
+
+/// Extract the first `<script>` or `<script setup>` block from a Vue SFC source.
+///
+/// Returns `None` if no script block is found.
+fn extract_script_block(source: &str) -> Option<ScriptBlock> {
+    let open_re = Regex::new(r"(?i)<script(\s[^>]*)?>").unwrap();
+    let close_tag = "</script>";
+
+    let open_m = open_re.find(source)?;
+    let attrs = open_re
+        .captures(source)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str())
+        .unwrap_or("");
+
+    let is_typescript = {
+        let lang_re = Regex::new(r#"lang\s*=\s*['"]ts['"]"#).unwrap();
+        lang_re.is_match(attrs)
+    };
+
+    let content_start = open_m.end();
+    let close_pos = source[content_start..].find(close_tag)?;
+    let content = source[content_start..content_start + close_pos].to_string();
+
+    // Count lines before content_start to get the 1-indexed line of the first
+    // content line (the newline after the opening tag puts content on the next line).
+    let start_line = source[..content_start]
+        .chars()
+        .filter(|&c| c == '\n')
+        .count() as u32
+        + 1;
+
+    Some(ScriptBlock {
+        content,
+        start_line,
+        is_typescript,
+    })
+}
+
+/// Vue SFC parser — extracts the `<script>` block and delegates to ECMAScriptParser.
+pub struct VueParser {
+    inner: ECMAScriptParser,
+}
+
+impl VueParser {
+    pub fn new(source_map: Lrc<SourceMap>) -> Self {
+        VueParser {
+            inner: ECMAScriptParser::new(source_map),
+        }
+    }
+}
+
+impl LanguageParser for VueParser {
+    fn parse(&self, source: &str, filename: &str) -> Result<Box<dyn ParsedModule>> {
+        let block = extract_script_block(source)
+            .ok_or_else(|| anyhow::anyhow!("No <script> block found in Vue SFC: {}", filename))?;
+
+        // Pick a synthetic filename so SWC uses the right syntax
+        let synthetic = if block.is_typescript {
+            "__vue_script__.ts"
+        } else {
+            "__vue_script__.js"
+        };
+
+        let inner_module = self.inner.parse(&block.content, synthetic)?;
+
+        Ok(Box::new(VueParsedModule {
+            inner: inner_module,
+            line_offset: block.start_line.saturating_sub(1),
+        }))
+    }
+}
+
+/// Wraps an ECMAScript ParsedModule and shifts all span line numbers by `line_offset`.
+struct VueParsedModule {
+    inner: Box<dyn ParsedModule>,
+    /// Lines to add to each reported start_line / end_line
+    line_offset: u32,
+}
+
+impl ParsedModule for VueParsedModule {
+    fn discover_functions(&self, file_index: usize, source: &str) -> Vec<FunctionNode> {
+        let mut functions = self.inner.discover_functions(file_index, source);
+        let offset = self.line_offset;
+        for f in &mut functions {
+            f.span.start_line += offset;
+            f.span.end_line += offset;
+        }
+        functions
     }
 }
 

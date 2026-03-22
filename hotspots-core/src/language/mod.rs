@@ -17,7 +17,7 @@ pub mod tree_sitter_utils;
 use std::path::Path;
 
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
-pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser};
+pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use java::{JavaCfgBuilder, JavaParser};
@@ -45,6 +45,8 @@ pub enum Language {
     Python,
     /// Rust (.rs)
     Rust,
+    /// Vue Single File Component (.vue)
+    Vue,
 }
 
 impl Language {
@@ -78,6 +80,8 @@ impl Language {
             "py" | "pyw" => Some(Language::Python),
             // Rust
             "rs" => Some(Language::Rust),
+            // Vue Single File Component
+            "vue" => Some(Language::Vue),
             // Unknown
             _ => None,
         }
@@ -134,6 +138,7 @@ impl Language {
             Language::Java => "Java",
             Language::Python => "Python",
             Language::Rust => "Rust",
+            Language::Vue => "Vue",
         }
     }
 
@@ -165,6 +170,7 @@ impl Language {
             Language::Java => &["java"],
             Language::Python => &["py", "pyw"],
             Language::Rust => &["rs"],
+            Language::Vue => &["vue"],
         }
     }
 }

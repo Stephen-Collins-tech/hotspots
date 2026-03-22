@@ -763,3 +763,128 @@ fn test_extended_metrics_determinism() {
         }
     }
 }
+
+// Vue SFC golden tests
+
+fn vue_fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("vue")
+        .join(name)
+}
+
+fn test_vue_golden(fixture_name: &str) {
+    let fixture = vue_fixture_path(&format!("{}.vue", fixture_name));
+    let golden = golden_path(&format!("vue-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("vue-{}.json", fixture_name));
+
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for vue-{}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_vue_golden_simple() {
+    test_vue_golden("simple-component");
+}
+
+/// Vue script block metrics must match equivalent TypeScript code
+#[test]
+fn test_vue_metrics_match_typescript() {
+    use hotspots_core::analyze;
+
+    let vue_fixture = vue_fixture_path("simple-component.vue");
+    let ts_source = r#"
+function greet(name: string): string {
+  if (name) {
+    return `Hello, ${name}!`;
+  }
+  return 'Hello!';
+}
+function add(a: number, b: number): number {
+  return a + b;
+}
+"#;
+
+    let ts_fixture = std::env::temp_dir().join("vue_parity_check.ts");
+    std::fs::write(&ts_fixture, ts_source).expect("write temp fixture");
+
+    let vue_reports = analyze(
+        &vue_fixture,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+    )
+    .expect("Vue analysis failed");
+    let ts_reports = analyze(
+        &ts_fixture,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+    )
+    .expect("TS analysis failed");
+
+    assert_eq!(
+        vue_reports.len(),
+        ts_reports.len(),
+        "function count mismatch"
+    );
+
+    for (vue, ts) in vue_reports.iter().zip(ts_reports.iter()) {
+        assert_eq!(
+            vue.metrics.cc, ts.metrics.cc,
+            "CC mismatch for {}",
+            vue.function
+        );
+        assert_eq!(
+            vue.metrics.nd, ts.metrics.nd,
+            "ND mismatch for {}",
+            vue.function
+        );
+        assert_eq!(
+            vue.metrics.fo, ts.metrics.fo,
+            "FO mismatch for {}",
+            vue.function
+        );
+        assert_eq!(
+            vue.metrics.ns, ts.metrics.ns,
+            "NS mismatch for {}",
+            vue.function
+        );
+
+        let lrs_diff = (vue.lrs - ts.lrs).abs();
+        assert!(
+            lrs_diff < 1e-10,
+            "LRS mismatch for {}: Vue={} TS={}",
+            vue.function,
+            vue.lrs,
+            ts.lrs
+        );
+    }
+}

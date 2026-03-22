@@ -138,6 +138,7 @@ fn create_parser(
             Box::new(language::PythonParser::new().context("Failed to create Python parser")?)
         }
         Language::Rust => Box::new(language::RustParser),
+        Language::Vue => Box::new(language::VueParser::new(source_map.clone())),
     };
     Ok(parser)
 }
