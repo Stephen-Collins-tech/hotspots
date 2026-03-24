@@ -135,6 +135,12 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Initialize project configuration and hooks
+    Init {
+        /// Print pre-commit and shell hook templates to stdout
+        #[arg(long)]
+        hooks: bool,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -210,6 +216,7 @@ fn main() -> anyhow::Result<()> {
             window,
             top,
         } => cmd::trends::handle_trends(path, format, window, top)?,
+        Commands::Init { hooks } => cmd::init::handle_init(hooks)?,
     }
 
     Ok(())
