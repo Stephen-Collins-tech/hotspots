@@ -30,6 +30,7 @@ pub mod policy;
 pub mod prune;
 pub mod report;
 pub mod risk;
+pub mod sarif;
 pub mod scoring;
 pub mod snapshot;
 pub mod suppression;

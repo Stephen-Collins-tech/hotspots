@@ -143,6 +143,7 @@ pub(crate) enum OutputFormat {
     Json,
     Html,
     Jsonl,
+    Sarif,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]

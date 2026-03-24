@@ -79,6 +79,9 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if *explain_patterns && *mode != Some(OutputMode::Snapshot) && mode.is_some() {
         anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
     }
+    if matches!(format, OutputFormat::Sarif) && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--format sarif requires --mode snapshot");
+    }
     Ok(())
 }
 
@@ -196,8 +199,8 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         OutputFormat::Json => {
             println!("{}", hotspots_core::render_json(&reports));
         }
-        OutputFormat::Html | OutputFormat::Jsonl => {
-            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
+            anyhow::bail!("HTML/JSONL/SARIF format requires --mode snapshot or --mode delta");
         }
     }
 
@@ -509,6 +512,17 @@ fn emit_snapshot_output(
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
         }
+        OutputFormat::Sarif => {
+            let sarif = hotspots_core::sarif::render_sarif(snapshot);
+            if let Some(output_path) = output {
+                std::fs::write(&output_path, &sarif).with_context(|| {
+                    format!("failed to write SARIF to {}", output_path.display())
+                })?;
+                eprintln!("SARIF report written to: {}", output_path.display());
+            } else {
+                println!("{sarif}");
+            }
+        }
     }
     Ok(())
 }
@@ -558,6 +572,9 @@ fn emit_delta_output(
             let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
             write_html_report(&output_path, &html)?;
             eprintln!("HTML report written to: {}", output_path.display());
+        }
+        OutputFormat::Sarif => {
+            anyhow::bail!("SARIF format is not supported for delta mode (use --mode snapshot)");
         }
     }
 
