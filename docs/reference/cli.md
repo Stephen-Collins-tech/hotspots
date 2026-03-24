@@ -72,12 +72,15 @@ hotspots analyze src/ --format jsonl
 hotspots analyze src/ --format html --mode snapshot
 
 # SARIF 2.1.0 for GitHub code scanning (requires --mode snapshot)
-hotspots analyze . --mode snapshot --format sarif
+hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+
+# Or capture stdout
+hotspots analyze . --mode snapshot --format sarif > results.sarif
 ```
 
 **Notes:**
 - HTML format requires `--mode snapshot` or `--mode delta`.
-- SARIF format requires `--mode snapshot`. Default output: `.hotspots/results.sarif`.
+- SARIF format requires `--mode snapshot`. Unlike HTML, SARIF has no default output file — without `--output`, SARIF is written to stdout.
 
 ##### `--mode <mode>`
 **Optional.** Output mode: `snapshot` or `delta`.

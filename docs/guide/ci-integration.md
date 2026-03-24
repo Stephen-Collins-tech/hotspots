@@ -734,7 +734,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run Hotspots (snapshot)
-        run: hotspots analyze . --mode snapshot --format sarif
+        run: hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
 
       - name: Upload SARIF to GitHub
         uses: github/codeql-action/upload-sarif@v3

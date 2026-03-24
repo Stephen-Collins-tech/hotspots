@@ -517,16 +517,16 @@ SARIF 2.1.0 output for GitHub code scanning. Produces inline annotations on pull
 ### Basic Usage
 
 ```bash
-# Snapshot mode SARIF (required — delta not supported)
-hotspots analyze . --mode snapshot --format sarif
+# Snapshot mode SARIF — write to a file with --output
+hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
 
-# Write to a custom path
-hotspots analyze . --mode snapshot --format sarif --output results.sarif
+# Or capture stdout directly
+hotspots analyze . --mode snapshot --format sarif > results.sarif
 ```
 
-**Default output:** `.hotspots/results.sarif`
-
 **Requires:** `--mode snapshot`. SARIF is not supported with `--mode delta`.
+
+**Note:** Unlike HTML, SARIF has no default output file. Without `--output`, SARIF is written to stdout. Always pass `--output <path>` or redirect stdout when using `upload-sarif`.
 
 ### GitHub Code Scanning Integration
 
@@ -538,7 +538,7 @@ Upload the SARIF file as a GitHub code scanning result using the `upload-sarif` 
     fetch-depth: 0
 
 - name: Run Hotspots (snapshot)
-  run: hotspots analyze . --mode snapshot --format sarif
+  run: hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
 
 - name: Upload SARIF to GitHub
   uses: github/codeql-action/upload-sarif@v3
