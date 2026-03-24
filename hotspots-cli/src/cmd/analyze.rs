@@ -199,8 +199,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         OutputFormat::Json => {
             println!("{}", hotspots_core::render_json(&reports));
         }
-        OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
-            anyhow::bail!("HTML/JSONL/SARIF format requires --mode snapshot or --mode delta");
+        OutputFormat::Html | OutputFormat::Jsonl => {
+            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        }
+        OutputFormat::Sarif => {
+            anyhow::bail!("SARIF format requires --mode snapshot");
         }
     }
 
@@ -513,7 +516,7 @@ fn emit_snapshot_output(
             eprintln!("HTML report written to: {}", output_path.display());
         }
         OutputFormat::Sarif => {
-            let sarif = hotspots_core::sarif::render_sarif(snapshot);
+            let sarif = hotspots_core::sarif::render_sarif(snapshot, repo_root);
             if let Some(output_path) = output {
                 if let Some(parent) = output_path.parent() {
                     std::fs::create_dir_all(parent).with_context(|| {

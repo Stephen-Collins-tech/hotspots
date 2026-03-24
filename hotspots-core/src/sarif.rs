@@ -8,6 +8,7 @@
 
 use crate::snapshot::Snapshot;
 use serde::Serialize;
+use std::path::Path;
 
 const SARIF_SCHEMA: &str =
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json";
@@ -146,10 +147,26 @@ fn rules() -> Vec<SarifRule> {
     ]
 }
 
+/// Strip `repo_root` from an absolute file path to produce a repo-relative URI.
+/// Falls back to the original path if stripping fails (e.g. path is already relative).
+fn to_relative_uri(file: &str, repo_root: &Path) -> String {
+    let path = Path::new(file);
+    // Normalize away any `.` components before stripping
+    let stripped = path
+        .strip_prefix(repo_root)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| file.replace('\\', "/"));
+    // Remove any leading "./" that may remain
+    stripped.trim_start_matches("./").to_string()
+}
+
 /// Render a snapshot as SARIF 2.1.0 JSON.
 ///
 /// Only functions at moderate risk or above are emitted.
-pub fn render_sarif(snapshot: &Snapshot) -> String {
+/// `repo_root` is used to convert absolute file paths to repo-relative URIs,
+/// which is required for GitHub code scanning to resolve locations correctly.
+pub fn render_sarif(snapshot: &Snapshot, repo_root: &Path) -> String {
     let tool_version = snapshot.analysis.tool_version.clone();
 
     let results: Vec<SarifResult> = snapshot
@@ -179,7 +196,7 @@ pub fn render_sarif(snapshot: &Snapshot) -> String {
                 locations: vec![SarifLocation {
                     physical_location: SarifPhysicalLocation {
                         artifact_location: SarifArtifact {
-                            uri: f.file.clone(),
+                            uri: to_relative_uri(&f.file, repo_root),
                             uri_base_id: "%SRCROOT%",
                         },
                         region: SarifRegion {
@@ -208,4 +225,144 @@ pub fn render_sarif(snapshot: &Snapshot) -> String {
     };
 
     serde_json::to_string_pretty(&output).expect("SARIF serialization is infallible")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::report::MetricsReport;
+    use crate::snapshot::{AnalysisInfo, CommitInfo, FunctionSnapshot, Snapshot};
+
+    fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
+        Snapshot {
+            schema_version: 2,
+            commit: CommitInfo {
+                sha: "abc123".to_string(),
+                parents: vec![],
+                timestamp: 0,
+                branch: None,
+                message: None,
+                author: None,
+                is_fix_commit: None,
+                is_revert_commit: None,
+                ticket_ids: vec![],
+            },
+            analysis: AnalysisInfo {
+                scope: ".".to_string(),
+                tool_version: "1.0.0".to_string(),
+            },
+            functions,
+            summary: None,
+            aggregates: None,
+        }
+    }
+
+    fn make_function(file: &str, name: &str, band: &str, lrs: f64, cc: usize) -> FunctionSnapshot {
+        FunctionSnapshot {
+            function_id: format!("{}::{}", file, name),
+            file: file.to_string(),
+            line: 10,
+            language: "rust".to_string(),
+            metrics: MetricsReport {
+                cc,
+                nd: 0,
+                fo: 0,
+                ns: 0,
+                loc: 10,
+            },
+            lrs,
+            band: band.to_string(),
+            suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
+            activity_risk: None,
+            risk_factors: None,
+            percentile: None,
+            driver: None,
+            driver_detail: None,
+            quadrant: None,
+            patterns: vec![],
+            pattern_details: None,
+        }
+    }
+
+    #[test]
+    fn test_sarif_schema_and_version() {
+        let snapshot = make_snapshot(vec![]);
+        let json = render_sarif(&snapshot, Path::new("/repo"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(val["version"], "2.1.0");
+        assert!(val["$schema"]
+            .as_str()
+            .unwrap()
+            .contains("sarif-schema-2.1.0"));
+    }
+
+    #[test]
+    fn test_sarif_low_risk_functions_omitted() {
+        let snapshot = make_snapshot(vec![
+            make_function("/repo/src/lib.rs", "low_fn", "low", 1.0, 2),
+            make_function("/repo/src/lib.rs", "moderate_fn", "moderate", 4.0, 5),
+        ]);
+        let json = render_sarif(&snapshot, Path::new("/repo"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let results = &val["runs"][0]["results"];
+        assert_eq!(results.as_array().unwrap().len(), 1);
+        assert_eq!(results[0]["ruleId"], "hotspots/moderate-risk");
+    }
+
+    #[test]
+    fn test_sarif_band_to_level_mapping() {
+        let snapshot = make_snapshot(vec![
+            make_function("/repo/a.rs", "critical_fn", "critical", 10.0, 15),
+            make_function("/repo/b.rs", "high_fn", "high", 7.0, 10),
+            make_function("/repo/c.rs", "moderate_fn", "moderate", 4.0, 5),
+        ]);
+        let json = render_sarif(&snapshot, Path::new("/repo"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let results = val["runs"][0]["results"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+        let levels: Vec<&str> = results
+            .iter()
+            .map(|r| r["level"].as_str().unwrap())
+            .collect();
+        assert!(levels.contains(&"error"));
+        assert!(levels.contains(&"warning"));
+        assert!(levels.contains(&"note"));
+    }
+
+    #[test]
+    fn test_sarif_path_made_relative() {
+        let snapshot = make_snapshot(vec![make_function(
+            "/repo/src/main.rs",
+            "my_fn",
+            "high",
+            7.0,
+            10,
+        )]);
+        let json = render_sarif(&snapshot, Path::new("/repo"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let uri = val["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+            ["artifactLocation"]["uri"]
+            .as_str()
+            .unwrap();
+        assert_eq!(uri, "src/main.rs");
+    }
+
+    #[test]
+    fn test_sarif_rules_present() {
+        let snapshot = make_snapshot(vec![]);
+        let json = render_sarif(&snapshot, Path::new("/repo"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let rules = val["runs"][0]["tool"]["driver"]["rules"]
+            .as_array()
+            .unwrap();
+        assert_eq!(rules.len(), 3);
+        let ids: Vec<&str> = rules.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        assert!(ids.contains(&"hotspots/critical-risk"));
+        assert!(ids.contains(&"hotspots/high-risk"));
+        assert!(ids.contains(&"hotspots/moderate-risk"));
+    }
 }

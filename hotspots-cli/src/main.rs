@@ -135,9 +135,9 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Initialize project configuration and hooks
+    /// Print hook templates for CI/CD integration
     Init {
-        /// Print pre-commit and shell hook templates to stdout
+        /// Print pre-commit framework and raw shell hook templates to stdout
         #[arg(long)]
         hooks: bool,
     },
