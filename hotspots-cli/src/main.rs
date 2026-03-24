@@ -135,6 +135,12 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Print hook templates for CI/CD integration
+    Init {
+        /// Print pre-commit framework and raw shell hook templates to stdout
+        #[arg(long)]
+        hooks: bool,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -143,6 +149,7 @@ pub(crate) enum OutputFormat {
     Json,
     Html,
     Jsonl,
+    Sarif,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -209,6 +216,7 @@ fn main() -> anyhow::Result<()> {
             window,
             top,
         } => cmd::trends::handle_trends(path, format, window, top)?,
+        Commands::Init { hooks } => cmd::init::handle_init(hooks)?,
     }
 
     Ok(())

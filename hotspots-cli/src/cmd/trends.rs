@@ -36,8 +36,8 @@ pub(crate) fn handle_trends(
         OutputFormat::Text => {
             print_trends_text_output(&trends)?;
         }
-        OutputFormat::Html | OutputFormat::Jsonl => {
-            anyhow::bail!("HTML/JSONL format is not supported for trends analysis");
+        OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
+            anyhow::bail!("HTML/JSONL/SARIF format is not supported for trends analysis");
         }
     }
 
