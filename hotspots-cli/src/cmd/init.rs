@@ -11,7 +11,14 @@ pub(crate) fn handle_init(hooks: bool) -> anyhow::Result<()> {
 
 fn print_hooks() {
     println!(
-        r#"# ── pre-commit hook (pre-commit framework) ──────────────────────────
+        r#"# ── SETUP (run once before enabling the hook) ───────────────────────
+# Delta mode compares against the last persisted snapshot. On a fresh
+# repo with no snapshots yet, policy evaluation is silently skipped.
+# Seed the baseline first:
+#
+#   hotspots analyze . --mode snapshot
+#
+# ── pre-commit hook (pre-commit framework) ──────────────────────────
 # Add to .pre-commit-config.yaml:
 
 repos:

@@ -515,6 +515,11 @@ fn emit_snapshot_output(
         OutputFormat::Sarif => {
             let sarif = hotspots_core::sarif::render_sarif(snapshot);
             if let Some(output_path) = output {
+                if let Some(parent) = output_path.parent() {
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!("failed to create directory: {}", parent.display())
+                    })?;
+                }
                 std::fs::write(&output_path, &sarif).with_context(|| {
                     format!("failed to write SARIF to {}", output_path.display())
                 })?;
