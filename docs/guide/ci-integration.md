@@ -645,6 +645,129 @@ hotspots analyze src/ --mode delta --policy
 
 ---
 
+## Pre-commit Hooks
+
+Block pushes with complexity regressions before they reach CI using `hotspots init --hooks`.
+
+### Setup
+
+```bash
+# 1. Seed a baseline snapshot (required — delta mode compares against this)
+hotspots analyze . --mode snapshot
+
+# 2. Print hook templates
+hotspots init --hooks
+```
+
+### Option 1: pre-commit Framework
+
+Add the printed YAML block to `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: hotspots
+        name: hotspots risk check
+        language: system
+        entry: hotspots analyze . --mode delta --policy --format text
+        pass_filenames: false
+        stages: [pre-push]
+```
+
+Then install:
+
+```bash
+pre-commit install --hook-type pre-push
+```
+
+### Option 2: Raw Shell Hook
+
+Copy the printed shell block (starting with `#!/usr/bin/env sh`) to `.git/hooks/pre-push`:
+
+```bash
+hotspots init --hooks 2>/dev/null | sed -n '/^#!/,$ p' > .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+Or copy manually — the hook content is:
+
+```sh
+#!/usr/bin/env sh
+set -e
+hotspots analyze . --mode delta --policy --format text
+```
+
+### How It Works
+
+- Runs on `pre-push`, not `pre-commit`, to avoid slowing down every commit
+- Delta mode compares the working tree against the last snapshot
+- Exits non-zero if blocking policy violations are found, preventing the push
+- If no baseline snapshot exists yet, policy evaluation is silently skipped
+
+---
+
+## GitHub Code Scanning (SARIF)
+
+Upload SARIF output to GitHub to get inline annotations on pull requests and alerts in the Security tab.
+
+### Workflow
+
+```yaml
+name: Hotspots SARIF
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # Required for upload-sarif
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Hotspots (snapshot)
+        run: hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .hotspots/results.sarif
+```
+
+### Risk Band → SARIF Level Mapping
+
+| Hotspots band | SARIF level | GitHub annotation |
+|---------------|-------------|-------------------|
+| `critical` | `error` | Red |
+| `high` | `warning` | Yellow |
+| `moderate` | `note` | Blue |
+| `low` | — | Not emitted |
+
+### Custom Output Path
+
+```bash
+hotspots analyze . --mode snapshot --format sarif --output sarif-results/hotspots.sarif
+```
+
+```yaml
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: sarif-results/hotspots.sarif
+```
+
+See [SARIF Format](./output-formats.md#sarif-format) for complete output format documentation.
+
+---
+
 ## Best Practices
 
 ### 1. Use Delta Mode in CI
@@ -723,7 +846,7 @@ Then tighten:
 - [GitHub Action Guide](./github-action.md) - Complete GitHub Action documentation
 - [Configuration](./configuration.md) - Config file format and options
 - [CLI Reference](../reference/cli.md) - All CLI commands and flags
-- [Output Formats](./output-formats.md) - JSON schema and HTML reports
+- [Output Formats](./output-formats.md) - JSON schema, HTML reports, SARIF
 - [Policy Engine](./usage.md#policy-engine) - Policy rules and enforcement
 
 ---

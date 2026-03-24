@@ -55,7 +55,7 @@ hotspots analyze lib/utils.ts
 ```
 
 ##### `--format <format>`
-**Optional.** Output format: `text`, `json`, `jsonl`, or `html`.
+**Optional.** Output format: `text`, `json`, `jsonl`, `html`, or `sarif`.
 **Default:** `text`
 
 ```bash
@@ -70,9 +70,17 @@ hotspots analyze src/ --format jsonl
 
 # Interactive HTML report (requires --mode)
 hotspots analyze src/ --format html --mode snapshot
+
+# SARIF 2.1.0 for GitHub code scanning (requires --mode snapshot)
+hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+
+# Or capture stdout
+hotspots analyze . --mode snapshot --format sarif > results.sarif
 ```
 
-**Note:** HTML format requires `--mode snapshot` or `--mode delta`.
+**Notes:**
+- HTML format requires `--mode snapshot` or `--mode delta`.
+- SARIF format requires `--mode snapshot`. Unlike HTML, SARIF has no default output file — without `--output`, SARIF is written to stdout.
 
 ##### `--mode <mode>`
 **Optional.** Output mode: `snapshot` or `delta`.
@@ -647,6 +655,79 @@ Filters:
 
 ---
 
+### `hotspots init`
+
+Print hook templates for CI/CD integration.
+
+#### Usage
+
+```bash
+# Print pre-commit and shell hook templates
+hotspots init --hooks
+```
+
+#### Options
+
+##### `--hooks`
+**Required to produce output.** Prints two hook templates to stdout:
+
+1. **Option 1 — pre-commit framework** (`.pre-commit-config.yaml` snippet)
+2. **Option 2 — raw shell hook** (standalone `#!/usr/bin/env sh` script for `.git/hooks/pre-push`)
+
+If `--hooks` is not specified, prints a usage hint and exits successfully.
+
+#### Setup
+
+Delta mode requires a baseline snapshot to compare against. Seed one before enabling the hook:
+
+```bash
+# 1. Seed the baseline
+hotspots analyze . --mode snapshot
+
+# 2. Print and copy the hook template
+hotspots init --hooks
+
+# 3a. pre-commit framework: append the YAML block to .pre-commit-config.yaml
+#     then install with: pre-commit install --hook-type pre-push
+
+# 3b. Raw shell hook: save the sh block (starting with #!/usr/bin/env sh)
+#     as .git/hooks/pre-push and run: chmod +x .git/hooks/pre-push
+```
+
+#### Example Output
+
+```
+# ── SETUP (run once before enabling the hook) ─────────────────────
+# Seed the baseline first:
+#
+#   hotspots analyze . --mode snapshot
+
+# ── Option 1: pre-commit framework ───────────────────────────────────
+# Add the following to .pre-commit-config.yaml:
+
+repos:
+  - repo: local
+    hooks:
+      - id: hotspots
+        name: hotspots risk check
+        language: system
+        entry: hotspots analyze . --mode delta --policy --format text
+        pass_filenames: false
+        stages: [pre-push]
+
+# ── Option 2: raw shell hook ─────────────────────────────────────────
+# Save the lines below (starting with the shebang) as .git/hooks/pre-push
+# and run: chmod +x .git/hooks/pre-push
+
+#!/usr/bin/env sh
+set -e
+hotspots analyze . --mode delta --policy --format text
+```
+
+Both hooks run `--mode delta --policy` on push and exit non-zero if blocking policy violations are found.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -790,6 +871,15 @@ hotspots analyze src/ --mode delta --policy
 **Fix:**
 ```bash
 hotspots analyze src/ --format html --mode snapshot
+```
+
+### "SARIF format requires --mode snapshot"
+
+**Cause:** Using `--format sarif` without `--mode snapshot`.
+
+**Fix:**
+```bash
+hotspots analyze . --mode snapshot --format sarif
 ```
 
 ### "Config validation failed"

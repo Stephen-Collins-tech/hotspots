@@ -1,6 +1,6 @@
 # Output Formats
 
-Hotspots supports three output formats: JSON (machine-readable), HTML (interactive reports), and Text (human-readable terminal output).
+Hotspots supports five output formats: JSON (machine-readable), HTML (interactive reports), Text (human-readable terminal output), SARIF (GitHub code scanning), and JSONL (streaming).
 
 ## Format Overview
 
@@ -9,6 +9,8 @@ Hotspots supports three output formats: JSON (machine-readable), HTML (interacti
 | **JSON** | CI/CD, tooling, AI agents | Structured, versioned schema, machine-parseable |
 | **HTML** | Reports, dashboards, sharing | Interactive, charts, filterable, standalone |
 | **Text** | Terminal, quick inspection | Color-coded, compact, human-friendly |
+| **SARIF** | GitHub code scanning | SARIF 2.1.0, annotations on PRs and files |
+| **JSONL** | Streaming pipelines | One JSON object per line |
 
 ---
 
@@ -508,6 +510,98 @@ NO_COLOR=1 hotspots analyze src/ --format text
 
 ---
 
+## SARIF Format
+
+SARIF 2.1.0 output for GitHub code scanning. Produces inline annotations on pull requests and file views in the GitHub Security tab.
+
+### Basic Usage
+
+```bash
+# Snapshot mode SARIF — write to a file with --output
+hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+
+# Or capture stdout directly
+hotspots analyze . --mode snapshot --format sarif > results.sarif
+```
+
+**Requires:** `--mode snapshot`. SARIF is not supported with `--mode delta`.
+
+**Note:** Unlike HTML, SARIF has no default output file. Without `--output`, SARIF is written to stdout. Always pass `--output <path>` or redirect stdout when using `upload-sarif`.
+
+### GitHub Code Scanning Integration
+
+Upload the SARIF file as a GitHub code scanning result using the `upload-sarif` action:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+
+- name: Run Hotspots (snapshot)
+  run: hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+
+- name: Upload SARIF to GitHub
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: .hotspots/results.sarif
+```
+
+This produces:
+- **Inline annotations** on changed files in pull requests
+- **Security tab alerts** grouped by rule (critical / high / moderate)
+- **Dismissable alerts** for acknowledged risk
+
+### Risk Band Mapping
+
+| Hotspots band | SARIF level | GitHub display |
+|---------------|-------------|----------------|
+| `critical` | `error` | Red annotation |
+| `high` | `warning` | Yellow annotation |
+| `moderate` | `note` | Blue annotation |
+| `low` | — | Not emitted |
+
+Only functions at `moderate` risk or above are included in the SARIF output.
+
+### Output Structure
+
+The emitted file follows SARIF 2.1.0 with `uriBaseId: "%SRCROOT%"` so GitHub resolves file paths correctly:
+
+```json
+{
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/...",
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {
+      "driver": {
+        "name": "hotspots",
+        "version": "1.9.0",
+        "informationUri": "https://hotspots.dev",
+        "rules": [
+          { "id": "hotspots/critical-risk", "defaultConfiguration": { "level": "error" } },
+          { "id": "hotspots/high-risk",     "defaultConfiguration": { "level": "warning" } },
+          { "id": "hotspots/moderate-risk", "defaultConfiguration": { "level": "note" } }
+        ]
+      }
+    },
+    "results": [
+      {
+        "ruleId": "hotspots/high-risk",
+        "level": "warning",
+        "message": { "text": "Function `processOrder` has a high risk score (LRS=7.20, CC=10)." },
+        "locations": [{
+          "physicalLocation": {
+            "artifactLocation": { "uri": "src/orders.ts", "uriBaseId": "%SRCROOT%" },
+            "region": { "startLine": 42 }
+          }
+        }]
+      }
+    ]
+  }]
+}
+```
+
+---
+
 ## Format Comparison
 
 ### When to Use Each Format
@@ -535,6 +629,13 @@ NO_COLOR=1 hotspots analyze src/ --format text
 - ✅ Local development
 - ❌ Automation (use JSON)
 - ❌ Visual analysis (use HTML)
+
+**SARIF:**
+- ✅ GitHub code scanning annotations
+- ✅ Security tab integration
+- ✅ PR inline comments on risk functions
+- ❌ Programmatic analysis (use JSON)
+- ❌ Human inspection (use Text/HTML)
 
 ---
 

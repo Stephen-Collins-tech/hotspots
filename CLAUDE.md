@@ -9,6 +9,24 @@ This file contains conventions and rules for Claude Code when working on this pr
 - Only add comments, docstrings, or type annotations to code you actually changed.
 - Avoid over-engineering. Don't add features, configurability, or abstractions that weren't requested.
 
+## Git Branching
+
+**ALWAYS create a feature branch before starting any new work.** Never commit directly to `main`.
+
+- Branch naming: `<type>/<short-description>` — use the same type prefix as the commit
+  - `feat/sarif-output`, `fix/cfg-panic-on-dead-code`, `chore/update-deps`, `refactor/simplify-risk-scoring`
+- Create the branch before making any file changes: `git checkout -b <branch-name>`
+- One logical unit of work per branch. If a task spawns unrelated changes, split them into separate branches.
+- After the branch is ready, open a PR rather than merging directly to `main`.
+
+This applies to **all** work categories:
+- **feat** — new features or capabilities
+- **fix** — bug fixes
+- **chore** — dependency updates, release prep, CI/tooling changes
+- **refactor** — code restructuring with no behavior change
+- **test** — adding or fixing tests
+- **docs** — documentation-only changes
+
 ## Git Commits
 
 - **All commit messages MUST be a single line, under 72 characters.**
