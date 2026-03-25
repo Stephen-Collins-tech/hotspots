@@ -26,12 +26,6 @@ Captured after v1.9.0 (2026-03-24).
 
 ### Tier 2 — High Value, Moderate Effort
 
-**`hotspots diff <base> <head>` command**
-- PR-focused: show only functions whose LRS or CC changed between two refs
-- Builds on existing delta machinery; needs a new CLI subcommand and diff render
-- Effort: ~3–5 days
-- High value for CI/CD and PR review workflows
-
 **File-level aggregation in output**
 - Roll up function scores to file level (max CC, avg LRS, total touches)
 - `OutputLevel::File` already exists as an enum variant — it may be partially stubbed

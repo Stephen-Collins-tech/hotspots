@@ -389,6 +389,11 @@ hotspots analyze src/ --mode snapshot
 # Compare current code vs baseline
 hotspots analyze src/ --mode delta
 
+# Compare any two git refs (branches, tags, SHAs)
+hotspots diff main HEAD
+hotspots diff v1.0.0 v2.0.0 --format json
+hotspots diff main HEAD --top 10 --policy
+
 # See complexity trends
 hotspots trends .
 
@@ -399,11 +404,13 @@ hotspots prune --unreachable --older-than 30
 hotspots compact --level 0
 ```
 
-Delta mode shows:
+Delta mode and `hotspots diff` show:
 - Functions that got more complex
 - Functions that were simplified
 - New high-complexity functions introduced
 - Overall repository complexity trend
+
+`hotspots diff` requires snapshots to exist for both refs (run `hotspots analyze --mode snapshot` at each ref first). Use `--auto-analyze` to generate missing snapshots automatically via git worktrees.
 
 ### ⚙️ Configuration Commands
 

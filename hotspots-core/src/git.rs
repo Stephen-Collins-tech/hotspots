@@ -319,6 +319,18 @@ pub fn resolve_merge_base_auto() -> Option<String> {
     None
 }
 
+/// Resolve a git ref (branch, tag, SHA, HEAD~N, etc.) to a full 40-character SHA.
+///
+/// Runs `git rev-parse <ref>` in the given repository root.
+///
+/// # Errors
+///
+/// Returns an error if the ref does not exist or git fails.
+pub fn resolve_ref_to_sha(repo_root: &Path, git_ref: &str) -> Result<String> {
+    git_at(repo_root, &["rev-parse", "--verify", git_ref])
+        .with_context(|| format!("failed to resolve git ref '{git_ref}'"))
+}
+
 /// Find the merge-base SHA and Unix timestamp between HEAD and main/master.
 /// Returns None when already on main (merge-base == HEAD) or no divergence found.
 pub fn find_merge_base(repo_root: &Path) -> Option<(String, i64)> {
@@ -1046,5 +1058,54 @@ mod tests {
             assert!(!churn.file.is_empty(), "file path should not be empty");
             // lines_added and lines_deleted can be 0, so just check they parse
         }
+    }
+
+    #[test]
+    fn test_resolve_ref_to_sha_head() {
+        let cwd = std::env::current_dir().expect("failed to get cwd");
+        if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
+            eprintln!("Skipping test: not in a git repository");
+            return;
+        }
+
+        let sha = resolve_ref_to_sha(&cwd, "HEAD").expect("should resolve HEAD");
+
+        // Full SHA is 40 hex characters
+        assert_eq!(sha.len(), 40, "resolved SHA should be 40 characters");
+        assert!(
+            sha.chars().all(|c| c.is_ascii_hexdigit()),
+            "resolved SHA should be hex"
+        );
+    }
+
+    #[test]
+    fn test_resolve_ref_to_sha_abbreviated() {
+        let cwd = std::env::current_dir().expect("failed to get cwd");
+        if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
+            eprintln!("Skipping test: not in a git repository");
+            return;
+        }
+
+        // Get HEAD SHA, then resolve its first 8 characters as an abbreviated ref
+        let full_sha = resolve_ref_to_sha(&cwd, "HEAD").expect("should resolve HEAD");
+        let abbrev = &full_sha[..8];
+        let resolved = resolve_ref_to_sha(&cwd, abbrev).expect("should resolve abbreviated SHA");
+
+        assert_eq!(
+            resolved, full_sha,
+            "abbreviated SHA should resolve to the same full SHA as HEAD"
+        );
+    }
+
+    #[test]
+    fn test_resolve_ref_to_sha_invalid_ref() {
+        let cwd = std::env::current_dir().expect("failed to get cwd");
+        if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
+            eprintln!("Skipping test: not in a git repository");
+            return;
+        }
+
+        let result = resolve_ref_to_sha(&cwd, "refs/heads/this-branch-definitely-does-not-exist");
+        assert!(result.is_err(), "invalid ref should return an error");
     }
 }

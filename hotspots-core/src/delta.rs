@@ -161,6 +161,17 @@ impl Delta {
         serde_json::to_string_pretty(self).context("failed to serialize delta to JSON")
     }
 
+    /// Serialize delta entries as newline-delimited JSON (one entry per line).
+    pub fn to_jsonl(&self) -> Result<String> {
+        let mut lines = Vec::with_capacity(self.deltas.len());
+        for entry in &self.deltas {
+            lines.push(
+                serde_json::to_string(entry).context("failed to serialize delta entry to JSON")?,
+            );
+        }
+        Ok(lines.join("\n"))
+    }
+
     /// Deserialize delta from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
         let delta: Delta =

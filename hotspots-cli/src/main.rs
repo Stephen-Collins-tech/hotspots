@@ -11,7 +11,7 @@ mod output;
 mod util;
 
 use clap::{Parser, Subcommand};
-use cmd::{analyze::AnalyzeArgs, config::ConfigAction};
+use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -141,6 +141,38 @@ enum Commands {
         #[arg(long)]
         hooks: bool,
     },
+    /// Compare analysis snapshots between two git refs
+    Diff {
+        /// Base git ref (branch, tag, SHA, or HEAD~N)
+        base: String,
+
+        /// Head git ref (branch, tag, SHA, or HEAD~N)
+        head: String,
+
+        /// Output format
+        #[arg(long, default_value = "text")]
+        format: OutputFormat,
+
+        /// Write output to file instead of stdout (HTML default: .hotspots/delta-report.html)
+        #[arg(long)]
+        output: Option<PathBuf>,
+
+        /// Evaluate policy rules; exit 1 on blocking failures
+        #[arg(long)]
+        policy: bool,
+
+        /// Limit output to top N changed functions (by |ΔLRS|)
+        #[arg(long)]
+        top: Option<usize>,
+
+        /// Path to config file (default: auto-discover)
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// Analyze missing refs automatically using git worktrees
+        #[arg(long)]
+        auto_analyze: bool,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -217,6 +249,25 @@ fn main() -> anyhow::Result<()> {
             top,
         } => cmd::trends::handle_trends(path, format, window, top)?,
         Commands::Init { hooks } => cmd::init::handle_init(hooks)?,
+        Commands::Diff {
+            base,
+            head,
+            format,
+            output,
+            policy,
+            top,
+            config,
+            auto_analyze,
+        } => cmd::diff::handle_diff(DiffArgs {
+            base,
+            head,
+            format,
+            output,
+            policy,
+            top,
+            config_path: config,
+            auto_analyze,
+        })?,
     }
 
     Ok(())
