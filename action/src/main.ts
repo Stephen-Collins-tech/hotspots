@@ -161,20 +161,12 @@ async function runFaultline(
   inputs: FaultlineInputs,
   context: 'pr' | 'push'
 ): Promise<FaultlineResult> {
-  // PATH must come first as a positional argument
-  const args: string[] = ['analyze', inputs.path];
-
-  // Determine mode based on context
   if (context === 'pr') {
-    args.push('--mode', 'delta');
-  } else {
-    args.push('--mode', 'snapshot');
+    return runPRAnalysis(binaryPath, inputs);
   }
 
-  // --policy is a boolean flag; any truthy value from the input enables it
-  if (inputs.policy && context === 'pr') {
-    args.push('--policy');
-  }
+  // Push: create snapshot for this commit
+  const args: string[] = ['analyze', inputs.path, '--mode', 'snapshot'];
 
   if (inputs.minLrs) {
     args.push('--min-lrs', inputs.minLrs);
@@ -184,10 +176,8 @@ async function runFaultline(
     args.push('--config', inputs.config);
   }
 
-  // Always generate JSON output for parsing
   args.push('--format', 'json');
 
-  // Also generate HTML report
   const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-report.html');
 
   core.info(`Running: ${binaryPath} ${args.join(' ')}`);
@@ -197,28 +187,19 @@ async function runFaultline(
 
   const exitCode = await exec.exec(binaryPath, args, {
     listeners: {
-      stdout: (data: Buffer) => {
-        stdout += data.toString();
-      },
-      stderr: (data: Buffer) => {
-        stderr += data.toString();
-      }
+      stdout: (data: Buffer) => { stdout += data.toString(); },
+      stderr: (data: Buffer) => { stderr += data.toString(); }
     },
     ignoreReturnCode: true
   });
 
-  // Also generate HTML report
   await exec.exec(binaryPath, [...args.filter(a => a !== '--format' && a !== 'json'), '--format', 'html', '--output', reportPath], {
     ignoreReturnCode: true
   });
 
-  core.info(`Faultline exited with code ${exitCode}`);
+  core.info(`hotspots analyze exited with code ${exitCode}`);
+  if (stderr) core.warning(`Stderr: ${stderr}`);
 
-  if (stderr) {
-    core.warning(`Stderr: ${stderr}`);
-  }
-
-  // Parse JSON output
   let result: any;
   try {
     result = JSON.parse(stdout);
@@ -228,25 +209,156 @@ async function runFaultline(
     throw new Error('Failed to parse hotspots output');
   }
 
-  // Determine if passed based on policy violations and fail-on setting
   const violations = result.violations || [];
   const errors = violations.filter((v: any) => v.level === 'error');
   const warnings = violations.filter((v: any) => v.level === 'warning');
 
   let passed = true;
-  if (inputs.failOn === 'error' && errors.length > 0) {
-    passed = false;
-  } else if (inputs.failOn === 'warn' && (errors.length > 0 || warnings.length > 0)) {
-    passed = false;
-  }
-
-  // Generate summary
-  const summary = generateSummary(result, context);
+  if (inputs.failOn === 'error' && errors.length > 0) passed = false;
+  else if (inputs.failOn === 'warn' && (errors.length > 0 || warnings.length > 0)) passed = false;
 
   return {
     violations,
     passed,
-    summary,
+    summary: generateSummary(result, context),
+    reportPath: fs.existsSync(reportPath) ? reportPath : undefined
+  };
+}
+
+async function runPRAnalysis(
+  binaryPath: string,
+  inputs: FaultlineInputs
+): Promise<FaultlineResult> {
+  // Step 1: ensure HEAD snapshot exists so diff has something to compare against
+  const snapshotArgs = ['analyze', inputs.path, '--mode', 'snapshot', '--force'];
+  if (inputs.config) snapshotArgs.push('--config', inputs.config);
+  if (inputs.minLrs) snapshotArgs.push('--min-lrs', inputs.minLrs);
+  core.info('Creating HEAD snapshot...');
+  await exec.exec(binaryPath, snapshotArgs, { ignoreReturnCode: true });
+
+  // Step 2: attempt diff against PR base
+  const baseSha = (github.context.payload.pull_request?.base?.sha as string | undefined);
+  const headSha = github.context.sha;
+
+  if (baseSha) {
+    const diffArgs = ['diff', baseSha, headSha, '--format', 'json'];
+    if (inputs.policy) diffArgs.push('--policy');
+    if (inputs.config) diffArgs.push('--config', inputs.config);
+
+    core.info(`Running: ${binaryPath} ${diffArgs.join(' ')}`);
+
+    let diffStdout = '';
+    let diffStderr = '';
+    const diffExitCode = await exec.exec(binaryPath, diffArgs, {
+      listeners: {
+        stdout: (data: Buffer) => { diffStdout += data.toString(); },
+        stderr: (data: Buffer) => { diffStderr += data.toString(); }
+      },
+      ignoreReturnCode: true
+    });
+
+    if (diffExitCode === 3) {
+      // Base snapshot missing — fall through to delta analysis
+      core.warning(`No snapshot for base ${baseSha.slice(0, 7)} — falling back to delta analysis.`);
+      core.warning('Run hotspots on your default branch to build the base snapshot.');
+    } else {
+      if (diffExitCode !== 0 && diffExitCode !== 1) {
+        core.warning(`hotspots diff exited ${diffExitCode}: ${diffStderr}`);
+      }
+
+      // Also generate HTML report
+      const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-delta-report.html');
+      const htmlArgs = ['diff', baseSha, headSha, '--format', 'html', '--output', reportPath];
+      if (inputs.policy) htmlArgs.push('--policy');
+      if (inputs.config) htmlArgs.push('--config', inputs.config);
+      await exec.exec(binaryPath, htmlArgs, { ignoreReturnCode: true });
+
+      let diffResult: any;
+      try {
+        diffResult = JSON.parse(diffStdout);
+      } catch {
+        core.warning('Failed to parse diff output — falling back to delta analysis.');
+        return runDeltaAnalysis(binaryPath, inputs);
+      }
+
+      const policy = diffResult.policy || { failed: [], warnings: [] };
+      const violations = [
+        ...policy.failed.map((v: any) => ({ ...v, level: 'error' })),
+        ...policy.warnings.map((v: any) => ({ ...v, level: 'warning' }))
+      ];
+      const errors: any[] = policy.failed;
+      const warnings: any[] = policy.warnings;
+
+      let passed = true;
+      if (inputs.failOn === 'error' && errors.length > 0) passed = false;
+      else if (inputs.failOn === 'warn' && (errors.length > 0 || warnings.length > 0)) passed = false;
+
+      return {
+        violations,
+        passed,
+        summary: generateDiffSummary(diffResult, baseSha, headSha),
+        reportPath: fs.existsSync(reportPath) ? reportPath : undefined
+      };
+    }
+  }
+
+  // Step 3: fallback — delta analysis (no base snapshot available)
+  return runDeltaAnalysis(binaryPath, inputs);
+}
+
+async function runDeltaAnalysis(
+  binaryPath: string,
+  inputs: FaultlineInputs
+): Promise<FaultlineResult> {
+  const args: string[] = ['analyze', inputs.path, '--mode', 'delta'];
+
+  if (inputs.policy) args.push('--policy');
+  if (inputs.minLrs) args.push('--min-lrs', inputs.minLrs);
+  if (inputs.config) args.push('--config', inputs.config);
+  args.push('--format', 'json');
+
+  const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-report.html');
+
+  core.info(`Running: ${binaryPath} ${args.join(' ')}`);
+
+  let stdout = '';
+  let stderr = '';
+  const exitCode = await exec.exec(binaryPath, args, {
+    listeners: {
+      stdout: (data: Buffer) => { stdout += data.toString(); },
+      stderr: (data: Buffer) => { stderr += data.toString(); }
+    },
+    ignoreReturnCode: true
+  });
+
+  await exec.exec(binaryPath, [...args.filter(a => a !== '--format' && a !== 'json'), '--format', 'html', '--output', reportPath], {
+    ignoreReturnCode: true
+  });
+
+  core.info(`hotspots analyze exited with code ${exitCode}`);
+  if (stderr) core.warning(`Stderr: ${stderr}`);
+
+  let result: any;
+  try {
+    result = JSON.parse(stdout);
+  } catch (error) {
+    core.error(`Failed to parse hotspots output: ${error}`);
+    core.error(`Raw output: ${stdout}`);
+    throw new Error('Failed to parse hotspots output');
+  }
+
+  const violations = result.violations || [];
+  const errors = violations.filter((v: any) => v.level === 'error');
+  const warnings = violations.filter((v: any) => v.level === 'warning');
+
+  let passed = true;
+  if (inputs.failOn === 'error' && errors.length > 0) passed = false;
+  else if (inputs.failOn === 'warn' && (errors.length > 0 || warnings.length > 0)) passed = false;
+
+  return {
+    violations,
+    passed,
+    summary: generateSummary(result, 'pr'),
     reportPath: fs.existsSync(reportPath) ? reportPath : undefined
   };
 }
@@ -302,6 +414,48 @@ function generateSummary(result: any, context: 'pr' | 'push'): string {
   if (infos.length > 0) {
     summary += '## 👀 Watch\n\n';
     summary += `${infos.length} function(s) approaching thresholds\n\n`;
+  }
+
+  return summary;
+}
+
+function generateDiffSummary(result: any, baseSha: string, headSha: string): string {
+  const deltas = result.deltas || [];
+  const policy = result.policy || { failed: [], warnings: [] };
+
+  const newFns = deltas.filter((d: any) => d.status === 'new');
+  const modified = deltas.filter((d: any) => d.status === 'modified');
+  const deleted = deltas.filter((d: any) => d.status === 'deleted');
+
+  let summary = '# Hotspots Analysis Results\n\n';
+  summary += `**Mode:** Diff (${baseSha.slice(0, 7)} → ${headSha.slice(0, 7)})\n\n`;
+  summary += `**Changes:** ${modified.length} modified, ${newFns.length} new, ${deleted.length} deleted\n\n`;
+
+  if (policy.failed.length === 0 && policy.warnings.length === 0) {
+    summary += deltas.length === 0
+      ? '✅ **No function changes detected.**\n'
+      : '✅ **No policy violations.**\n';
+    return summary;
+  }
+
+  summary += `**Policy:** ${policy.failed.length} blocking, ${policy.warnings.length} warning(s)\n\n`;
+
+  if (policy.failed.length > 0) {
+    summary += '## ❌ Blocking Violations\n\n';
+    policy.failed.slice(0, 10).forEach((v: any) => {
+      summary += `- ${v.message}\n`;
+    });
+    if (policy.failed.length > 10) summary += `\n*...and ${policy.failed.length - 10} more*\n`;
+    summary += '\n';
+  }
+
+  if (policy.warnings.length > 0) {
+    summary += '## ⚠️ Warnings\n\n';
+    policy.warnings.slice(0, 10).forEach((v: any) => {
+      summary += `- ${v.message}\n`;
+    });
+    if (policy.warnings.length > 10) summary += `\n*...and ${policy.warnings.length - 10} more*\n`;
+    summary += '\n';
   }
 
   return summary;

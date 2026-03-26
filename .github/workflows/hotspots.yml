@@ -1,0 +1,98 @@
+name: Hotspots Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  hotspots:
+    name: Hotspots
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cached binary
+        id: binary-cache
+        uses: actions/cache@v4
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-hotspots-bin-
+
+      - name: Build hotspots binary
+        if: steps.binary-cache.outputs.cache-hit != 'true'
+        run: cargo build --release --bin hotspots
+
+      # --- Push to main: create and cache snapshot ---
+
+      - name: Create snapshot
+        if: github.event_name == 'push'
+        run: ./target/release/hotspots analyze . --mode snapshot --force
+
+      - name: Cache snapshot
+        if: github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: .hotspots/snapshots
+          key: hotspots-snapshot-${{ github.sha }}
+
+      # --- Pull request: diff vs base ---
+
+      - name: Restore base snapshot
+        if: github.event_name == 'pull_request'
+        id: base-snapshot
+        uses: actions/cache/restore@v4
+        with:
+          path: .hotspots/snapshots
+          key: hotspots-snapshot-${{ github.event.pull_request.base.sha }}
+
+      - name: Create HEAD snapshot
+        if: github.event_name == 'pull_request'
+        run: ./target/release/hotspots analyze . --mode snapshot --force
+
+      - name: Diff PR vs base
+        if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
+        run: |
+          ./target/release/hotspots diff \
+            ${{ github.event.pull_request.base.sha }} \
+            ${{ github.sha }} \
+            --format text --policy
+        continue-on-error: true
+
+      - name: Generate HTML delta report
+        if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
+        run: |
+          ./target/release/hotspots diff \
+            ${{ github.event.pull_request.base.sha }} \
+            ${{ github.sha }} \
+            --format html --output .hotspots/delta-report.html --policy
+        continue-on-error: true
+
+      - name: Upload delta report
+        uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request'
+        with:
+          name: hotspots-delta-report
+          path: .hotspots/delta-report.html
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Note - base snapshot unavailable
+        if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit != 'true'
+        run: |
+          echo "No snapshot cached for base ref ${{ github.event.pull_request.base.sha }}."
+          echo "The snapshot will be created when this PR merges to main."
+          echo "Subsequent PRs against that commit will show a full diff."
