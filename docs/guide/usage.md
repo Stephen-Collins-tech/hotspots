@@ -320,6 +320,31 @@ This will:
 - Numeric deltas (cc, nd, fo, ns, lrs)
 - Band transitions (e.g., "moderate" → "high")
 
+### Comparing Any Two Refs (`hotspots diff`)
+
+`hotspots diff` compares snapshots between any two git refs — not just a commit and its parent. Both refs must have existing snapshots.
+
+```bash
+# Compare current branch against main
+hotspots diff main HEAD
+
+# Compare two release tags
+hotspots diff v1.0.0 v2.0.0 --format json
+
+# Review top 10 riskiest changes with policy check
+hotspots diff main HEAD --top 10 --policy
+```
+
+**Prerequisites:** snapshots must exist for both refs. Create them with:
+
+```bash
+# Create snapshot for each ref (use --force if one already exists)
+git checkout main && hotspots analyze . --mode snapshot
+git checkout my-branch && hotspots analyze . --mode snapshot
+```
+
+Policy is evaluated on the **full** changed set before any `--top` truncation, so violations in lower-ranked functions are never silently dropped.
+
 **Example delta output:**
 ```json
 {
@@ -471,26 +496,37 @@ hotspots analyze . --mode snapshot --format json
 
 ### CI/CD Integration
 
-**Mainline branch (persist snapshots):**
+**Mainline branch (persist snapshot for the merge commit):**
 
 ```yaml
-# .github/workflows/complexity.yml
-- name: Track complexity
-  run: |
-    hotspots analyze . --mode snapshot --format json
+- name: Create snapshot
+  run: hotspots analyze . --mode snapshot --force
+- name: Cache snapshot
+  uses: actions/cache/save@v4
+  with:
+    path: .hotspots/snapshots
+    key: hotspots-snapshot-${{ github.sha }}
 ```
 
-**PR branch (compare vs merge-base, don't persist):**
+**PR branch (diff against base snapshot):**
 
 ```yaml
-# Automatically detected in PR context
-- name: Check complexity changes
+- name: Restore base snapshot
+  uses: actions/cache/restore@v4
+  with:
+    path: .hotspots/snapshots
+    key: hotspots-snapshot-${{ github.event.pull_request.base.sha }}
+- name: Create HEAD snapshot
+  run: hotspots analyze . --mode snapshot --force
+- name: Diff PR vs base
   run: |
-    hotspots analyze . --mode delta --format json > delta.json
-    # Parse delta.json and fail if critical functions degraded
+    hotspots diff \
+      ${{ github.event.pull_request.base.sha }} \
+      ${{ github.sha }} \
+      --format text --policy
 ```
 
-Hotspots automatically detects PR context via `GITHUB_EVENT_NAME` and `GITHUB_REF` environment variables.
+The `--policy` flag evaluates policy rules on the full changed set and exits 1 on blocking failures. For a ready-made GitHub Action see [GitHub Action](github-action.md).
 
 ### Refactoring Validation
 
