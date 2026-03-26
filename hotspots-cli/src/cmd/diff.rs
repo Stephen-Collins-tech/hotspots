@@ -60,6 +60,11 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     let mut delta_val = Delta::new(&head_snapshot, Some(&base_snapshot))
         .context("failed to compute delta between snapshots")?;
 
+    // Override the parent to the user-specified base ref so policy checks
+    // (e.g. NetRepoRegression) compare against the correct baseline, not the
+    // snapshot's real git parent.
+    delta_val.commit.parent = base_sha.clone();
+
     // Attach delta aggregates (file-level summaries used by HTML renderer)
     let current_co_change = head_snapshot
         .aggregates
@@ -77,13 +82,34 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         prev_co_change,
     ));
 
-    // Filter out Unchanged, then optionally keep top N by risk magnitude
+    // Filter out Unchanged entries
     {
         use hotspots_core::delta::FunctionStatus;
         delta_val
             .deltas
             .retain(|e| e.status != FunctionStatus::Unchanged);
     }
+
+    // Evaluate policy on the full changed set before any --top truncation,
+    // so violations in lower-ranked functions are not silently dropped.
+    if policy {
+        let resolved_config =
+            hotspots_core::config::load_and_resolve(&repo_root, config_path.as_deref())
+                .context("failed to load configuration")?;
+        let policy_results = hotspots_core::policy::evaluate_policies(
+            &delta_val,
+            &head_snapshot,
+            &repo_root,
+            &resolved_config,
+        )
+        .context("failed to evaluate policies")?;
+        if let Some(results) = policy_results {
+            delta_val.policy = Some(results);
+        }
+    }
+
+    // Apply --top after policy evaluation: sort by risk magnitude and truncate
+    // for rendered output only (policy results are already attached above).
     if let Some(n) = top {
         use hotspots_core::delta::FunctionStatus;
         delta_val.deltas.sort_by(|a, b| {
@@ -99,23 +125,6 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         delta_val.deltas.truncate(n);
-    }
-
-    // Evaluate policy if requested
-    if policy {
-        let resolved_config =
-            hotspots_core::config::load_and_resolve(&repo_root, config_path.as_deref())
-                .context("failed to load configuration")?;
-        let policy_results = hotspots_core::policy::evaluate_policies(
-            &delta_val,
-            &head_snapshot,
-            &repo_root,
-            &resolved_config,
-        )
-        .context("failed to evaluate policies")?;
-        if let Some(results) = policy_results {
-            delta_val.policy = Some(results);
-        }
     }
 
     // Render output
