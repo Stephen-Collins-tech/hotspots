@@ -728,12 +728,76 @@ Both hooks run `--mode delta --policy` on push and exit non-zero if blocking pol
 
 ---
 
+### `hotspots diff`
+
+Compare analysis snapshots between any two git refs. Both refs must have existing snapshots (created with `hotspots analyze --mode snapshot`).
+
+#### Usage
+
+```bash
+hotspots diff <base> <head> [OPTIONS]
+```
+
+#### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<base>` | Base git ref (branch, tag, SHA, or `HEAD~N`) |
+| `<head>` | Head git ref (branch, tag, SHA, or `HEAD~N`) |
+
+#### Options
+
+| Flag | Description |
+|------|-------------|
+| `--format <format>` | Output format: `text` (default), `json`, `jsonl`, `html` |
+| `--output <path>` | Write output to file instead of stdout (HTML default: `.hotspots/delta-report.html`) |
+| `--policy` | Evaluate policy rules; exit 1 on blocking failures |
+| `--top <N>` | Limit output to top N changed functions by risk magnitude |
+| `--config <path>` | Path to config file (default: auto-discover) |
+| `--auto-analyze` | Analyze missing refs automatically using git worktrees *(not yet implemented)* |
+
+#### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Blocking policy failure (`--policy` only) |
+| `3` | One or both snapshots missing |
+
+#### Examples
+
+```bash
+# Compare current branch against main
+hotspots diff main HEAD
+
+# Compare two release tags
+hotspots diff v1.0.0 v2.0.0
+
+# Top 10 changed functions with policy check
+hotspots diff main HEAD --top 10 --policy
+
+# JSON output for scripting
+hotspots diff main HEAD --format json
+
+# HTML report written to file
+hotspots diff main HEAD --format html --output reports/delta.html
+```
+
+#### Notes
+
+- `--top` truncation happens **after** policy evaluation, so violations outside the top N are still detected.
+- Annotated tags are peeled to the underlying commit SHA before snapshot lookup.
+- Use `hotspots analyze --mode snapshot` to create snapshots for refs that don't have one yet.
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success (or warnings only) |
 | `1` | Error or blocking policy failure |
+| `3` | Snapshot missing (`hotspots diff` only) |
 
 **Policy Evaluation:**
 - Exit code `0` if only warnings (watch, attention, rapid growth)
