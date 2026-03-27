@@ -2585,11 +2585,10 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
     let rows: String = deltas
         .iter()
         .map(|entry| {
-            let function_name = entry
+            let (file_name, function_name) = entry
                 .function_id
-                .split("::")
-                .last()
-                .unwrap_or(&entry.function_id);
+                .split_once("::")
+                .unwrap_or(("", &entry.function_id));
             let before_lrs = entry
                 .before
                 .as_ref()
@@ -2645,6 +2644,7 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
 
             format!(
                 r#"<tr class="{status_class}" data-status="{status}" data-lrs="{after_lrs_val}">
+    <td class="monospace">{file}</td>
     <td class="monospace">{function}</td>
     <td>{before_lrs}</td>
     <td>{after_lrs}</td>
@@ -2656,6 +2656,7 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
 </tr>"#,
                 status_class = status_class,
                 status = status_lowercase,
+                file = html_escape(file_name),
                 function = html_escape(function_name),
                 before_lrs = before_lrs,
                 after_lrs = after_lrs,
@@ -2675,6 +2676,7 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
     <table id="delta-table">
         <thead>
             <tr>
+                <th>File</th>
                 <th>Function</th>
                 <th>Before LRS</th>
                 <th>After LRS</th>
