@@ -10,6 +10,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
     steps:
       - uses: actions/checkout@v6
 
