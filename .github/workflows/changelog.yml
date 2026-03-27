@@ -11,6 +11,7 @@ jobs:
   update-changelog:
     name: Regenerate CHANGELOG.md
     runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
 
     steps:
       - name: Checkout
