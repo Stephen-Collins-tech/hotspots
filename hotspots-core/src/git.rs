@@ -327,10 +327,7 @@ pub fn resolve_merge_base_auto() -> Option<String> {
 ///
 /// Returns an error if the ref does not exist or git fails.
 pub fn resolve_ref_to_sha(repo_root: &Path, git_ref: &str) -> Result<String> {
-    // Append ^{commit} to peel annotated tags to the underlying commit SHA.
-    // For commits, branches, and lightweight tags this is a no-op.
-    let peeled = format!("{git_ref}^{{commit}}");
-    git_at(repo_root, &["rev-parse", "--verify", &peeled])
+    git_at(repo_root, &["rev-parse", "--verify", git_ref])
         .with_context(|| format!("failed to resolve git ref '{git_ref}'"))
 }
 
