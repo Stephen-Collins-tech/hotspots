@@ -63,15 +63,6 @@ jobs:
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
         run: ./target/release/hotspots analyze . --mode snapshot --format json --force
 
-      - name: Diff PR vs base
-        if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
-        run: |
-          ./target/release/hotspots diff \
-            ${{ github.event.pull_request.base.sha }} \
-            ${{ github.sha }} \
-            --format text --policy
-        continue-on-error: true
-
       - name: Generate HTML delta report
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
         run: |
