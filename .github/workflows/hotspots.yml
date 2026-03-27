@@ -40,7 +40,7 @@ jobs:
 
       - name: Create snapshot
         if: github.event_name == 'push'
-        run: ./target/release/hotspots analyze . --mode snapshot --force
+        run: ./target/release/hotspots analyze . --mode snapshot --format json --force
 
       - name: Cache snapshot
         if: github.event_name == 'push'
@@ -61,7 +61,7 @@ jobs:
 
       - name: Create HEAD snapshot
         if: github.event_name == 'pull_request'
-        run: ./target/release/hotspots analyze . --mode snapshot --force
+        run: ./target/release/hotspots analyze . --mode snapshot --format json --force
 
       - name: Diff PR vs base
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
