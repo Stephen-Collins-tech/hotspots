@@ -738,6 +738,72 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
     }
 }
 
+/// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and
+/// return the resulting snapshot.
+///
+/// Used by `hotspots diff --auto-analyze` to generate missing snapshots on
+/// demand. A temporary git worktree is created at `sha` and torn down
+/// automatically when this function returns (or on error).
+///
+/// Per-function touch metrics are skipped (the touch cache lives in
+/// `repo_root/.hotspots/` and cannot be pre-warmed for historical refs; file-
+/// level batched metrics are still computed as normal).
+pub(crate) fn analyze_and_persist_at_ref(
+    repo_root: &Path,
+    sha: &str,
+    resolved_config: &hotspots_core::ResolvedConfig,
+) -> anyhow::Result<hotspots_core::snapshot::Snapshot> {
+    let worktree = hotspots_core::git::create_worktree(repo_root, sha)
+        .with_context(|| format!("failed to create worktree for {sha}"))?;
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let progress = make_analysis_progress();
+    let reports = analyze_with_progress(
+        &worktree.path,
+        options,
+        Some(resolved_config),
+        Some(progress.as_ref()),
+    )
+    .with_context(|| format!("analysis failed for ref {sha}"))?;
+
+    // Build enriched snapshot using the worktree as the repo root so that
+    // git context (HEAD, parents, timestamp) is read from the checked-out ref.
+    // Touch cache is skipped (per_function_touches = false).
+    let mut snapshot = build_enriched_snapshot(&worktree.path, resolved_config, reports, false)
+        .with_context(|| format!("enrichment failed for ref {sha}"))?;
+
+    // Rewrite absolute worktree paths back to real repo paths so that
+    // function_ids are stable across snapshots (each worktree lives in a
+    // unique temp dir, so without this diff matching produces 0 matches).
+    let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
+    let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
+    for f in &mut snapshot.functions {
+        if f.file.starts_with(&worktree_prefix) {
+            let rel = f.file[worktree_prefix.len()..].to_string();
+            let old_file = f.file.clone();
+            f.file = format!("{}{}", repo_prefix, rel);
+            // function_id is "<file>::<symbol>" — rebuild using the corrected file path
+            if let Some(symbol) = f.function_id.strip_prefix(&format!("{old_file}::")) {
+                f.function_id = format!("{}::{}", f.file, symbol);
+            }
+        }
+    }
+
+    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
+
+    // Persist into the *real* repo's .hotspots/ directory, not the worktree.
+    hotspots_core::snapshot::persist_snapshot(repo_root, &snapshot, false)
+        .with_context(|| format!("failed to persist snapshot for {sha}"))?;
+    hotspots_core::snapshot::append_to_index(repo_root, &snapshot)
+        .with_context(|| format!("failed to update index for {sha}"))?;
+
+    // Drop of `worktree` runs `git worktree remove` here.
+    Ok(snapshot)
+}
+
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
