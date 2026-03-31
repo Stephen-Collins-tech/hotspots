@@ -365,10 +365,39 @@ impl Drop for TempWorktree {
 
 /// Create a temporary detached worktree at `sha` and return a drop guard.
 ///
-/// The worktree is placed in a system temp directory and is automatically
-/// removed when the returned [`TempWorktree`] is dropped.
+/// The directory name includes the current process ID so concurrent hotspots
+/// processes analyzing the same SHA use separate paths. Any stale directory
+/// left by an interrupted previous run with the same PID is removed before
+/// creating the new worktree. The worktree is automatically torn down when
+/// the returned [`TempWorktree`] is dropped.
 pub fn create_worktree(repo_root: &Path, sha: &str) -> Result<TempWorktree> {
-    let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}"));
+    let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}-{}", std::process::id()));
+
+    // Always attempt to unregister any stale git worktree entry first.
+    // A temp cleaner may have removed the directory while the .git/worktrees
+    // metadata entry remains; `git worktree add` fails in that case even though
+    // `dir.exists()` returns false.
+    if let Err(e) = git_at(
+        repo_root,
+        &["worktree", "remove", "--force", &dir.to_string_lossy()],
+    ) {
+        // Not fatal — the entry simply may not exist yet.
+        eprintln!(
+            "warning: failed to remove existing git worktree at {}: {e}",
+            dir.display()
+        );
+    }
+    // Remove the directory itself if it is still present.
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).with_context(|| {
+            format!(
+                "failed to remove existing worktree directory {}; \
+                 try removing it manually and re-run",
+                dir.display()
+            )
+        })?;
+    }
+
     git_at(
         repo_root,
         &["worktree", "add", "--detach", &dir.to_string_lossy(), sha],
