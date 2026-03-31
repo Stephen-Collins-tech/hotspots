@@ -331,6 +331,55 @@ pub fn resolve_ref_to_sha(repo_root: &Path, git_ref: &str) -> Result<String> {
         .with_context(|| format!("failed to resolve git ref '{git_ref}'"))
 }
 
+/// A temporary git worktree that is removed when dropped.
+///
+/// Created by [`create_worktree`]. The worktree directory is cleaned up via
+/// `git worktree remove --force` on drop, so it is always removed even if the
+/// caller returns an error mid-analysis.
+pub struct TempWorktree {
+    /// Absolute path to the worktree root.
+    pub path: std::path::PathBuf,
+    /// Repo root used to issue `git worktree remove`.
+    repo_root: std::path::PathBuf,
+}
+
+impl Drop for TempWorktree {
+    fn drop(&mut self) {
+        let result = git_at(
+            &self.repo_root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                &self.path.to_string_lossy(),
+            ],
+        );
+        if let Err(e) = result {
+            eprintln!(
+                "warning: failed to remove temporary worktree {}: {e}",
+                self.path.display()
+            );
+        }
+    }
+}
+
+/// Create a temporary detached worktree at `sha` and return a drop guard.
+///
+/// The worktree is placed in a system temp directory and is automatically
+/// removed when the returned [`TempWorktree`] is dropped.
+pub fn create_worktree(repo_root: &Path, sha: &str) -> Result<TempWorktree> {
+    let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}"));
+    git_at(
+        repo_root,
+        &["worktree", "add", "--detach", &dir.to_string_lossy(), sha],
+    )
+    .with_context(|| format!("failed to create worktree for {sha} at {}", dir.display()))?;
+    Ok(TempWorktree {
+        path: dir,
+        repo_root: repo_root.to_path_buf(),
+    })
+}
+
 /// Find the merge-base SHA and Unix timestamp between HEAD and main/master.
 /// Returns None when already on main (merge-base == HEAD) or no divergence found.
 pub fn find_merge_base(repo_root: &Path) -> Option<(String, i64)> {

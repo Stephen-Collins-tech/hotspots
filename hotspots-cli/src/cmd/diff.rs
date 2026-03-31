@@ -1,3 +1,4 @@
+use crate::cmd::analyze::analyze_and_persist_at_ref;
 use crate::util::{find_repo_root, write_html_report};
 use crate::OutputFormat;
 use anyhow::Context;
@@ -31,6 +32,10 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
 
     let repo_root = find_repo_root(&std::env::current_dir()?)?;
 
+    let resolved_config =
+        hotspots_core::config::load_and_resolve(&repo_root, config_path.as_deref())
+            .context("failed to load configuration")?;
+
     // Resolve both refs to full SHAs
     let base_sha = git::resolve_ref_to_sha(&repo_root, &base)
         .with_context(|| format!("failed to resolve base ref '{base}'"))?;
@@ -38,8 +43,10 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         .with_context(|| format!("failed to resolve head ref '{head}'"))?;
 
     // Check both snapshots exist before bailing, so the user sees all missing refs at once
-    let base_snapshot = load_snapshot_or_report(&repo_root, &base, &base_sha, auto_analyze);
-    let head_snapshot = load_snapshot_or_report(&repo_root, &head, &head_sha, auto_analyze);
+    let base_snapshot =
+        load_snapshot_or_report(&repo_root, &base, &base_sha, auto_analyze, &resolved_config);
+    let head_snapshot =
+        load_snapshot_or_report(&repo_root, &head, &head_sha, auto_analyze, &resolved_config);
 
     let (base_snapshot, head_snapshot) = match (base_snapshot, head_snapshot) {
         (Ok(b), Ok(h)) => (b, h),
@@ -103,9 +110,6 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
 
     // Evaluate policy if requested
     if policy {
-        let resolved_config =
-            hotspots_core::config::load_and_resolve(&repo_root, config_path.as_deref())
-                .context("failed to load configuration")?;
         let policy_results = hotspots_core::policy::evaluate_policies(
             &delta_val,
             &head_snapshot,
@@ -127,29 +131,33 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Try to load a snapshot, returning a descriptive Err string if missing.
-/// Calls process::exit on auto_analyze (not yet implemented).
+/// Try to load a snapshot. When `auto_analyze` is true and the snapshot is
+/// missing, runs a full analysis at `sha` and persists the result before
+/// returning it. Returns a descriptive `Err` string on failure.
 fn load_snapshot_or_report(
     repo_root: &std::path::Path,
     git_ref: &str,
     sha: &str,
     auto_analyze: bool,
+    resolved_config: &hotspots_core::config::ResolvedConfig,
 ) -> Result<hotspots_core::snapshot::Snapshot, String> {
     match snapshot::load_snapshot(repo_root, sha) {
         Ok(Some(s)) => Ok(s),
         Ok(None) => {
             if auto_analyze {
-                eprintln!(
-                    "[hotspots] --auto-analyze: no snapshot for '{git_ref}' ({}) — auto-analysis not yet implemented",
+                eprintln!("[hotspots] auto-analyzing '{}' ({})...", git_ref, &sha[..8]);
+                analyze_and_persist_at_ref(repo_root, sha, resolved_config).map_err(|e| {
+                    format!(
+                        "error: auto-analysis failed for '{git_ref}' ({}): {e}",
+                        &sha[..8]
+                    )
+                })
+            } else {
+                Err(format!(
+                    "error: no snapshot found for ref '{git_ref}' ({})\n  → run: git checkout {git_ref} && hotspots analyze --mode snapshot",
                     &sha[..8]
-                );
-                eprintln!("  → run: git checkout {git_ref} && hotspots analyze --mode snapshot");
-                std::process::exit(2);
+                ))
             }
-            Err(format!(
-                "error: no snapshot found for ref '{git_ref}' ({})\n  → run: git checkout {git_ref} && hotspots analyze --mode snapshot",
-                &sha[..8]
-            ))
         }
         Err(e) => Err(format!(
             "error: failed to load snapshot for '{git_ref}' ({}): {e}",
