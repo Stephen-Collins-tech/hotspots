@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Unique worktree paths and exit 2 on auto-analyze failure (#57)
+
+
 ### Features
 - Implement --auto-analyze for hotspots diff (#56)
 
