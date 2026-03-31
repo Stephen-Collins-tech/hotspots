@@ -365,10 +365,23 @@ impl Drop for TempWorktree {
 
 /// Create a temporary detached worktree at `sha` and return a drop guard.
 ///
-/// The worktree is placed in a system temp directory and is automatically
-/// removed when the returned [`TempWorktree`] is dropped.
+/// The directory name includes the current process ID so concurrent hotspots
+/// processes analyzing the same SHA use separate paths. Any stale directory
+/// left by an interrupted previous run with the same PID is removed before
+/// creating the new worktree. The worktree is automatically torn down when
+/// the returned [`TempWorktree`] is dropped.
 pub fn create_worktree(repo_root: &Path, sha: &str) -> Result<TempWorktree> {
-    let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}"));
+    let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}-{}", std::process::id()));
+
+    // Remove any stale worktree left by a previous interrupted run.
+    if dir.exists() {
+        let _ = git_at(
+            repo_root,
+            &["worktree", "remove", "--force", &dir.to_string_lossy()],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     git_at(
         repo_root,
         &["worktree", "add", "--detach", &dir.to_string_lossy(), sha],

@@ -146,12 +146,18 @@ fn load_snapshot_or_report(
         Ok(None) => {
             if auto_analyze {
                 eprintln!("[hotspots] auto-analyzing '{}' ({})...", git_ref, &sha[..8]);
-                analyze_and_persist_at_ref(repo_root, sha, resolved_config).map_err(|e| {
-                    format!(
-                        "error: auto-analysis failed for '{git_ref}' ({}): {e}",
-                        &sha[..8]
-                    )
-                })
+                match analyze_and_persist_at_ref(repo_root, sha, resolved_config) {
+                    Ok(snapshot) => Ok(snapshot),
+                    Err(e) => {
+                        // Exit 2 (not 3) so CI can distinguish a real execution failure
+                        // from a retriable "snapshot not yet generated" condition.
+                        eprintln!(
+                            "error: auto-analysis failed for '{git_ref}' ({}): {e}",
+                            &sha[..8]
+                        );
+                        std::process::exit(2);
+                    }
+                }
             } else {
                 Err(format!(
                     "error: no snapshot found for ref '{git_ref}' ({})\n  → run: git checkout {git_ref} && hotspots analyze --mode snapshot",
