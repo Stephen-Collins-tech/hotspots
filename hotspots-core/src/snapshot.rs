@@ -472,7 +472,19 @@ impl Snapshot {
                 days_since_last_change: HashMap::new(),
             });
 
-        // Apply batched results; fall back per-file for anything not in the window
+        // Collect files whose last-touch timestamp isn't in the 30-day window
+        // and resolve them in a single streaming git log pass instead of one
+        // subprocess per file.
+        let stale_files: std::collections::HashSet<&str> = abs_to_rel
+            .values()
+            .map(|s| s.as_str())
+            .filter(|rel| !batched.days_since_last_change.contains_key(*rel))
+            .collect();
+
+        let stale_days =
+            crate::git::batch_last_touch_for_files(repo_root, &stale_files, self.commit.timestamp);
+
+        // Apply results to all functions in each file
         for (abs_path, function_indices) in &unique_files {
             let rel = abs_to_rel
                 .get(abs_path)
@@ -484,10 +496,7 @@ impl Snapshot {
                 .days_since_last_change
                 .get(rel)
                 .copied()
-                .or_else(|| {
-                    crate::git::days_since_last_change_at(repo_root, rel, self.commit.timestamp)
-                        .ok()
-                });
+                .or_else(|| stale_days.get(rel).copied());
 
             for &idx in function_indices {
                 self.functions[idx].touch_count_30d = touch_count;
