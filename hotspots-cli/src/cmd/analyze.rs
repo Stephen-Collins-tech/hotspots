@@ -26,6 +26,8 @@ pub(crate) struct AnalyzeArgs {
     pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
+    /// Number of rayon worker threads; None = use all logical CPUs.
+    pub jobs: Option<usize>,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -105,7 +107,17 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         all_functions,
         explain_patterns,
         source_url,
+        jobs,
     } = args;
+
+    // Configure the global rayon thread pool before any parallel work begins.
+    // Errors are ignored: build_global() fails if rayon was already initialized
+    // (e.g. in tests), which is harmless.
+    if let Some(n) = jobs {
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global();
+    }
 
     let normalized_path = if path.is_relative() {
         std::env::current_dir()?.join(&path)

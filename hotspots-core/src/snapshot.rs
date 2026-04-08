@@ -383,12 +383,15 @@ impl Snapshot {
         }
 
         // Phase 2: run git subprocesses in parallel for all cache misses.
+        // Results are sent through a channel as they complete, avoiding a full
+        // intermediate Vec that would coexist with the already-allocated misses Vec.
         // Progress is not reported per-item here (progress_fn is not Sync);
         // the caller sees a jump from cache-hits-done to total at phase end.
         let timestamp = self.commit.timestamp;
-        let results: Vec<(usize, String, (usize, Option<u32>))> = misses
+        let (tx, rx) = std::sync::mpsc::channel::<(usize, String, (usize, Option<u32>))>();
+        misses
             .par_iter()
-            .map(|(idx, key, rel, start_line, end_line)| {
+            .for_each_with(tx, |tx, (idx, key, rel, start_line, end_line)| {
                 let value = match crate::git::function_touch_metrics_at(
                     repo_root,
                     rel,
@@ -399,12 +402,11 @@ impl Snapshot {
                     Ok((count, days)) => (count, days),
                     Err(_) => (0usize, None),
                 };
-                (*idx, key.clone(), value)
-            })
-            .collect();
+                let _ = tx.send((*idx, key.clone(), value));
+            });
 
         // Phase 3: apply results and write cache.
-        for (idx, key, (count, days)) in results {
+        for (idx, key, (count, days)) in rx {
             self.functions[idx].touch_count_30d = Some(count);
             self.functions[idx].days_since_last_change = days;
             cache.insert(key, (count, days));

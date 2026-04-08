@@ -91,6 +91,10 @@ enum Commands {
         /// URL of the written analysis post to link from the HTML report (HTML format only)
         #[arg(long, value_name = "URL")]
         source_url: Option<String>,
+
+        /// Number of parallel worker threads (default: number of logical CPUs)
+        #[arg(long, short = 'j', value_name = "N")]
+        jobs: Option<usize>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -217,6 +221,7 @@ fn main() -> anyhow::Result<()> {
             all_functions,
             explain_patterns,
             source_url,
+            jobs,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -234,6 +239,7 @@ fn main() -> anyhow::Result<()> {
             all_functions,
             explain_patterns,
             source_url,
+            jobs,
         })?,
         Commands::Prune {
             unreachable,
