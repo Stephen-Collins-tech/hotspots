@@ -14,8 +14,12 @@ REPO_URL="https://github.com/expo/expo.git"
 case "${BENCH_OP:-${1:-analyze}}" in
   analyze)
     cd "$REPO"
+    JOBS_ARG=""
+    if [ -n "${BENCH_JOBS:-}" ]; then
+        JOBS_ARG="--jobs ${BENCH_JOBS}"
+    fi
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist --jobs 2
+        --mode snapshot --format json --no-persist $JOBS_ARG
     ;;
 
   probe)

@@ -344,7 +344,7 @@ def _wait_for_cidfile(path: Path, timeout: float = 15.0) -> str | None:
 
 
 def run_analysis(
-    memory: str, memory_mb: int, cpus: str, watchdog_cfg: WatchdogConfig,
+    memory: str, memory_mb: int, cpus: str, jobs: int | None, watchdog_cfg: WatchdogConfig,
 ) -> tuple[int, bool, str, list[Sample]]:
     """
     Run the analysis container, streaming its output directly to the terminal.
@@ -353,7 +353,8 @@ def run_analysis(
     ID is obtained via --cidfile so we can start sampling without --detach.
     Returns (exit_code, oom_killed, watchdog_reason, samples).
     """
-    section(f"STEP 3: Run analysis  [{cpus} CPU / {memory} RAM]")
+    jobs_label = f", {jobs} threads" if jobs is not None else ""
+    section(f"STEP 3: Run analysis  [{cpus} CPU / {memory} RAM{jobs_label}]")
     log(f"Memory limit: {memory}  (hard cgroup ceiling — no swap)")
     if watchdog_cfg.mem_pct > 0:
         thresh_mb = memory_mb * watchdog_cfg.mem_pct / 100
@@ -369,6 +370,10 @@ def run_analysis(
     sampler: Sampler | None = None
 
     try:
+        env_args = []
+        if jobs is not None:
+            env_args = ["-e", f"BENCH_JOBS={jobs}"]
+
         proc = subprocess.Popen(
             [
                 "docker", "run",
@@ -376,6 +381,7 @@ def run_analysis(
                 f"--memory={memory}",
                 f"--memory-swap={memory}",   # == memory → zero swap
                 f"--cpus={cpus}",
+                *env_args,
                 "-v", f"{EXPO_DIR}:/repo",
                 IMAGE_NAME,
             ],
@@ -466,6 +472,9 @@ def parse_args() -> argparse.Namespace:
                    help="CPU count for docker run (default: 1).")
     p.add_argument("--label", default="bench", metavar="LABEL",
                    help="Results filename prefix (default: bench).")
+    p.add_argument("--jobs", type=int, default=None, metavar="N",
+                   help="Worker threads for hotspots analyze (passed as BENCH_JOBS env var). "
+                        "Default: unset (hotspots uses all logical CPUs).")
     p.add_argument("--skip-build", action="store_true",
                    help="Skip docker build, use existing image.")
     p.add_argument("--skip-clone", action="store_true",
@@ -497,6 +506,7 @@ def main() -> None:
     section("HOTSPOTS MEMORY BENCHMARK — LOCAL DOCKER")
     log(f"Memory:  {args.memory}  ({memory_mb} MB hard ceiling)")
     log(f"CPUs:    {args.cpus}")
+    log(f"Jobs:    {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     log(f"Repo:    expo/expo  ({EXPO_DIR})")
     log(f"Image:   {IMAGE_NAME}")
 
@@ -509,7 +519,7 @@ def main() -> None:
     build_image(args.skip_build)
     ensure_clone(args.skip_clone)
     exit_code, oom_killed, watchdog_reason, samples = run_analysis(
-        args.memory, memory_mb, args.cpus, watchdog_cfg,
+        args.memory, memory_mb, args.cpus, args.jobs, watchdog_cfg,
     )
 
     section("RESULT")
