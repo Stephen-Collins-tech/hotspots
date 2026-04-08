@@ -385,6 +385,7 @@ dependencies = [
  "clap",
  "hotspots-core",
  "indicatif",
+ "rayon",
 ]
 
 [[package]]

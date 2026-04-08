@@ -1,0 +1,21 @@
+[project]
+name = "hotspots-bench"
+version = "0.1.0"
+description = "Memory benchmark for hotspots using local Docker"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.9",
+]
+
+[project.scripts]
+bench = "run_local:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["run_local"]
+
+[tool.setuptools.package-dir]
+"" = "memory-crash"

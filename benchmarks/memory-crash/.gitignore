@@ -1,0 +1,4 @@
+# Captured run results (generated artifacts).
+results/
+# expo/expo clone used as benchmark input.
+repos/
