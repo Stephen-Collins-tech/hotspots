@@ -15,7 +15,7 @@ case "${BENCH_OP:-${1:-analyze}}" in
   analyze)
     cd "$REPO"
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist
+        --mode snapshot --format json --no-persist --jobs 2
     ;;
 
   probe)
