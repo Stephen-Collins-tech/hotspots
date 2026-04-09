@@ -30,6 +30,8 @@ pub(crate) struct AnalyzeArgs {
     pub jobs: Option<usize>,
     /// CLI override for callgraph_skip_above; None = use resolved config value.
     pub callgraph_skip_above: Option<usize>,
+    /// When true, force-disable per-function touches regardless of config.
+    pub no_per_function_touches: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -106,6 +108,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         no_persist,
         level,
         per_function_touches,
+        no_per_function_touches,
         all_functions,
         explain_patterns,
         source_url,
@@ -143,8 +146,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let effective_per_function_touches =
-        per_function_touches || resolved_config.per_function_touches;
+    let effective_per_function_touches = if no_per_function_touches {
+        false
+    } else {
+        per_function_touches || resolved_config.per_function_touches
+    };
 
     if let Some(output_mode) = mode {
         return handle_mode_output(

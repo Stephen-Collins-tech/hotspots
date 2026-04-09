@@ -80,6 +80,12 @@ enum Commands {
         #[arg(long)]
         per_function_touches: bool,
 
+        /// Disable per-function touch metrics, use file-level batching instead.
+        /// Overrides config and --per-function-touches. Useful for large repos
+        /// where the cold-start per-function git log -L calls dominate CPU time.
+        #[arg(long, conflicts_with = "per_function_touches")]
+        no_per_function_touches: bool,
+
         /// Output all functions as a flat array (only valid with --mode snapshot --format json)
         #[arg(long)]
         all_functions: bool,
@@ -224,6 +230,7 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            no_per_function_touches,
             all_functions,
             explain_patterns,
             source_url,
@@ -243,6 +250,7 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            no_per_function_touches,
             all_functions,
             explain_patterns,
             source_url,

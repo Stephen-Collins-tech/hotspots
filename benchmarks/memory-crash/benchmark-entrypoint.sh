@@ -22,8 +22,15 @@ case "${BENCH_OP:-${1:-analyze}}" in
     if [ -n "${BENCH_CALLGRAPH_SKIP_ABOVE:-}" ]; then
         CALLGRAPH_SKIP_ARG="--callgraph-skip-above ${BENCH_CALLGRAPH_SKIP_ABOVE}"
     fi
+    # Per-function touches are disabled by default in the benchmark because the
+    # cold-start spawns one git log -L subprocess per function (~51k for expo/expo),
+    # completely dominating CPU. Set BENCH_PER_FUNCTION_TOUCHES=1 to enable.
+    TOUCH_ARG="--no-per-function-touches"
+    if [ -n "${BENCH_PER_FUNCTION_TOUCHES:-}" ]; then
+        TOUCH_ARG="--per-function-touches"
+    fi
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG
+        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG $TOUCH_ARG
     ;;
 
   probe)

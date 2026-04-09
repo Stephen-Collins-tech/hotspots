@@ -507,6 +507,14 @@ def parse_args() -> argparse.Namespace:
         help="Skip all call graph algorithms when the repo exceeds N functions. "
              "Default: unset (always compute call graph).",
     )
+    p.add_argument(
+        "--per-function-touches",
+        action="store_true",
+        default=False,
+        help="Enable per-function git log -L touch metrics. "
+             "Default: disabled (uses file-level batching). "
+             "Enabling this on a large cold repo will dominate CPU time.",
+    )
     return p.parse_args()
 
 
@@ -529,6 +537,9 @@ def main() -> None:
     callgraph_skip = getattr(args, "callgraph_skip_above", None)
     if callgraph_skip is not None:
         analyze_cmd += ["--callgraph-skip-above", str(callgraph_skip)]
+    per_fn_touches = getattr(args, "per_function_touches", False)
+    if not per_fn_touches:
+        analyze_cmd += ["--no-per-function-touches"]
 
     config = BenchmarkConfig(
         repo_url="https://github.com/expo/expo.git",
@@ -550,6 +561,7 @@ def main() -> None:
     logger.log(f"CPUs:           {args.cpus} vCPU")
     logger.log(f"Jobs:           {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     logger.log(f"CallgraphSkip:  {callgraph_skip if callgraph_skip is not None else 'disabled (always compute)'}")
+    logger.log(f"PerFnTouches:   {'enabled' if per_fn_touches else 'disabled (file-level batching)'}")
     logger.log(f"Memory limit:   {args.memory} (hard ceiling, swap off)")
     logger.log(f"Repo:           {config.repo_url}")
     logger.log(f"Volume:         {config.volume_name}")
