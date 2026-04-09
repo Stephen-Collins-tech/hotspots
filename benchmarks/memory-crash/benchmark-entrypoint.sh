@@ -18,8 +18,12 @@ case "${BENCH_OP:-${1:-analyze}}" in
     if [ -n "${BENCH_JOBS:-}" ]; then
         JOBS_ARG="--jobs ${BENCH_JOBS}"
     fi
+    CALLGRAPH_SKIP_ARG=""
+    if [ -n "${BENCH_CALLGRAPH_SKIP_ABOVE:-}" ]; then
+        CALLGRAPH_SKIP_ARG="--callgraph-skip-above ${BENCH_CALLGRAPH_SKIP_ABOVE}"
+    fi
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist $JOBS_ARG
+        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG
     ;;
 
   probe)

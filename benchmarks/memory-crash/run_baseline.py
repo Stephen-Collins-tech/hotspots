@@ -491,6 +491,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Delete and recreate the Docker volume, forcing a full re-clone.",
     )
+    p.add_argument(
+        "--jobs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Worker threads for hotspots analyze (--jobs flag). "
+             "Default: unset (hotspots uses all logical CPUs).",
+    )
+    p.add_argument(
+        "--callgraph-skip-above",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Skip all call graph algorithms when the repo exceeds N functions. "
+             "Default: unset (always compute call graph).",
+    )
     return p.parse_args()
 
 
@@ -502,18 +518,25 @@ def main() -> None:
     logger = Logger(results_file)
 
     # ── Benchmark target definition ───────────────────────────────────────────
+    analyze_cmd = [
+        "/usr/local/bin/hotspots", "analyze", "/repo",
+        "--mode", "snapshot",
+        "--format", "json",
+        "--no-persist",
+    ]
+    if args.jobs is not None:
+        analyze_cmd += ["--jobs", str(args.jobs)]
+    callgraph_skip = getattr(args, "callgraph_skip_above", None)
+    if callgraph_skip is not None:
+        analyze_cmd += ["--callgraph-skip-above", str(callgraph_skip)]
+
     config = BenchmarkConfig(
         repo_url="https://github.com/expo/expo.git",
         volume_name="hotspots-expo-repo",
         image_name="hotspots-memory-test",
         dockerfile=SCRIPT_DIR / "Dockerfile",
         build_context=PROJECT_ROOT,
-        analyze_cmd=[
-            "/usr/local/bin/hotspots", "analyze", "/repo",
-            "--mode", "snapshot",
-            "--format", "json",
-            "--no-persist",
-        ],
+        analyze_cmd=analyze_cmd,
         memory_limit=args.memory,
         cpu_limit=args.cpus,
         label=args.label,
@@ -525,6 +548,8 @@ def main() -> None:
     logger.log(f"Timestamp:      {timestamp}")
     logger.log(f"Results file:   {results_file}")
     logger.log(f"CPUs:           {args.cpus} vCPU")
+    logger.log(f"Jobs:           {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
+    logger.log(f"CallgraphSkip:  {callgraph_skip if callgraph_skip is not None else 'disabled (always compute)'}")
     logger.log(f"Memory limit:   {args.memory} (hard ceiling, swap off)")
     logger.log(f"Repo:           {config.repo_url}")
     logger.log(f"Volume:         {config.volume_name}")
