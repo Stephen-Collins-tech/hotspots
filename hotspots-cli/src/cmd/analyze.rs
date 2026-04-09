@@ -28,6 +28,8 @@ pub(crate) struct AnalyzeArgs {
     pub source_url: Option<String>,
     /// Number of rayon worker threads; None = use all logical CPUs.
     pub jobs: Option<usize>,
+    /// CLI override for callgraph_skip_above; None = use resolved config value.
+    pub callgraph_skip_above: Option<usize>,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -108,6 +110,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         explain_patterns,
         source_url,
         jobs,
+        callgraph_skip_above,
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
@@ -162,6 +165,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 all_functions,
                 explain_patterns,
                 source_url,
+                callgraph_skip_above,
             },
         );
     }
@@ -236,6 +240,7 @@ pub(crate) struct ModeOutputOptions {
     pub all_functions: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
+    pub callgraph_skip_above: Option<usize>,
 }
 
 pub(crate) fn handle_mode_output(
@@ -258,6 +263,7 @@ pub(crate) fn handle_mode_output(
         all_functions,
         explain_patterns,
         source_url,
+        callgraph_skip_above,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -275,9 +281,14 @@ pub(crate) fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot =
-                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
-                    .context("failed to build enriched snapshot")?;
+            let mut snapshot = build_enriched_snapshot(
+                &repo_root,
+                resolved_config,
+                reports,
+                per_function_touches,
+                callgraph_skip_above,
+            )
+            .context("failed to build enriched snapshot")?;
 
             snapshot.populate_patterns(&resolved_config.pattern_thresholds);
             if explain_patterns {
@@ -330,9 +341,14 @@ pub(crate) fn handle_mode_output(
             )?;
         }
         OutputMode::Delta => {
-            let snapshot =
-                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
-                    .context("failed to build enriched snapshot")?;
+            let snapshot = build_enriched_snapshot(
+                &repo_root,
+                resolved_config,
+                reports,
+                per_function_touches,
+                callgraph_skip_above,
+            )
+            .context("failed to build enriched snapshot")?;
 
             let delta_val = if pr_context.is_pr {
                 compute_pr_delta(&repo_root, &snapshot)?
@@ -639,29 +655,43 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
 }
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
+///
+/// `callgraph_skip_above` overrides `resolved_config.callgraph_skip_above` when `Some`.
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     per_function_touches: bool,
+    callgraph_skip_above: Option<usize>,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
     let merge_base = hotspots_core::git::find_merge_base(repo_root);
 
-    let call_graph = hotspots_core::build_call_graph(&reports, repo_root).ok();
-    if let Some(ref cg) = call_graph {
-        let total = cg.total_callee_names;
-        let resolved = cg.resolved_callee_names;
-        if total > 0 {
-            let pct = (resolved as f64 / total as f64) * 100.0;
-            eprintln!(
-                "call graph: resolved {}/{} callee references ({:.0}% internal)",
-                resolved, total, pct
-            );
+    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
+    let call_graph = if reports.len() > effective_skip_above {
+        eprintln!(
+            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
+            reports.len(),
+            effective_skip_above
+        );
+        None
+    } else {
+        let cg = hotspots_core::build_call_graph(&reports, repo_root).ok();
+        if let Some(ref cg) = cg {
+            let total = cg.total_callee_names;
+            let resolved = cg.resolved_callee_names;
+            if total > 0 {
+                let pct = (resolved as f64 / total as f64) * 100.0;
+                eprintln!(
+                    "call graph: resolved {}/{} callee references ({:.0}% internal)",
+                    resolved, total, pct
+                );
+            }
         }
-    }
+        cg
+    };
 
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
@@ -791,8 +821,10 @@ pub(crate) fn analyze_and_persist_at_ref(
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
     // Touch cache is skipped (per_function_touches = false).
-    let mut snapshot = build_enriched_snapshot(&worktree.path, resolved_config, reports, false)
-        .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    // callgraph_skip_above = None: always use the config value for historical refs.
+    let mut snapshot =
+        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None)
+            .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Rewrite absolute worktree paths back to real repo paths so that
     // function_ids are stable across snapshots (each worktree lives in a

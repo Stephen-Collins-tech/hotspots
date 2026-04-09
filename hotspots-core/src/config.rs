@@ -105,6 +105,13 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub betweenness_approx_k: Option<usize>,
 
+    /// Skip all call graph computation when the repo has more than this many functions
+    /// (default: no limit). Use this on very large repos where graph algorithms dominate
+    /// CPU. When skipped, PageRank, betweenness, SCC, fan-in/fan-out, and dependency
+    /// depth are all omitted from output.
+    #[serde(default)]
+    pub callgraph_skip_above: Option<usize>,
+
     /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
     #[serde(default)]
     pub patterns: Option<PatternThresholdsConfig>,
@@ -237,6 +244,8 @@ pub struct ResolvedConfig {
     pub betweenness_exact_threshold: usize,
     /// Number of pivot sources for approximate betweenness
     pub betweenness_approx_k: usize,
+    /// Skip all call graph computation above this function count (usize::MAX = never skip)
+    pub callgraph_skip_above: usize,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Pattern detection thresholds
@@ -608,6 +617,7 @@ impl HotspotsConfig {
             driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
+            callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
             config_path: None,
         })
     }

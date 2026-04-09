@@ -95,6 +95,12 @@ enum Commands {
         /// Number of parallel worker threads (default: number of logical CPUs)
         #[arg(long, short = 'j', value_name = "N")]
         jobs: Option<usize>,
+
+        /// Skip all call graph algorithms when the repo exceeds N functions.
+        /// Omits PageRank, betweenness, fan-in/fan-out, SCC, and dependency depth.
+        /// Useful for very large repos where graph computation dominates CPU time.
+        #[arg(long, value_name = "N")]
+        callgraph_skip_above: Option<usize>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -222,6 +228,7 @@ fn main() -> anyhow::Result<()> {
             explain_patterns,
             source_url,
             jobs,
+            callgraph_skip_above,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -240,6 +247,7 @@ fn main() -> anyhow::Result<()> {
             explain_patterns,
             source_url,
             jobs,
+            callgraph_skip_above,
         })?,
         Commands::Prune {
             unreachable,

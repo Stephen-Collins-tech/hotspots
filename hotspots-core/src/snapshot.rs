@@ -603,7 +603,7 @@ impl Snapshot {
         let approximate = n > exact_threshold;
 
         // Compute global metrics once
-        let pagerank_scores = call_graph.pagerank(0.85, 30);
+        let pagerank_scores = call_graph.pagerank(0.85, 30, 1e-6);
         let betweenness_scores = if approximate {
             call_graph.betweenness_centrality_approx(approx_k)
         } else {
