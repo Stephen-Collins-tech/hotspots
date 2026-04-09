@@ -349,7 +349,7 @@ def run_analysis(
     cpus: str,
     jobs: int | None,
     callgraph_skip_above: int | None,
-    per_function_touches: bool,
+    touch_mode: str,
     watchdog_cfg: WatchdogConfig,
 ) -> tuple[int, bool, str, list[Sample]]:
     """
@@ -361,8 +361,7 @@ def run_analysis(
     """
     jobs_label = f", {jobs} threads" if jobs is not None else ""
     skip_label = f", skip-callgraph>{callgraph_skip_above}" if callgraph_skip_above is not None else ""
-    touch_label = ", per-fn-touches" if per_function_touches else ", file-level-touches"
-    section(f"STEP 3: Run analysis  [{cpus} CPU / {memory} RAM{jobs_label}{skip_label}{touch_label}]")
+    section(f"STEP 3: Run analysis  [{cpus} CPU / {memory} RAM{jobs_label}{skip_label}, touch={touch_mode}]")
     log(f"Memory limit: {memory}  (hard cgroup ceiling — no swap)")
     if watchdog_cfg.mem_pct > 0:
         thresh_mb = memory_mb * watchdog_cfg.mem_pct / 100
@@ -383,8 +382,8 @@ def run_analysis(
             env_args += ["-e", f"BENCH_JOBS={jobs}"]
         if callgraph_skip_above is not None:
             env_args += ["-e", f"BENCH_CALLGRAPH_SKIP_ABOVE={callgraph_skip_above}"]
-        if per_function_touches:
-            env_args += ["-e", "BENCH_PER_FUNCTION_TOUCHES=1"]
+        if touch_mode != "skip":
+            env_args += ["-e", f"BENCH_TOUCH={touch_mode}"]
 
         proc = subprocess.Popen(
             [
@@ -491,10 +490,12 @@ def parse_args() -> argparse.Namespace:
                    help="Skip all call graph algorithms when the repo exceeds N functions "
                         "(passed as BENCH_CALLGRAPH_SKIP_ABOVE env var). "
                         "Default: unset (no skip). Use to isolate analysis CPU from graph CPU.")
-    p.add_argument("--per-function-touches", action="store_true", default=False,
-                   help="Enable per-function git log -L touch metrics (BENCH_PER_FUNCTION_TOUCHES=1). "
-                        "Disabled by default in the benchmark because the cold-start spawns one "
-                        "subprocess per function (~51k for expo/expo) and dominates CPU time.")
+    p.add_argument("--touch", choices=["skip", "file", "per-function"], default="skip",
+                   metavar="MODE",
+                   help="Touch metrics mode (BENCH_TOUCH env var): "
+                        "'skip' = no git log calls at all (default); "
+                        "'file' = file-level batching (500 files/call); "
+                        "'per-function' = one git log -L per function (slowest, most accurate).")
     p.add_argument("--skip-build", action="store_true",
                    help="Skip docker build, use existing image.")
     p.add_argument("--skip-clone", action="store_true",
@@ -529,8 +530,8 @@ def main() -> None:
     log(f"Jobs:    {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     skip = getattr(args, "callgraph_skip_above", None)
     log(f"CallgraphSkipAbove: {skip if skip is not None else 'disabled (always compute)'}")
-    per_fn = getattr(args, "per_function_touches", False)
-    log(f"PerFunctionTouches: {'enabled' if per_fn else 'disabled (file-level batching)'}")
+    touch_mode = getattr(args, "touch", "skip")
+    log(f"TouchMetrics:       {touch_mode}")
     log(f"Repo:    expo/expo  ({EXPO_DIR})")
     log(f"Image:   {IMAGE_NAME}")
 
@@ -545,7 +546,7 @@ def main() -> None:
     exit_code, oom_killed, watchdog_reason, samples = run_analysis(
         args.memory, memory_mb, args.cpus, args.jobs,
         getattr(args, "callgraph_skip_above", None),
-        getattr(args, "per_function_touches", False),
+        getattr(args, "touch", "skip"),
         watchdog_cfg,
     )
 

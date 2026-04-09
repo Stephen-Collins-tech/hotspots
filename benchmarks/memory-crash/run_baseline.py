@@ -508,12 +508,12 @@ def parse_args() -> argparse.Namespace:
              "Default: unset (always compute call graph).",
     )
     p.add_argument(
-        "--per-function-touches",
-        action="store_true",
-        default=False,
-        help="Enable per-function git log -L touch metrics. "
-             "Default: disabled (uses file-level batching). "
-             "Enabling this on a large cold repo will dominate CPU time.",
+        "--touch",
+        choices=["skip", "file", "per-function"],
+        default="skip",
+        metavar="MODE",
+        help="Touch metrics mode: 'skip' = no git log calls (default); "
+             "'file' = file-level batching; 'per-function' = per-function git log -L.",
     )
     return p.parse_args()
 
@@ -537,9 +537,12 @@ def main() -> None:
     callgraph_skip = getattr(args, "callgraph_skip_above", None)
     if callgraph_skip is not None:
         analyze_cmd += ["--callgraph-skip-above", str(callgraph_skip)]
-    per_fn_touches = getattr(args, "per_function_touches", False)
-    if not per_fn_touches:
+    touch_mode = getattr(args, "touch", "skip")
+    if touch_mode == "skip":
+        analyze_cmd += ["--skip-touch-metrics"]
+    elif touch_mode == "file":
         analyze_cmd += ["--no-per-function-touches"]
+    # "per-function" = default behavior (no extra flag needed)
 
     config = BenchmarkConfig(
         repo_url="https://github.com/expo/expo.git",
@@ -561,7 +564,7 @@ def main() -> None:
     logger.log(f"CPUs:           {args.cpus} vCPU")
     logger.log(f"Jobs:           {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     logger.log(f"CallgraphSkip:  {callgraph_skip if callgraph_skip is not None else 'disabled (always compute)'}")
-    logger.log(f"PerFnTouches:   {'enabled' if per_fn_touches else 'disabled (file-level batching)'}")
+    logger.log(f"TouchMetrics:   {touch_mode}")
     logger.log(f"Memory limit:   {args.memory} (hard ceiling, swap off)")
     logger.log(f"Repo:           {config.repo_url}")
     logger.log(f"Volume:         {config.volume_name}")

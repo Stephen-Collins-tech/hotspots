@@ -86,6 +86,12 @@ enum Commands {
         #[arg(long, conflicts_with = "per_function_touches")]
         no_per_function_touches: bool,
 
+        /// Skip all touch metrics entirely (no git log calls for churn/recency).
+        /// Overrides --per-function-touches and --no-per-function-touches.
+        /// Use for benchmarking pure analysis + call graph performance.
+        #[arg(long, conflicts_with = "per_function_touches")]
+        skip_touch_metrics: bool,
+
         /// Output all functions as a flat array (only valid with --mode snapshot --format json)
         #[arg(long)]
         all_functions: bool,
@@ -231,6 +237,7 @@ fn main() -> anyhow::Result<()> {
             level,
             per_function_touches,
             no_per_function_touches,
+            skip_touch_metrics,
             all_functions,
             explain_patterns,
             source_url,
@@ -251,6 +258,7 @@ fn main() -> anyhow::Result<()> {
             level,
             per_function_touches,
             no_per_function_touches,
+            skip_touch_metrics,
             all_functions,
             explain_patterns,
             source_url,

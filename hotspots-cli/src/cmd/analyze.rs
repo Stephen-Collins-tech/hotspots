@@ -32,6 +32,8 @@ pub(crate) struct AnalyzeArgs {
     pub callgraph_skip_above: Option<usize>,
     /// When true, force-disable per-function touches regardless of config.
     pub no_per_function_touches: bool,
+    /// When true, skip all touch metrics (no git log calls at all).
+    pub skip_touch_metrics: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -109,6 +111,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         level,
         per_function_touches,
         no_per_function_touches,
+        skip_touch_metrics,
         all_functions,
         explain_patterns,
         source_url,
@@ -172,6 +175,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
+                skip_touch_metrics,
             },
         );
     }
@@ -247,6 +251,7 @@ pub(crate) struct ModeOutputOptions {
     pub explain_patterns: bool,
     pub source_url: Option<String>,
     pub callgraph_skip_above: Option<usize>,
+    pub skip_touch_metrics: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -270,6 +275,7 @@ pub(crate) fn handle_mode_output(
         explain_patterns,
         source_url,
         callgraph_skip_above,
+        skip_touch_metrics,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -293,6 +299,7 @@ pub(crate) fn handle_mode_output(
                 reports,
                 per_function_touches,
                 callgraph_skip_above,
+                skip_touch_metrics,
             )
             .context("failed to build enriched snapshot")?;
 
@@ -353,6 +360,7 @@ pub(crate) fn handle_mode_output(
                 reports,
                 per_function_touches,
                 callgraph_skip_above,
+                skip_touch_metrics,
             )
             .context("failed to build enriched snapshot")?;
 
@@ -663,12 +671,14 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
 ///
 /// `callgraph_skip_above` overrides `resolved_config.callgraph_skip_above` when `Some`.
+/// `skip_touch_metrics` bypasses all git-log touch calls (file-level and per-function).
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     per_function_touches: bool,
     callgraph_skip_above: Option<usize>,
+    skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
@@ -721,20 +731,24 @@ pub(crate) fn build_enriched_snapshot(
         }
     }
 
-    if per_function_touches
-        && !hotspots_core::snapshot::hotspots_dir(repo_root)
-            .join("touch-cache.json.zst")
-            .exists()
-    {
-        eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
+    if !skip_touch_metrics {
+        if per_function_touches
+            && !hotspots_core::snapshot::hotspots_dir(repo_root)
+                .join("touch-cache.json.zst")
+                .exists()
+        {
+            eprintln!(
+                "Warning: touch cache cold start — first run will be slower (building cache)"
+            );
+        }
+        let progress = if per_function_touches {
+            Some(make_progress_reporter(total_functions))
+        } else {
+            None
+        };
+        enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
+        enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
-    let progress = if per_function_touches {
-        Some(make_progress_reporter(total_functions))
-    } else {
-        None
-    };
-    enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
-    enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(
@@ -829,7 +843,7 @@ pub(crate) fn analyze_and_persist_at_ref(
     // Touch cache is skipped (per_function_touches = false).
     // callgraph_skip_above = None: always use the config value for historical refs.
     let mut snapshot =
-        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None)
+        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None, false)
             .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Rewrite absolute worktree paths back to real repo paths so that
