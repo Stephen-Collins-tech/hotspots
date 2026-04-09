@@ -215,6 +215,13 @@ impl AgentSnapshotOutput {
     pub fn to_json(&self) -> anyhow::Result<String> {
         serde_json::to_string_pretty(self).map_err(|e| anyhow::anyhow!("{}", e))
     }
+
+    /// Write pretty-printed JSON directly to `writer` without an intermediate String.
+    pub fn write_json_to<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+        serde_json::to_writer_pretty(writer as &mut dyn std::io::Write, self)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        writeln!(writer).map_err(|e| anyhow::anyhow!("{}", e))
+    }
 }
 
 /// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).

@@ -451,23 +451,30 @@ fn emit_snapshot_output(
             );
             if all_functions {
                 snapshot.aggregates = Some(aggregates);
-                println!("{}", snapshot.to_json()?);
+                let stdout = std::io::stdout();
+                let mut out = std::io::BufWriter::new(stdout.lock());
+                snapshot
+                    .write_json_to(&mut out)
+                    .context("failed to write snapshot JSON")?;
             } else {
                 let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
                     snapshot,
                     &aggregates,
                     repo_root,
                 );
-                println!(
-                    "{}",
-                    agent_output
-                        .to_json()
-                        .context("failed to serialize agent snapshot output")?
-                );
+                let stdout = std::io::stdout();
+                let mut out = std::io::BufWriter::new(stdout.lock());
+                agent_output
+                    .write_json_to(&mut out)
+                    .context("failed to write agent snapshot JSON")?;
             }
         }
         OutputFormat::Jsonl => {
-            println!("{}", snapshot.to_jsonl()?);
+            let stdout = std::io::stdout();
+            let mut out = std::io::BufWriter::new(stdout.lock());
+            snapshot
+                .write_jsonl_to(&mut out)
+                .context("failed to write snapshot JSONL")?;
         }
         OutputFormat::Text => {
             if level == Some(OutputLevel::File) {

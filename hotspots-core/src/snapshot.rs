@@ -984,10 +984,36 @@ impl Snapshot {
 
     /// Serialize snapshot to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
-        // Use serde_json with pretty printing for readability
-        // Keys are automatically sorted by serde when using BTreeMap-like structures
-        // For deterministic ordering, we rely on serde's default behavior with sorted keys
         serde_json::to_string_pretty(self).context("failed to serialize snapshot to JSON")
+    }
+
+    /// Write the snapshot as pretty-printed JSON directly to `writer` without
+    /// building an intermediate `String`.
+    ///
+    /// Use this instead of `to_json()` + `println!` when outputting large
+    /// snapshots — it avoids allocating a potentially hundreds-of-MB string.
+    pub fn write_json_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        serde_json::to_writer_pretty(&mut *writer, self)
+            .context("failed to write snapshot JSON")?;
+        writeln!(writer).context("failed to write trailing newline")
+    }
+
+    /// Write the snapshot as JSONL (one JSON object per function) directly to
+    /// `writer`, without building an intermediate `String`.
+    pub fn write_jsonl_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        let commit_json =
+            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
+
+        for func in &self.functions {
+            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
+            obj.as_object_mut()
+                .context("serialized function is not a JSON object")?
+                .insert("commit".to_string(), commit_json.clone());
+            serde_json::to_writer(writer as &mut dyn std::io::Write, &obj)
+                .context("failed to write JSONL line")?;
+            writeln!(writer).context("failed to write JSONL newline")?;
+        }
+        Ok(())
     }
 
     /// Deserialize snapshot from JSON string

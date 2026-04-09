@@ -17,6 +17,7 @@ pub mod ast;
 pub mod callgraph;
 pub mod cfg;
 pub mod config;
+pub mod db;
 pub mod delta;
 pub mod discover;
 pub mod git;
