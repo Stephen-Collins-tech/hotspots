@@ -41,12 +41,27 @@ except ImportError:
 
 SCRIPT_DIR   = Path(__file__).parent.resolve()
 PROJECT_ROOT = (SCRIPT_DIR / "..").resolve()
-EXPO_DIR     = SCRIPT_DIR / "memory-crash" / "repos" / "expo"
+REPOS_DIR    = SCRIPT_DIR / "memory-crash" / "repos"
 RESULTS_DIR  = SCRIPT_DIR / "memory-crash" / "results"
 DOCKERFILE   = SCRIPT_DIR / "memory-crash" / "Dockerfile"
 IMAGE_NAME   = "hotspots-bench"
-REPO_URL     = "https://github.com/expo/expo.git"
 BAR          = "═" * 64
+
+# Supported benchmark repositories.
+REPOS: dict[str, dict] = {
+    "expo": {
+        "url":  "https://github.com/expo/expo.git",
+        "desc": "expo/expo — large React Native monorepo (~51k functions)",
+    },
+    "react": {
+        "url":  "https://github.com/facebook/react.git",
+        "desc": "facebook/react — medium JS/TS repo (~3k functions)",
+    },
+    "kubernetes": {
+        "url":  "https://github.com/kubernetes/kubernetes.git",
+        "desc": "kubernetes/kubernetes — very large Go monorepo (~100k+ functions)",
+    },
+}
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -88,25 +103,33 @@ def build_image(skip: bool) -> None:
     log(f"Build completed in {time.monotonic() - t0:.0f}s")
 
 
-def ensure_clone(skip: bool) -> None:
-    section("Prepare expo/expo repository")
+def repo_dir(repo_name: str) -> Path:
+    return REPOS_DIR / repo_name
+
+
+def ensure_clone(repo_name: str, skip: bool) -> Path:
+    meta    = REPOS[repo_name]
+    url     = meta["url"]
+    dest    = repo_dir(repo_name)
+    section(f"Prepare {repo_name} repository")
     if skip:
-        log(f"--skip-clone: trusting {EXPO_DIR}")
-        return
-    if (EXPO_DIR / ".git").exists():
-        log(f"Clone exists: {EXPO_DIR}")
-        return
-    EXPO_DIR.parent.mkdir(parents=True, exist_ok=True)
-    log(f"Cloning {REPO_URL} → {EXPO_DIR}  (full history ~3-4 GB)")
+        log(f"--skip-clone: trusting {dest}")
+        return dest
+    if (dest / ".git").exists():
+        log(f"Clone exists: {dest}")
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    log(f"Cloning {url} → {dest}")
     t0 = time.monotonic()
     result = subprocess.run(
-        ["git", "-c", "pack.threads=2", "clone", "--progress", REPO_URL, str(EXPO_DIR)],
+        ["git", "-c", "pack.threads=2", "clone", "--progress", url, str(dest)],
         check=False,
     )
     if result.returncode != 0:
         log(f"ERROR: git clone failed (exit {result.returncode})")
         sys.exit(1)
     log(f"Clone completed in {time.monotonic() - t0:.0f}s")
+    return dest
 
 
 def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> list[str]:
@@ -223,16 +246,17 @@ def cmd_stress(args: argparse.Namespace) -> None:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    label = args.label or f"stress-{args.repo}"
     section("HOTSPOTS STRESS BENCHMARK")
+    log(f"Repo:       {REPOS[args.repo]['desc']}")
     log(f"Memory:     {args.memory}  ({memory_mb} MB hard ceiling, no swap)")
     log(f"CPUs:       {args.cpus}")
     log(f"Jobs:       {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     log(f"Callgraph:  {'skip above ' + str(args.callgraph_skip_above) if args.callgraph_skip_above else 'always compute'}")
     log(f"Touch:      {args.touch}")
-    log(f"Repo:       expo/expo  ({EXPO_DIR})")
 
     build_image(args.skip_build)
-    ensure_clone(args.skip_clone)
+    local_repo = ensure_clone(args.repo, args.skip_clone)
 
     env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch)
     cidfile  = Path(tempfile.mktemp(suffix=".cid"))
@@ -249,7 +273,7 @@ def cmd_stress(args: argparse.Namespace) -> None:
                 f"--memory-swap={args.memory}",
                 f"--cpus={args.cpus}",
                 *env_args,
-                "-v", f"{EXPO_DIR}:/repo",
+                "-v", f"{local_repo}:/repo",
                 IMAGE_NAME,
             ],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -308,7 +332,7 @@ def cmd_stress(args: argparse.Namespace) -> None:
     samples       = sampler.samples if sampler else []
     watchdog_reason = sampler.killed_reason if sampler else ""
     _save_stress_results(samples, args.memory, memory_mb, exit_code, oom_killed,
-                         watchdog_reason, args.label)
+                         watchdog_reason, label)
 
     section("RESULT")
     if watchdog_reason:
@@ -391,14 +415,14 @@ def _save_stress_results(
 
 def cmd_show(args: argparse.Namespace) -> None:
     section("HOTSPOTS SHOWCASE")
-    log(f"Repo:       expo/expo  ({EXPO_DIR})")
+    log(f"Repo:       {REPOS[args.repo]['desc']}")
     log(f"Jobs:       {args.jobs if args.jobs is not None else 'default (all CPUs)'}")
     log(f"Callgraph:  {'skip above ' + str(args.callgraph_skip_above) if args.callgraph_skip_above else 'always compute'}")
     log(f"Touch:      {args.touch}")
     log(f"Top N:      {args.top}")
 
     build_image(args.skip_build)
-    ensure_clone(args.skip_clone)
+    local_repo = ensure_clone(args.repo, args.skip_clone)
 
     env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch)
 
@@ -411,7 +435,7 @@ def cmd_show(args: argparse.Namespace) -> None:
             "--memory=8g",
             *env_args,
             "-e", "BENCH_OUTPUT=all-functions",
-            "-v", f"{EXPO_DIR}:/repo",
+            "-v", f"{local_repo}:/repo",
             IMAGE_NAME,
         ],
         capture_output=True, text=True, check=False,
@@ -449,7 +473,7 @@ def cmd_show(args: argparse.Namespace) -> None:
     if args.save:
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         ts   = datetime.now().strftime("%Y%m%d-%H%M%S")
-        path = RESULTS_DIR / f"show-{ts}.json"
+        path = RESULTS_DIR / f"show-{args.repo}-{ts}.json"
         path.write_text(result.stdout)
         log(f"\nFull snapshot saved: {path}")
 
@@ -472,7 +496,7 @@ def _print_showcase(
     moderate = bands.get("moderate", 0)
 
     print(f"\n{'═' * 64}", flush=True)
-    print(f"  hotspots · expo/expo @ {sha}", flush=True)
+    print(f"  hotspots · {args.repo} @ {sha}", flush=True)
     print(f"{'═' * 64}", flush=True)
     print(f"  {n:,} functions analyzed in {elapsed:.1f}s", flush=True)
     if cg:
@@ -526,6 +550,10 @@ def _print_showcase(
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def _add_common_args(p: argparse.ArgumentParser) -> None:
+    repo_choices = list(REPOS.keys())
+    repo_help    = "  |  ".join(f"{k}: {v['desc']}" for k, v in REPOS.items())
+    p.add_argument("--repo", choices=repo_choices, default="expo", metavar="REPO",
+                   help=f"Repository to benchmark (default: expo). Choices: {repo_help}")
     p.add_argument("--jobs", type=int, default=None, metavar="N",
                    help="Worker threads for hotspots analyze (default: all CPUs).")
     p.add_argument("--callgraph-skip-above", type=int, default=None, metavar="N",
@@ -538,7 +566,7 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--skip-build", action="store_true",
                    help="Skip docker build, use existing image.")
     p.add_argument("--skip-clone", action="store_true",
-                   help="Skip clone check, trust existing repos/expo.")
+                   help="Skip clone check, trust existing repos/<name>.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -554,8 +582,8 @@ def parse_args() -> argparse.Namespace:
     _add_common_args(s)
     s.add_argument("--memory", default="4g", metavar="LIMIT",
                    help="Hard memory ceiling (default: 4g).")
-    s.add_argument("--label", default="stress", metavar="LABEL",
-                   help="Results filename prefix (default: stress).")
+    s.add_argument("--label", default=None, metavar="LABEL",
+                   help="Results filename prefix (default: stress-<repo>).")
     wd = s.add_argument_group("watchdog")
     wd.add_argument("--watchdog-mem", type=float, default=85.0, metavar="PCT",
                     help="Kill if memory ≥ PCT%% of limit for --watchdog-secs (default: 85; 0=off).")

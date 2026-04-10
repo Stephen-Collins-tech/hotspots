@@ -1,4 +1,4 @@
 # Captured run results (generated artifacts).
 results/
-# expo/expo clone used as benchmark input.
+# Repository clones used as benchmark input (expo, react, kubernetes).
 repos/
