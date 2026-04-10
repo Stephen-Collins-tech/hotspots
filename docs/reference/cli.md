@@ -288,6 +288,36 @@ is written after the first run; subsequent warm runs are significantly faster. D
 touch metrics are file-level (all functions in a file share the same `touch_count_30d`).
 Use this flag when precise per-function activity signals are required.
 
+##### `--no-per-function-touches`
+**Optional.** Force file-level touch batching, overriding a `per_function_touches: true`
+config file setting.
+
+```bash
+hotspots analyze . --mode snapshot --no-per-function-touches
+```
+
+##### `--skip-touch-metrics`
+**Optional.** Skip all touch metric computation (no git log I/O). Touch counts are
+reported as `0`. Recommended for very large repositories (50k+ functions) where git
+history traversal dominates analysis time.
+
+```bash
+hotspots analyze . --mode snapshot --skip-touch-metrics
+```
+
+##### `--callgraph-skip-above`
+**Optional.** Skip call graph betweenness centrality computation when the number of
+call graph edges exceeds this threshold. Betweenness centrality is O(V·E) and becomes
+prohibitively slow on large call graphs.
+
+```bash
+hotspots analyze . --mode snapshot --callgraph-skip-above 50000
+```
+
+Fan-in and fan-out are still computed; only betweenness (and derived PageRank) is
+skipped. Recommended for repositories with 50k+ functions where the full call graph
+would otherwise take many minutes.
+
 ##### `--all-functions`
 **Optional.** Output all functions as a flat array instead of the default triage-first
 structure (quadrant buckets).
