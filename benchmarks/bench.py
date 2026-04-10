@@ -58,8 +58,9 @@ REPOS: dict[str, dict] = {
         "desc": "facebook/react — medium JS/TS repo (~3k functions)",
     },
     "kubernetes": {
-        "url":  "https://github.com/kubernetes/kubernetes.git",
-        "desc": "kubernetes/kubernetes — very large Go monorepo (~100k+ functions)",
+        "url":              "https://github.com/kubernetes/kubernetes.git",
+        "desc":             "kubernetes/kubernetes — very large Go monorepo (~140k functions)",
+        "callgraph_warn":   50_000,  # warn if callgraph not skipped above this
     },
 }
 
@@ -255,6 +256,11 @@ def cmd_stress(args: argparse.Namespace) -> None:
     log(f"Callgraph:  {'skip above ' + str(args.callgraph_skip_above) if args.callgraph_skip_above else 'always compute'}")
     log(f"Touch:      {args.touch}")
 
+    warn_threshold = REPOS[args.repo].get("callgraph_warn")
+    if warn_threshold and args.callgraph_skip_above is None:
+        log(f"WARN: {args.repo} has ~{warn_threshold:,}+ functions — call graph will be very slow.")
+        log(f"      Consider: --callgraph-skip-above {warn_threshold}")
+
     build_image(args.skip_build)
     local_repo = ensure_clone(args.repo, args.skip_clone)
 
@@ -414,21 +420,35 @@ def _save_stress_results(
 # ── Artifact filter ───────────────────────────────────────────────────────────
 
 # Path segments that identify compiled/vendored artifacts rather than source.
-_ARTIFACT_SEGMENTS = frozenset(["/cjs/", "/umd/", "/esm/", "/dist/", "/build/"])
-_ARTIFACT_SUFFIXES = (".min.js", ".development.js", ".production.js")
+_ARTIFACT_SEGMENTS = frozenset([
+    "/cjs/",    # JS CommonJS build output
+    "/umd/",    # JS UMD build output
+    "/esm/",    # JS ESM build output
+    "/dist/",   # generic build output
+    "/build/",  # generic build output
+    "/vendor/", # Go vendored dependencies
+])
+_ARTIFACT_SUFFIXES = (
+    ".min.js",
+    ".development.js",
+    ".production.js",
+    ".pb.go",           # Go protobuf generated
+    "_generated.go",    # Go generated (controller-gen, mockgen, etc.)
+)
+# Filename prefixes that indicate generated Go files
+_ARTIFACT_PREFIXES_GO = ("zz_generated.",)
 
 
 def _is_artifact(function_id: str) -> bool:
-    """Return True if the function lives in a compiled or vendored file."""
-    for seg in _ARTIFACT_SEGMENTS:
-        if seg in function_id:
-            # Allow files that are genuinely named *.development.js as source
-            # only when they sit directly under a known source dir — heuristic:
-            # if the path also contains /src/ before the artifact segment it's
-            # probably real source. Otherwise treat it as a build artifact.
-            return True
+    """Return True if the function lives in a compiled, vendored, or generated file."""
     path = function_id.split("::")[0] if "::" in function_id else function_id
-    return path.endswith(_ARTIFACT_SUFFIXES)
+    for seg in _ARTIFACT_SEGMENTS:
+        if seg in path:
+            return True
+    if path.endswith(_ARTIFACT_SUFFIXES):
+        return True
+    filename = path.rsplit("/", 1)[-1]
+    return any(filename.startswith(p) for p in _ARTIFACT_PREFIXES_GO)
 
 
 # ── show subcommand ───────────────────────────────────────────────────────────
@@ -440,6 +460,12 @@ def cmd_show(args: argparse.Namespace) -> None:
     log(f"Callgraph:  {'skip above ' + str(args.callgraph_skip_above) if args.callgraph_skip_above else 'always compute'}")
     log(f"Touch:      {args.touch}")
     log(f"Top N:      {args.top}")
+
+    # Warn if a large repo is about to run without a callgraph skip threshold.
+    warn_threshold = REPOS[args.repo].get("callgraph_warn")
+    if warn_threshold and args.callgraph_skip_above is None:
+        log(f"WARN: {args.repo} has ~{warn_threshold:,}+ functions — call graph will be very slow.")
+        log(f"      Consider: --callgraph-skip-above {warn_threshold}")
 
     build_image(args.skip_build)
     local_repo = ensure_clone(args.repo, args.skip_clone)
