@@ -58,9 +58,10 @@ REPOS: dict[str, dict] = {
         "desc": "facebook/react — medium JS/TS repo (~3k functions)",
     },
     "kubernetes": {
-        "url":              "https://github.com/kubernetes/kubernetes.git",
-        "desc":             "kubernetes/kubernetes — very large Go monorepo (~140k functions)",
-        "callgraph_warn":   50_000,  # warn if callgraph not skipped above this
+        "url":            "https://github.com/kubernetes/kubernetes.git",
+        "desc":           "kubernetes/kubernetes — very large Go monorepo (~140k functions)",
+        "callgraph_warn": 50_000,  # warn if callgraph not skipped above this
+        "config":         "kubernetes.json",  # injected as /repo/.hotspots.json
     },
 }
 
@@ -131,6 +132,21 @@ def ensure_clone(repo_name: str, skip: bool) -> Path:
         sys.exit(1)
     log(f"Clone completed in {time.monotonic() - t0:.0f}s")
     return dest
+
+
+CONFIGS_DIR = SCRIPT_DIR / "memory-crash" / "configs"
+
+
+def build_config_mount(repo_name: str) -> list[str]:
+    """Return docker -v args to inject a repo-specific hotspots config, or []."""
+    cfg_name = REPOS[repo_name].get("config")
+    if not cfg_name:
+        return []
+    cfg_path = CONFIGS_DIR / cfg_name
+    if not cfg_path.exists():
+        log(f"WARN: config {cfg_path} not found, skipping")
+        return []
+    return ["-v", f"{cfg_path}:/repo/.hotspots.json:ro"]
 
 
 def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> list[str]:
@@ -280,6 +296,7 @@ def cmd_stress(args: argparse.Namespace) -> None:
                 f"--cpus={args.cpus}",
                 *env_args,
                 "-v", f"{local_repo}:/repo",
+                *build_config_mount(args.repo),
                 IMAGE_NAME,
             ],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -482,6 +499,7 @@ def cmd_show(args: argparse.Namespace) -> None:
             *env_args,
             "-e", "BENCH_OUTPUT=all-functions",
             "-v", f"{local_repo}:/repo",
+            *build_config_mount(args.repo),
             IMAGE_NAME,
         ],
         capture_output=True, text=True, check=False,
