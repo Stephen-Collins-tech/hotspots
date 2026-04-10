@@ -35,6 +35,10 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/*_test.py",
     // Go test file convention
     "**/*_test.go",
+    // Go generated and vendored files
+    "**/vendor/**",
+    "**/*.pb.go",
+    "**/zz_generated*.go",
 ];
 
 /// Hotspots configuration loaded from a JSON config file
