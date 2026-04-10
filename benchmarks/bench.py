@@ -488,21 +488,25 @@ def _print_showcase(
 ) -> None:
     sha    = commit.get("sha", "unknown")[:12]
     n      = len(all_funcs)
-    cg     = summary.get("call_graph", {})
-    bands  = summary.get("band_counts", {})
+    cg     = summary.get("call_graph") or {}
+    by_band = summary.get("by_band", {})
 
-    critical = bands.get("critical", 0)
-    high     = bands.get("high", 0)
-    moderate = bands.get("moderate", 0)
+    def band_count(name: str) -> int:
+        return (by_band.get(name) or {}).get("count", 0)
+
+    critical = band_count("critical")
+    high     = band_count("high")
+    moderate = band_count("moderate")
 
     print(f"\n{'═' * 64}", flush=True)
     print(f"  hotspots · {args.repo} @ {sha}", flush=True)
     print(f"{'═' * 64}", flush=True)
     print(f"  {n:,} functions analyzed in {elapsed:.1f}s", flush=True)
     if cg:
-        nodes = cg.get("total_nodes", 0)
-        edges = cg.get("total_edges", 0)
-        print(f"  call graph: {nodes:,} nodes, {edges:,} edges", flush=True)
+        edges    = cg.get("total_edges", 0)
+        avg_fi   = cg.get("avg_fan_in", 0.0)
+        scc      = cg.get("scc_count", 0)
+        print(f"  call graph: {edges:,} edges  avg fan-in {avg_fi:.2f}  {scc} SCCs", flush=True)
     print(f"  risk bands: {critical} critical  {high} high  {moderate} moderate", flush=True)
     print(f"{'─' * 64}", flush=True)
 
