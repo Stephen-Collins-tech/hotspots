@@ -35,8 +35,12 @@ case "${BENCH_OP:-${1:-analyze}}" in
     if [ "${BENCH_OUTPUT:-}" = "all-functions" ]; then
         OUTPUT_ARG="--all-functions"
     fi
+    CONFIG_ARG=""
+    if [ -n "${BENCH_CONFIG:-}" ] && [ -f "${BENCH_CONFIG}" ]; then
+        CONFIG_ARG="--config ${BENCH_CONFIG}"
+    fi
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG $TOUCH_ARG $OUTPUT_ARG
+        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG $TOUCH_ARG $OUTPUT_ARG $CONFIG_ARG
     ;;
 
   probe)

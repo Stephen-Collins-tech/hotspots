@@ -138,7 +138,12 @@ CONFIGS_DIR = SCRIPT_DIR / "memory-crash" / "configs"
 
 
 def build_config_mount(repo_name: str) -> list[str]:
-    """Return docker -v args to inject a repo-specific hotspots config, or []."""
+    """Return docker args to inject a repo-specific hotspots config via --config.
+
+    Mounts to /bench-config/<name> (avoids overlaying inside the repo bind-mount,
+    which is unreliable on macOS Docker Desktop) and passes BENCH_CONFIG so the
+    entrypoint can forward it as --config PATH to hotspots analyze.
+    """
     cfg_name = REPOS[repo_name].get("config")
     if not cfg_name:
         return []
@@ -146,7 +151,11 @@ def build_config_mount(repo_name: str) -> list[str]:
     if not cfg_path.exists():
         log(f"WARN: config {cfg_path} not found, skipping")
         return []
-    return ["-v", f"{cfg_path}:/repo/.hotspots.json:ro"]
+    container_path = f"/bench-config/{cfg_name}"
+    return [
+        "-v", f"{cfg_path}:{container_path}:ro",
+        "-e", f"BENCH_CONFIG={container_path}",
+    ]
 
 
 def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> list[str]:
