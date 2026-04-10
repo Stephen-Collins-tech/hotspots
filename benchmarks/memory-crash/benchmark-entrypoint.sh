@@ -31,8 +31,12 @@ case "${BENCH_OP:-${1:-analyze}}" in
       file)         TOUCH_ARG="--no-per-function-touches" ;;
       *)            TOUCH_ARG="--skip-touch-metrics" ;;
     esac
+    OUTPUT_ARG=""
+    if [ "${BENCH_OUTPUT:-}" = "all-functions" ]; then
+        OUTPUT_ARG="--all-functions"
+    fi
     exec /usr/local/bin/hotspots analyze . \
-        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG $TOUCH_ARG
+        --mode snapshot --format json --no-persist $JOBS_ARG $CALLGRAPH_SKIP_ARG $TOUCH_ARG $OUTPUT_ARG
     ;;
 
   probe)
