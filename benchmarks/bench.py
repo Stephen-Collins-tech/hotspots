@@ -411,6 +411,26 @@ def _save_stress_results(
     log(f"Plot: {png_path}")
 
 
+# ── Artifact filter ───────────────────────────────────────────────────────────
+
+# Path segments that identify compiled/vendored artifacts rather than source.
+_ARTIFACT_SEGMENTS = frozenset(["/cjs/", "/umd/", "/esm/", "/dist/", "/build/"])
+_ARTIFACT_SUFFIXES = (".min.js", ".development.js", ".production.js")
+
+
+def _is_artifact(function_id: str) -> bool:
+    """Return True if the function lives in a compiled or vendored file."""
+    for seg in _ARTIFACT_SEGMENTS:
+        if seg in function_id:
+            # Allow files that are genuinely named *.development.js as source
+            # only when they sit directly under a known source dir — heuristic:
+            # if the path also contains /src/ before the artifact segment it's
+            # probably real source. Otherwise treat it as a build artifact.
+            return True
+    path = function_id.split("::")[0] if "::" in function_id else function_id
+    return path.endswith(_ARTIFACT_SUFFIXES)
+
+
 # ── show subcommand ───────────────────────────────────────────────────────────
 
 def cmd_show(args: argparse.Namespace) -> None:
@@ -466,9 +486,19 @@ def cmd_show(args: argparse.Namespace) -> None:
         key=lambda f: f.get("activity_risk") or f.get("lrs") or 0.0,
         reverse=True,
     )
-    top_funcs = functions[: args.top]
 
-    _print_showcase(top_funcs, functions, commit, summary, elapsed, args)
+    # Filter compiled/vendored artifacts from display (not from analysis).
+    # These are real files hotspots correctly scored, just not useful to show.
+    if not args.show_artifacts:
+        display_funcs = [f for f in functions if not _is_artifact(f.get("function_id", ""))]
+        filtered = len(functions) - len(display_funcs)
+    else:
+        display_funcs = functions
+        filtered = 0
+
+    top_funcs = display_funcs[: args.top]
+
+    _print_showcase(top_funcs, display_funcs, commit, summary, elapsed, args, filtered)
 
     if args.save:
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -485,6 +515,7 @@ def _print_showcase(
     summary: dict,
     elapsed: float,
     args: argparse.Namespace,
+    filtered: int = 0,
 ) -> None:
     sha    = commit.get("sha", "unknown")[:12]
     n      = len(all_funcs)
@@ -502,6 +533,8 @@ def _print_showcase(
     print(f"  hotspots · {args.repo} @ {sha}", flush=True)
     print(f"{'═' * 64}", flush=True)
     print(f"  {n:,} functions analyzed in {elapsed:.1f}s", flush=True)
+    if filtered:
+        print(f"  ({filtered} build artifacts hidden — use --show-artifacts to include)", flush=True)
     if cg:
         edges    = cg.get("total_edges", 0)
         avg_fi   = cg.get("avg_fan_in", 0.0)
@@ -601,6 +634,8 @@ def parse_args() -> argparse.Namespace:
     _add_common_args(sh)
     sh.add_argument("--top", type=int, default=20, metavar="N",
                     help="Number of top functions to display (default: 20).")
+    sh.add_argument("--show-artifacts", action="store_true",
+                    help="Include compiled/vendored artifacts in results (hidden by default).")
     sh.add_argument("--save", action="store_true",
                     help="Save full JSON snapshot to results/.")
 
