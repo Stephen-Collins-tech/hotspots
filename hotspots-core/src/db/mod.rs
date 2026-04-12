@@ -95,7 +95,7 @@ fn insert_commit(conn: &Connection, commit: &CommitInfo) -> Result<()> {
     let ticket_ids = serde_json::to_string(&commit.ticket_ids)?;
     let parents = serde_json::to_string(&commit.parents)?;
     conn.execute(
-        "INSERT OR IGNORE INTO commits
+        "INSERT OR REPLACE INTO commits
             (sha, timestamp, branch, message, author,
              is_fix_commit, is_revert_commit, ticket_ids, parents)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
