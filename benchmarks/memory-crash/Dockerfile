@@ -49,5 +49,13 @@ COPY --from=builder /build/target/release/hotspots /usr/local/bin/hotspots
 COPY benchmarks/memory-crash/benchmark-entrypoint.sh /usr/local/bin/benchmark-entrypoint
 RUN chmod +x /usr/local/bin/benchmark-entrypoint
 
+# Run as non-root. The bench user owns /repo so git clone and analysis work
+# without elevated privileges.
+RUN useradd -m -u 1001 -s /bin/sh bench && \
+    mkdir -p /repo && \
+    chown bench:bench /repo
+
+USER bench
+
 ENTRYPOINT ["/usr/local/bin/benchmark-entrypoint"]
 CMD ["analyze"]
