@@ -70,13 +70,16 @@ Glob patterns for files to exclude.
     "**/__tests__/**",
     "**/__mocks__/**",
     "**/dist/**",
-    "**/build/**"
+    "**/build/**",
+    "**/vendor/**",
+    "**/*.pb.go",
+    "**/zz_generated*.go"
   ]
 }
 ```
 
 **Type:** `string[]`
-**Default:** Test files, node_modules, dist, build directories
+**Default:** Test files, node_modules, dist, build, Go vendor/generated
 
 ### Risk Band Thresholds
 
@@ -271,6 +274,10 @@ repo). The first run on a new commit is slow (~6 s for ~200 functions); subseque
 fast. Set to `false` to always use file-level batching (useful in CI without a persistent
 cache layer).
 
+For very large repositories (50k+ functions), consider skipping touch metrics entirely with
+the `--skip-touch-metrics` CLI flag. This avoids all git log I/O and can reduce analysis time
+significantly (e.g. ~66 s savings on expo/expo). Touch counts will be reported as `0`.
+
 ## Complete Example
 
 ```json
@@ -430,7 +437,10 @@ If no config file is found, these defaults are used:
     "**/__tests__/**",
     "**/__mocks__/**",
     "**/dist/**",
-    "**/build/**"
+    "**/build/**",
+    "**/vendor/**",
+    "**/*.pb.go",
+    "**/zz_generated*.go"
   ],
   "thresholds": {
     "moderate": 3.0,

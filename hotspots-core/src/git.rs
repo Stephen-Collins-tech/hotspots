@@ -637,15 +637,61 @@ pub fn batch_touch_metrics_at(
         })
         .collect();
 
-    // Return early if all files were in the window (common case)
-    // Callers that need per-file fallback for unseen files use count_file_touches_30d_at
-    // and days_since_last_change_at directly for the remaining files.
-    // (The caller in populate_touch_metrics handles this.)
-
     Ok(BatchedTouchMetrics {
         touch_count_30d: touch_count,
         days_since_last_change: days_since,
     })
+}
+
+/// For files absent from the 30-day window, find the most recent commit timestamp
+/// for each using batched `git log` calls (up to 500 files per invocation).
+/// This replaces O(N) individual `git log -1 -- file` calls with O(N/500) calls.
+pub fn batch_last_touch_for_files(
+    repo_path: &Path,
+    stale_files: &std::collections::HashSet<&str>,
+    as_of_timestamp: i64,
+) -> std::collections::HashMap<String, u32> {
+    use std::collections::HashMap;
+    if stale_files.is_empty() {
+        return HashMap::new();
+    }
+
+    let until_arg = format!("--until={}", as_of_timestamp);
+    let files: Vec<&str> = stale_files.iter().copied().collect();
+    let mut result: HashMap<String, u32> = HashMap::new();
+
+    for chunk in files.chunks(500) {
+        let mut args: Vec<&str> = vec![
+            "log",
+            "--format=COMMIT %ct",
+            "--name-only",
+            &until_arg,
+            "--",
+        ];
+        args.extend_from_slice(chunk);
+
+        let output = match git_at(repo_path, &args) {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+
+        let mut current_ts: i64 = 0;
+        for line in output.lines() {
+            if let Some(ts_str) = line.strip_prefix("COMMIT ") {
+                current_ts = ts_str.trim().parse().unwrap_or(0);
+            } else if current_ts > 0 && !line.trim().is_empty() {
+                let file = line.trim();
+                if stale_files.contains(file) {
+                    // entry() only inserts on first (= most recent) occurrence
+                    result.entry(file.to_string()).or_insert_with(|| {
+                        ((as_of_timestamp - current_ts).max(0) / (24 * 60 * 60)) as u32
+                    });
+                }
+            }
+        }
+    }
+
+    result
 }
 
 /// Per-function touch metrics using `git log -L start,end:file`.

@@ -1,0 +1,21 @@
+[project]
+name = "hotspots-bench"
+version = "0.1.0"
+description = "Benchmark runner for hotspots"
+requires-python = ">=3.11"
+dependencies = [
+    "matplotlib>=3.9",
+]
+
+[project.scripts]
+bench = "bench:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["bench"]
+
+[tool.setuptools.package-dir]
+"" = "."

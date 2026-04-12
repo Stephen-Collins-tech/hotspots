@@ -80,6 +80,18 @@ enum Commands {
         #[arg(long)]
         per_function_touches: bool,
 
+        /// Disable per-function touch metrics, use file-level batching instead.
+        /// Overrides config and --per-function-touches. Useful for large repos
+        /// where the cold-start per-function git log -L calls dominate CPU time.
+        #[arg(long, conflicts_with = "per_function_touches")]
+        no_per_function_touches: bool,
+
+        /// Skip all touch metrics entirely (no git log calls for churn/recency).
+        /// Overrides --per-function-touches and --no-per-function-touches.
+        /// Use for benchmarking pure analysis + call graph performance.
+        #[arg(long, conflicts_with = "per_function_touches")]
+        skip_touch_metrics: bool,
+
         /// Output all functions as a flat array (only valid with --mode snapshot --format json)
         #[arg(long)]
         all_functions: bool,
@@ -91,6 +103,16 @@ enum Commands {
         /// URL of the written analysis post to link from the HTML report (HTML format only)
         #[arg(long, value_name = "URL")]
         source_url: Option<String>,
+
+        /// Number of parallel worker threads (default: number of logical CPUs)
+        #[arg(long, short = 'j', value_name = "N")]
+        jobs: Option<usize>,
+
+        /// Skip all call graph algorithms when the repo exceeds N functions.
+        /// Omits PageRank, betweenness, fan-in/fan-out, SCC, and dependency depth.
+        /// Useful for very large repos where graph computation dominates CPU time.
+        #[arg(long, value_name = "N")]
+        callgraph_skip_above: Option<usize>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -214,9 +236,13 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            no_per_function_touches,
+            skip_touch_metrics,
             all_functions,
             explain_patterns,
             source_url,
+            jobs,
+            callgraph_skip_above,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -231,9 +257,13 @@ fn main() -> anyhow::Result<()> {
             no_persist,
             level,
             per_function_touches,
+            no_per_function_touches,
+            skip_touch_metrics,
             all_functions,
             explain_patterns,
             source_url,
+            jobs,
+            callgraph_skip_above,
         })?,
         Commands::Prune {
             unreachable,

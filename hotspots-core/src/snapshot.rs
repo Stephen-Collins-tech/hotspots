@@ -383,12 +383,15 @@ impl Snapshot {
         }
 
         // Phase 2: run git subprocesses in parallel for all cache misses.
+        // Results are sent through a channel as they complete, avoiding a full
+        // intermediate Vec that would coexist with the already-allocated misses Vec.
         // Progress is not reported per-item here (progress_fn is not Sync);
         // the caller sees a jump from cache-hits-done to total at phase end.
         let timestamp = self.commit.timestamp;
-        let results: Vec<(usize, String, (usize, Option<u32>))> = misses
+        let (tx, rx) = std::sync::mpsc::channel::<(usize, String, (usize, Option<u32>))>();
+        misses
             .par_iter()
-            .map(|(idx, key, rel, start_line, end_line)| {
+            .for_each_with(tx, |tx, (idx, key, rel, start_line, end_line)| {
                 let value = match crate::git::function_touch_metrics_at(
                     repo_root,
                     rel,
@@ -399,12 +402,11 @@ impl Snapshot {
                     Ok((count, days)) => (count, days),
                     Err(_) => (0usize, None),
                 };
-                (*idx, key.clone(), value)
-            })
-            .collect();
+                let _ = tx.send((*idx, key.clone(), value));
+            });
 
         // Phase 3: apply results and write cache.
-        for (idx, key, (count, days)) in results {
+        for (idx, key, (count, days)) in rx {
             self.functions[idx].touch_count_30d = Some(count);
             self.functions[idx].days_since_last_change = days;
             cache.insert(key, (count, days));
@@ -470,7 +472,19 @@ impl Snapshot {
                 days_since_last_change: HashMap::new(),
             });
 
-        // Apply batched results; fall back per-file for anything not in the window
+        // Collect files whose last-touch timestamp isn't in the 30-day window
+        // and resolve them in a single streaming git log pass instead of one
+        // subprocess per file.
+        let stale_files: std::collections::HashSet<&str> = abs_to_rel
+            .values()
+            .map(|s| s.as_str())
+            .filter(|rel| !batched.days_since_last_change.contains_key(*rel))
+            .collect();
+
+        let stale_days =
+            crate::git::batch_last_touch_for_files(repo_root, &stale_files, self.commit.timestamp);
+
+        // Apply results to all functions in each file
         for (abs_path, function_indices) in &unique_files {
             let rel = abs_to_rel
                 .get(abs_path)
@@ -482,10 +496,7 @@ impl Snapshot {
                 .days_since_last_change
                 .get(rel)
                 .copied()
-                .or_else(|| {
-                    crate::git::days_since_last_change_at(repo_root, rel, self.commit.timestamp)
-                        .ok()
-                });
+                .or_else(|| stale_days.get(rel).copied());
 
             for &idx in function_indices {
                 self.functions[idx].touch_count_30d = touch_count;
@@ -592,7 +603,7 @@ impl Snapshot {
         let approximate = n > exact_threshold;
 
         // Compute global metrics once
-        let pagerank_scores = call_graph.pagerank(0.85, 30);
+        let pagerank_scores = call_graph.pagerank(0.85, 30, 1e-6);
         let betweenness_scores = if approximate {
             call_graph.betweenness_centrality_approx(approx_k)
         } else {
@@ -973,10 +984,36 @@ impl Snapshot {
 
     /// Serialize snapshot to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
-        // Use serde_json with pretty printing for readability
-        // Keys are automatically sorted by serde when using BTreeMap-like structures
-        // For deterministic ordering, we rely on serde's default behavior with sorted keys
         serde_json::to_string_pretty(self).context("failed to serialize snapshot to JSON")
+    }
+
+    /// Write the snapshot as pretty-printed JSON directly to `writer` without
+    /// building an intermediate `String`.
+    ///
+    /// Use this instead of `to_json()` + `println!` when outputting large
+    /// snapshots — it avoids allocating a potentially hundreds-of-MB string.
+    pub fn write_json_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        serde_json::to_writer_pretty(&mut *writer, self)
+            .context("failed to write snapshot JSON")?;
+        writeln!(writer).context("failed to write trailing newline")
+    }
+
+    /// Write the snapshot as JSONL (one JSON object per function) directly to
+    /// `writer`, without building an intermediate `String`.
+    pub fn write_jsonl_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        let commit_json =
+            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
+
+        for func in &self.functions {
+            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
+            obj.as_object_mut()
+                .context("serialized function is not a JSON object")?
+                .insert("commit".to_string(), commit_json.clone());
+            serde_json::to_writer(writer as &mut dyn std::io::Write, &obj)
+                .context("failed to write JSONL line")?;
+            writeln!(writer).context("failed to write JSONL newline")?;
+        }
+        Ok(())
     }
 
     /// Deserialize snapshot from JSON string

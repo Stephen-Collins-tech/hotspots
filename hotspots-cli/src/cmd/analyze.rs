@@ -26,6 +26,14 @@ pub(crate) struct AnalyzeArgs {
     pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
+    /// Number of rayon worker threads; None = use all logical CPUs.
+    pub jobs: Option<usize>,
+    /// CLI override for callgraph_skip_above; None = use resolved config value.
+    pub callgraph_skip_above: Option<usize>,
+    /// When true, force-disable per-function touches regardless of config.
+    pub no_per_function_touches: bool,
+    /// When true, skip all touch metrics (no git log calls at all).
+    pub skip_touch_metrics: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -102,10 +110,23 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         no_persist,
         level,
         per_function_touches,
+        no_per_function_touches,
+        skip_touch_metrics,
         all_functions,
         explain_patterns,
         source_url,
+        jobs,
+        callgraph_skip_above,
     } = args;
+
+    // Configure the global rayon thread pool before any parallel work begins.
+    // Errors are ignored: build_global() fails if rayon was already initialized
+    // (e.g. in tests), which is harmless.
+    if let Some(n) = jobs {
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global();
+    }
 
     let normalized_path = if path.is_relative() {
         std::env::current_dir()?.join(&path)
@@ -128,8 +149,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let effective_per_function_touches =
-        per_function_touches || resolved_config.per_function_touches;
+    let effective_per_function_touches = if no_per_function_touches {
+        false
+    } else {
+        per_function_touches || resolved_config.per_function_touches
+    };
 
     if let Some(output_mode) = mode {
         return handle_mode_output(
@@ -150,6 +174,8 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 all_functions,
                 explain_patterns,
                 source_url,
+                callgraph_skip_above,
+                skip_touch_metrics,
             },
         );
     }
@@ -224,6 +250,8 @@ pub(crate) struct ModeOutputOptions {
     pub all_functions: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
+    pub callgraph_skip_above: Option<usize>,
+    pub skip_touch_metrics: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -246,6 +274,8 @@ pub(crate) fn handle_mode_output(
         all_functions,
         explain_patterns,
         source_url,
+        callgraph_skip_above,
+        skip_touch_metrics,
     } = opts;
 
     let repo_root = find_repo_root(path)?;
@@ -263,9 +293,15 @@ pub(crate) fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot =
-                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
-                    .context("failed to build enriched snapshot")?;
+            let mut snapshot = build_enriched_snapshot(
+                &repo_root,
+                resolved_config,
+                reports,
+                per_function_touches,
+                callgraph_skip_above,
+                skip_touch_metrics,
+            )
+            .context("failed to build enriched snapshot")?;
 
             snapshot.populate_patterns(&resolved_config.pattern_thresholds);
             if explain_patterns {
@@ -318,9 +354,15 @@ pub(crate) fn handle_mode_output(
             )?;
         }
         OutputMode::Delta => {
-            let snapshot =
-                build_enriched_snapshot(&repo_root, resolved_config, reports, per_function_touches)
-                    .context("failed to build enriched snapshot")?;
+            let snapshot = build_enriched_snapshot(
+                &repo_root,
+                resolved_config,
+                reports,
+                per_function_touches,
+                callgraph_skip_above,
+                skip_touch_metrics,
+            )
+            .context("failed to build enriched snapshot")?;
 
             let delta_val = if pr_context.is_pr {
                 compute_pr_delta(&repo_root, &snapshot)?
@@ -439,23 +481,30 @@ fn emit_snapshot_output(
             );
             if all_functions {
                 snapshot.aggregates = Some(aggregates);
-                println!("{}", snapshot.to_json()?);
+                let stdout = std::io::stdout();
+                let mut out = std::io::BufWriter::new(stdout.lock());
+                snapshot
+                    .write_json_to(&mut out)
+                    .context("failed to write snapshot JSON")?;
             } else {
                 let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
                     snapshot,
                     &aggregates,
                     repo_root,
                 );
-                println!(
-                    "{}",
-                    agent_output
-                        .to_json()
-                        .context("failed to serialize agent snapshot output")?
-                );
+                let stdout = std::io::stdout();
+                let mut out = std::io::BufWriter::new(stdout.lock());
+                agent_output
+                    .write_json_to(&mut out)
+                    .context("failed to write agent snapshot JSON")?;
             }
         }
         OutputFormat::Jsonl => {
-            println!("{}", snapshot.to_jsonl()?);
+            let stdout = std::io::stdout();
+            let mut out = std::io::BufWriter::new(stdout.lock());
+            snapshot
+                .write_jsonl_to(&mut out)
+                .context("failed to write snapshot JSONL")?;
         }
         OutputFormat::Text => {
             if level == Some(OutputLevel::File) {
@@ -620,29 +669,45 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
 }
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
+///
+/// `callgraph_skip_above` overrides `resolved_config.callgraph_skip_above` when `Some`.
+/// `skip_touch_metrics` bypasses all git-log touch calls (file-level and per-function).
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     per_function_touches: bool,
+    callgraph_skip_above: Option<usize>,
+    skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
 
     let merge_base = hotspots_core::git::find_merge_base(repo_root);
 
-    let call_graph = hotspots_core::build_call_graph(&reports, repo_root).ok();
-    if let Some(ref cg) = call_graph {
-        let total = cg.total_callee_names;
-        let resolved = cg.resolved_callee_names;
-        if total > 0 {
-            let pct = (resolved as f64 / total as f64) * 100.0;
-            eprintln!(
-                "call graph: resolved {}/{} callee references ({:.0}% internal)",
-                resolved, total, pct
-            );
+    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
+    let call_graph = if reports.len() > effective_skip_above {
+        eprintln!(
+            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
+            reports.len(),
+            effective_skip_above
+        );
+        None
+    } else {
+        let cg = hotspots_core::build_call_graph(&reports, repo_root).ok();
+        if let Some(ref cg) = cg {
+            let total = cg.total_callee_names;
+            let resolved = cg.resolved_callee_names;
+            if total > 0 {
+                let pct = (resolved as f64 / total as f64) * 100.0;
+                eprintln!(
+                    "call graph: resolved {}/{} callee references ({:.0}% internal)",
+                    resolved, total, pct
+                );
+            }
         }
-    }
+        cg
+    };
 
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
@@ -666,20 +731,24 @@ pub(crate) fn build_enriched_snapshot(
         }
     }
 
-    if per_function_touches
-        && !hotspots_core::snapshot::hotspots_dir(repo_root)
-            .join("touch-cache.json.zst")
-            .exists()
-    {
-        eprintln!("Warning: touch cache cold start — first run will be slower (building cache)");
+    if !skip_touch_metrics {
+        if per_function_touches
+            && !hotspots_core::snapshot::hotspots_dir(repo_root)
+                .join("touch-cache.json.zst")
+                .exists()
+        {
+            eprintln!(
+                "Warning: touch cache cold start — first run will be slower (building cache)"
+            );
+        }
+        let progress = if per_function_touches {
+            Some(make_progress_reporter(total_functions))
+        } else {
+            None
+        };
+        enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
+        enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
-    let progress = if per_function_touches {
-        Some(make_progress_reporter(total_functions))
-    } else {
-        None
-    };
-    enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
-    enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
 
     if let Some(ref graph) = call_graph {
         enricher = enricher.with_callgraph(
@@ -772,8 +841,10 @@ pub(crate) fn analyze_and_persist_at_ref(
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
     // Touch cache is skipped (per_function_touches = false).
-    let mut snapshot = build_enriched_snapshot(&worktree.path, resolved_config, reports, false)
-        .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    // callgraph_skip_above = None: always use the config value for historical refs.
+    let mut snapshot =
+        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None, false)
+            .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Rewrite absolute worktree paths back to real repo paths so that
     // function_ids are stable across snapshots (each worktree lives in a

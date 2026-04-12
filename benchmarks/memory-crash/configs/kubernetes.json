@@ -1,0 +1,13 @@
+{
+  "exclude": [
+    "**/vendor/**",
+    "**/*.pb.go",
+    "**/*_generated*.go",
+    "**/zz_generated*.go",
+    "**/testdata/**",
+    "**/*_test.go",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**"
+  ]
+}
