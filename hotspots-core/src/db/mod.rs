@@ -750,4 +750,240 @@ mod tests {
         let shas = db.all_shas().unwrap();
         assert_eq!(shas, vec!["deadbeef"]);
     }
+
+    #[test]
+    fn test_snapshot_db_contains_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = SnapshotDb::open(&dir.path().join("s.db")).unwrap();
+        assert!(!db.contains("nothere").unwrap());
+    }
+
+    #[test]
+    fn test_snapshot_db_idempotent_reinsert() {
+        // Inserting the same SHA twice must not duplicate function rows.
+        let dir = tempfile::tempdir().unwrap();
+        let db = SnapshotDb::open(&dir.path().join("s.db")).unwrap();
+        let snapshot = make_snapshot();
+
+        db.insert(&snapshot).unwrap();
+        db.insert(&snapshot).unwrap();
+
+        let loaded = db.load("deadbeef").unwrap().expect("should exist");
+        assert_eq!(loaded.functions.len(), 1, "duplicate rows on re-insert");
+    }
+
+    #[test]
+    fn test_snapshot_db_multi_commit_ordering() {
+        // Two commits at different timestamps — all_shas must return oldest first.
+        let dir = tempfile::tempdir().unwrap();
+        let db = SnapshotDb::open(&dir.path().join("s.db")).unwrap();
+
+        let snap1 = make_snapshot(); // timestamp 1_700_000_000
+        let mut snap2 = make_snapshot();
+        snap2.commit.sha = "aabbccdd".to_string();
+        snap2.commit.timestamp = 1_700_000_001;
+        snap2.functions[0].function_id = "src/bar.ts::helper".to_string();
+
+        db.insert(&snap2).unwrap(); // insert newer first
+        db.insert(&snap1).unwrap();
+
+        let shas = db.all_shas().unwrap();
+        assert_eq!(shas[0], "deadbeef", "older commit should be first");
+        assert_eq!(shas[1], "aabbccdd");
+    }
+
+    #[test]
+    fn test_snapshot_db_full_field_roundtrip() {
+        use crate::report::{FunctionRiskReport, MetricsReport as ReportMetrics, RiskReport};
+        use crate::scoring::RiskFactors;
+
+        let dir = tempfile::tempdir().unwrap();
+        let db = SnapshotDb::open(&dir.path().join("s.db")).unwrap();
+
+        let ctx = crate::git::GitContext {
+            head_sha: "fullsha".to_string(),
+            parent_shas: vec!["p1".to_string()],
+            timestamp: 1_700_000_000,
+            branch: Some("feat/test".to_string()),
+            is_detached: false,
+            message: Some("full field test".to_string()),
+            author: Some("author".to_string()),
+            is_fix_commit: Some(true),
+            is_revert_commit: Some(false),
+            ticket_ids: vec!["PROJ-123".to_string()],
+        };
+        let report = FunctionRiskReport {
+            file: "src/svc.ts".to_string(),
+            function: "processRequest".to_string(),
+            line: 42,
+            language: "TypeScript".to_string(),
+            metrics: ReportMetrics {
+                cc: 8,
+                nd: 3,
+                fo: 5,
+                ns: 2,
+                loc: 100,
+            },
+            risk: RiskReport {
+                r_cc: 2.0,
+                r_nd: 1.0,
+                r_fo: 0.8,
+                r_ns: 0.4,
+            },
+            lrs: 8.0,
+            band: "high".to_string(),
+            callees: vec!["doA".to_string(), "doB".to_string()],
+            suppression_reason: None,
+            patterns: vec!["complex_branching".to_string()],
+            pattern_details: None,
+        };
+        let mut snapshot = Snapshot::new(ctx, vec![report]);
+
+        // Populate optional fields directly on the FunctionSnapshot.
+        let f = &mut snapshot.functions[0];
+        f.churn = Some(ChurnMetrics {
+            lines_added: 50,
+            lines_deleted: 10,
+            net_change: 40,
+        });
+        f.touch_count_30d = Some(7);
+        f.days_since_last_change = Some(5);
+        f.callgraph = Some(CallGraphMetrics {
+            fan_in: 3,
+            fan_out: 5,
+            pagerank: 0.42,
+            betweenness: 0.15,
+            scc_id: 2,
+            scc_size: 4,
+            is_entrypoint: true,
+            dependency_depth: Some(2),
+            neighbor_churn: Some(12),
+        });
+        f.activity_risk = Some(9.5);
+        f.risk_factors = Some(RiskFactors {
+            complexity: 1.0,
+            churn: 0.5,
+            activity: 0.8,
+            recency: 0.3,
+            fan_in: 0.2,
+            cyclic_dependency: 0.0,
+            depth: 0.1,
+            neighbor_churn: 0.4,
+        });
+        f.percentile = Some(PercentileFlags {
+            is_top_10_pct: true,
+            is_top_5_pct: true,
+            is_top_1_pct: false,
+        });
+        f.driver = Some("high_complexity".to_string());
+        f.driver_detail = Some("cc (P92)".to_string());
+        f.quadrant = Some("fire".to_string());
+
+        db.insert(&snapshot).unwrap();
+        let loaded = db.load("fullsha").unwrap().expect("should exist");
+        let lf = &loaded.functions[0];
+
+        let churn = lf.churn.as_ref().expect("churn should be present");
+        assert_eq!(churn.lines_added, 50);
+        assert_eq!(churn.lines_deleted, 10);
+        assert_eq!(churn.net_change, 40);
+        assert_eq!(lf.touch_count_30d, Some(7));
+        assert_eq!(lf.days_since_last_change, Some(5));
+
+        let cg = lf.callgraph.as_ref().expect("callgraph should be present");
+        assert_eq!(cg.fan_in, 3);
+        assert_eq!(cg.fan_out, 5);
+        assert!((cg.pagerank - 0.42).abs() < 1e-9);
+        assert!((cg.betweenness - 0.15).abs() < 1e-9);
+        assert_eq!(cg.scc_id, 2);
+        assert_eq!(cg.scc_size, 4);
+        assert!(cg.is_entrypoint);
+        assert_eq!(cg.dependency_depth, Some(2));
+        assert_eq!(cg.neighbor_churn, Some(12));
+
+        assert!((lf.activity_risk.unwrap() - 9.5).abs() < 1e-9);
+
+        let rf = lf
+            .risk_factors
+            .as_ref()
+            .expect("risk_factors should be present");
+        assert!((rf.complexity - 1.0).abs() < 1e-9);
+
+        let pct = lf
+            .percentile
+            .as_ref()
+            .expect("percentile should be present");
+        assert!(pct.is_top_10_pct);
+        assert!(pct.is_top_5_pct);
+        assert!(!pct.is_top_1_pct);
+
+        assert_eq!(lf.driver.as_deref(), Some("high_complexity"));
+        assert_eq!(lf.driver_detail.as_deref(), Some("cc (P92)"));
+        assert_eq!(lf.quadrant.as_deref(), Some("fire"));
+        assert_eq!(lf.patterns, vec!["complex_branching"]);
+
+        // Commit fields
+        assert_eq!(loaded.commit.ticket_ids, vec!["PROJ-123"]);
+        assert_eq!(loaded.commit.is_fix_commit, Some(true));
+    }
+
+    #[test]
+    fn test_temp_db_percentile_thresholds_multiple_functions() {
+        use crate::git::GitContext;
+        use crate::report::{FunctionRiskReport, MetricsReport as ReportMetrics, RiskReport};
+
+        // Build a snapshot with 10 functions at lrs 1..=10 so NTILE(100) has real data.
+        let ctx = GitContext {
+            head_sha: "pctsha".to_string(),
+            parent_shas: vec![],
+            timestamp: 1_700_000_000,
+            branch: None,
+            is_detached: false,
+            message: None,
+            author: None,
+            is_fix_commit: None,
+            is_revert_commit: None,
+            ticket_ids: vec![],
+        };
+        // NTILE(100) only assigns buckets ≥ 90 when there are ≥ 90 rows; use 100.
+        let reports: Vec<FunctionRiskReport> = (1..=100u32)
+            .map(|i| FunctionRiskReport {
+                file: format!("src/f{i}.ts"),
+                function: format!("fn{i}"),
+                line: i,
+                language: "TypeScript".to_string(),
+                metrics: ReportMetrics {
+                    cc: i as usize,
+                    nd: 0,
+                    fo: 0,
+                    ns: 0,
+                    loc: 10,
+                },
+                risk: RiskReport {
+                    r_cc: i as f64,
+                    r_nd: 0.0,
+                    r_fo: 0.0,
+                    r_ns: 0.0,
+                },
+                lrs: i as f64,
+                band: "low".to_string(),
+                callees: vec![],
+                suppression_reason: None,
+                patterns: vec![],
+                pattern_details: None,
+            })
+            .collect();
+
+        let snapshot = Snapshot::new(ctx, reports);
+        let db = TempDb::new().unwrap();
+        db.insert_snapshot(&snapshot).unwrap();
+
+        let (p90, p95, p99) = db.percentile_thresholds("pctsha").unwrap();
+        // With 100 functions (lrs 1–100), NTILE(100) assigns one row per bucket.
+        // p90 = bucket-90 score = lrs 90, p95 = 95, p99 = 99.
+        assert!(p90 > 0.0, "p90 should be positive");
+        assert!(p95 >= p90, "p95 >= p90");
+        assert!(p99 >= p95, "p99 >= p95");
+        assert!(p99 <= 100.0, "p99 cannot exceed max lrs");
+    }
 }
