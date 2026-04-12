@@ -42,18 +42,19 @@ pub fn analyze_file_with_config(
     let (max_line, long_line_count) = long_line_stats(&src, 1000);
     if long_line_count >= 3 {
         eprintln!(
-            "warning: {} looks minified or machine-generated ({} lines exceed 1000 chars, max: {}). \
-             Consider adding it to 'exclude' in .hotspotsrc.json",
+            "warning: skipping {} — looks minified or machine-generated \
+             ({} lines exceed 1000 chars, max: {})",
             path.display(),
             long_line_count,
             max_line
         );
+        return Ok(vec![]);
     } else if looks_vendored(path) {
         eprintln!(
-            "warning: {} appears to be vendored or generated (path suggests third-party code). \
-             Consider adding it to 'exclude' in .hotspotsrc.json",
+            "warning: skipping {} — path suggests vendored or generated third-party code",
             path.display()
         );
+        return Ok(vec![]);
     }
 
     let language = Language::from_path(path)

@@ -1,5 +1,6 @@
 {
   "exclude": [
+    "**/benchmarks/memory-crash/repos/**",
     "**/tests/fixtures/**",
     "**/examples/**",
     "**/fix_golden_paths.py",
