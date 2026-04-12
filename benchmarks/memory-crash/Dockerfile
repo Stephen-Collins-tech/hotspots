@@ -3,7 +3,7 @@
 # time to embed the version string via `git describe`.
 FROM rust:1.85-slim AS builder
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
@@ -34,7 +34,7 @@ RUN cargo build --release -p hotspots-cli
 #   time        — GNU time for peak RSS measurement inside the container
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     procps \
