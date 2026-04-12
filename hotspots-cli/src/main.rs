@@ -76,7 +76,10 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Use per-function git log -L for touch metrics
+        /// Use per-function git log -L for touch metrics (more accurate than file-level
+        /// batching). Results are cached in .hotspots/touch-cache.json.zst — the first
+        /// run on a new commit is slow (~9 ms per uncached function); subsequent runs
+        /// are fast. A warning is printed when 50+ functions need to be fetched.
         #[arg(long)]
         per_function_touches: bool,
 

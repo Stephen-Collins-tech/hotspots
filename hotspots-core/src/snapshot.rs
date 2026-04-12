@@ -374,19 +374,31 @@ impl Snapshot {
             }
         }
 
+        let hits = total - misses.len();
         if let Some(f) = progress_fn {
-            f(total - misses.len(), total);
+            f(hits, total);
         }
 
         if misses.is_empty() {
             return Ok(());
         }
 
+        // Warn when cold-cache miss count is high enough that the user might wonder
+        // why analysis is stalling. Estimate is conservative (sequential ~9 ms each);
+        // rayon parallelism makes the real wall time lower.
+        const COLD_CACHE_WARN_THRESHOLD: usize = 50;
+        if misses.len() >= COLD_CACHE_WARN_THRESHOLD {
+            let est_secs = (misses.len() * 9).div_ceil(1000);
+            eprintln!(
+                "note: {} functions not in touch cache — this may take ~{}s on first run. \
+                 Subsequent runs will be fast.",
+                misses.len(),
+                est_secs.max(1)
+            );
+        }
+
         // Phase 2: run git subprocesses in parallel for all cache misses.
-        // Results are sent through a channel as they complete, avoiding a full
-        // intermediate Vec that would coexist with the already-allocated misses Vec.
-        // Progress is not reported per-item here (progress_fn is not Sync);
-        // the caller sees a jump from cache-hits-done to total at phase end.
+        // Results are sent through a channel as they complete.
         let timestamp = self.commit.timestamp;
         let (tx, rx) = std::sync::mpsc::channel::<(usize, String, (usize, Option<u32>))>();
         misses
@@ -406,14 +418,16 @@ impl Snapshot {
             });
 
         // Phase 3: apply results and write cache.
+        // Progress is reported per-item here since rx drains on the main thread.
+        let mut completed = hits;
         for (idx, key, (count, days)) in rx {
             self.functions[idx].touch_count_30d = Some(count);
             self.functions[idx].days_since_last_change = days;
             cache.insert(key, (count, days));
-        }
-
-        if let Some(f) = progress_fn {
-            f(total, total);
+            completed += 1;
+            if let Some(f) = progress_fn {
+                f(completed, total);
+            }
         }
 
         // Evict stale entries (most-recent SHAs first) then write.
@@ -1983,6 +1997,42 @@ mod tests {
         let calls = calls.lock().unwrap();
         // Phase 1 fires once; misses=0 so we return early with (total, total)
         assert!(!calls.is_empty(), "progress should have been called");
+        assert_eq!(*calls.last().unwrap(), (1, 1));
+    }
+
+    #[test]
+    fn test_populate_touch_metrics_progress_fires_per_miss() {
+        // When there are cache misses, progress_fn should be called once per
+        // resolved miss in the phase-3 drain loop, not just at the end.
+        use std::sync::{Arc, Mutex};
+
+        let snapshot = create_test_snapshot();
+        // Empty cache → 1 function = 1 miss
+        let dir = tempfile::tempdir().unwrap();
+
+        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
+        let calls_ref = calls.clone();
+
+        let mut snapshot = snapshot;
+        // populate_touch_metrics will shell out to git for the miss; in a temp
+        // dir with no git repo it will return (0, None) via the error path.
+        let _ = snapshot.populate_touch_metrics(
+            dir.path(),
+            true,
+            Some(&|i, n| {
+                calls_ref.lock().unwrap().push((i, n));
+            }),
+        );
+
+        let calls = calls.lock().unwrap();
+        // Phase 1: (0, 1) — 0 hits out of 1 total
+        // Phase 3: (1, 1) — 1 resolved miss
+        assert!(
+            calls.len() >= 2,
+            "expected at least 2 progress calls, got {}",
+            calls.len()
+        );
+        assert_eq!(calls[0], (0, 1));
         assert_eq!(*calls.last().unwrap(), (1, 1));
     }
 }
