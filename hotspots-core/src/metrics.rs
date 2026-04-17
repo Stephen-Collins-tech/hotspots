@@ -1112,11 +1112,8 @@ fn rust_non_structured_exits(block: &syn::Block) -> usize {
 
     fn expr_exits(expr: &Expr, count: &mut usize, is_tail: bool) {
         match expr {
-            Expr::Return(_) => {
-                // Don't count final tail return
-                if !is_tail {
-                    *count += 1;
-                }
+            Expr::Return(_) if !is_tail => {
+                *count += 1;
             }
             Expr::Try(_) => {
                 // ? operator counts as early return
