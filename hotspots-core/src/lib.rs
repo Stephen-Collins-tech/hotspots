@@ -16,6 +16,7 @@ pub mod analysis;
 pub mod ast;
 pub mod callgraph;
 pub mod cfg;
+pub mod compact;
 pub mod config;
 pub mod db;
 pub mod delta;

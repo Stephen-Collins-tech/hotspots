@@ -136,6 +136,12 @@ enum Commands {
         /// Compaction level (0 = full snapshots, 1 = deltas only, 2 = band transitions only)
         #[arg(long)]
         level: u32,
+        /// Show projected savings without modifying any files
+        #[arg(long)]
+        dry_run: bool,
+        /// Number of full snapshots to keep when compacting to level 1 (default: 5)
+        #[arg(long, default_value = "5")]
+        keep_full: usize,
     },
     /// Analyze trends from snapshot history
     Trends {
@@ -273,7 +279,11 @@ fn main() -> anyhow::Result<()> {
             older_than,
             dry_run,
         } => cmd::prune::handle_prune(unreachable, older_than, dry_run)?,
-        Commands::Compact { level } => cmd::compact::handle_compact(level)?,
+        Commands::Compact {
+            level,
+            dry_run,
+            keep_full,
+        } => cmd::compact::handle_compact(level, dry_run, keep_full)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
         Commands::Trends {
             path,
