@@ -781,8 +781,8 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
                 .progress_chars("##-"),
         );
         Box::new(move |i: usize, t: usize| {
-            pb.set_position((i + 1) as u64);
-            if i + 1 >= t {
+            pb.set_position(i as u64);
+            if i >= t {
                 pb.finish_and_clear();
             }
         })
@@ -793,13 +793,13 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
         );
         let last_print = std::sync::Mutex::new(std::time::Instant::now());
         Box::new(move |i: usize, t: usize| {
-            if i + 1 >= t {
-                eprintln!("Building touch cache: {}/{} functions [done]", i + 1, t);
+            if i >= t {
+                eprintln!("Building touch cache: {}/{} functions [done]", i, t);
                 return;
             }
             if let Ok(mut last) = last_print.try_lock() {
                 if last.elapsed().as_secs() >= 30 {
-                    eprintln!("Building touch cache: {}/{} functions", i + 1, t);
+                    eprintln!("Building touch cache: {}/{} functions", i, t);
                     *last = std::time::Instant::now();
                 }
             }
