@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Resolve clippy lint errors from Rust 1.95 stable (#60)
+
+
 ### Features
 - Warn on cold cache miss + per-item progress for touch metrics (#59)
 
