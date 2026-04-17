@@ -437,7 +437,7 @@ impl Snapshot {
             let mut commits = Index::load_or_new(&index_path(repo_root))
                 .map(|idx| idx.commits)
                 .unwrap_or_default();
-            commits.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+            commits.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
             let mut shas = vec![sha.clone()];
             shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
             shas
@@ -1335,7 +1335,7 @@ fn compute_near_miss_detail(
     .filter(|(_, rank)| *rank >= 40)
     .collect();
 
-    near.sort_by(|a, b| b.1.cmp(&a.1));
+    near.sort_by_key(|a| std::cmp::Reverse(a.1));
     near.truncate(3);
 
     if near.is_empty() {
