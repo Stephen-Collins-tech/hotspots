@@ -4,6 +4,7 @@ use hotspots_core::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use hotspots_core::discover;
 use hotspots_core::parser;
 use hotspots_core::policy::{evaluate_policies, PolicyId, PolicySeverity};
+use hotspots_core::risk::RiskBand;
 use hotspots_core::snapshot::Snapshot;
 use hotspots_core::{git::GitContext, ResolvedConfig};
 use std::path::Path;
@@ -93,7 +94,7 @@ fn test_suppression_missing_reason_policy() {
                 loc: 10,
             },
             lrs: 1.0,
-            band: "low".to_string(),
+            band: RiskBand::Low,
         }),
         delta: None,
         band_transition: None,
@@ -161,7 +162,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
                 loc: 50,
             },
             lrs: 50.0,
-            band: "critical".to_string(),
+            band: RiskBand::Critical,
         }),
         delta: None,
         band_transition: None,
@@ -225,7 +226,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
                 loc: 50,
             },
             lrs: 50.0,
-            band: "critical".to_string(),
+            band: RiskBand::Critical,
         }),
         delta: None,
         band_transition: None,

@@ -10,6 +10,7 @@
 
 use crate::policy::PolicyResults;
 use crate::report::MetricsReport;
+use crate::risk::RiskBand;
 use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -35,7 +36,7 @@ pub enum FunctionStatus {
 pub struct FunctionState {
     pub metrics: MetricsReport,
     pub lrs: f64,
-    pub band: String,
+    pub band: RiskBand,
 }
 
 /// Numeric delta for a function
@@ -221,7 +222,7 @@ fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
             after: Some(FunctionState {
                 metrics: func.metrics.clone(),
                 lrs: func.lrs,
-                band: func.band.clone(),
+                band: func.band,
             }),
             delta: None,
             band_transition: None,
@@ -265,8 +266,8 @@ fn compute_function_deltas(
                 };
                 let band_transition = if parent.band != current.band {
                     Some(BandTransition {
-                        from: parent.band.clone(),
-                        to: current.band.clone(),
+                        from: parent.band.as_str().to_string(),
+                        to: current.band.as_str().to_string(),
                     })
                 } else {
                     None
@@ -277,12 +278,12 @@ fn compute_function_deltas(
                     before: Some(FunctionState {
                         metrics: parent.metrics.clone(),
                         lrs: parent.lrs,
-                        band: parent.band.clone(),
+                        band: parent.band,
                     }),
                     after: Some(FunctionState {
                         metrics: current.metrics.clone(),
                         lrs: current.lrs,
-                        band: current.band.clone(),
+                        band: current.band,
                     }),
                     delta,
                     band_transition,
@@ -297,7 +298,7 @@ fn compute_function_deltas(
                     before: Some(FunctionState {
                         metrics: parent.metrics.clone(),
                         lrs: parent.lrs,
-                        band: parent.band.clone(),
+                        band: parent.band,
                     }),
                     after: None,
                     delta: Some(compute_delete_delta(parent)),
@@ -314,7 +315,7 @@ fn compute_function_deltas(
                     after: Some(FunctionState {
                         metrics: current.metrics.clone(),
                         lrs: current.lrs,
-                        band: current.band.clone(),
+                        band: current.band,
                     }),
                     delta: None,
                     band_transition: None,
@@ -502,13 +503,15 @@ pub fn compute_delta(repo_root: &Path, current: &Snapshot) -> Result<Delta> {
 mod tests {
     use super::*;
     use crate::git::GitContext;
+    use crate::language::Language;
     use crate::report::{FunctionRiskReport, MetricsReport};
+    use crate::risk::RiskBand;
     use crate::snapshot::Snapshot;
 
     fn create_test_snapshot(
         sha: &str,
         parent_sha: &str,
-        cc: usize,
+        cc: u32,
         lrs: f64,
         band: &str,
     ) -> Snapshot {
@@ -529,7 +532,7 @@ mod tests {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
-            language: "TypeScript".to_string(),
+            language: Language::TypeScript,
             metrics: MetricsReport {
                 cc,
                 nd: 2,
@@ -544,7 +547,7 @@ mod tests {
                 r_ns: 1.0,
             },
             lrs,
-            band: band.to_string(),
+            band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
             suppression_reason: None,
             patterns: vec![],
             pattern_details: None,

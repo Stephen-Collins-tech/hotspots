@@ -190,7 +190,7 @@ pub fn render_sarif(snapshot: &Snapshot, repo_root: &Path) -> String {
                 message: SarifMessage {
                     text: format!(
                         "Function `{name}` has a {band} risk score (LRS={lrs:.2}, CC={cc}).",
-                        band = f.band,
+                        band = f.band.as_str(),
                     ),
                 },
                 locations: vec![SarifLocation {
@@ -257,12 +257,12 @@ mod tests {
         }
     }
 
-    fn make_function(file: &str, name: &str, band: &str, lrs: f64, cc: usize) -> FunctionSnapshot {
+    fn make_function(file: &str, name: &str, band: &str, lrs: f64, cc: u32) -> FunctionSnapshot {
         FunctionSnapshot {
             function_id: format!("{}::{}", file, name),
             file: file.to_string(),
             line: 10,
-            language: "rust".to_string(),
+            language: crate::language::Language::Rust,
             metrics: MetricsReport {
                 cc,
                 nd: 0,
@@ -271,7 +271,7 @@ mod tests {
                 loc: 10,
             },
             lrs,
-            band: band.to_string(),
+            band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),
             suppression_reason: None,
             churn: None,
             touch_count_30d: None,

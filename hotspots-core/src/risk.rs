@@ -5,6 +5,7 @@
 //! - Monotonic risk transforms
 
 use crate::metrics::RawMetrics;
+use serde::{Deserialize, Serialize};
 
 /// Risk components after transformation
 #[derive(Debug, Clone)]
@@ -15,8 +16,9 @@ pub struct RiskComponents {
     pub r_ns: f64,
 }
 
-/// Risk band classification
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Risk band classification (ordered: Low < Moderate < High < Critical)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RiskBand {
     Low,      // < 3
     Moderate, // 3-6
@@ -32,6 +34,22 @@ impl RiskBand {
             RiskBand::High => "high",
             RiskBand::Critical => "critical",
         }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "low" => Some(RiskBand::Low),
+            "moderate" => Some(RiskBand::Moderate),
+            "high" => Some(RiskBand::High),
+            "critical" => Some(RiskBand::Critical),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for RiskBand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

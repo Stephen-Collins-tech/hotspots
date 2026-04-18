@@ -203,7 +203,7 @@ fn analyze_function(
     Some(report::FunctionRiskReport::new(
         function,
         path.to_string_lossy().to_string(),
-        language.name().to_string(),
+        language,
         report::FunctionAnalysis {
             metrics: raw_metrics,
             risk: risk_components,

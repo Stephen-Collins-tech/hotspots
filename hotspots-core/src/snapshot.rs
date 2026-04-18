@@ -10,7 +10,9 @@
 //! - ASCII lexical ordering (not locale-aware)
 
 use crate::git::GitContext;
+use crate::language::Language;
 use crate::report::{FunctionRiskReport, MetricsReport};
+use crate::risk::RiskBand;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -116,10 +118,10 @@ pub struct FunctionSnapshot {
     pub function_id: String,
     pub file: String,
     pub line: u32,
-    pub language: String,
+    pub language: Language,
     pub metrics: MetricsReport,
     pub lrs: f64,
-    pub band: String,
+    pub band: RiskBand,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -362,8 +364,7 @@ impl Snapshot {
                 function.file.replace('\\', "/")
             };
             let start_line = function.line;
-            let end_line =
-                (start_line + (function.metrics.loc as u32).saturating_sub(1)).max(start_line);
+            let end_line = (start_line + function.metrics.loc.saturating_sub(1)).max(start_line);
             let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
 
             if let Some(&(count, days)) = cache.get(&key) {
@@ -742,11 +743,11 @@ impl Snapshot {
     pub fn populate_patterns(&mut self, thresholds: &crate::patterns::Thresholds) {
         for function in &mut self.functions {
             let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc,
-                nd: function.metrics.nd,
-                fo: function.metrics.fo,
-                ns: function.metrics.ns,
-                loc: function.metrics.loc,
+                cc: function.metrics.cc as usize,
+                nd: function.metrics.nd as usize,
+                fo: function.metrics.fo as usize,
+                ns: function.metrics.ns as usize,
+                loc: function.metrics.loc as usize,
             };
             // churn_lines is intentionally None here: function.churn is file-level
             // (all functions in a file share the same total), not per-function. Using
@@ -783,11 +784,11 @@ impl Snapshot {
     pub fn populate_pattern_details(&mut self, thresholds: &crate::patterns::Thresholds) {
         for function in &mut self.functions {
             let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc,
-                nd: function.metrics.nd,
-                fo: function.metrics.fo,
-                ns: function.metrics.ns,
-                loc: function.metrics.loc,
+                cc: function.metrics.cc as usize,
+                nd: function.metrics.nd as usize,
+                fo: function.metrics.fo as usize,
+                ns: function.metrics.ns as usize,
+                loc: function.metrics.loc as usize,
             };
             let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
                 if let Some(ref cg) = function.callgraph {
@@ -852,8 +853,16 @@ impl Snapshot {
     pub fn populate_driver_labels(&mut self, percentile: u8) {
         let thresholds = compute_dimension_thresholds(&self.functions, percentile);
 
-        let mut sorted_cc: Vec<usize> = self.functions.iter().map(|f| f.metrics.cc).collect();
-        let mut sorted_nd: Vec<usize> = self.functions.iter().map(|f| f.metrics.nd).collect();
+        let mut sorted_cc: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.metrics.cc as usize)
+            .collect();
+        let mut sorted_nd: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.metrics.nd as usize)
+            .collect();
         let mut sorted_fo: Vec<usize> = self
             .functions
             .iter()
@@ -920,7 +929,7 @@ impl Snapshot {
                 .map(|d| d <= 30)
                 .unwrap_or(false);
             let is_active = touch_above_p50 || recently_changed;
-            let is_high_risk = matches!(function.band.as_str(), "critical" | "high");
+            let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
 
             function.quadrant = Some(
                 match (is_high_risk, is_active) {
@@ -1077,10 +1086,12 @@ fn compute_band_distribution(
     let mut by_band = std::collections::BTreeMap::new();
     for func in functions {
         let score = func.activity_risk.unwrap_or(func.lrs);
-        let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
-            count: 0,
-            sum_risk: 0.0,
-        });
+        let entry = by_band
+            .entry(func.band.as_str().to_string())
+            .or_insert(BandStats {
+                count: 0,
+                sum_risk: 0.0,
+            });
         entry.count += 1;
         entry.sum_risk += score;
     }
@@ -1160,13 +1171,13 @@ pub fn compute_dimension_thresholds(
 
     let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
 
-    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc).collect();
+    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc as usize).collect();
     cc_vals.sort_unstable();
     let cc_high = cc_vals[percentile_idx(p)];
     let cc_med = cc_vals[percentile_idx(50)];
     let cc_low = cc_vals[percentile_idx(anti_p)];
 
-    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd).collect();
+    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd as usize).collect();
     nd_vals.sort_unstable();
     let nd_high = nd_vals[percentile_idx(p)];
 
@@ -1268,8 +1279,8 @@ pub fn driving_dimension_label(
     let fan_out = func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0);
     let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let touch_count = func.touch_count_30d.unwrap_or(0);
-    let cc = func.metrics.cc;
-    let nd = func.metrics.nd;
+    let cc = func.metrics.cc as usize;
+    let nd = func.metrics.nd as usize;
 
     if in_cycle {
         "cyclic_dep"
@@ -1309,8 +1320,8 @@ fn compute_near_miss_detail(
     };
 
     let mut near: Vec<(&str, u8)> = vec![
-        ("cc", pct_rank(func.metrics.cc, sorted_cc)),
-        ("nd", pct_rank(func.metrics.nd, sorted_nd)),
+        ("cc", pct_rank(func.metrics.cc as usize, sorted_cc)),
+        ("nd", pct_rank(func.metrics.nd as usize, sorted_nd)),
         (
             "fan_out",
             pct_rank(
@@ -1818,7 +1829,7 @@ mod tests {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
-            language: "TypeScript".to_string(),
+            language: Language::TypeScript,
             metrics: MetricsReport {
                 cc: 5,
                 nd: 2,
@@ -1833,7 +1844,7 @@ mod tests {
                 r_ns: 1.0,
             },
             lrs: 4.8,
-            band: "moderate".to_string(),
+            band: RiskBand::Moderate,
             suppression_reason: None,
             patterns: vec![],
             pattern_details: None,

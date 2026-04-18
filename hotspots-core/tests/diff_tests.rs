@@ -5,7 +5,9 @@
 
 use hotspots_core::delta::{Delta, FunctionStatus};
 use hotspots_core::git::GitContext;
+use hotspots_core::language::Language;
 use hotspots_core::report::{FunctionRiskReport, MetricsReport, RiskReport};
+use hotspots_core::risk::RiskBand;
 use hotspots_core::snapshot::{self, Snapshot};
 use tempfile::TempDir;
 
@@ -28,12 +30,12 @@ fn git_ctx(sha: &str, parent: &str) -> GitContext {
     }
 }
 
-fn make_report(file: &str, func: &str, cc: usize, lrs: f64, band: &str) -> FunctionRiskReport {
+fn make_report(file: &str, func: &str, cc: u32, lrs: f64, band: &str) -> FunctionRiskReport {
     FunctionRiskReport {
         file: file.to_string(),
         function: func.to_string(),
         line: 1,
-        language: "TypeScript".to_string(),
+        language: Language::TypeScript,
         metrics: MetricsReport {
             cc,
             nd: 1,
@@ -48,7 +50,7 @@ fn make_report(file: &str, func: &str, cc: usize, lrs: f64, band: &str) -> Funct
             r_ns: 1.0,
         },
         lrs,
-        band: band.to_string(),
+        band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
         suppression_reason: None,
         patterns: vec![],
         pattern_details: None,

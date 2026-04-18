@@ -5,6 +5,7 @@
 //! - Byte-for-byte identical output across runs
 
 use crate::ast::FunctionNode;
+use crate::language::Language;
 use crate::metrics::RawMetrics;
 use crate::risk::{RiskBand, RiskComponents};
 use serde::{Deserialize, Serialize};
@@ -16,11 +17,11 @@ pub struct FunctionRiskReport {
     pub file: String,
     pub function: String,
     pub line: u32,
-    pub language: String,
+    pub language: Language,
     pub metrics: MetricsReport,
     pub risk: RiskReport,
     pub lrs: f64,
-    pub band: String,
+    pub band: RiskBand,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -34,11 +35,11 @@ pub struct FunctionRiskReport {
 /// Metrics in report format
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MetricsReport {
-    pub cc: usize,
-    pub nd: usize,
-    pub fo: usize,
-    pub ns: usize,
-    pub loc: usize,
+    pub cc: u32,
+    pub nd: u32,
+    pub fo: u32,
+    pub ns: u32,
+    pub loc: u32,
 }
 
 /// Risk components in report format
@@ -68,7 +69,7 @@ impl FunctionRiskReport {
     pub fn new(
         function: &FunctionNode,
         file: String,
-        language: String,
+        language: Language,
         analysis: FunctionAnalysis,
         source_map: &swc_common::SourceMap,
     ) -> Self {
@@ -94,11 +95,11 @@ impl FunctionRiskReport {
             line,
             language,
             metrics: MetricsReport {
-                cc: analysis.metrics.cc,
-                nd: analysis.metrics.nd,
-                fo: analysis.metrics.fo,
-                ns: analysis.metrics.ns,
-                loc: analysis.metrics.loc,
+                cc: analysis.metrics.cc as u32,
+                nd: analysis.metrics.nd as u32,
+                fo: analysis.metrics.fo as u32,
+                ns: analysis.metrics.ns as u32,
+                loc: analysis.metrics.loc as u32,
             },
             risk: RiskReport {
                 r_cc: analysis.risk.r_cc,
@@ -107,7 +108,7 @@ impl FunctionRiskReport {
                 r_ns: analysis.risk.r_ns,
             },
             lrs: analysis.lrs,
-            band: analysis.band.as_str().to_string(),
+            band: analysis.band,
             suppression_reason: function.suppression_reason.clone(),
             patterns: analysis.patterns,
             pattern_details: None,
@@ -163,7 +164,7 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
             output.push_str(&format!(
                 "{:<8} {:<10} {:<20} {:<6} {:<30} {}\n",
                 lrs_str,
-                report.band,
+                report.band.as_str(),
                 truncate_or_pad(&report.file, 20),
                 report.line,
                 truncate_or_pad(&report.function, 30),

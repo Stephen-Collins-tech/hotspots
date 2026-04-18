@@ -6,7 +6,7 @@
 use crate::aggregates::SnapshotAggregates;
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use crate::policy::{PolicyId, PolicyResults};
-use crate::risk::RiskThresholds;
+use crate::risk::{RiskBand, RiskThresholds};
 use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot, SnapshotSummary};
 
 /// Render a snapshot as an HTML report.
@@ -1424,12 +1424,12 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
     let critical_count = snapshot
         .functions
         .iter()
-        .filter(|f| f.band == "critical")
+        .filter(|f| f.band == RiskBand::Critical)
         .count();
     let high_count = snapshot
         .functions
         .iter()
-        .filter(|f| f.band == "high")
+        .filter(|f| f.band == RiskBand::High)
         .count();
     let avg_lrs = if total_functions > 0 {
         snapshot.functions.iter().map(|f| f.lrs).sum::<f64>() / total_functions as f64
@@ -1754,7 +1754,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                     .unwrap_or_default(),
                 line = f.line,
                 lrs = f.lrs,
-                band = &f.band,
+                band = f.band.as_str(),
                 cc = f.metrics.cc,
                 nd = f.metrics.nd,
                 fo = f.metrics.fo,
@@ -1882,7 +1882,7 @@ fn triage_action(driver: Option<&str>, quadrant: Option<&str>) -> &'static str {
 fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     let has_high_risk = functions
         .iter()
-        .any(|f| f.band == "critical" || f.band == "high");
+        .any(|f| f.band == RiskBand::Critical || f.band == RiskBand::High);
     if !has_high_risk {
         return String::new();
     }
@@ -2024,7 +2024,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 cls = row_class,
                 file = html_escape(&f.file),
                 func = html_escape(function_name),
-                band = &f.band,
+                band = f.band.as_str(),
                 risk = risk_val,
                 driver = driver_cell,
                 touches_td = touches_td,

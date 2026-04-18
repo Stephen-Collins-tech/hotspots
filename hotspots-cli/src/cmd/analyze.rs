@@ -196,11 +196,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     if explain_patterns {
         for report in &mut reports {
             let t1 = hotspots_core::patterns::Tier1Input {
-                cc: report.metrics.cc,
-                nd: report.metrics.nd,
-                fo: report.metrics.fo,
-                ns: report.metrics.ns,
-                loc: report.metrics.loc,
+                cc: report.metrics.cc as usize,
+                nd: report.metrics.nd as usize,
+                fo: report.metrics.fo as usize,
+                ns: report.metrics.ns as usize,
+                loc: report.metrics.loc as usize,
             };
             let t2 = hotspots_core::patterns::Tier2Input {
                 fan_in: None,
@@ -675,7 +675,7 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    reports: Vec<hotspots_core::FunctionRiskReport>,
+    mut reports: Vec<hotspots_core::FunctionRiskReport>,
     per_function_touches: bool,
     callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
@@ -708,6 +708,11 @@ pub(crate) fn build_enriched_snapshot(
         }
         cg
     };
+
+    for r in &mut reports {
+        r.callees.clear();
+        r.callees.shrink_to_fit();
+    }
 
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
