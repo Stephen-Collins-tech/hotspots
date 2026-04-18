@@ -18,31 +18,23 @@
 //! architecture. Advanced call tracking (including external dependencies and runtime
 //! analysis) is reserved for future cloud/pro versions.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
-/// Call graph for a codebase
+/// Call graph for a codebase.
+///
+/// Uses an index-based representation: node strings are interned into a `Vec<String>`
+/// and all adjacency, BFS, and PageRank structures operate on `u32` indices.
+/// This avoids per-BFS-call HashMap<String, ...> allocations that otherwise grow
+/// unbounded under approximate betweenness (k=256 calls × ~400 MB/call).
 #[derive(Debug, Clone)]
 pub struct CallGraph {
-    /// Map from function ID to list of called function IDs
-    pub edges: HashMap<String, Vec<String>>,
-    /// All functions in the graph
-    pub nodes: HashSet<String>,
+    ids: Vec<String>,
+    id_to_idx: HashMap<String, u32>,
+    adj: Vec<Vec<u32>>,
     /// Total callee names found in ASTs across all functions
     pub total_callee_names: usize,
     /// Callee names that resolved to a known internal function ID
     pub resolved_callee_names: usize,
-}
-
-/// Mutable state for Tarjan's SCC algorithm
-struct TarjanState {
-    index: usize,
-    stack: Vec<String>,
-    indices: HashMap<String, usize>,
-    lowlinks: HashMap<String, usize>,
-    on_stack: HashMap<String, bool>,
-    scc_id: usize,
-    result: HashMap<String, (usize, usize)>,
-    scc_sizes: HashMap<usize, usize>,
 }
 
 /// Graph metrics for a single function
@@ -62,49 +54,87 @@ impl CallGraph {
     /// Create an empty call graph
     pub fn new() -> Self {
         CallGraph {
-            edges: HashMap::new(),
-            nodes: HashSet::new(),
+            ids: Vec::new(),
+            id_to_idx: HashMap::new(),
+            adj: Vec::new(),
             total_callee_names: 0,
             resolved_callee_names: 0,
         }
     }
 
-    /// Add a function to the graph
+    /// Intern a node string, returning its u32 index (allocated if new).
+    pub fn intern(&mut self, id: String) -> u32 {
+        if let Some(&idx) = self.id_to_idx.get(&id) {
+            return idx;
+        }
+        let idx = self.ids.len() as u32;
+        self.id_to_idx.insert(id.clone(), idx);
+        self.ids.push(id);
+        self.adj.push(Vec::new());
+        idx
+    }
+
+    /// Number of nodes in the graph.
+    pub fn node_count(&self) -> usize {
+        self.ids.len()
+    }
+
+    /// Total number of directed edges in the graph.
+    pub fn edge_count(&self) -> usize {
+        self.adj.iter().map(|v| v.len()).sum()
+    }
+
+    /// Returns true if `id` is a node in this graph.
+    pub fn contains(&self, id: &str) -> bool {
+        self.id_to_idx.contains_key(id)
+    }
+
+    /// Returns an iterator over callee IDs for the given function, or None if not found.
+    pub fn callees_of<'a>(&'a self, id: &str) -> Option<impl Iterator<Item = &'a str>> {
+        let idx = *self.id_to_idx.get(id)? as usize;
+        Some(self.adj[idx].iter().map(|&i| self.ids[i as usize].as_str()))
+    }
+
+    /// Add a directed edge from `caller_idx` to `callee_idx` (index-based, no interning).
+    ///
+    /// Both indices must already be interned. Used by `lib.rs` during fast graph construction
+    /// to avoid redundant string lookups after `intern` has already been called.
+    pub fn add_adj(&mut self, caller_idx: u32, callee_idx: u32) {
+        self.adj[caller_idx as usize].push(callee_idx);
+    }
+
+    /// Add a function to the graph (interning its ID).
     pub fn add_node(&mut self, function_id: String) {
-        self.nodes.insert(function_id);
+        self.intern(function_id);
     }
 
-    /// Add a call edge (caller -> callee)
+    /// Add a call edge (caller -> callee), interning both nodes.
     pub fn add_edge(&mut self, caller: String, callee: String) {
-        self.nodes.insert(caller.clone());
-        self.nodes.insert(callee.clone());
-
-        self.edges.entry(caller).or_default().push(callee);
+        let caller_idx = self.intern(caller);
+        let callee_idx = self.intern(callee);
+        self.adj[caller_idx as usize].push(callee_idx);
     }
 
-    /// Calculate fan-in for a function (number of callers)
+    /// Calculate fan-in for a function (number of callers).
     pub fn fan_in(&self, function_id: &str) -> usize {
-        self.edges
-            .values()
-            .filter(|callees| callees.contains(&function_id.to_string()))
-            .count()
+        match self.id_to_idx.get(function_id) {
+            None => 0,
+            Some(&target) => self.adj.iter().filter(|c| c.contains(&target)).count(),
+        }
     }
 
-    /// Calculate fan-out for a function (number of callees)
+    /// Calculate fan-out for a function (number of callees).
     pub fn fan_out(&self, function_id: &str) -> usize {
-        self.edges
-            .get(function_id)
-            .map(|callees| callees.len())
-            .unwrap_or(0)
+        match self.id_to_idx.get(function_id) {
+            None => 0,
+            Some(&idx) => self.adj[idx as usize].len(),
+        }
     }
 
-    /// Calculate PageRank for all functions
+    /// Calculate PageRank for all functions.
     ///
-    /// PageRank identifies important/central functions in the call graph.
-    /// Higher scores indicate functions that are frequently called by other important functions.
-    ///
-    /// Stops early when the maximum rank change across all nodes falls below `epsilon`,
-    /// which typically cuts 30–50% of iterations on sparse graphs.
+    /// Uses Vec<f64> indexed by node index with swap-buffer iteration — no per-iteration
+    /// HashMap allocations.
     ///
     /// # Arguments
     ///
@@ -117,68 +147,57 @@ impl CallGraph {
         max_iterations: usize,
         epsilon: f64,
     ) -> HashMap<String, f64> {
-        let n = self.nodes.len();
+        let n = self.ids.len();
         if n == 0 {
             return HashMap::new();
         }
 
-        let initial_rank = 1.0 / n as f64;
-        let mut ranks: HashMap<String, f64> = self
-            .nodes
-            .iter()
-            .map(|node| (node.clone(), initial_rank))
-            .collect();
-
-        // Build reverse edges (who calls whom)
-        let mut reverse_edges: HashMap<String, Vec<String>> = HashMap::new();
-        for (caller, callees) in &self.edges {
-            for callee in callees {
-                reverse_edges
-                    .entry(callee.clone())
-                    .or_default()
-                    .push(caller.clone());
+        // Build reverse adjacency once
+        let mut rev_adj: Vec<Vec<u32>> = vec![Vec::new(); n];
+        for (caller_idx, callees) in self.adj.iter().enumerate() {
+            for &callee_idx in callees {
+                rev_adj[callee_idx as usize].push(caller_idx as u32);
             }
         }
-
-        // Sort caller lists once for deterministic computation across all iterations
-        for callers in reverse_edges.values_mut() {
+        // Sort caller lists for deterministic computation
+        for callers in rev_adj.iter_mut() {
             callers.sort();
         }
 
-        // Iterative PageRank with early convergence exit
+        // fan_out per node (clamped to 1 to avoid divide-by-zero)
+        let fan_out: Vec<f64> = self.adj.iter().map(|v| v.len().max(1) as f64).collect();
+
+        let initial_rank = 1.0 / n as f64;
+        let mut ranks = vec![initial_rank; n];
+        let mut new_ranks = vec![0.0f64; n];
+
         for _ in 0..max_iterations {
-            let mut new_ranks = HashMap::new();
-
-            for node in &self.nodes {
+            for i in 0..n {
                 let mut rank = (1.0 - damping) / n as f64;
-
-                // Sum contributions from all callers
-                if let Some(callers) = reverse_edges.get(node) {
-                    for caller in callers {
-                        let caller_rank = ranks.get(caller).copied().unwrap_or(initial_rank);
-                        let caller_fan_out = self.fan_out(caller).max(1);
-                        rank += damping * (caller_rank / caller_fan_out as f64);
-                    }
+                for &caller_idx in &rev_adj[i] {
+                    rank += damping * ranks[caller_idx as usize] / fan_out[caller_idx as usize];
                 }
-
-                new_ranks.insert(node.clone(), rank);
+                new_ranks[i] = rank;
             }
 
-            // Check convergence before replacing ranks
-            let max_delta = self
-                .nodes
+            let max_delta = ranks
                 .iter()
-                .map(|node| (new_ranks[node] - ranks[node]).abs())
+                .zip(new_ranks.iter())
+                .map(|(old, new)| (new - old).abs())
                 .fold(0.0_f64, f64::max);
 
-            ranks = new_ranks;
+            std::mem::swap(&mut ranks, &mut new_ranks);
 
             if max_delta < epsilon {
                 break;
             }
         }
 
-        ranks
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), ranks[i]))
+            .collect()
     }
 
     /// Calculate betweenness centrality using pivoted source sampling (approximate).
@@ -187,254 +206,278 @@ impl CallGraph {
     /// sorted node list and scales contributions by N/k. This gives an unbiased estimator
     /// of exact betweenness with O(k × (N+E)) complexity instead of O(N × (N+E)).
     ///
-    /// Falls back to exact computation when `self.nodes.len() <= k`.
+    /// Falls back to exact computation when `self.node_count() <= k`.
     ///
-    /// The source selection is deterministic (no RNG): sorting + stride gives identical
-    /// output for identical input, preserving the codebase's byte-for-byte invariant.
+    /// BFS working buffers (stack, pred, sigma, dist, delta) are pre-allocated once and
+    /// reused across all k iterations via `.clear()` / `.fill()` — RSS is flat regardless
+    /// of k.
     ///
     /// # Arguments
     ///
     /// * `k` - Number of pivot sources to sample (higher = more accurate, more time)
     pub fn betweenness_centrality_approx(&self, k: usize) -> HashMap<String, f64> {
-        let n = self.nodes.len();
+        let n = self.ids.len();
         if n <= k {
             return self.betweenness_centrality();
         }
 
-        let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
-        sorted_nodes.sort();
+        // Sort node indices by string ID for deterministic stride-based sampling
+        let mut sorted_indices: Vec<u32> = (0..n as u32).collect();
+        sorted_indices.sort_by_key(|&i| &self.ids[i as usize]);
 
         let scale = n as f64 / k as f64;
+        let mut betweenness = vec![0.0f64; n];
 
-        let mut betweenness: HashMap<String, f64> =
-            self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
+        // Pre-allocate BFS buffers — reused every iteration (no dealloc between calls)
+        let mut stack: Vec<u32> = Vec::with_capacity(n);
+        let mut pred: Vec<Vec<u32>> = vec![Vec::new(); n];
+        let mut sigma = vec![0.0f64; n];
+        let mut dist = vec![-1i32; n];
+        let mut delta = vec![0.0f64; n];
+        let mut queue: VecDeque<u32> = VecDeque::with_capacity(n);
 
         for i in 0..k {
-            // Use (i * n) / k rather than i * (n / k) so that samples are spread
-            // evenly across [0, n-1]. The naive step = n/k approach truncates the
-            // tail: e.g. n=300, k=256 gives step=1 and only samples indices 0–255,
-            // permanently excluding the last 44 nodes.
-            let source = sorted_nodes[(i * n) / k];
-            let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
-            let delta = brandes_accumulate(&stack, &predecessors, &sigma);
-            for w in &stack {
-                if w != source {
-                    *betweenness.entry(w.clone()).or_insert(0.0) +=
-                        delta.get(w).copied().unwrap_or(0.0) * scale;
+            let source_idx = sorted_indices[(i * n) / k];
+            brandes_bfs_inplace(
+                source_idx, &self.adj, &mut stack, &mut pred, &mut sigma, &mut dist, &mut queue,
+            );
+            brandes_accumulate_inplace(&stack, &pred, &sigma, &mut delta);
+            for &w in &stack {
+                if w != source_idx {
+                    betweenness[w as usize] += delta[w as usize] * scale;
                 }
             }
         }
 
         if n > 2 {
             let normalization = 1.0 / ((n - 1) * (n - 2)) as f64;
-            for value in betweenness.values_mut() {
-                *value *= normalization;
+            for v in betweenness.iter_mut() {
+                *v *= normalization;
             }
         }
 
-        betweenness
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), betweenness[i]))
+            .collect()
     }
 
     /// Calculate betweenness centrality for all functions (exact).
     ///
-    /// Betweenness measures how often a function appears on shortest paths between other functions.
-    /// High betweenness indicates a function is a critical bridge/bottleneck.
-    ///
     /// Uses Brandes' algorithm: O(N × (N+E)). For large graphs use
     /// `betweenness_centrality_approx` instead.
+    ///
+    /// BFS working buffers are pre-allocated once and reused across all N iterations.
     pub fn betweenness_centrality(&self) -> HashMap<String, f64> {
-        let mut betweenness: HashMap<String, f64> =
-            self.nodes.iter().map(|node| (node.clone(), 0.0)).collect();
+        let n = self.ids.len();
+        let mut betweenness = vec![0.0f64; n];
 
-        for source in &self.nodes {
-            let (stack, predecessors, sigma) = brandes_bfs(source, &self.nodes, &self.edges);
-            let delta = brandes_accumulate(&stack, &predecessors, &sigma);
-            for w in &stack {
-                if w != source {
-                    *betweenness.entry(w.clone()).or_insert(0.0) +=
-                        delta.get(w).copied().unwrap_or(0.0);
+        if n == 0 {
+            return HashMap::new();
+        }
+
+        let mut stack: Vec<u32> = Vec::with_capacity(n);
+        let mut pred: Vec<Vec<u32>> = vec![Vec::new(); n];
+        let mut sigma = vec![0.0f64; n];
+        let mut dist = vec![-1i32; n];
+        let mut delta = vec![0.0f64; n];
+        let mut queue: VecDeque<u32> = VecDeque::with_capacity(n);
+
+        for source_idx in 0..n as u32 {
+            brandes_bfs_inplace(
+                source_idx, &self.adj, &mut stack, &mut pred, &mut sigma, &mut dist, &mut queue,
+            );
+            brandes_accumulate_inplace(&stack, &pred, &sigma, &mut delta);
+            for &w in &stack {
+                if w != source_idx {
+                    betweenness[w as usize] += delta[w as usize];
                 }
             }
         }
 
-        // Normalize for undirected graph
-        let n = self.nodes.len();
         if n > 2 {
             let normalization = 1.0 / ((n - 1) * (n - 2)) as f64;
-            for value in betweenness.values_mut() {
-                *value *= normalization;
+            for v in betweenness.iter_mut() {
+                *v *= normalization;
             }
         }
 
-        betweenness
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), betweenness[i]))
+            .collect()
     }
 
-    /// Find strongly connected components using Tarjan's algorithm
+    /// Find strongly connected components using iterative Tarjan's algorithm.
     ///
-    /// Returns a map from function ID to (scc_id, scc_size)
+    /// Returns a map from function ID to (scc_id, scc_size).
     /// Functions in the same SCC form a cyclic dependency group.
     pub fn find_strongly_connected_components(&self) -> HashMap<String, (usize, usize)> {
-        let mut state = TarjanState {
-            index: 0,
-            stack: Vec::new(),
-            indices: HashMap::new(),
-            lowlinks: HashMap::new(),
-            on_stack: HashMap::new(),
-            scc_id: 0,
-            result: HashMap::new(),
-            scc_sizes: HashMap::new(),
-        };
+        let n = self.ids.len();
 
-        let mut sorted_nodes: Vec<&String> = self.nodes.iter().collect();
-        sorted_nodes.sort();
-        for node in sorted_nodes {
-            if !state.indices.contains_key(node) {
-                self.tarjan_strongconnect(node, &mut state);
+        // Pre-sort adjacency lists by node ID string for determinism
+        let sorted_adj: Vec<Vec<u32>> = self
+            .adj
+            .iter()
+            .map(|v| {
+                let mut s = v.clone();
+                s.sort_by_key(|&i| &self.ids[i as usize]);
+                s
+            })
+            .collect();
+
+        let mut node_index: Vec<i64> = vec![-1; n]; // -1 = unvisited
+        let mut lowlink: Vec<u32> = vec![0; n];
+        let mut on_stack: Vec<bool> = vec![false; n];
+        let mut tarjan_stack: Vec<u32> = Vec::new();
+        let mut index_counter: u32 = 0;
+        let mut scc_id: usize = 0;
+        let mut node_scc: Vec<usize> = vec![0; n];
+        let mut scc_sizes: Vec<usize> = Vec::new();
+
+        // Process nodes in sorted order for determinism
+        let mut sorted_nodes: Vec<u32> = (0..n as u32).collect();
+        sorted_nodes.sort_by_key(|&i| &self.ids[i as usize]);
+
+        // Work stack: (node_idx, next_successor_position)
+        let mut work: Vec<(u32, usize)> = Vec::new();
+
+        for &start in &sorted_nodes {
+            if node_index[start as usize] >= 0 {
+                continue;
             }
-        }
 
-        // Add SCC sizes to result
-        let mut final_result: HashMap<String, (usize, usize)> = HashMap::new();
-        for (node, (id, _)) in state.result {
-            let size = *state.scc_sizes.get(&id).unwrap_or(&1);
-            final_result.insert(node, (id, size));
-        }
+            work.push((start, 0));
+            node_index[start as usize] = index_counter as i64;
+            lowlink[start as usize] = index_counter;
+            index_counter += 1;
+            tarjan_stack.push(start);
+            on_stack[start as usize] = true;
 
-        final_result
-    }
+            while !work.is_empty() {
+                let (v, si) = *work.last().unwrap();
+                let vi = v as usize;
 
-    /// Tarjan's algorithm helper function
-    fn tarjan_strongconnect(&self, v: &str, state: &mut TarjanState) {
-        state.indices.insert(v.to_string(), state.index);
-        state.lowlinks.insert(v.to_string(), state.index);
-        state.index += 1;
-        state.stack.push(v.to_string());
-        state.on_stack.insert(v.to_string(), true);
+                if si < sorted_adj[vi].len() {
+                    let w = sorted_adj[vi][si];
+                    work.last_mut().unwrap().1 += 1;
+                    let wi = w as usize;
 
-        // Consider successors of v
-        if let Some(successors) = self.edges.get(v) {
-            let mut sorted_successors = successors.clone();
-            sorted_successors.sort();
-            for w in sorted_successors {
-                if !state.indices.contains_key(&w) {
-                    // Successor w has not yet been visited; recurse on it
-                    self.tarjan_strongconnect(&w, state);
-                    let w_lowlink = *state.lowlinks.get(&w).unwrap_or(&0);
-                    let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
-                    state
-                        .lowlinks
-                        .insert(v.to_string(), v_lowlink.min(w_lowlink));
-                } else if *state.on_stack.get(&w).unwrap_or(&false) {
-                    // Successor w is in stack and hence in the current SCC
-                    let w_index = *state.indices.get(&w).unwrap_or(&0);
-                    let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
-                    state.lowlinks.insert(v.to_string(), v_lowlink.min(w_index));
-                }
-            }
-        }
-
-        // If v is a root node, pop the stack and generate an SCC
-        let v_lowlink = *state.lowlinks.get(v).unwrap_or(&0);
-        let v_index = *state.indices.get(v).unwrap_or(&0);
-        if v_lowlink == v_index {
-            let mut scc = Vec::new();
-            while let Some(w) = state.stack.pop() {
-                state.on_stack.insert(w.clone(), false);
-                scc.push(w.clone());
-                state.result.insert(w.clone(), (state.scc_id, 0)); // Size filled later
-                if w == v {
-                    break;
-                }
-            }
-            state.scc_sizes.insert(state.scc_id, scc.len());
-            state.scc_id += 1;
-        }
-    }
-
-    /// Compute dependency depth for all functions
-    ///
-    /// Uses BFS from entry points to compute shortest path depth.
-    /// Entry points are identified using heuristics:
-    /// - Functions named "main", "start", "init"
-    /// - Functions with no incoming calls (potential entry points)
-    /// - HTTP handlers (e.g., handleRequest, onRequest)
-    ///
-    /// Returns a map from function ID to depth (0 = entry point, None = unreachable)
-    pub fn compute_dependency_depth(&self) -> HashMap<String, Option<usize>> {
-        use std::collections::VecDeque;
-
-        // Identify entry points using heuristics
-        let mut entry_points = Vec::new();
-        for node in &self.nodes {
-            if self.is_entry_point(node) {
-                entry_points.push(node.clone());
-            }
-        }
-
-        // If no explicit entry points found, use all functions with fan_in = 0.
-        // Build fan-in counts in O(N+E) instead of calling fan_in() per node (O(N*E)).
-        if entry_points.is_empty() {
-            let fan_in_map = self.build_fan_in_map();
-            for (node, count) in &fan_in_map {
-                if *count == 0 {
-                    entry_points.push(node.clone());
-                }
-            }
-        }
-
-        // BFS from all entry points to compute depths
-        let mut depths: HashMap<String, Option<usize>> = HashMap::new();
-        let mut queue = VecDeque::new();
-
-        // Initialize entry points with depth 0
-        for entry in &entry_points {
-            depths.insert(entry.clone(), Some(0));
-            queue.push_back((entry.clone(), 0));
-        }
-
-        // BFS traversal
-        while let Some((node, depth)) = queue.pop_front() {
-            if let Some(callees) = self.edges.get(&node) {
-                for callee in callees {
-                    // Only update if not visited or found a shorter path
-                    let current_depth = depths.get(callee).copied().flatten();
-                    if current_depth.is_none() || current_depth.unwrap() > depth + 1 {
-                        depths.insert(callee.clone(), Some(depth + 1));
-                        queue.push_back((callee.clone(), depth + 1));
+                    if node_index[wi] < 0 {
+                        // Not yet visited: push and initialize
+                        work.push((w, 0));
+                        node_index[wi] = index_counter as i64;
+                        lowlink[wi] = index_counter;
+                        index_counter += 1;
+                        tarjan_stack.push(w);
+                        on_stack[wi] = true;
+                    } else if on_stack[wi] {
+                        lowlink[vi] = lowlink[vi].min(node_index[wi] as u32);
+                    }
+                } else {
+                    work.pop();
+                    // Update parent's lowlink
+                    if let Some(&(parent, _)) = work.last() {
+                        lowlink[parent as usize] = lowlink[parent as usize].min(lowlink[vi]);
+                    }
+                    // If v is SCC root, pop the SCC
+                    if lowlink[vi] == node_index[vi] as u32 {
+                        let mut size = 0;
+                        loop {
+                            let w = tarjan_stack.pop().unwrap();
+                            on_stack[w as usize] = false;
+                            node_scc[w as usize] = scc_id;
+                            size += 1;
+                            if w == v {
+                                break;
+                            }
+                        }
+                        scc_sizes.push(size);
+                        scc_id += 1;
                     }
                 }
             }
         }
 
-        // Mark unreachable nodes
-        for node in &self.nodes {
-            if !depths.contains_key(node) {
-                depths.insert(node.clone(), None);
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let sid = node_scc[i];
+                let size = scc_sizes.get(sid).copied().unwrap_or(1);
+                (id.clone(), (sid, size))
+            })
+            .collect()
+    }
+
+    /// Compute dependency depth for all functions.
+    ///
+    /// Returns a map from function ID to depth (0 = entry point, None = unreachable).
+    pub fn compute_dependency_depth(&self) -> HashMap<String, Option<usize>> {
+        let n = self.ids.len();
+        let mut depths: Vec<Option<usize>> = vec![None; n];
+        let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
+
+        // Identify entry points
+        let mut entry_indices: Vec<u32> = (0..n as u32)
+            .filter(|&i| self.is_entry_point(&self.ids[i as usize]))
+            .collect();
+
+        if entry_indices.is_empty() {
+            let mut fan_in = vec![0usize; n];
+            for callees in &self.adj {
+                for &c in callees {
+                    fan_in[c as usize] += 1;
+                }
+            }
+            entry_indices = (0..n as u32).filter(|&i| fan_in[i as usize] == 0).collect();
+        }
+
+        for entry in entry_indices {
+            depths[entry as usize] = Some(0);
+            queue.push_back((entry, 0));
+        }
+
+        while let Some((node_idx, depth)) = queue.pop_front() {
+            for &callee_idx in &self.adj[node_idx as usize] {
+                let ci = callee_idx as usize;
+                let current = depths[ci];
+                if current.is_none() || current.unwrap() > depth + 1 {
+                    depths[ci] = Some(depth + 1);
+                    queue.push_back((callee_idx, depth + 1));
+                }
             }
         }
 
-        depths
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), depths[i]))
+            .collect()
     }
 
     /// Build a map from function ID to its fan-in count in O(N + E).
-    ///
-    /// Prefer this over repeated `fan_in()` calls when computing fan-in for many functions.
     pub fn build_fan_in_map(&self) -> HashMap<String, usize> {
-        let mut map: HashMap<String, usize> = self.nodes.iter().map(|n| (n.clone(), 0)).collect();
-        for callees in self.edges.values() {
-            for callee in callees {
-                *map.entry(callee.clone()).or_insert(0) += 1;
+        let n = self.ids.len();
+        let mut counts = vec![0usize; n];
+        for callees in &self.adj {
+            for &callee in callees {
+                counts[callee as usize] += 1;
             }
         }
-        map
+        self.ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), counts[i]))
+            .collect()
     }
 
-    /// Check if a function is likely an entry point
+    /// Check if a function is likely an entry point.
     pub fn is_entry_point(&self, function_id: &str) -> bool {
-        // Extract function name from ID (format: "file::function")
         let function_name = function_id.split("::").last().unwrap_or("").to_lowercase();
 
-        // Common entry point names
         let entry_point_names = [
             "main",
             "start",
@@ -445,7 +488,6 @@ impl CallGraph {
             "bootstrap",
         ];
 
-        // HTTP handler patterns
         let handler_patterns = [
             "handle",
             "handler",
@@ -456,12 +498,10 @@ impl CallGraph {
             "controller",
         ];
 
-        // Check if function name matches entry point patterns
         if entry_point_names.contains(&function_name.as_str()) {
             return true;
         }
 
-        // Check if function name contains handler patterns
         for pattern in &handler_patterns {
             if function_name.contains(pattern) {
                 return true;
@@ -471,7 +511,7 @@ impl CallGraph {
         false
     }
 
-    /// Calculate all graph metrics for a function
+    /// Calculate all graph metrics for a function.
     pub fn metrics_for(
         &self,
         function_id: &str,
@@ -487,80 +527,63 @@ impl CallGraph {
     }
 }
 
-/// BFS state returned by `brandes_bfs`: (stack, predecessors, sigma)
-type BrandesBfsState = (
-    Vec<String>,
-    HashMap<String, Vec<String>>,
-    HashMap<String, f64>,
-);
-
-/// Brandes' algorithm BFS phase from a single source.
+/// Brandes' BFS phase from a single source, operating on pre-allocated Vec buffers.
 ///
-/// Returns `(stack, predecessors, sigma)`:
-/// - `stack`: nodes in BFS discovery order (used for reverse traversal in accumulation)
-/// - `predecessors`: for each node, list of predecessors on shortest paths from source
-/// - `sigma`: number of shortest paths from source to each node
-fn brandes_bfs(
-    source: &str,
-    nodes: &HashSet<String>,
-    edges: &HashMap<String, Vec<String>>,
-) -> BrandesBfsState {
-    let mut stack = Vec::new();
-    let mut predecessors: HashMap<String, Vec<String>> = HashMap::new();
-    let mut distance: HashMap<String, i32> = nodes.iter().map(|n| (n.clone(), -1)).collect();
-    let mut sigma: HashMap<String, f64> = nodes.iter().map(|n| (n.clone(), 0.0)).collect();
+/// `stack` enters holding the previous call's visited nodes (used for cleanup) and exits
+/// holding the current BFS order. This avoids a separate `touched` tracker while keeping
+/// cleanup O(visited) rather than O(N).
+fn brandes_bfs_inplace(
+    source: u32,
+    adj: &[Vec<u32>],
+    stack: &mut Vec<u32>,
+    pred: &mut [Vec<u32>],
+    sigma: &mut [f64],
+    dist: &mut [i32],
+    queue: &mut VecDeque<u32>,
+) {
+    // Clear state for nodes visited in the previous call (stack still holds them)
+    for &i in stack.iter() {
+        pred[i as usize].clear();
+        sigma[i as usize] = 0.0;
+        dist[i as usize] = -1;
+    }
+    stack.clear();
+    queue.clear();
 
-    distance.insert(source.to_string(), 0);
-    sigma.insert(source.to_string(), 1.0);
+    let s = source as usize;
+    dist[s] = 0;
+    sigma[s] = 1.0;
+    queue.push_back(source);
 
-    let mut queue: VecDeque<String> = VecDeque::new();
-    queue.push_back(source.to_string());
     while let Some(v) = queue.pop_front() {
-        stack.push(v.clone());
-        if let Some(neighbors) = edges.get(&v) {
-            for w in neighbors {
-                if distance.get(w).copied().unwrap_or(-1) < 0 {
-                    queue.push_back(w.clone());
-                    distance.insert(w.clone(), distance.get(&v).copied().unwrap_or(0) + 1);
-                }
-                if distance.get(w).copied().unwrap_or(0)
-                    == distance.get(&v).copied().unwrap_or(0) + 1
-                {
-                    let sigma_w = sigma.get(w).copied().unwrap_or(0.0);
-                    let sigma_v = sigma.get(&v).copied().unwrap_or(0.0);
-                    sigma.insert(w.clone(), sigma_w + sigma_v);
-                    predecessors.entry(w.clone()).or_default().push(v.clone());
-                }
+        let vi = v as usize;
+        stack.push(v);
+        for &w in &adj[vi] {
+            let wi = w as usize;
+            if dist[wi] < 0 {
+                queue.push_back(w);
+                dist[wi] = dist[vi] + 1;
+            }
+            if dist[wi] == dist[vi] + 1 {
+                sigma[wi] += sigma[vi];
+                pred[wi].push(v);
             }
         }
     }
-    (stack, predecessors, sigma)
 }
 
-/// Brandes' algorithm accumulation phase.
-///
-/// Back-propagates dependency scores through the BFS stack.
-/// Returns `delta`: each node's contribution to betweenness from this source.
-fn brandes_accumulate(
-    stack: &[String],
-    predecessors: &HashMap<String, Vec<String>>,
-    sigma: &HashMap<String, f64>,
-) -> HashMap<String, f64> {
-    let mut delta: HashMap<String, f64> = stack.iter().map(|n| (n.clone(), 0.0)).collect();
-    let mut work = stack.to_vec();
-    while let Some(w) = work.pop() {
-        if let Some(preds) = predecessors.get(&w) {
-            for v in preds {
-                let sigma_v = sigma.get(v).copied().unwrap_or(0.0);
-                let sigma_w = sigma.get(&w).copied().unwrap_or(0.0);
-                let delta_w = delta.get(&w).copied().unwrap_or(0.0);
-                let contrib = (sigma_v / sigma_w.max(1.0)) * (1.0 + delta_w);
-                let delta_v = delta.get(v).copied().unwrap_or(0.0);
-                delta.insert(v.clone(), delta_v + contrib);
-            }
+/// Brandes' accumulation phase. Resets and fills `delta` for nodes on `stack`.
+fn brandes_accumulate_inplace(stack: &[u32], pred: &[Vec<u32>], sigma: &[f64], delta: &mut [f64]) {
+    for &w in stack {
+        delta[w as usize] = 0.0;
+    }
+    for &w in stack.iter().rev() {
+        let wi = w as usize;
+        for &v in &pred[wi] {
+            let vi = v as usize;
+            delta[vi] += (sigma[vi] / sigma[wi].max(1e-300)) * (1.0 + delta[wi]);
         }
     }
-    delta
 }
 
 impl Default for CallGraph {
@@ -576,8 +599,8 @@ mod tests {
     #[test]
     fn test_empty_graph() {
         let graph = CallGraph::new();
-        assert_eq!(graph.nodes.len(), 0);
-        assert_eq!(graph.edges.len(), 0);
+        assert_eq!(graph.node_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
     }
 
     #[test]
@@ -714,7 +737,7 @@ mod tests {
         graph.add_edge("hub".to_string(), "x_out".to_string());
         graph.add_edge("hub".to_string(), "y_out".to_string());
 
-        let n = graph.nodes.len();
+        let n = graph.node_count();
         let exact = graph.betweenness_centrality();
 
         // k=n must be byte-for-byte identical to exact
@@ -764,7 +787,7 @@ mod tests {
         }
 
         assert!(
-            graph.nodes.len() > 32,
+            graph.node_count() > 32,
             "graph must be large enough that k=32 is a real approximation"
         );
 

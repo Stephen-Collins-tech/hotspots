@@ -613,7 +613,7 @@ impl Snapshot {
     ) -> bool {
         use std::collections::HashMap;
 
-        let n = call_graph.nodes.len();
+        let n = call_graph.node_count();
         let approximate = n > exact_threshold;
 
         // Compute global metrics once
@@ -642,14 +642,13 @@ impl Snapshot {
             let function_id = &function.function_id;
 
             // Only populate if function is in the call graph
-            if call_graph.nodes.contains(function_id) {
+            if call_graph.contains(function_id) {
                 let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
                 let dependency_depth = dependency_depths.get(function_id).copied().flatten();
 
                 // Compute neighbor churn: sum of churn for all callees
-                let neighbor_churn = if let Some(callees) = call_graph.edges.get(function_id) {
+                let neighbor_churn = if let Some(callees) = call_graph.callees_of(function_id) {
                     let total: usize = callees
-                        .iter()
                         .filter_map(|callee_id| churn_map.get(callee_id))
                         .sum();
                     if total > 0 {

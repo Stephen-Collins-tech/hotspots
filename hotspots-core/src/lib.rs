@@ -289,7 +289,7 @@ fn build_name_index<'r>(
         std::collections::HashMap::new();
     for (i, report) in reports.iter().enumerate() {
         let function_id = format!("{}::{}", report.file, report.function);
-        graph.nodes.insert(function_id.clone());
+        graph.add_node(function_id.clone());
         function_ids.push(function_id);
         name_to_idx
             .entry(report.function.as_str())
@@ -346,7 +346,6 @@ fn resolve_callee(
 /// Add AST-derived edges to the graph; return (total_callee_names, resolved_callee_names)
 fn add_callee_edges(
     reports: &[FunctionRiskReport],
-    function_ids: &[String],
     name_to_idx: &std::collections::HashMap<&str, Vec<usize>>,
     import_map: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     graph: &mut callgraph::CallGraph,
@@ -354,7 +353,6 @@ fn add_callee_edges(
     let mut total = 0usize;
     let mut resolved = 0usize;
     for (caller_idx, report) in reports.iter().enumerate() {
-        let caller_id = &function_ids[caller_idx];
         let mut added_callees = std::collections::HashSet::<usize>::new();
         for callee_name in &report.callees {
             total += 1;
@@ -369,11 +367,7 @@ fn add_callee_edges(
                     import_map,
                 ) {
                     if added_callees.insert(callee_idx) {
-                        graph
-                            .edges
-                            .entry(caller_id.clone())
-                            .or_default()
-                            .push(function_ids[callee_idx].clone());
+                        graph.add_adj(caller_idx as u32, callee_idx as u32);
                     }
                 }
             }
@@ -388,7 +382,7 @@ pub fn build_call_graph(
     repo_root: &std::path::Path,
 ) -> Result<callgraph::CallGraph> {
     let mut graph = callgraph::CallGraph::new();
-    let (function_ids, name_to_idx) = build_name_index(reports, &mut graph);
+    let (_, name_to_idx) = build_name_index(reports, &mut graph);
 
     // Build import map for import-guided resolution (priority 2 after same-file)
     let file_list: Vec<&str> = reports.iter().map(|r| r.file.as_str()).collect();
@@ -399,13 +393,7 @@ pub fn build_call_graph(
         import_map.entry(from).or_default().insert(to);
     }
 
-    let (total, resolved) = add_callee_edges(
-        reports,
-        &function_ids,
-        &name_to_idx,
-        &import_map,
-        &mut graph,
-    );
+    let (total, resolved) = add_callee_edges(reports, &name_to_idx, &import_map, &mut graph);
     graph.total_callee_names = total;
     graph.resolved_callee_names = resolved;
     Ok(graph)
