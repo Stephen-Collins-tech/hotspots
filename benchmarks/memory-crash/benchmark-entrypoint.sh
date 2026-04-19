@@ -29,6 +29,7 @@ case "${BENCH_OP:-${1:-analyze}}" in
     case "${BENCH_TOUCH:-skip}" in
       per-function) TOUCH_ARG="--per-function-touches" ;;
       file)         TOUCH_ARG="--no-per-function-touches" ;;
+      hybrid)       TOUCH_ARG="--hybrid-touches ${BENCH_HYBRID_THRESHOLD:-5}" ;;
       *)            TOUCH_ARG="--skip-touch-metrics" ;;
     esac
     OUTPUT_ARG=""

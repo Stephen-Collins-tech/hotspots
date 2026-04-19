@@ -116,6 +116,12 @@ enum Commands {
         /// Useful for very large repos where graph computation dominates CPU time.
         #[arg(long, value_name = "N")]
         callgraph_skip_above: Option<usize>,
+
+        /// Hybrid touch mode: run file-level touch first, then per-function only for
+        /// files with touch_count_30d >= N. Balances accuracy and performance for
+        /// large repos. Conflicts with --per-function-touches and --no-per-function-touches.
+        #[arg(long, value_name = "N", conflicts_with_all = ["per_function_touches", "no_per_function_touches"])]
+        hybrid_touches: Option<usize>,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -246,6 +252,7 @@ fn main() -> anyhow::Result<()> {
             source_url,
             jobs,
             callgraph_skip_above,
+            hybrid_touches,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -267,6 +274,7 @@ fn main() -> anyhow::Result<()> {
             source_url,
             jobs,
             callgraph_skip_above,
+            hybrid_touches,
         })?,
         Commands::Prune {
             unreachable,

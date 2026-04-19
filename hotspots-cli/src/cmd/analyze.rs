@@ -4,6 +4,7 @@ use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
 use hotspots_core::delta::Delta;
 use hotspots_core::snapshot::{self, Snapshot};
+use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
 use hotspots_core::{delta, git};
 use std::path::{Path, PathBuf};
@@ -34,6 +35,8 @@ pub(crate) struct AnalyzeArgs {
     pub no_per_function_touches: bool,
     /// When true, skip all touch metrics (no git log calls at all).
     pub skip_touch_metrics: bool,
+    /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
+    pub hybrid_touches: Option<usize>,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -112,6 +115,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         per_function_touches,
         no_per_function_touches,
         skip_touch_metrics,
+        hybrid_touches,
         all_functions,
         explain_patterns,
         source_url,
@@ -149,11 +153,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let effective_per_function_touches = if no_per_function_touches {
-        false
-    } else {
-        per_function_touches || resolved_config.per_function_touches
-    };
+    let effective_touch_mode = resolve_touch_mode(
+        no_per_function_touches,
+        per_function_touches,
+        hybrid_touches.or(resolved_config.hybrid_touch_threshold),
+        resolved_config.per_function_touches,
+    );
 
     if let Some(output_mode) = mode {
         return handle_mode_output(
@@ -170,7 +175,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist,
                 level,
-                per_function_touches: effective_per_function_touches,
+                touch_mode: effective_touch_mode,
                 all_functions,
                 explain_patterns,
                 source_url,
@@ -246,7 +251,7 @@ pub(crate) struct ModeOutputOptions {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub per_function_touches: bool,
+    pub touch_mode: TouchMode,
     pub all_functions: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
@@ -270,7 +275,7 @@ pub(crate) fn handle_mode_output(
         force,
         no_persist,
         level,
-        per_function_touches,
+        touch_mode,
         all_functions,
         explain_patterns,
         source_url,
@@ -297,7 +302,7 @@ pub(crate) fn handle_mode_output(
                 &repo_root,
                 resolved_config,
                 reports,
-                per_function_touches,
+                touch_mode,
                 callgraph_skip_above,
                 skip_touch_metrics,
             )
@@ -358,7 +363,7 @@ pub(crate) fn handle_mode_output(
                 &repo_root,
                 resolved_config,
                 reports,
-                per_function_touches,
+                touch_mode,
                 callgraph_skip_above,
                 skip_touch_metrics,
             )
@@ -676,7 +681,7 @@ pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     mut reports: Vec<hotspots_core::FunctionRiskReport>,
-    per_function_touches: bool,
+    touch_mode: TouchMode,
     callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
@@ -737,21 +742,16 @@ pub(crate) fn build_enriched_snapshot(
     }
 
     if !skip_touch_metrics {
-        if per_function_touches
-            && !hotspots_core::snapshot::hotspots_dir(repo_root)
-                .join("touch-cache.json.zst")
-                .exists()
-        {
-            eprintln!(
-                "Warning: touch cache cold start — first run will be slower (building cache)"
-            );
-        }
-        let progress = if per_function_touches {
+        let needs_progress = matches!(
+            touch_mode,
+            TouchMode::PerFunction | TouchMode::Hybrid { .. }
+        );
+        let progress = if needs_progress {
             Some(make_progress_reporter(total_functions))
         } else {
             None
         };
-        enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
+        enricher = enricher.with_touch_metrics(repo_root, touch_mode, progress);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -847,9 +847,15 @@ pub(crate) fn analyze_and_persist_at_ref(
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
     // Touch cache is skipped (per_function_touches = false).
     // callgraph_skip_above = None: always use the config value for historical refs.
-    let mut snapshot =
-        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None, false)
-            .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    let mut snapshot = build_enriched_snapshot(
+        &worktree.path,
+        resolved_config,
+        reports,
+        TouchMode::File,
+        None,
+        false,
+    )
+    .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Rewrite absolute worktree paths back to real repo paths so that
     // function_ids are stable across snapshots (each worktree lives in a
@@ -878,6 +884,23 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Drop of `worktree` runs `git worktree remove` here.
     Ok(snapshot)
+}
+
+fn resolve_touch_mode(
+    no_per_function: bool,
+    per_function: bool,
+    hybrid_threshold: Option<usize>,
+    config_per_function: bool,
+) -> TouchMode {
+    if no_per_function {
+        TouchMode::File
+    } else if let Some(threshold) = hybrid_threshold {
+        TouchMode::Hybrid { threshold }
+    } else if per_function || config_per_function {
+        TouchMode::PerFunction
+    } else {
+        TouchMode::File
+    }
 }
 
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
