@@ -795,13 +795,12 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
         let last_print = std::sync::Mutex::new(std::time::Instant::now());
         Box::new(move |i: usize, t: usize| {
             if i >= t {
-                let pct = if t > 0 { 100 } else { 0 };
-                eprintln!("touch cache: {t}/{t} functions ({pct}%) [done]");
+                eprintln!("touch cache: {t}/{t} functions (100%) [done]");
                 return;
             }
             if let Ok(mut last) = last_print.try_lock() {
                 if last.elapsed().as_secs() >= 30 {
-                    let pct = if t > 0 { i * 100 / t } else { 0 };
+                    let pct = (i * 100).checked_div(t).unwrap_or(0);
                     eprintln!("touch cache: {i}/{t} functions ({pct}%)");
                     *last = std::time::Instant::now();
                 }
