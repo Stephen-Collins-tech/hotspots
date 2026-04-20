@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -29,15 +30,17 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any, NotRequired, TypedDict
 
-try:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import matplotlib.ticker as ticker
-    HAS_MATPLOTLIB = True
-except ImportError:
-    HAS_MATPLOTLIB = False
+def _init_matplotlib() -> bool:
+    try:
+        import matplotlib  # pyright: ignore[reportMissingImports]
+        matplotlib.use("Agg")
+        return True
+    except ImportError:
+        return False
+
+HAS_MATPLOTLIB = _init_matplotlib()
 
 SCRIPT_DIR   = Path(__file__).parent.resolve()
 PROJECT_ROOT = (SCRIPT_DIR / "..").resolve()
@@ -47,8 +50,15 @@ DOCKERFILE   = SCRIPT_DIR / "memory-crash" / "Dockerfile"
 IMAGE_NAME   = "hotspots-bench"
 BAR          = "═" * 64
 
+class _RepoConfig(TypedDict):
+    url: str
+    desc: str
+    callgraph_warn: NotRequired[int]
+    config: NotRequired[str]
+
+
 # Supported benchmark repositories.
-REPOS: dict[str, dict] = {
+REPOS: dict[str, _RepoConfig] = {
     "expo": {
         "url":  "https://github.com/expo/expo.git",
         "desc": "expo/expo — large React Native monorepo (~51k functions)",
@@ -79,7 +89,7 @@ def section(title: str) -> None:
 
 # ── Docker helpers ────────────────────────────────────────────────────────────
 
-def docker(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
+def docker(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["docker", *args],
         capture_output=capture,
@@ -158,7 +168,7 @@ def build_config_mount(repo_name: str) -> list[str]:
     ]
 
 
-def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> list[str]:
+def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str, hybrid_threshold: int = 5) -> list[str]:
     args: list[str] = []
     if jobs is not None:
         args += ["-e", f"BENCH_JOBS={jobs}"]
@@ -166,6 +176,8 @@ def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> 
         args += ["-e", f"BENCH_CALLGRAPH_SKIP_ABOVE={callgraph_skip}"]
     if touch != "skip":
         args += ["-e", f"BENCH_TOUCH={touch}"]
+    if touch == "hybrid":
+        args += ["-e", f"BENCH_HYBRID_THRESHOLD={hybrid_threshold}"]
     return args
 
 
@@ -173,9 +185,18 @@ def build_env_args(jobs: int | None, callgraph_skip: int | None, touch: str) -> 
 
 @dataclass
 class Sample:
-    elapsed_s: float
-    mem_mb:    float
-    cpu_pct:   float
+    elapsed_s:     float
+    mem_mb:        float   # docker stats cgroup memory
+    cpu_pct:       float
+    rss_mb:        float = 0.0   # VmRSS  — total resident
+    virt_mb:       float = 0.0   # VmSize — virtual address space
+    anon_mb:       float = 0.0   # RssAnon — anonymous (heap) resident
+    swap_mb:       float = 0.0   # VmSwap
+    hwm_mb:        float = 0.0   # VmHWM  — peak RSS so far
+    threads:       int   = 0     # Threads
+    pids:          int   = 0     # docker stats PIDs (cgroup)
+    blk_read_mb:   float = 0.0
+    blk_write_mb:  float = 0.0
 
 
 def _parse_docker_size_mb(s: str) -> float:
@@ -206,14 +227,17 @@ class Sampler:
     watchdog_mem:    float = 85.0   # % of limit; 0 = disabled
     watchdog_cpu:    float = 0.0    # absolute CPU%; 0 = disabled
     watchdog_secs:   float = 10.0
-    samples:         list[Sample] = field(default_factory=list)
+    log_interval_s:  float = 15.0  # print a progress line every N seconds; 0 = silent
+    samples:         list[Sample] = field(default_factory=list)  # type: ignore[assignment]
     killed_reason:   str = ""
     _stop:           threading.Event = field(default_factory=threading.Event)
     _thread:         threading.Thread | None = None
     _t0:             float = field(default_factory=time.monotonic)
+    _last_log:       float = field(default_factory=time.monotonic)
 
     def start(self) -> None:
         self._t0 = time.monotonic()
+        self._last_log = self._t0
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -234,10 +258,78 @@ class Sampler:
                         data = json.loads(line)
                         mem_mb  = _parse_docker_size_mb(data["MemUsage"].split("/")[0])
                         cpu_pct = float(data["CPUPerc"].rstrip("%"))
-                        self.samples.append(Sample(time.monotonic() - self._t0, mem_mb, cpu_pct))
+                        pids    = int(data.get("PIDs", 0) or 0)
+                        blk_parts = (data.get("BlockIO") or "0B / 0B").split("/")
+                        blk_read_mb  = _parse_docker_size_mb(blk_parts[0])
+                        blk_write_mb = _parse_docker_size_mb(blk_parts[1]) if len(blk_parts) > 1 else 0.0
+                        rss_mb, virt_mb, anon_mb, swap_mb, hwm_mb, threads = self._read_proc_mem()
+                        self.samples.append(Sample(
+                            time.monotonic() - self._t0,
+                            mem_mb, cpu_pct,
+                            rss_mb, virt_mb, anon_mb, swap_mb, hwm_mb,
+                            threads, pids, blk_read_mb, blk_write_mb,
+                        ))
+                        self._maybe_log_progress()
                     except (KeyError, ValueError, json.JSONDecodeError):
                         pass
                 self._check_watchdog()
+
+    def _maybe_log_progress(self) -> None:
+        if self.log_interval_s <= 0 or not self.samples:
+            return
+        now = time.monotonic()
+        if now - self._last_log < self.log_interval_s:
+            return
+        self._last_log = now
+        s = self.samples[-1]
+        elapsed = f"{s.elapsed_s:.0f}s"
+        rss     = f"RSS {s.rss_mb:.0f} MB" if s.rss_mb else f"mem {s.mem_mb:.0f} MB"
+        anon    = f"  anon {s.anon_mb:.0f} MB" if s.anon_mb else ""
+        swap    = f"  swap {s.swap_mb:.0f} MB !" if s.swap_mb else ""
+        cpu     = f"  CPU {s.cpu_pct:.0f}%"
+        status  = self._last_container_status()
+        suffix  = f"  · {status}" if status else ""
+        log(f"  [{elapsed}] {rss}{anon}{swap}{cpu}  ({len(self.samples)} samples){suffix}")
+
+    def _last_container_status(self) -> str:
+        """Return the last short progress line emitted by the container, or ''."""
+        r = subprocess.run(
+            ["docker", "logs", "--tail", "8", self.container_id],
+            capture_output=True, text=True, check=False,
+        )
+        output = (r.stdout + r.stderr).strip()
+        if not output:
+            return ""
+        for line in reversed(output.splitlines()):
+            line = line.strip()
+            # Skip empty, long (JSON), or binary-looking lines
+            if line and len(line) < 120 and not line.startswith("{") and not line.startswith("[{"):
+                return line
+        return ""
+
+    def _read_proc_mem(self) -> tuple[float, float, float, float, float, int]:
+        # hotspots is PID 1 in the container (entrypoint uses exec)
+        # Returns (rss_mb, virt_mb, anon_mb, swap_mb, hwm_mb, threads); all 0 on failure.
+        awk_prog = (
+            "/VmSize/{virt=$2} /VmHWM/{hwm=$2} /VmRSS/{rss=$2} "
+            "/RssAnon/{anon=$2} /VmSwap/{swap=$2} /Threads/{thr=$2} "
+            "END{print virt, hwm, rss, anon, swap, thr}"
+        )
+        r = subprocess.run(
+            ["docker", "exec", self.container_id, "awk", awk_prog, "/proc/1/status"],
+            capture_output=True, text=True, check=False,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            try:
+                p = r.stdout.strip().split()
+
+                def kb(i: int) -> float:
+                    return float(p[i]) / 1024 if i < len(p) else 0.0
+
+                return kb(2), kb(0), kb(3), kb(4), kb(1), int(p[5]) if len(p) > 5 else 0
+            except (ValueError, IndexError):
+                pass
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0
 
     def _check_watchdog(self) -> None:
         if not self.samples or self.killed_reason:
@@ -289,8 +381,11 @@ def cmd_stress(args: argparse.Namespace) -> None:
     build_image(args.skip_build)
     local_repo = ensure_clone(args.repo, args.skip_clone)
 
-    env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch)
-    cidfile  = Path(tempfile.mktemp(suffix=".cid"))
+    env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch, getattr(args, "hybrid_threshold", 5))
+    _fd, _cidfile_str = tempfile.mkstemp(suffix=".cid")
+    os.close(_fd)
+    os.unlink(_cidfile_str)
+    cidfile = Path(_cidfile_str)
     sampler: Sampler | None = None
 
     section(f"Run analysis  [{args.cpus} CPU / {args.memory} RAM]")
@@ -390,15 +485,52 @@ def _save_stress_results(
 
     csv_path = stem.with_suffix(".csv")
     with csv_path.open("w") as f:
-        f.write("elapsed_s,mem_mb,cpu_pct\n")
+        f.write("elapsed_s,mem_mb,cpu_pct,rss_mb,virt_mb,anon_mb,swap_mb,hwm_mb,threads,pids,blk_read_mb,blk_write_mb\n")
         for s in samples:
-            f.write(f"{s.elapsed_s:.2f},{s.mem_mb:.1f},{s.cpu_pct:.2f}\n")
+            f.write(
+                f"{s.elapsed_s:.2f},{s.mem_mb:.1f},{s.cpu_pct:.2f},"
+                f"{s.rss_mb:.1f},{s.virt_mb:.1f},{s.anon_mb:.1f},{s.swap_mb:.1f},{s.hwm_mb:.1f},"
+                f"{s.threads},{s.pids},{s.blk_read_mb:.1f},{s.blk_write_mb:.1f}\n"
+            )
     log(f"CSV:  {csv_path}  ({len(samples)} samples)")
+
+    rss_vals  = [s.rss_mb  for s in samples if s.rss_mb  > 0]
+    virt_vals = [s.virt_mb for s in samples if s.virt_mb > 0]
+    anon_vals = [s.anon_mb for s in samples if s.anon_mb > 0]
+    swap_vals = [s.swap_mb for s in samples if s.swap_mb > 0]
+    if rss_vals:
+        peak_rss  = max(rss_vals)
+        peak_hwm  = max(s.hwm_mb for s in samples)
+        peak_virt = max(virt_vals) if virt_vals else 0.0
+        peak_anon = max(anon_vals) if anon_vals else 0.0
+        peak_swap = max(swap_vals) if swap_vals else 0.0
+        peak_thr  = max(s.threads for s in samples)
+        log(f"Peak RSS:     {peak_rss:.0f} MB  (HWM {peak_hwm:.0f} MB)")
+        log(f"Peak Anon:    {peak_anon:.0f} MB  (heap/stack resident)")
+        if peak_virt:
+            log(f"Peak Virt:    {peak_virt:.0f} MB")
+        if peak_swap:
+            log(f"Peak Swap:    {peak_swap:.0f} MB  *** process is swapping ***")
+        if peak_thr:
+            log(f"Peak threads: {peak_thr}")
+        blk_read  = max((s.blk_read_mb  for s in samples), default=0.0)
+        blk_write = max((s.blk_write_mb for s in samples), default=0.0)
+        if blk_read or blk_write:
+            log(f"Block I/O:    {blk_read:.0f} MB read / {blk_write:.0f} MB write")
+        elapsed_with_rss = [s.elapsed_s for s in samples if s.rss_mb > 0]
+        if len(elapsed_with_rss) >= 2:
+            duration = elapsed_with_rss[-1] - elapsed_with_rss[0]
+            growth = peak_rss - rss_vals[0]
+            if duration > 0:
+                log(f"RSS growth:   {growth:.0f} MB over {duration:.0f}s ({growth / duration:.1f} MB/s avg)")
 
     if not samples or not HAS_MATPLOTLIB:
         if not HAS_MATPLOTLIB:
             log("WARN: matplotlib not installed — skipping plot")
         return
+
+    import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
+    import matplotlib.ticker as ticker  # pyright: ignore[reportMissingImports]
 
     if watchdog_reason:
         result_str = "WATCHDOG KILL"
@@ -407,15 +539,28 @@ def _save_stress_results(
     else:
         result_str = "OK" if exit_code == 0 else f"exit {exit_code}"
 
-    times = [s.elapsed_s for s in samples]
-    mem   = [s.mem_mb    for s in samples]
-    cpu   = [s.cpu_pct   for s in samples]
+    times = [s.elapsed_s  for s in samples]
+    mem   = [s.mem_mb     for s in samples]
+    cpu   = [s.cpu_pct    for s in samples]
+    rss   = [s.rss_mb     for s in samples]
+    virt  = [s.virt_mb    for s in samples]
+    anon  = [s.anon_mb    for s in samples]
+    swap  = [s.swap_mb    for s in samples]
+    thrs  = [s.threads    for s in samples]
 
-    fig, (ax_mem, ax_cpu) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    fig, (ax_mem, ax_cpu) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
     fig.suptitle(f"hotspots analyze expo/expo — {memory_limit} limit — {result_str}",
                  fontsize=13, fontweight="bold")
 
-    ax_mem.plot(times, mem, color="#e74c3c", linewidth=1.5, label="RSS")
+    ax_mem.plot(times, mem, color="#e74c3c", linewidth=1.5, label="Docker mem")
+    if any(r > 0 for r in rss):
+        ax_mem.plot(times, rss, color="#8e44ad", linewidth=1.5, label="RSS (proc)")
+    if any(a > 0 for a in anon):
+        ax_mem.plot(times, anon, color="#2980b9", linewidth=1.0, linestyle="--", label="Anon RSS (heap)")
+    if any(v > 0 for v in virt):
+        ax_mem.plot(times, virt, color="#27ae60", linewidth=1.0, linestyle=":", label="Virt")
+    if any(s > 0 for s in swap):
+        ax_mem.plot(times, swap, color="#e67e22", linewidth=1.5, label="Swap")
     ax_mem.axhline(memory_mb, color="#e74c3c", linestyle="--", linewidth=1,
                    alpha=0.5, label=f"limit ({memory_limit})")
     end_t = times[-1]
@@ -428,17 +573,25 @@ def _save_stress_results(
     ax_mem.legend(fontsize=8, loc="upper left")
     ax_mem.grid(True, alpha=0.3)
 
-    ax_cpu.plot(times, cpu, color="#3498db", linewidth=1.5)
+    ax_cpu.plot(times, cpu, color="#3498db", linewidth=1.5, label="CPU %")
+    if any(t > 0 for t in thrs):
+        ax_thr = ax_cpu.twinx()
+        ax_thr.plot(times, thrs, color="#95a5a6", linewidth=1.0, linestyle="--", label="Threads")
+        ax_thr.set_ylabel("Threads", color="#95a5a6", fontsize=8)
+        ax_thr.tick_params(axis="y", labelcolor="#95a5a6")
+        ax_thr.set_ylim(bottom=0)
+        ax_thr.legend(fontsize=7, loc="upper right")
     if watchdog_reason:
         ax_cpu.axvline(end_t, color="#e67e22", linestyle=":", linewidth=1.5)
     ax_cpu.set_ylabel("CPU (%)")
     ax_cpu.set_xlabel("Elapsed (s)")
     ax_cpu.set_ylim(bottom=0)
+    ax_cpu.legend(fontsize=8, loc="upper left")
     ax_cpu.grid(True, alpha=0.3)
 
     plt.tight_layout()
     png_path = stem.with_suffix(".png")
-    fig.savefig(png_path, dpi=150, bbox_inches="tight")
+    fig.savefig(str(png_path), dpi=150, bbox_inches="tight")
     plt.close(fig)
     log(f"Plot: {png_path}")
 
@@ -496,7 +649,7 @@ def cmd_show(args: argparse.Namespace) -> None:
     build_image(args.skip_build)
     local_repo = ensure_clone(args.repo, args.skip_clone)
 
-    env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch)
+    env_args = build_env_args(args.jobs, args.callgraph_skip_above, args.touch, getattr(args, "hybrid_threshold", 5))
 
     section("Running analysis…")
     t0 = time.monotonic()
@@ -530,9 +683,9 @@ def cmd_show(args: argparse.Namespace) -> None:
         print(result.stdout[:500], flush=True)
         sys.exit(1)
 
-    functions = snapshot.get("functions", [])
-    commit    = snapshot.get("commit", {})
-    summary   = snapshot.get("summary", {})
+    functions: list[dict[str, Any]] = snapshot.get("functions", [])
+    commit: dict[str, Any]          = snapshot.get("commit", {})
+    summary: dict[str, Any]         = snapshot.get("summary", {})
 
     # Sort by activity_risk if present, else lrs
     functions.sort(
@@ -562,18 +715,18 @@ def cmd_show(args: argparse.Namespace) -> None:
 
 
 def _print_showcase(
-    top_funcs: list[dict],
-    all_funcs: list[dict],
-    commit: dict,
-    summary: dict,
+    top_funcs: list[dict[str, Any]],
+    all_funcs: list[dict[str, Any]],
+    commit: dict[str, Any],
+    summary: dict[str, Any],
     elapsed: float,
     args: argparse.Namespace,
     filtered: int = 0,
 ) -> None:
     sha    = commit.get("sha", "unknown")[:12]
     n      = len(all_funcs)
-    cg     = summary.get("call_graph") or {}
-    by_band = summary.get("by_band", {})
+    cg: dict[str, Any]      = summary.get("call_graph") or {}
+    by_band: dict[str, Any] = summary.get("by_band") or {}
 
     def band_count(name: str) -> int:
         return (by_band.get(name) or {}).get("count", 0)
@@ -612,7 +765,7 @@ def _print_showcase(
         score   = fn.get("activity_risk") or fn.get("lrs") or 0.0
         band    = fn.get("band", "low")
         fid     = fn.get("function_id", "?")
-        patterns = fn.get("patterns") or []
+        patterns: list[Any] = fn.get("patterns") or []
         pat_str = ", ".join(patterns[:3])
         if len(patterns) > 3:
             pat_str += f" +{len(patterns)-3}"
@@ -648,9 +801,11 @@ def _add_common_args(p: argparse.ArgumentParser) -> None:
                    help="Worker threads for hotspots analyze (default: all CPUs).")
     p.add_argument("--callgraph-skip-above", type=int, default=None, metavar="N",
                    help="Skip call graph algorithms above N functions.")
-    p.add_argument("--touch", choices=["skip", "file", "per-function"], default="skip",
+    p.add_argument("--touch", choices=["skip", "file", "per-function", "hybrid"], default="skip",
                    metavar="MODE",
-                   help="Touch metrics: skip (default), file, or per-function.")
+                   help="Touch metrics: skip (default), file, per-function, or hybrid.")
+    p.add_argument("--hybrid-threshold", type=int, default=5, metavar="N",
+                   help="Min touch_count_30d for hybrid per-function upgrade (default: 5).")
     p.add_argument("--cpus", default="2", metavar="N",
                    help="Docker --cpus (default: 2).")
     p.add_argument("--skip-build", action="store_true",

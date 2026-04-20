@@ -267,7 +267,7 @@ pub(crate) fn print_explain_output(
             "#{} {} [{}] [{}]",
             i + 1,
             func_name,
-            func.band.to_uppercase(),
+            func.band.as_str().to_uppercase(),
             driver
         );
         println!("   File: {}:{}", func.file, func.line);
@@ -310,13 +310,13 @@ pub(crate) fn print_explain_output(
         .functions
         .iter()
         .take(display_count)
-        .filter(|f| f.band == "critical")
+        .filter(|f| f.band == hotspots_core::risk::RiskBand::Critical)
         .count();
     let high_count = snapshot
         .functions
         .iter()
         .take(display_count)
-        .filter(|f| f.band == "high")
+        .filter(|f| f.band == hotspots_core::risk::RiskBand::High)
         .count();
     println!(
         "Showing {}/{} functions  |  Critical: {}  High: {}",

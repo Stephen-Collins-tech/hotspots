@@ -91,6 +91,12 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub per_function_touches: Option<bool>,
 
+    /// Enable hybrid touch mode: file-level for all functions, then per-function
+    /// only for functions in files with touch_count_30d >= this threshold.
+    /// Overrides per_function_touches when set. Recommended: 3–10.
+    #[serde(default)]
+    pub hybrid_touch_threshold: Option<usize>,
+
     /// Percentile threshold for driving dimension detection (1–99, default: 75).
     /// A function must exceed this percentile in a metric to trigger that driver label.
     /// Lower values = more functions get specific labels; higher = only extreme outliers.
@@ -242,6 +248,8 @@ pub struct ResolvedConfig {
     pub co_change_min_count: usize,
     /// Whether to use per-function git log -L for touch metrics
     pub per_function_touches: bool,
+    /// Hybrid touch threshold: Some(n) = file-level first, per-function for files with ≥n touches
+    pub hybrid_touch_threshold: Option<usize>,
     /// Percentile threshold for driving dimension detection (1–99)
     pub driver_threshold_percentile: u8,
     /// Node count above which betweenness switches to approximate algorithm
@@ -618,6 +626,7 @@ impl HotspotsConfig {
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(true),
+            hybrid_touch_threshold: self.hybrid_touch_threshold,
             driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),

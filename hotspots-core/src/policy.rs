@@ -10,6 +10,7 @@
 
 use crate::config::ResolvedConfig;
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
+use crate::risk::RiskBand;
 use crate::snapshot::Snapshot;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -201,12 +202,10 @@ pub fn evaluate_policies(
 /// Triggers when `after.band == Critical AND (before.band != Critical OR before is None)`
 /// `before is None` means no matching `function_id` in the parent snapshot (delta status `new`)
 fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
-    const CRITICAL_BAND: &str = "critical";
-
     for entry in active_deltas(deltas) {
         // Check if function becomes Critical
         let becomes_critical = if let Some(after) = &entry.after {
-            after.band == CRITICAL_BAND
+            after.band == RiskBand::Critical
         } else {
             false
         };
@@ -217,7 +216,7 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
 
         // Check if it was Critical before
         let was_critical_before = if let Some(before) = &entry.before {
-            before.band == CRITICAL_BAND
+            before.band == RiskBand::Critical
         } else {
             // before is None means delta status `new` (new function)
             false
@@ -539,7 +538,7 @@ mod tests {
                 loc: 10,
             },
             lrs: 3.9,
-            band: band.to_string(),
+            band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
         });
 
         let after = after_band.map(|band| FunctionState {
@@ -551,7 +550,7 @@ mod tests {
                 loc: 15,
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
-            band: band.to_string(),
+            band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
         });
 
         let delta = delta_lrs.map(|lrs| FunctionDelta {
@@ -797,13 +796,13 @@ mod tests {
             },
             lrs,
             band: if lrs >= 9.0 {
-                "critical".to_string()
+                RiskBand::Critical
             } else if lrs >= 6.0 {
-                "high".to_string()
+                RiskBand::High
             } else if lrs >= 3.0 {
-                "moderate".to_string()
+                RiskBand::Moderate
             } else {
-                "low".to_string()
+                RiskBand::Low
             },
         });
 
@@ -817,13 +816,13 @@ mod tests {
             },
             lrs,
             band: if lrs >= 9.0 {
-                "critical".to_string()
+                RiskBand::Critical
             } else if lrs >= 6.0 {
-                "high".to_string()
+                RiskBand::High
             } else if lrs >= 3.0 {
-                "moderate".to_string()
+                RiskBand::Moderate
             } else {
-                "low".to_string()
+                RiskBand::Low
             },
         });
 

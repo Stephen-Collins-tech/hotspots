@@ -16,6 +16,8 @@ pub mod tree_sitter_utils;
 
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
 pub use function_body::FunctionBody;
@@ -172,6 +174,36 @@ impl Language {
             Language::Rust => &["rs"],
             Language::Vue => &["vue"],
         }
+    }
+
+    /// Parse from canonical name string (as returned by `name()`).
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "TypeScript" => Some(Language::TypeScript),
+            "TypeScript React" => Some(Language::TypeScriptReact),
+            "JavaScript" => Some(Language::JavaScript),
+            "JavaScript React" => Some(Language::JavaScriptReact),
+            "Go" => Some(Language::Go),
+            "Java" => Some(Language::Java),
+            "Python" => Some(Language::Python),
+            "Rust" => Some(Language::Rust),
+            "Vue" => Some(Language::Vue),
+            _ => None,
+        }
+    }
+}
+
+impl Serialize for Language {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for Language {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Language::from_name(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown language: {s}")))
     }
 }
 

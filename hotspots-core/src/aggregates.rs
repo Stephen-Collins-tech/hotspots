@@ -8,6 +8,7 @@
 //! - No modification of existing function data
 
 use crate::delta::Delta;
+use crate::risk::RiskBand;
 use crate::snapshot::{FunctionSnapshot, Snapshot};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -250,16 +251,16 @@ fn to_agent_view(
                 function: function_name,
                 file,
                 line: func.line,
-                band: func.band.clone(),
+                band: func.band.as_str().to_string(),
                 quadrant: func.quadrant.clone().unwrap_or_else(|| "ok".to_string()),
                 driver: driver.to_string(),
                 action,
                 lrs: func.lrs,
                 activity_risk: func.activity_risk.unwrap_or(func.lrs),
                 metrics: AgentMetrics {
-                    cc: func.metrics.cc,
-                    nd: func.metrics.nd,
-                    fo: func.metrics.fo,
+                    cc: func.metrics.cc as usize,
+                    nd: func.metrics.nd as usize,
+                    fo: func.metrics.fo as usize,
                 },
                 touches_30d: func.touch_count_30d,
                 days_since_changed: func.days_since_last_change,
@@ -389,8 +390,8 @@ pub fn compute_agent_snapshot_output(
 }
 
 /// Check if a band is High+ (high or critical)
-fn is_high_plus(band: &str) -> bool {
-    band == "high" || band == "critical"
+fn is_high_plus(band: RiskBand) -> bool {
+    matches!(band, RiskBand::High | RiskBand::Critical)
 }
 
 /// Extract directory path from file path
@@ -438,7 +439,7 @@ pub fn compute_file_aggregates(functions: &[FunctionSnapshot]) -> Vec<FileAggreg
         }
 
         // Count High+ functions
-        if is_high_plus(&func.band) {
+        if is_high_plus(func.band) {
             entry.2 += 1;
         }
     }
@@ -540,13 +541,13 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
         let e = file_data
             .entry(func.file.clone())
             .or_insert((0, 0, 0, 0, 0, 0));
-        e.0 += func.metrics.cc;
-        e.1 = e.1.max(func.metrics.cc);
+        e.0 += func.metrics.cc as usize;
+        e.1 = e.1.max(func.metrics.cc as usize);
         e.2 += 1;
-        if func.band == "critical" {
+        if func.band == RiskBand::Critical {
             e.3 += 1;
         }
-        e.4 += func.metrics.loc;
+        e.4 += func.metrics.loc as usize;
         if let Some(churn) = &func.churn {
             let lines = (churn.lines_added + churn.lines_deleted) as u64;
             e.5 = e.5.max(lines);
@@ -670,7 +671,7 @@ fn compute_module_instability_from_edges(
         });
         stats.files.insert(func.file.clone());
         stats.function_count += 1;
-        stats.sum_cc += func.metrics.cc;
+        stats.sum_cc += func.metrics.cc as usize;
     }
 
     // Collect all directory names seen in any of the three maps
@@ -986,7 +987,7 @@ mod tests {
             function_id: format!("{}::{}", file, function),
             file: file.to_string(),
             line: 1,
-            language: "TypeScript".to_string(),
+            language: crate::language::Language::TypeScript,
             metrics: MetricsReport {
                 cc: 1,
                 nd: 0,
@@ -995,7 +996,7 @@ mod tests {
                 loc: 10,
             },
             lrs,
-            band: band.to_string(),
+            band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),
             suppression_reason: None,
             churn: None,
             touch_count_30d: None,
@@ -1081,9 +1082,9 @@ mod tests {
 
     #[test]
     fn test_is_high_plus() {
-        assert!(is_high_plus("high"));
-        assert!(is_high_plus("critical"));
-        assert!(!is_high_plus("moderate"));
-        assert!(!is_high_plus("low"));
+        assert!(is_high_plus(crate::risk::RiskBand::High));
+        assert!(is_high_plus(crate::risk::RiskBand::Critical));
+        assert!(!is_high_plus(crate::risk::RiskBand::Moderate));
+        assert!(!is_high_plus(crate::risk::RiskBand::Low));
     }
 }

@@ -3,7 +3,9 @@
 //! These tests explicitly validate critical invariants that must always hold.
 //! Run in CI to prevent regressions.
 
+use hotspots_core::language::Language;
 use hotspots_core::report::{FunctionRiskReport, MetricsReport, RiskReport};
+use hotspots_core::risk::RiskBand;
 use hotspots_core::{delta, git, snapshot};
 use tempfile::TempDir;
 
@@ -26,7 +28,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         file: "src/foo.ts".to_string(),
         function: "handler".to_string(),
         line: 42,
-        language: "TypeScript".to_string(),
+        language: Language::TypeScript,
         metrics: MetricsReport {
             cc: 5,
             nd: 2,
@@ -41,7 +43,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
             r_ns: 1.0,
         },
         lrs: 4.8,
-        band: "moderate".to_string(),
+        band: RiskBand::Moderate,
         suppression_reason: None,
         patterns: vec![],
         pattern_details: None,
@@ -160,7 +162,7 @@ fn test_delta_single_parent_only() {
         file: "src/foo.ts".to_string(),
         function: "handler".to_string(),
         line: 42,
-        language: "TypeScript".to_string(),
+        language: Language::TypeScript,
         metrics: MetricsReport {
             cc: 5,
             nd: 2,
@@ -175,7 +177,7 @@ fn test_delta_single_parent_only() {
             r_ns: 1.0,
         },
         lrs: 4.8,
-        band: "moderate".to_string(),
+        band: RiskBand::Moderate,
         suppression_reason: None,
         patterns: vec![],
         pattern_details: None,
@@ -242,7 +244,7 @@ fn test_delta_negative_deltas_allowed() {
         file: "src/foo.ts".to_string(),
         function: "handler".to_string(),
         line: 42,
-        language: "TypeScript".to_string(),
+        language: Language::TypeScript,
         metrics: MetricsReport {
             cc: 3,
             nd: 1,
@@ -257,7 +259,7 @@ fn test_delta_negative_deltas_allowed() {
             r_ns: 1.0,
         },
         lrs: 2.5, // Lower than parent
-        band: "low".to_string(),
+        band: RiskBand::Low,
         suppression_reason: None,
         patterns: vec![],
         pattern_details: None,

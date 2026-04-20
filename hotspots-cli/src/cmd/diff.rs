@@ -318,8 +318,8 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
                 .after
                 .as_ref()
                 .or(entry.before.as_ref())
-                .map(|s| s.band.clone())
-                .unwrap_or_default(),
+                .map(|s| s.band.as_str().to_string())
+                .unwrap_or_else(|| "-".to_string()),
         };
 
         // function_id is "file::function"; split for display

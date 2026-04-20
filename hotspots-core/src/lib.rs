@@ -42,6 +42,7 @@ pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;
 pub use git::GitContext;
 pub use report::{render_json, render_text, sort_reports, FunctionRiskReport};
+pub use snapshot::TouchMode;
 
 use anyhow::{Context, Result};
 use swc_common::{sync::Lrc, SourceMap};
@@ -280,23 +281,34 @@ fn collect_source_files_recursive(
 /// Each function ID is allocated exactly once. `name_to_id` values store indices
 /// into the returned `Vec<String>` rather than cloned Strings, avoiding O(N)
 /// duplicate allocations during callee resolution.
+///
+/// Returns (function_ids, name_to_report_idx, report_to_graph_idx).
+/// `report_to_graph_idx[i]` maps report index i to its graph node index — necessary
+/// because intern() deduplicates identical file::function IDs, so graph node count
+/// may be less than report count.
 fn build_name_index<'r>(
     reports: &'r [FunctionRiskReport],
     graph: &mut callgraph::CallGraph,
-) -> (Vec<String>, std::collections::HashMap<&'r str, Vec<usize>>) {
+) -> (
+    Vec<String>,
+    std::collections::HashMap<&'r str, Vec<usize>>,
+    Vec<u32>,
+) {
     let mut function_ids: Vec<String> = Vec::with_capacity(reports.len());
     let mut name_to_idx: std::collections::HashMap<&'r str, Vec<usize>> =
         std::collections::HashMap::new();
+    let mut report_to_graph_idx: Vec<u32> = Vec::with_capacity(reports.len());
     for (i, report) in reports.iter().enumerate() {
         let function_id = format!("{}::{}", report.file, report.function);
-        graph.nodes.insert(function_id.clone());
+        let graph_idx = graph.intern(function_id.clone());
         function_ids.push(function_id);
+        report_to_graph_idx.push(graph_idx);
         name_to_idx
             .entry(report.function.as_str())
             .or_default()
             .push(i);
     }
-    (function_ids, name_to_idx)
+    (function_ids, name_to_idx, report_to_graph_idx)
 }
 
 /// Resolve the best callee index for a call site.
@@ -346,34 +358,31 @@ fn resolve_callee(
 /// Add AST-derived edges to the graph; return (total_callee_names, resolved_callee_names)
 fn add_callee_edges(
     reports: &[FunctionRiskReport],
-    function_ids: &[String],
     name_to_idx: &std::collections::HashMap<&str, Vec<usize>>,
     import_map: &std::collections::HashMap<String, std::collections::HashSet<String>>,
     graph: &mut callgraph::CallGraph,
+    report_to_graph_idx: &[u32],
 ) -> (usize, usize) {
     let mut total = 0usize;
     let mut resolved = 0usize;
-    for (caller_idx, report) in reports.iter().enumerate() {
-        let caller_id = &function_ids[caller_idx];
-        let mut added_callees = std::collections::HashSet::<usize>::new();
+    for (caller_report_idx, report) in reports.iter().enumerate() {
+        let caller_graph_idx = report_to_graph_idx[caller_report_idx];
+        let mut added_callees = std::collections::HashSet::<u32>::new();
         for callee_name in &report.callees {
             total += 1;
             if name_to_idx.contains_key(callee_name.as_str()) {
                 resolved += 1;
-                if let Some(callee_idx) = resolve_callee(
+                if let Some(callee_report_idx) = resolve_callee(
                     callee_name,
-                    caller_idx,
+                    caller_report_idx,
                     &report.file,
                     reports,
                     name_to_idx,
                     import_map,
                 ) {
-                    if added_callees.insert(callee_idx) {
-                        graph
-                            .edges
-                            .entry(caller_id.clone())
-                            .or_default()
-                            .push(function_ids[callee_idx].clone());
+                    let callee_graph_idx = report_to_graph_idx[callee_report_idx];
+                    if added_callees.insert(callee_graph_idx) {
+                        graph.add_adj(caller_graph_idx, callee_graph_idx);
                     }
                 }
             }
@@ -388,7 +397,7 @@ pub fn build_call_graph(
     repo_root: &std::path::Path,
 ) -> Result<callgraph::CallGraph> {
     let mut graph = callgraph::CallGraph::new();
-    let (function_ids, name_to_idx) = build_name_index(reports, &mut graph);
+    let (_, name_to_idx, report_to_graph_idx) = build_name_index(reports, &mut graph);
 
     // Build import map for import-guided resolution (priority 2 after same-file)
     let file_list: Vec<&str> = reports.iter().map(|r| r.file.as_str()).collect();
@@ -401,10 +410,10 @@ pub fn build_call_graph(
 
     let (total, resolved) = add_callee_edges(
         reports,
-        &function_ids,
         &name_to_idx,
         &import_map,
         &mut graph,
+        &report_to_graph_idx,
     );
     graph.total_callee_names = total;
     graph.resolved_callee_names = resolved;

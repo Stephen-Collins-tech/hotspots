@@ -4,6 +4,7 @@ use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
 use hotspots_core::delta::Delta;
 use hotspots_core::snapshot::{self, Snapshot};
+use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
 use hotspots_core::{delta, git};
 use std::path::{Path, PathBuf};
@@ -34,6 +35,8 @@ pub(crate) struct AnalyzeArgs {
     pub no_per_function_touches: bool,
     /// When true, skip all touch metrics (no git log calls at all).
     pub skip_touch_metrics: bool,
+    /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
+    pub hybrid_touches: Option<usize>,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -112,6 +115,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         per_function_touches,
         no_per_function_touches,
         skip_touch_metrics,
+        hybrid_touches,
         all_functions,
         explain_patterns,
         source_url,
@@ -149,11 +153,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let effective_per_function_touches = if no_per_function_touches {
-        false
-    } else {
-        per_function_touches || resolved_config.per_function_touches
-    };
+    let effective_touch_mode = resolve_touch_mode(
+        no_per_function_touches,
+        per_function_touches,
+        hybrid_touches.or(resolved_config.hybrid_touch_threshold),
+        resolved_config.per_function_touches,
+    );
 
     if let Some(output_mode) = mode {
         return handle_mode_output(
@@ -170,7 +175,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist,
                 level,
-                per_function_touches: effective_per_function_touches,
+                touch_mode: effective_touch_mode,
                 all_functions,
                 explain_patterns,
                 source_url,
@@ -196,11 +201,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     if explain_patterns {
         for report in &mut reports {
             let t1 = hotspots_core::patterns::Tier1Input {
-                cc: report.metrics.cc,
-                nd: report.metrics.nd,
-                fo: report.metrics.fo,
-                ns: report.metrics.ns,
-                loc: report.metrics.loc,
+                cc: report.metrics.cc as usize,
+                nd: report.metrics.nd as usize,
+                fo: report.metrics.fo as usize,
+                ns: report.metrics.ns as usize,
+                loc: report.metrics.loc as usize,
             };
             let t2 = hotspots_core::patterns::Tier2Input {
                 fan_in: None,
@@ -246,7 +251,7 @@ pub(crate) struct ModeOutputOptions {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub per_function_touches: bool,
+    pub touch_mode: TouchMode,
     pub all_functions: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
@@ -270,7 +275,7 @@ pub(crate) fn handle_mode_output(
         force,
         no_persist,
         level,
-        per_function_touches,
+        touch_mode,
         all_functions,
         explain_patterns,
         source_url,
@@ -297,7 +302,7 @@ pub(crate) fn handle_mode_output(
                 &repo_root,
                 resolved_config,
                 reports,
-                per_function_touches,
+                touch_mode,
                 callgraph_skip_above,
                 skip_touch_metrics,
             )
@@ -358,7 +363,7 @@ pub(crate) fn handle_mode_output(
                 &repo_root,
                 resolved_config,
                 reports,
-                per_function_touches,
+                touch_mode,
                 callgraph_skip_above,
                 skip_touch_metrics,
             )
@@ -675,8 +680,8 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    reports: Vec<hotspots_core::FunctionRiskReport>,
-    per_function_touches: bool,
+    mut reports: Vec<hotspots_core::FunctionRiskReport>,
+    touch_mode: TouchMode,
     callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
@@ -709,6 +714,11 @@ pub(crate) fn build_enriched_snapshot(
         cg
     };
 
+    for r in &mut reports {
+        r.callees.clear();
+        r.callees.shrink_to_fit();
+    }
+
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports));
 
@@ -732,21 +742,16 @@ pub(crate) fn build_enriched_snapshot(
     }
 
     if !skip_touch_metrics {
-        if per_function_touches
-            && !hotspots_core::snapshot::hotspots_dir(repo_root)
-                .join("touch-cache.json.zst")
-                .exists()
-        {
-            eprintln!(
-                "Warning: touch cache cold start — first run will be slower (building cache)"
-            );
-        }
-        let progress = if per_function_touches {
+        let needs_progress = matches!(
+            touch_mode,
+            TouchMode::PerFunction | TouchMode::Hybrid { .. }
+        );
+        let progress = if needs_progress {
             Some(make_progress_reporter(total_functions))
         } else {
             None
         };
-        enricher = enricher.with_touch_metrics(repo_root, per_function_touches, progress);
+        enricher = enricher.with_touch_metrics(repo_root, touch_mode, progress);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -787,19 +792,16 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
             }
         })
     } else {
-        eprintln!(
-            "Building touch cache: 0/{} functions [next update in ~30s]",
-            total
-        );
         let last_print = std::sync::Mutex::new(std::time::Instant::now());
         Box::new(move |i: usize, t: usize| {
             if i >= t {
-                eprintln!("Building touch cache: {}/{} functions [done]", i, t);
+                eprintln!("touch cache: {t}/{t} functions (100%) [done]");
                 return;
             }
             if let Ok(mut last) = last_print.try_lock() {
                 if last.elapsed().as_secs() >= 30 {
-                    eprintln!("Building touch cache: {}/{} functions", i, t);
+                    let pct = (i * 100).checked_div(t).unwrap_or(0);
+                    eprintln!("touch cache: {i}/{t} functions ({pct}%)");
                     *last = std::time::Instant::now();
                 }
             }
@@ -842,9 +844,15 @@ pub(crate) fn analyze_and_persist_at_ref(
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
     // Touch cache is skipped (per_function_touches = false).
     // callgraph_skip_above = None: always use the config value for historical refs.
-    let mut snapshot =
-        build_enriched_snapshot(&worktree.path, resolved_config, reports, false, None, false)
-            .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    let mut snapshot = build_enriched_snapshot(
+        &worktree.path,
+        resolved_config,
+        reports,
+        TouchMode::File,
+        None,
+        false,
+    )
+    .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Rewrite absolute worktree paths back to real repo paths so that
     // function_ids are stable across snapshots (each worktree lives in a
@@ -875,10 +883,44 @@ pub(crate) fn analyze_and_persist_at_ref(
     Ok(snapshot)
 }
 
+fn resolve_touch_mode(
+    no_per_function: bool,
+    per_function: bool,
+    hybrid_threshold: Option<usize>,
+    config_per_function: bool,
+) -> TouchMode {
+    if no_per_function {
+        TouchMode::File
+    } else if let Some(threshold) = hybrid_threshold {
+        TouchMode::Hybrid { threshold }
+    } else if per_function || config_per_function {
+        TouchMode::PerFunction
+    } else {
+        TouchMode::File
+    }
+}
+
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
-        return Box::new(|_: usize, _: usize| {});
+        let last_print = std::sync::Mutex::new(std::time::Instant::now());
+        return Box::new(move |done: usize, total: usize| {
+            if done == 0 {
+                eprintln!("Analyzing: 0/{total} files");
+                return;
+            }
+            if done >= total {
+                eprintln!("Analyzing: {done}/{total} files [done]");
+                return;
+            }
+            if let Ok(mut last) = last_print.try_lock() {
+                if last.elapsed().as_secs() >= 30 {
+                    let pct = (done as f64 / total as f64 * 100.0) as usize;
+                    eprintln!("Analyzing: {done}/{total} files ({pct}%)");
+                    *last = std::time::Instant::now();
+                }
+            }
+        });
     }
     use indicatif::{ProgressBar, ProgressStyle};
     let pb = ProgressBar::new(0);

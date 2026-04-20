@@ -10,7 +10,9 @@
 //! - ASCII lexical ordering (not locale-aware)
 
 use crate::git::GitContext;
+use crate::language::Language;
 use crate::report::{FunctionRiskReport, MetricsReport};
+use crate::risk::RiskBand;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,22 @@ use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use crate::report::RiskReport;
+
+/// Controls how touch metrics (git churn/recency) are populated.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TouchMode {
+    /// File-level batching: one git call per unique file, result applied to all
+    /// functions in that file. Fast (O(files) git calls), but imprecise when a
+    /// file contains functions with very different churn histories.
+    File,
+    /// Per-function `git log -L`: one subprocess per function. Accurate, but
+    /// O(functions) cold-start cost (~9 ms each) which OOM-kills on large repos.
+    PerFunction,
+    /// File-level first; per-function only for functions in files whose
+    /// touch_count_30d meets or exceeds `threshold`. Bounds subprocess count to
+    /// the functions that actually benefit from precision.
+    Hybrid { threshold: usize },
+}
 
 /// Schema version for snapshots.
 /// v1: LRS + basic metrics only
@@ -116,10 +134,10 @@ pub struct FunctionSnapshot {
     pub function_id: String,
     pub file: String,
     pub line: u32,
-    pub language: String,
+    pub language: Language,
     pub metrics: MetricsReport,
     pub lrs: f64,
-    pub band: String,
+    pub band: RiskBand,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -335,104 +353,112 @@ impl Snapshot {
         }
     }
 
-    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
-    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
-    // functions whose line ranges have not changed since the last run (warm path).
-    //
-    // Three-phase implementation to parallelize cache misses:
-    //   Phase 1 (serial): read cache, apply hits, collect misses with their indices.
-    //   Phase 2 (parallel): run git subprocesses for all misses via rayon.
-    //   Phase 3 (serial): apply results, write cache.
     fn populate_per_function_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
         progress_fn: Option<&dyn Fn(usize, usize)>,
     ) -> anyhow::Result<()> {
+        let all: Vec<usize> = (0..self.functions.len()).collect();
+        self.populate_per_function_touch_for_indices(repo_root, &all, progress_fn)
+    }
+
+    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
+    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
+    // functions whose line ranges have not changed since the last run (warm path).
+    //
+    // Chunked implementation to bound peak memory: `indices` are processed CHUNK_SIZE at a
+    // time. Each chunk goes through three phases before moving to the next:
+    //   Phase A (serial):   check cache, apply hits, collect misses (≤ CHUNK_SIZE entries).
+    //   Phase B (parallel): run git subprocesses for this chunk's misses via rayon.
+    //   Phase C (serial):   apply results, update cache.
+    // This keeps the live miss buffer O(CHUNK_SIZE) regardless of how many indices are passed.
+    fn populate_per_function_touch_for_indices(
+        &mut self,
+        repo_root: &std::path::Path,
+        indices: &[usize],
+        progress_fn: Option<&dyn Fn(usize, usize)>,
+    ) -> anyhow::Result<()> {
         let sha = self.commit.sha.clone();
-        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
-        let total = self.functions.len();
-
-        // Phase 1: apply cache hits, collect misses.
-        // Each miss: (function_index, cache_key, rel_path, start_line, end_line)
-        let mut misses: Vec<(usize, String, String, u32, u32)> = Vec::new();
-        for (i, function) in self.functions.iter_mut().enumerate() {
-            let rel = if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
-                r.to_string_lossy().replace('\\', "/")
-            } else {
-                function.file.replace('\\', "/")
-            };
-            let start_line = function.line;
-            let end_line =
-                (start_line + (function.metrics.loc as u32).saturating_sub(1)).max(start_line);
-            let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
-
-            if let Some(&(count, days)) = cache.get(&key) {
-                function.touch_count_30d = Some(count);
-                function.days_since_last_change = days;
-            } else {
-                misses.push((i, key, rel, start_line, end_line));
-            }
-        }
-
-        let hits = total - misses.len();
-        if let Some(f) = progress_fn {
-            f(hits, total);
-        }
-
-        if misses.is_empty() {
-            return Ok(());
-        }
-
-        // Warn when cold-cache miss count is high enough that the user might wonder
-        // why analysis is stalling. Estimate is conservative (sequential ~9 ms each);
-        // rayon parallelism makes the real wall time lower.
-        const COLD_CACHE_WARN_THRESHOLD: usize = 50;
-        if misses.len() >= COLD_CACHE_WARN_THRESHOLD {
-            let est_secs = (misses.len() * 9).div_ceil(1000);
-            eprintln!(
-                "note: {} functions not in touch cache — this may take ~{}s on first run. \
-                 Subsequent runs will be fast.",
-                misses.len(),
-                est_secs.max(1)
-            );
-        }
-
-        // Phase 2: run git subprocesses in parallel for all cache misses.
-        // Results are sent through a channel as they complete.
         let timestamp = self.commit.timestamp;
-        let (tx, rx) = std::sync::mpsc::channel::<(usize, String, (usize, Option<u32>))>();
-        misses
-            .par_iter()
-            .for_each_with(tx, |tx, (idx, key, rel, start_line, end_line)| {
-                let value = match crate::git::function_touch_metrics_at(
-                    repo_root,
-                    rel,
-                    *start_line,
-                    *end_line,
-                    timestamp,
-                ) {
-                    Ok((count, days)) => (count, days),
-                    Err(_) => (0usize, None),
-                };
-                let _ = tx.send((*idx, key.clone(), value));
-            });
+        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
+        let total = indices.len();
 
-        // Phase 3: apply results and write cache.
-        // Progress is reported per-item here since rx drains on the main thread.
-        let mut completed = hits;
-        for (idx, key, (count, days)) in rx {
-            self.functions[idx].touch_count_30d = Some(count);
-            self.functions[idx].days_since_last_change = days;
-            cache.insert(key, (count, days));
-            completed += 1;
+        // Emit a cold-start warning if the cache holds no entries for the current SHA.
+        const COLD_CACHE_WARN_THRESHOLD: usize = 50;
+        let cache_warm = cache.keys().any(|k| k.starts_with(&sha));
+        if !cache_warm && total >= COLD_CACHE_WARN_THRESHOLD {
+            let threads = rayon::current_num_threads().max(1);
+            let est_secs = (total * 9).div_ceil(1000 * threads);
+            eprintln!("touch cache: cold start for {total} functions (~{est_secs}s; fast on subsequent runs)");
+        }
+
+        // CHUNK_SIZE bounds the miss buffer: at most this many (key, rel, lines) strings
+        // live in memory at once, regardless of total index count.
+        const CHUNK_SIZE: usize = 512;
+        let mut completed = 0usize;
+
+        for chunk in indices.chunks(CHUNK_SIZE) {
+            // Phase A: check cache for this chunk; collect misses.
+            // Each miss: (function_index, cache_key, rel_path, start_line, end_line)
+            let mut chunk_misses: Vec<(usize, String, String, u32, u32)> = Vec::new();
+            for &i in chunk {
+                let function = &self.functions[i];
+                let rel =
+                    if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
+                        r.to_string_lossy().replace('\\', "/")
+                    } else {
+                        function.file.replace('\\', "/")
+                    };
+                let start_line = function.line;
+                let end_line =
+                    (start_line + function.metrics.loc.saturating_sub(1)).max(start_line);
+                let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
+                if let Some(&(count, days)) = cache.get(&key) {
+                    self.functions[i].touch_count_30d = Some(count);
+                    self.functions[i].days_since_last_change = days;
+                    completed += 1;
+                } else {
+                    chunk_misses.push((i, key, rel, start_line, end_line));
+                }
+            }
             if let Some(f) = progress_fn {
                 f(completed, total);
+            }
+            if chunk_misses.is_empty() {
+                continue;
+            }
+
+            // Phase B: run git subprocesses in parallel for this chunk's misses only.
+            let results: Vec<(usize, String, (usize, Option<u32>))> = chunk_misses
+                .par_iter()
+                .map(|(idx, key, rel, start_line, end_line)| {
+                    let value = match crate::git::function_touch_metrics_at(
+                        repo_root,
+                        rel,
+                        *start_line,
+                        *end_line,
+                        timestamp,
+                    ) {
+                        Ok((count, days)) => (count, days),
+                        Err(_) => (0usize, None),
+                    };
+                    (*idx, key.clone(), value)
+                })
+                .collect();
+
+            // Phase C: apply this chunk's results and update the cache.
+            for (idx, key, (count, days)) in results {
+                self.functions[idx].touch_count_30d = Some(count);
+                self.functions[idx].days_since_last_change = days;
+                cache.insert(key, (count, days));
+                completed += 1;
+                if let Some(f) = progress_fn {
+                    f(completed, total);
+                }
             }
         }
 
         // Evict stale entries (most-recent SHAs first) then write.
-        // Always include the current SHA first so we don't evict entries we just
-        // wrote — this matters when --no-persist is used and the SHA isn't in the index yet.
         let known_shas: Vec<String> = {
             let mut commits = Index::load_or_new(&index_path(repo_root))
                 .map(|idx| idx.commits)
@@ -527,26 +553,59 @@ impl Snapshot {
     /// - touch_count_30d: number of commits in last 30 days
     /// - days_since_last_change: days since last modification
     ///
-    /// When `per_function` is false (default), metrics are file-level and applied to all
-    /// functions in the file (fast, O(1) git calls via batching).
-    /// When `per_function` is true, metrics use `git log -L` per function (accurate but slow,
-    /// O(functions) subprocess calls — ~50× slower than file-level).
-    ///
-    /// # Arguments
-    ///
-    /// * `repo_root` - Path to repository root (for git operations)
-    /// * `per_function` - Use per-function `git log -L` instead of file-level batching
     pub fn populate_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
-        per_function: bool,
+        mode: TouchMode,
         progress_fn: Option<&dyn Fn(usize, usize)>,
     ) -> anyhow::Result<()> {
-        if per_function {
-            self.populate_per_function_touch_metrics(repo_root, progress_fn)
-        } else {
-            self.populate_file_level_touch_metrics(repo_root)
+        match mode {
+            TouchMode::File => self.populate_file_level_touch_metrics(repo_root),
+            TouchMode::PerFunction => {
+                self.populate_per_function_touch_metrics(repo_root, progress_fn)
+            }
+            TouchMode::Hybrid { threshold } => {
+                self.populate_hybrid_touch_metrics(repo_root, threshold, progress_fn)
+            }
         }
+    }
+
+    /// Hybrid touch: file-level first (cheap), then per-function only for
+    /// functions in files whose touch_count_30d >= threshold.
+    fn populate_hybrid_touch_metrics(
+        &mut self,
+        repo_root: &std::path::Path,
+        threshold: usize,
+        progress_fn: Option<&dyn Fn(usize, usize)>,
+    ) -> anyhow::Result<()> {
+        self.populate_file_level_touch_metrics(repo_root)?;
+
+        let hot_indices: Vec<usize> = self
+            .functions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| {
+                if f.touch_count_30d.unwrap_or(0) >= threshold {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if hot_indices.is_empty() {
+            return Ok(());
+        }
+
+        let total = self.functions.len();
+        eprintln!(
+            "hybrid touch: {}/{} functions qualify (≥{} touches/30d), refining with git log -L",
+            hot_indices.len(),
+            total,
+            threshold
+        );
+
+        self.populate_per_function_touch_for_indices(repo_root, &hot_indices, progress_fn)
     }
 
     /// Replace branch-inflated recency values with pre-branch last-change dates.
@@ -613,7 +672,7 @@ impl Snapshot {
     ) -> bool {
         use std::collections::HashMap;
 
-        let n = call_graph.nodes.len();
+        let n = call_graph.node_count();
         let approximate = n > exact_threshold;
 
         // Compute global metrics once
@@ -642,14 +701,13 @@ impl Snapshot {
             let function_id = &function.function_id;
 
             // Only populate if function is in the call graph
-            if call_graph.nodes.contains(function_id) {
+            if call_graph.contains(function_id) {
                 let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
                 let dependency_depth = dependency_depths.get(function_id).copied().flatten();
 
                 // Compute neighbor churn: sum of churn for all callees
-                let neighbor_churn = if let Some(callees) = call_graph.edges.get(function_id) {
+                let neighbor_churn = if let Some(callees) = call_graph.callees_of(function_id) {
                     let total: usize = callees
-                        .iter()
                         .filter_map(|callee_id| churn_map.get(callee_id))
                         .sum();
                     if total > 0 {
@@ -743,11 +801,11 @@ impl Snapshot {
     pub fn populate_patterns(&mut self, thresholds: &crate::patterns::Thresholds) {
         for function in &mut self.functions {
             let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc,
-                nd: function.metrics.nd,
-                fo: function.metrics.fo,
-                ns: function.metrics.ns,
-                loc: function.metrics.loc,
+                cc: function.metrics.cc as usize,
+                nd: function.metrics.nd as usize,
+                fo: function.metrics.fo as usize,
+                ns: function.metrics.ns as usize,
+                loc: function.metrics.loc as usize,
             };
             // churn_lines is intentionally None here: function.churn is file-level
             // (all functions in a file share the same total), not per-function. Using
@@ -784,11 +842,11 @@ impl Snapshot {
     pub fn populate_pattern_details(&mut self, thresholds: &crate::patterns::Thresholds) {
         for function in &mut self.functions {
             let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc,
-                nd: function.metrics.nd,
-                fo: function.metrics.fo,
-                ns: function.metrics.ns,
-                loc: function.metrics.loc,
+                cc: function.metrics.cc as usize,
+                nd: function.metrics.nd as usize,
+                fo: function.metrics.fo as usize,
+                ns: function.metrics.ns as usize,
+                loc: function.metrics.loc as usize,
             };
             let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
                 if let Some(ref cg) = function.callgraph {
@@ -853,8 +911,16 @@ impl Snapshot {
     pub fn populate_driver_labels(&mut self, percentile: u8) {
         let thresholds = compute_dimension_thresholds(&self.functions, percentile);
 
-        let mut sorted_cc: Vec<usize> = self.functions.iter().map(|f| f.metrics.cc).collect();
-        let mut sorted_nd: Vec<usize> = self.functions.iter().map(|f| f.metrics.nd).collect();
+        let mut sorted_cc: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.metrics.cc as usize)
+            .collect();
+        let mut sorted_nd: Vec<usize> = self
+            .functions
+            .iter()
+            .map(|f| f.metrics.nd as usize)
+            .collect();
         let mut sorted_fo: Vec<usize> = self
             .functions
             .iter()
@@ -921,7 +987,7 @@ impl Snapshot {
                 .map(|d| d <= 30)
                 .unwrap_or(false);
             let is_active = touch_above_p50 || recently_changed;
-            let is_high_risk = matches!(function.band.as_str(), "critical" | "high");
+            let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
 
             function.quadrant = Some(
                 match (is_high_risk, is_active) {
@@ -1078,10 +1144,12 @@ fn compute_band_distribution(
     let mut by_band = std::collections::BTreeMap::new();
     for func in functions {
         let score = func.activity_risk.unwrap_or(func.lrs);
-        let entry = by_band.entry(func.band.clone()).or_insert(BandStats {
-            count: 0,
-            sum_risk: 0.0,
-        });
+        let entry = by_band
+            .entry(func.band.as_str().to_string())
+            .or_insert(BandStats {
+                count: 0,
+                sum_risk: 0.0,
+            });
         entry.count += 1;
         entry.sum_risk += score;
     }
@@ -1161,13 +1229,13 @@ pub fn compute_dimension_thresholds(
 
     let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
 
-    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc).collect();
+    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc as usize).collect();
     cc_vals.sort_unstable();
     let cc_high = cc_vals[percentile_idx(p)];
     let cc_med = cc_vals[percentile_idx(50)];
     let cc_low = cc_vals[percentile_idx(anti_p)];
 
-    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd).collect();
+    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd as usize).collect();
     nd_vals.sort_unstable();
     let nd_high = nd_vals[percentile_idx(p)];
 
@@ -1269,8 +1337,8 @@ pub fn driving_dimension_label(
     let fan_out = func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0);
     let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let touch_count = func.touch_count_30d.unwrap_or(0);
-    let cc = func.metrics.cc;
-    let nd = func.metrics.nd;
+    let cc = func.metrics.cc as usize;
+    let nd = func.metrics.nd as usize;
 
     if in_cycle {
         "cyclic_dep"
@@ -1310,8 +1378,8 @@ fn compute_near_miss_detail(
     };
 
     let mut near: Vec<(&str, u8)> = vec![
-        ("cc", pct_rank(func.metrics.cc, sorted_cc)),
-        ("nd", pct_rank(func.metrics.nd, sorted_nd)),
+        ("cc", pct_rank(func.metrics.cc as usize, sorted_cc)),
+        ("nd", pct_rank(func.metrics.nd as usize, sorted_nd)),
         (
             "fan_out",
             pct_rank(
@@ -1374,18 +1442,16 @@ impl SnapshotEnricher {
     }
 
     /// Populate touch count and recency metrics from git.
-    ///
-    /// When `per_function` is true, uses `git log -L` per function (accurate, slow).
     /// On error, emits a warning to stderr and continues.
     pub fn with_touch_metrics(
         mut self,
         repo_root: &Path,
-        per_function: bool,
+        mode: TouchMode,
         progress_fn: Option<Box<dyn Fn(usize, usize)>>,
     ) -> Self {
         if let Err(e) =
             self.snapshot
-                .populate_touch_metrics(repo_root, per_function, progress_fn.as_deref())
+                .populate_touch_metrics(repo_root, mode, progress_fn.as_deref())
         {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
@@ -1819,7 +1885,7 @@ mod tests {
             file: "src/foo.ts".to_string(),
             function: "handler".to_string(),
             line: 42,
-            language: "TypeScript".to_string(),
+            language: Language::TypeScript,
             metrics: MetricsReport {
                 cc: 5,
                 nd: 2,
@@ -1834,7 +1900,7 @@ mod tests {
                 r_ns: 1.0,
             },
             lrs: 4.8,
-            band: "moderate".to_string(),
+            band: RiskBand::Moderate,
             suppression_reason: None,
             patterns: vec![],
             pattern_details: None,
@@ -1962,7 +2028,7 @@ mod tests {
 
         let mut snapshot = snapshot;
         snapshot
-            .populate_touch_metrics(dir.path(), true, None)
+            .populate_touch_metrics(dir.path(), crate::snapshot::TouchMode::PerFunction, None)
             .unwrap();
 
         assert_eq!(snapshot.functions[0].touch_count_30d, Some(7));
@@ -1987,7 +2053,7 @@ mod tests {
         snapshot
             .populate_touch_metrics(
                 dir.path(),
-                true,
+                crate::snapshot::TouchMode::PerFunction,
                 Some(&|i, n| {
                     calls_ref.lock().unwrap().push((i, n));
                 }),
@@ -2018,7 +2084,7 @@ mod tests {
         // dir with no git repo it will return (0, None) via the error path.
         let _ = snapshot.populate_touch_metrics(
             dir.path(),
-            true,
+            crate::snapshot::TouchMode::PerFunction,
             Some(&|i, n| {
                 calls_ref.lock().unwrap().push((i, n));
             }),
