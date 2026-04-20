@@ -287,7 +287,25 @@ class Sampler:
         anon    = f"  anon {s.anon_mb:.0f} MB" if s.anon_mb else ""
         swap    = f"  swap {s.swap_mb:.0f} MB !" if s.swap_mb else ""
         cpu     = f"  CPU {s.cpu_pct:.0f}%"
-        log(f"  [{elapsed}] {rss}{anon}{swap}{cpu}  ({len(self.samples)} samples)")
+        status  = self._last_container_status()
+        suffix  = f"  · {status}" if status else ""
+        log(f"  [{elapsed}] {rss}{anon}{swap}{cpu}  ({len(self.samples)} samples){suffix}")
+
+    def _last_container_status(self) -> str:
+        """Return the last short progress line emitted by the container, or ''."""
+        r = subprocess.run(
+            ["docker", "logs", "--tail", "8", self.container_id],
+            capture_output=True, text=True, check=False,
+        )
+        output = (r.stdout + r.stderr).strip()
+        if not output:
+            return ""
+        for line in reversed(output.splitlines()):
+            line = line.strip()
+            # Skip empty, long (JSON), or binary-looking lines
+            if line and len(line) < 120 and not line.startswith("{") and not line.startswith("[{"):
+                return line
+        return ""
 
     def _read_proc_mem(self) -> tuple[float, float, float, float, float, int]:
         # hotspots is PID 1 in the container (entrypoint uses exec)

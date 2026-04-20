@@ -792,19 +792,17 @@ fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
             }
         })
     } else {
-        eprintln!(
-            "Building touch cache: 0/{} functions [next update in ~30s]",
-            total
-        );
         let last_print = std::sync::Mutex::new(std::time::Instant::now());
         Box::new(move |i: usize, t: usize| {
             if i >= t {
-                eprintln!("Building touch cache: {}/{} functions [done]", i, t);
+                let pct = if t > 0 { 100 } else { 0 };
+                eprintln!("touch cache: {t}/{t} functions ({pct}%) [done]");
                 return;
             }
             if let Ok(mut last) = last_print.try_lock() {
                 if last.elapsed().as_secs() >= 30 {
-                    eprintln!("Building touch cache: {}/{} functions", i, t);
+                    let pct = if t > 0 { i * 100 / t } else { 0 };
+                    eprintln!("touch cache: {i}/{t} functions ({pct}%)");
                     *last = std::time::Instant::now();
                 }
             }
@@ -906,7 +904,24 @@ fn resolve_touch_mode(
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
-        return Box::new(|_: usize, _: usize| {});
+        let last_print = std::sync::Mutex::new(std::time::Instant::now());
+        return Box::new(move |done: usize, total: usize| {
+            if done == 0 {
+                eprintln!("Analyzing: 0/{total} files");
+                return;
+            }
+            if done >= total {
+                eprintln!("Analyzing: {done}/{total} files [done]");
+                return;
+            }
+            if let Ok(mut last) = last_print.try_lock() {
+                if last.elapsed().as_secs() >= 30 {
+                    let pct = (done as f64 / total as f64 * 100.0) as usize;
+                    eprintln!("Analyzing: {done}/{total} files ({pct}%)");
+                    *last = std::time::Instant::now();
+                }
+            }
+        });
     }
     use indicatif::{ProgressBar, ProgressStyle};
     let pb = ProgressBar::new(0);

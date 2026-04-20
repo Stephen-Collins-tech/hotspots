@@ -389,12 +389,7 @@ impl Snapshot {
         if !cache_warm && total >= COLD_CACHE_WARN_THRESHOLD {
             let threads = rayon::current_num_threads().max(1);
             let est_secs = (total * 9).div_ceil(1000 * threads);
-            eprintln!(
-                "Warning: touch cache cold start — first run will be slower (building cache)\n\
-                 Building touch cache: 0/{total} functions [next update in ~30s]\n\
-                 note: {total} functions not in touch cache — this may take ~{est_secs}s on \
-                 first run. Subsequent runs will be fast.",
-            );
+            eprintln!("touch cache: cold start for {total} functions (~{est_secs}s; fast on subsequent runs)");
         }
 
         // CHUNK_SIZE bounds the miss buffer: at most this many (key, rel, lines) strings
@@ -604,8 +599,7 @@ impl Snapshot {
 
         let total = self.functions.len();
         eprintln!(
-            "note: hybrid touch — {} of {} functions in hot files (≥{} touches/30d), \
-             refining with per-function git log -L",
+            "hybrid touch: {}/{} functions qualify (≥{} touches/30d), refining with git log -L",
             hot_indices.len(),
             total,
             threshold
