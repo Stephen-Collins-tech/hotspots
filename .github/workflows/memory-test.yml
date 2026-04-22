@@ -5,12 +5,19 @@ name: Memory Test
 #
 # Smoke test (this repo, no clone needed):
 #   act workflow_dispatch -W .github/workflows/memory-test.yml \
-#     --container-options "--memory=7g --memory-swap=7g"
+#     --container-options "--memory=7g --memory-swap=7g" \
+#     --container-architecture linux/amd64 --use-gitignore=false
 #
 # Large repo:
 #   act workflow_dispatch -W .github/workflows/memory-test.yml \
 #     --container-options "--memory=7g --memory-swap=7g" \
+#     --container-architecture linux/amd64 --use-gitignore=false \
 #     --input target_repo=expo/expo
+#
+# Note: --use-gitignore=false is required so act copies .github/bin/hotspots-linux-x86_64
+# into the container (the local dev binary, which is gitignored).
+# Rebuild it with: cross build --release --target x86_64-unknown-linux-musl -p hotspots-cli
+#                  cp target/x86_64-unknown-linux-musl/release/hotspots .github/bin/hotspots-linux-x86_64
 
 on:
   workflow_dispatch:
