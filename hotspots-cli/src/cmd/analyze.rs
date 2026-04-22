@@ -298,7 +298,7 @@ pub(crate) fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => {
-            let mut snapshot = build_enriched_snapshot(
+            let mut snapshot = build_snapshot_via_db(
                 &repo_root,
                 resolved_config,
                 reports,
@@ -671,6 +671,134 @@ fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<del
     };
 
     delta::Delta::new(snapshot, parent.as_ref())
+}
+
+/// Memory-efficient snapshot pipeline using SQLite as an in-process buffer.
+///
+/// Pipeline: insert reports → drop Vec → update churn → build call graph from DB →
+/// update callgraph metrics → drop CallGraph → load FunctionSnapshot Vec → enrich → return.
+///
+/// Peak memory compared to `build_enriched_snapshot`:
+///   Before: ~250 MB (reports + call graph + snapshot Vec all overlap)
+///   After:  ~45 MB  (only call graph + SQLite overlap; reports freed before graph builds)
+pub(crate) fn build_snapshot_via_db(
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+    touch_mode: TouchMode,
+    callgraph_skip_above: Option<usize>,
+    skip_touch_metrics: bool,
+) -> anyhow::Result<Snapshot> {
+    use hotspots_core::db::TempDb;
+    use hotspots_core::snapshot::{AnalysisInfo, CommitInfo, SNAPSHOT_SCHEMA_VERSION};
+
+    let git_context =
+        git::extract_git_context_at(repo_root).context("failed to extract git context")?;
+    let merge_base = hotspots_core::git::find_merge_base(repo_root);
+
+    let commit_info = CommitInfo::from(git_context.clone());
+    let sha = commit_info.sha.clone();
+
+    // Phase 1: write reports to DB, then free the Vec (~23 MB).
+    let db = TempDb::new().context("failed to create pipeline TempDb")?;
+    db.insert_reports(&commit_info, &reports)
+        .context("failed to insert reports into pipeline DB")?;
+    drop(reports);
+
+    // Phase 2: churn (needed before callgraph so neighbor_churn can read it).
+    if !git_context.parent_shas.is_empty() {
+        match git::extract_commit_churn_at(repo_root, &sha) {
+            Ok(churns) => {
+                let churn_map: std::collections::HashMap<String, _> = churns
+                    .into_iter()
+                    .map(|c| {
+                        let absolute_path = repo_root.join(&c.file);
+                        let normalized_path = absolute_path.to_string_lossy().to_string();
+                        (normalized_path, c)
+                    })
+                    .collect();
+                db.update_churn(&sha, &churn_map)
+                    .context("failed to update churn in pipeline DB")?;
+            }
+            Err(e) => eprintln!("Warning: failed to extract churn: {}", e),
+        }
+    }
+
+    // Phase 3: build call graph from lean DB rows, run algorithms, write back, free graph.
+    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
+    let function_count = db
+        .function_count(&sha)
+        .context("failed to count functions in pipeline DB")?;
+
+    if function_count <= effective_skip_above {
+        let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
+            .context("failed to build call graph from DB")?;
+        let total = call_graph.total_callee_names;
+        let resolved = call_graph.resolved_callee_names;
+        if total > 0 {
+            let pct = (resolved as f64 / total as f64) * 100.0;
+            eprintln!(
+                "call graph: resolved {}/{} callee references ({:.0}% internal)",
+                resolved, total, pct
+            );
+        }
+        db.update_callgraph_metrics(
+            &sha,
+            &call_graph,
+            resolved_config.betweenness_exact_threshold,
+            resolved_config.betweenness_approx_k,
+        )
+        .context("failed to update callgraph metrics in pipeline DB")?;
+        // call_graph dropped here, freeing ~25 MB.
+    } else {
+        eprintln!(
+            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
+            function_count, effective_skip_above
+        );
+    }
+
+    // Phase 4: load enriched functions from DB (churn + callgraph already set).
+    let functions = db
+        .load_snapshot_functions(&sha)
+        .context("failed to load snapshot functions from pipeline DB")?;
+    // SQLite connection dropped with `db` at end of scope; no longer needed.
+
+    let total_functions = functions.len();
+    let snapshot = Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        commit: commit_info,
+        analysis: AnalysisInfo {
+            scope: "full".to_string(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+        },
+        functions,
+        summary: None,
+        aggregates: None,
+    };
+
+    // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
+    let mut enricher = snapshot::SnapshotEnricher::new(snapshot);
+    if !skip_touch_metrics {
+        let needs_progress = matches!(
+            touch_mode,
+            TouchMode::PerFunction | TouchMode::Hybrid { .. }
+        );
+        let progress = if needs_progress {
+            Some(make_progress_reporter(total_functions))
+        } else {
+            None
+        };
+        enricher = enricher.with_touch_metrics(repo_root, touch_mode, progress);
+        enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
+    }
+
+    let result = enricher
+        .enrich(
+            Some(&resolved_config.scoring_weights),
+            resolved_config.driver_threshold_percentile,
+        )
+        .build();
+    Ok(result)
 }
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
