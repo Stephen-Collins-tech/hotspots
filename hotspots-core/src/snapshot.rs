@@ -1638,13 +1638,12 @@ pub fn snapshot_path_existing(repo_root: &Path, commit_sha: &str) -> Option<Path
 /// Handles both compressed (`.json.zst`) and legacy plain (`.json`) formats.
 /// Returns `None` if no snapshot file exists for the SHA.
 pub fn load_snapshot(repo_root: &Path, commit_sha: &str) -> Result<Option<Snapshot>> {
-    let path = match snapshot_path_existing(repo_root, commit_sha) {
-        Some(p) => p,
-        None => return Ok(None),
-    };
-
-    let snapshot = read_snapshot_file(&path)?;
-    Ok(Some(snapshot))
+    // Try full snapshot first (the common case).
+    if let Some(path) = snapshot_path_existing(repo_root, commit_sha) {
+        return Ok(Some(read_snapshot_file(&path)?));
+    }
+    // Fall back to compact delta chain reconstruction.
+    crate::compact::load_via_delta_chain(repo_root, commit_sha, 0)
 }
 
 /// Read and parse a snapshot from an arbitrary path, auto-detecting compression.
