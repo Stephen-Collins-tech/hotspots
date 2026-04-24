@@ -14,6 +14,7 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
+use crate::report::FunctionRiskReport;
 use crate::snapshot::{
     CallGraphMetrics, ChurnMetrics, CommitInfo, FunctionSnapshot, PercentileFlags, Snapshot,
 };
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS functions (
     lrs                     REAL    NOT NULL,
     band                    TEXT    NOT NULL,
     suppression_reason      TEXT,
+    callees                 TEXT,
     churn_added             INTEGER,
     churn_deleted           INTEGER,
     touch_count_30d         INTEGER,
@@ -452,6 +454,221 @@ impl TempDb {
         let conn = Connection::open_in_memory().context("failed to open in-memory SQLite")?;
         apply_schema(&conn)?;
         Ok(TempDb { conn })
+    }
+
+    /// Insert commit metadata and raw analysis reports into the pipeline buffer.
+    ///
+    /// Writes one row per report with enrichment columns (churn, touch, call graph,
+    /// activity_risk, etc.) all NULL. Subsequent pipeline phases fill them in via
+    /// SQL UPDATE. Drops the caller's `reports` Vec after this returns to free ~23 MB.
+    pub fn insert_reports(
+        &self,
+        commit: &CommitInfo,
+        reports: &[FunctionRiskReport],
+    ) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        insert_commit(&self.conn, commit)?;
+
+        let sha = &commit.sha;
+        let mut stmt = self.conn.prepare(
+            "INSERT OR REPLACE INTO functions (
+                commit_sha, function_id, file, line, language,
+                cc, nd, fo, ns, loc, lrs, band, suppression_reason, callees
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        )?;
+
+        for report in reports {
+            let normalized_file = report.file.replace('\\', "/");
+            let function_symbol = if report.function.starts_with("<anonymous>") {
+                "<anonymous>"
+            } else {
+                &report.function
+            };
+            let function_id = format!("{}::{}", normalized_file, function_symbol);
+            let callees_json =
+                serde_json::to_string(&report.callees).unwrap_or_else(|_| "[]".to_string());
+            stmt.execute(params![
+                sha,
+                function_id,
+                report.file,
+                report.line as i64,
+                report.language.name(),
+                report.metrics.cc as i64,
+                report.metrics.nd as i64,
+                report.metrics.fo as i64,
+                report.metrics.ns as i64,
+                report.metrics.loc as i64,
+                report.lrs,
+                report.band.as_str(),
+                report.suppression_reason,
+                callees_json,
+            ])
+            .context("failed to insert report row")?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Load lean rows for call graph construction: (function_id, file, callees_json).
+    ///
+    /// Reads only the three columns needed to build a CallGraph, avoiding the ~23 MB
+    /// cost of deserializing all enrichment columns.
+    pub fn load_callee_rows(&self, sha: &str) -> Result<Vec<(String, String, Vec<String>)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT function_id, file, callees FROM functions WHERE commit_sha = ?1")?;
+        let rows = stmt
+            .query_map([sha], |row| {
+                let function_id: String = row.get(0)?;
+                let file: String = row.get(1)?;
+                let callees_json: Option<String> = row.get(2)?;
+                Ok((function_id, file, callees_json))
+            })?
+            .map(|r| {
+                r.map(|(fid, file, cj)| {
+                    let callees: Vec<String> = cj
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or_default();
+                    (fid, file, callees)
+                })
+                .context("failed to read callee row")
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Update churn columns from a file-level churn map.
+    ///
+    /// Must be called before `update_callgraph_metrics` so neighbor_churn can be
+    /// computed from the churn column during the callgraph update pass.
+    pub fn update_churn(
+        &self,
+        sha: &str,
+        file_churns: &std::collections::HashMap<String, crate::git::FileChurn>,
+    ) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let mut stmt = self.conn.prepare(
+            "UPDATE functions
+             SET churn_added = ?1, churn_deleted = ?2
+             WHERE commit_sha = ?3 AND file = ?4",
+        )?;
+        for (path, churn) in file_churns {
+            stmt.execute(params![
+                churn.lines_added as i64,
+                churn.lines_deleted as i64,
+                sha,
+                path,
+            ])
+            .context("failed to update churn row")?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Run all graph algorithms and batch-UPDATE their results into the DB, then the
+    /// caller should drop the CallGraph to free ~25 MB.
+    ///
+    /// Neighbor churn is computed by reading the already-populated `churn_added` /
+    /// `churn_deleted` columns — so `update_churn` must be called first.
+    ///
+    /// Returns `true` when betweenness was computed via approximation.
+    pub fn update_callgraph_metrics(
+        &self,
+        sha: &str,
+        graph: &crate::callgraph::CallGraph,
+        exact_threshold: usize,
+        approx_k: usize,
+    ) -> Result<bool> {
+        let n = graph.node_count();
+        let approximate = n > exact_threshold;
+
+        let pagerank = graph.pagerank(0.85, 30, 1e-6);
+        let betweenness = if approximate {
+            graph.betweenness_centrality_approx(approx_k)
+        } else {
+            graph.betweenness_centrality()
+        };
+        let scc_info = graph.find_strongly_connected_components();
+        let depths = graph.compute_dependency_depth();
+        let fan_in_map = graph.build_fan_in_map();
+
+        // Load churn for neighbor_churn computation.
+        let churn_map: std::collections::HashMap<String, usize> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT function_id, COALESCE(churn_added, 0) + COALESCE(churn_deleted, 0)
+                 FROM functions WHERE commit_sha = ?1",
+            )?;
+            let rows: Vec<(String, usize)> = stmt
+                .query_map([sha], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+                })?
+                .filter_map(|r| r.ok())
+                .filter(|(_, v)| *v > 0)
+                .collect();
+            rows.into_iter().collect()
+        };
+
+        let tx = self.conn.unchecked_transaction()?;
+        let mut stmt = self.conn.prepare(
+            "UPDATE functions
+             SET fan_in = ?1, fan_out = ?2, pagerank = ?3, betweenness = ?4,
+                 scc_id = ?5, scc_size = ?6, is_entrypoint = ?7,
+                 dependency_depth = ?8, neighbor_churn = ?9
+             WHERE commit_sha = ?10 AND function_id = ?11",
+        )?;
+
+        // Iterate over all graph nodes (not just rows) so we only UPDATE functions
+        // that are actually in the graph; others keep NULL callgraph columns.
+        for function_id in graph.all_ids() {
+            let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
+            let dep_depth = depths.get(function_id).copied().flatten();
+            let neighbor_churn = graph
+                .callees_of(function_id)
+                .map(|callees| callees.filter_map(|c| churn_map.get(c)).sum::<usize>())
+                .filter(|&v| v > 0);
+
+            stmt.execute(params![
+                fan_in_map.get(function_id).copied().unwrap_or(0) as i64,
+                graph.fan_out(function_id) as i64,
+                pagerank.get(function_id).copied().unwrap_or(0.0),
+                betweenness.get(function_id).copied().unwrap_or(0.0),
+                scc_id as i64,
+                scc_size as i64,
+                graph.is_entry_point(function_id) as i64,
+                dep_depth.map(|d| d as i64),
+                neighbor_churn.map(|n| n as i64),
+                sha,
+                function_id,
+            ])
+            .context("failed to update callgraph metrics row")?;
+        }
+        tx.commit()?;
+        Ok(approximate)
+    }
+
+    /// Return the number of function rows for the given commit SHA.
+    pub fn function_count(&self, sha: &str) -> Result<usize> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM functions WHERE commit_sha = ?1",
+                [sha],
+                |r| r.get(0),
+            )
+            .context("failed to count functions")?;
+        Ok(count as usize)
+    }
+
+    /// Load enriched function rows from the pipeline buffer as a Vec<FunctionSnapshot>.
+    ///
+    /// Call this after `update_churn` and `update_callgraph_metrics` — the returned
+    /// Vec will have `churn` and `callgraph` already populated. Touch metrics, activity
+    /// risk, percentiles, driver labels, and quadrants are populated by the caller via
+    /// the existing `SnapshotEnricher`.
+    pub fn load_snapshot_functions(&self, sha: &str) -> Result<Vec<FunctionSnapshot>> {
+        load_functions(&self.conn, sha)
     }
 
     /// Insert all functions from a snapshot into the temp database.

@@ -391,6 +391,99 @@ fn add_callee_edges(
     (total, resolved)
 }
 
+/// Build a call graph from lean DB rows instead of full FunctionRiskReport slices.
+///
+/// Loads only `(function_id, file, callees)` from the TempDb — ~2 MB for 51k functions
+/// vs ~23 MB for the full reports Vec. The caller should have already dropped the reports
+/// Vec before calling this.
+///
+/// Resolution priority is identical to `build_call_graph`: same-file first, then
+/// imported-file, then first name match.
+pub fn build_call_graph_from_db(
+    db: &db::TempDb,
+    sha: &str,
+    repo_root: &std::path::Path,
+) -> Result<callgraph::CallGraph> {
+    let rows = db.load_callee_rows(sha)?;
+
+    let mut graph = callgraph::CallGraph::new();
+
+    // Intern all function IDs and build name → row-index map.
+    // Extract the function name by stripping the "file::" prefix.
+    let mut name_to_idx: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut row_to_graph_idx: Vec<u32> = Vec::with_capacity(rows.len());
+
+    for (i, (function_id, file, _)) in rows.iter().enumerate() {
+        let graph_idx = graph.intern(function_id.clone());
+        row_to_graph_idx.push(graph_idx);
+        let name = function_id
+            .get(file.len() + 2..)
+            .unwrap_or(function_id.as_str())
+            .to_string();
+        name_to_idx.entry(name).or_default().push(i);
+    }
+
+    // Build import map for import-guided resolution.
+    let file_list: Vec<&str> = rows.iter().map(|(_, f, _)| f.as_str()).collect();
+    let file_deps = crate::imports::resolve_file_deps(&file_list, repo_root);
+    let mut import_map: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    for (from, to) in file_deps {
+        import_map.entry(from).or_default().insert(to);
+    }
+
+    // Add edges with same priority logic as build_call_graph.
+    let mut total = 0usize;
+    let mut resolved = 0usize;
+    for (caller_idx, (_, caller_file, callees)) in rows.iter().enumerate() {
+        let caller_graph_idx = row_to_graph_idx[caller_idx];
+        let caller_file_norm = caller_file.replace('\\', "/");
+        let mut added: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for callee_name in callees {
+            total += 1;
+            if let Some(candidates) = name_to_idx.get(callee_name.as_str()) {
+                resolved += 1;
+                // Priority 1: same file
+                let mut chosen = None;
+                for &idx in candidates {
+                    if idx == caller_idx {
+                        continue;
+                    }
+                    if rows[idx].1.replace('\\', "/") == caller_file_norm {
+                        chosen = Some(idx);
+                        break;
+                    }
+                }
+                // Priority 2: imported file
+                if chosen.is_none() {
+                    if let Some(imports) = import_map.get(caller_file.as_str()) {
+                        for &idx in candidates {
+                            if idx != caller_idx && imports.contains(&rows[idx].1) {
+                                chosen = Some(idx);
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Priority 3: first match
+                if chosen.is_none() {
+                    chosen = candidates.iter().copied().find(|&idx| idx != caller_idx);
+                }
+                if let Some(callee_idx) = chosen {
+                    let callee_graph_idx = row_to_graph_idx[callee_idx];
+                    if added.insert(callee_graph_idx) {
+                        graph.add_adj(caller_graph_idx, callee_graph_idx);
+                    }
+                }
+            }
+        }
+    }
+    graph.total_callee_names = total;
+    graph.resolved_callee_names = resolved;
+    Ok(graph)
+}
+
 /// Build a call graph from AST-derived callee names in function reports.
 pub fn build_call_graph(
     reports: &[FunctionRiskReport],

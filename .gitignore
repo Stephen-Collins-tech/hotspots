@@ -67,3 +67,4 @@ docs/.vitepress/dist/
 samples/hotspots-example-report.png
 
 *.egg-info
+.github/bin/

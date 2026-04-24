@@ -103,6 +103,11 @@ impl CallGraph {
         self.adj[caller_idx as usize].push(callee_idx);
     }
 
+    /// Iterate over all interned function IDs in the graph.
+    pub fn all_ids(&self) -> impl Iterator<Item = &str> {
+        self.ids.iter().map(|s| s.as_str())
+    }
+
     /// Add a function to the graph (interning its ID).
     pub fn add_node(&mut self, function_id: String) {
         self.intern(function_id);

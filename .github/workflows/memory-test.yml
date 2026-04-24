@@ -1,0 +1,140 @@
+name: Memory Test
+
+# Run hotspots analyze against a target repo and report peak RSS.
+# Designed for local testing via `act` with a memory ceiling.
+#
+# Smoke test (this repo, no clone needed):
+#   act workflow_dispatch -W .github/workflows/memory-test.yml \
+#     --container-options "--memory=7g --memory-swap=7g" \
+#     --container-architecture linux/amd64 --use-gitignore=false
+#
+# Large repo:
+#   act workflow_dispatch -W .github/workflows/memory-test.yml \
+#     --container-options "--memory=7g --memory-swap=7g" \
+#     --container-architecture linux/amd64 --use-gitignore=false \
+#     --input target_repo=expo/expo
+#
+# Note: --use-gitignore=false is required so act copies .github/bin/hotspots-linux-x86_64
+# into the container (the local dev binary, which is gitignored).
+# Rebuild it with: cross build --release --target x86_64-unknown-linux-musl -p hotspots-cli
+#                  cp target/x86_64-unknown-linux-musl/release/hotspots .github/bin/hotspots-linux-x86_64
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'owner/repo to clone and analyze (leave blank to analyze this repo)'
+        required: false
+        default: ''
+      clone_depth:
+        description: 'git clone depth'
+        required: false
+        default: '25'
+      hybrid_touch_threshold:
+        description: 'Hybrid touch threshold (0 = skip touch metrics)'
+        required: false
+        default: '5'
+      explain_patterns:
+        description: 'Pass --explain-patterns (true/false)'
+        required: false
+        default: 'true'
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Hotspots CLI
+        run: |
+          LOCAL_BIN="$GITHUB_WORKSPACE/.github/bin/hotspots-linux-x86_64"
+          if [ -f "$LOCAL_BIN" ]; then
+            echo "==> Using local binary from workspace"
+            mkdir -p "$HOME/.local/bin"
+            cp "$LOCAL_BIN" "$HOME/.local/bin/hotspots"
+            chmod +x "$HOME/.local/bin/hotspots"
+          else
+            curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show version
+        run: hotspots --version
+
+      - name: Clone target repo (if specified)
+        if: inputs.target_repo != ''
+        run: |
+          git clone \
+            --depth=${{ inputs.clone_depth || '25' }} \
+            https://github.com/${{ inputs.target_repo }} \
+            /tmp/target-repo
+
+      - name: Run hotspots analyze
+        id: analyze
+        run: |
+          TARGET_REPO="${{ inputs.target_repo }}"
+          if [ -n "$TARGET_REPO" ]; then
+            ANALYZE_PATH=/tmp/target-repo
+          else
+            ANALYZE_PATH=$GITHUB_WORKSPACE
+            TARGET_REPO="$(basename $GITHUB_WORKSPACE) (self)"
+          fi
+
+          THRESHOLD="${{ inputs.hybrid_touch_threshold || '5' }}"
+          if [ "$THRESHOLD" = "0" ]; then
+            TOUCH_ARGS="--skip-touch-metrics"
+          else
+            TOUCH_ARGS="--hybrid-touches $THRESHOLD"
+          fi
+
+          PATTERN_ARGS=""
+          if [ "${{ inputs.explain_patterns || 'true' }}" = "true" ]; then
+            PATTERN_ARGS="--explain-patterns"
+          fi
+
+          echo "==> Target:   $TARGET_REPO"
+          echo "==> Path:     $ANALYZE_PATH"
+          echo "==> Touch:    $TOUCH_ARGS"
+          echo "==> Patterns: $PATTERN_ARGS"
+          echo ""
+
+          hotspots analyze "$ANALYZE_PATH" \
+            --mode snapshot \
+            --format json \
+            --no-persist \
+            $TOUCH_ARGS \
+            $PATTERN_ARGS \
+            > /dev/null &
+          HOTSPOTS_PID=$!
+
+          PEAK_KB=0
+          while kill -0 "$HOTSPOTS_PID" 2>/dev/null; do
+            RSS=$(awk '/VmRSS/{print $2}' /proc/"$HOTSPOTS_PID"/status 2>/dev/null || echo 0)
+            [ "${RSS:-0}" -gt "$PEAK_KB" ] && PEAK_KB=$RSS
+            sleep 1
+          done
+          wait "$HOTSPOTS_PID"
+          EXIT_CODE=$?
+
+          PEAK_MB=$(( PEAK_KB / 1024 ))
+          echo ""
+          echo "==> Exit code: $EXIT_CODE"
+          echo "==> Peak RSS:  ${PEAK_MB} MB"
+          echo "peak_rss_mb=${PEAK_MB}" >> "$GITHUB_OUTPUT"
+          echo "exit_code=${EXIT_CODE}" >> "$GITHUB_OUTPUT"
+          exit $EXIT_CODE
+
+      - name: Summary
+        if: always()
+        run: |
+          TARGET="${{ inputs.target_repo }}"
+          [ -z "$TARGET" ] && TARGET="hotspots (self)"
+          echo "## Memory Test: $TARGET"
+          echo "| Field | Value |"
+          echo "|-------|-------|"
+          echo "| Peak RSS | ${{ steps.analyze.outputs.peak_rss_mb }} MB |"
+          echo "| Exit code | ${{ steps.analyze.outputs.exit_code }} |"

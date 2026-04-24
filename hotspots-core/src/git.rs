@@ -1055,9 +1055,17 @@ pub fn extract_co_change_pairs(
     let mut pair_counts: std::collections::HashMap<(String, String), usize> =
         std::collections::HashMap::new();
 
+    // Skip commits that touch more than this many files — they are mass-change
+    // commits (version bumps, renames, reformats) that produce O(n²) pairs and
+    // dominate memory without adding meaningful co-change signal.
+    const MAX_FILES_PER_COMMIT: usize = 200;
+
     for files in &commit_files {
         for f in files {
             *file_counts.entry(f.clone()).or_insert(0) += 1;
+        }
+        if files.len() > MAX_FILES_PER_COMMIT {
+            continue;
         }
         // All unique pairs in this commit
         let mut sorted = files.clone();
