@@ -478,7 +478,13 @@ impl TempDb {
         )?;
 
         for report in reports {
-            let function_id = format!("{}::{}", report.file, report.function);
+            let normalized_file = report.file.replace('\\', "/");
+            let function_symbol = if report.function.starts_with("<anonymous>") {
+                "<anonymous>"
+            } else {
+                &report.function
+            };
+            let function_id = format!("{}::{}", normalized_file, function_symbol);
             let callees_json =
                 serde_json::to_string(&report.callees).unwrap_or_else(|_| "[]".to_string());
             stmt.execute(params![
