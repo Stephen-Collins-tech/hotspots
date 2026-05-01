@@ -15,8 +15,9 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Default exclude patterns applied when no config is specified
+/// Default exclude patterns always applied (merged with any user-specified excludes).
 const DEFAULT_EXCLUDES: &[&str] = &[
+    // Test files
     "**/*.test.ts",
     "**/*.test.tsx",
     "**/*.test.js",
@@ -25,20 +26,46 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/*.spec.tsx",
     "**/*.spec.js",
     "**/*.spec.jsx",
-    "**/node_modules/**",
     "**/__tests__/**",
     "**/__mocks__/**",
-    "**/dist/**",
-    "**/build/**",
-    // Python test file conventions
+    "**/__snapshots__/**",
+    // Python test conventions
     "**/test_*.py",
     "**/*_test.py",
-    // Go test file convention
+    // Go test and generated conventions
     "**/*_test.go",
-    // Go generated and vendored files
     "**/vendor/**",
     "**/*.pb.go",
     "**/zz_generated*.go",
+    "**/mock_*.go",
+    // JS/TS build output and generated code
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.next/**",
+    "**/.nuxt/**",
+    "**/.output/**",
+    "**/.cache/**",
+    "**/.turbo/**",
+    "**/storybook-static/**",
+    "**/*.min.js",
+    "**/*.min.ts",
+    "**/*.bundle.js",
+    "**/__generated__/**",
+    "**/generated/**",
+    "**/*.generated.ts",
+    "**/*.generated.js",
+    "**/*.pb.ts",
+    "**/*.pb.js",
+    // Python virtualenvs and cache
+    "**/venv/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    // Django auto-generated migrations
+    "**/migrations/**",
+    // Java/Kotlin build output
+    "**/target/**",
+    "**/out/**",
 ];
 
 /// Hotspots configuration loaded from a JSON config file
@@ -507,18 +534,14 @@ impl HotspotsConfig {
             Some(builder.build()?)
         };
 
-        // Compile exclude patterns (merge with defaults if user didn't specify any)
+        // Compile exclude patterns: defaults always apply; user patterns are additive.
         let exclude = {
             let mut builder = GlobSetBuilder::new();
-            if self.exclude.is_empty() {
-                // Use defaults when no excludes specified
-                for pattern in DEFAULT_EXCLUDES {
-                    builder.add(Glob::new(pattern)?);
-                }
-            } else {
-                for pattern in &self.exclude {
-                    builder.add(Glob::new(pattern)?);
-                }
+            for pattern in DEFAULT_EXCLUDES {
+                builder.add(Glob::new(pattern)?);
+            }
+            for pattern in &self.exclude {
+                builder.add(Glob::new(pattern)?);
             }
             builder.build()?
         };
