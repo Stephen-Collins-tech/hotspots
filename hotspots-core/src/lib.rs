@@ -141,30 +141,75 @@ pub fn analyze_with_progress(
     // Restore deterministic ordering (parallel workers complete out of order)
     raw_results.sort_by_key(|(idx, _, _)| *idx);
 
-    let mut all_reports = Vec::new();
     let mut skipped_files: usize = 0;
-    for (_file_index, file_path, result) in raw_results {
-        match result {
-            Ok(reports) => all_reports.extend(reports),
-            Err(e) => {
-                eprintln!("warning: skipping file {}: {}", file_path.display(), e);
-                skipped_files += 1;
+
+    let final_reports = if let Some(top_n) = options.top_n {
+        // Bounded min-heap: maintain at most top_n reports keyed by lrs ascending
+        // so the root is always the lowest score seen so far.
+        use std::cmp::Ordering;
+        use std::collections::BinaryHeap;
+
+        struct MinByLrs(FunctionRiskReport);
+        impl PartialEq for MinByLrs {
+            fn eq(&self, other: &Self) -> bool {
+                self.0.lrs == other.0.lrs
             }
         }
-    }
+        impl Eq for MinByLrs {}
+        impl PartialOrd for MinByLrs {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for MinByLrs {
+            fn cmp(&self, other: &Self) -> Ordering {
+                // Reverse so BinaryHeap (max-heap) pops the lowest lrs first
+                other
+                    .0
+                    .lrs
+                    .partial_cmp(&self.0.lrs)
+                    .unwrap_or(Ordering::Equal)
+            }
+        }
+
+        let mut heap: BinaryHeap<MinByLrs> = BinaryHeap::with_capacity(top_n + 1);
+        for (_file_index, file_path, result) in raw_results {
+            match result {
+                Ok(reports) => {
+                    for r in reports {
+                        heap.push(MinByLrs(r));
+                        if heap.len() > top_n {
+                            heap.pop();
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("warning: skipping file {}: {}", file_path.display(), e);
+                    skipped_files += 1;
+                }
+            }
+        }
+
+        let mut v: Vec<FunctionRiskReport> = heap.into_iter().map(|w| w.0).collect();
+        v.sort_by(|a, b| b.lrs.partial_cmp(&a.lrs).unwrap_or(Ordering::Equal));
+        v
+    } else {
+        let mut all_reports = Vec::new();
+        for (_file_index, file_path, result) in raw_results {
+            match result {
+                Ok(reports) => all_reports.extend(reports),
+                Err(e) => {
+                    eprintln!("warning: skipping file {}: {}", file_path.display(), e);
+                    skipped_files += 1;
+                }
+            }
+        }
+        sort_reports(all_reports)
+    };
+
     if skipped_files > 0 {
         eprintln!("Skipped {} file(s) due to analysis errors", skipped_files);
     }
-
-    // Sort deterministically
-    let sorted_reports = sort_reports(all_reports);
-
-    // Apply top_n filter if specified
-    let final_reports = if let Some(top_n) = options.top_n {
-        sorted_reports.into_iter().take(top_n).collect()
-    } else {
-        sorted_reports
-    };
 
     Ok(final_reports)
 }
@@ -217,15 +262,25 @@ fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf
     Ok(files)
 }
 
-/// Returns true for directory names that should not be traversed
+/// Returns true for directory names that should not be traversed.
+/// These are pruned at walk time before any glob matching — keep this list
+/// to things that are unambiguously never first-party source code.
 fn is_skipped_dir(name: &str) -> bool {
-    name.starts_with('.')
-        || name == "node_modules"
-        || name == "dist"
-        || name == "build"
-        || name == "out"
-        || name == "coverage"
-        || name == "target"
+    matches!(
+        name,
+        "node_modules"
+            | "dist"
+            | "build"
+            | "out"
+            | "coverage"
+            | "target"
+            | "vendor"
+            | "venv"
+            | "__pycache__"
+            | "storybook-static"
+            | "generated"
+            | "__generated__"
+    ) || name.starts_with('.')
 }
 
 /// Process one directory entry, pushing source files or recursing into dirs
