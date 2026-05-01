@@ -153,6 +153,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
+    let using_default_touch_mode = !no_per_function_touches
+        && !per_function_touches
+        && hybrid_touches.is_none()
+        && resolved_config.hybrid_touch_threshold.is_none()
+        && !resolved_config.per_function_touches;
     let effective_touch_mode = resolve_touch_mode(
         no_per_function_touches,
         per_function_touches,
@@ -161,7 +166,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     );
 
     if let Some(output_mode) = mode {
-        return handle_mode_output(
+        let result = handle_mode_output(
             &normalized_path,
             output_mode,
             &resolved_config,
@@ -183,6 +188,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_touch_metrics,
             },
         );
+        if using_default_touch_mode && !skip_touch_metrics {
+            eprintln!(
+                "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
+            );
+        }
+        return result;
     }
 
     // Default behavior (no --mode): simple text/JSON output
@@ -1017,6 +1028,7 @@ fn resolve_touch_mode(
     hybrid_threshold: Option<usize>,
     config_per_function: bool,
 ) -> TouchMode {
+    const DEFAULT_HYBRID_THRESHOLD: usize = 5;
     if no_per_function {
         TouchMode::File
     } else if let Some(threshold) = hybrid_threshold {
@@ -1024,7 +1036,9 @@ fn resolve_touch_mode(
     } else if per_function || config_per_function {
         TouchMode::PerFunction
     } else {
-        TouchMode::File
+        TouchMode::Hybrid {
+            threshold: DEFAULT_HYBRID_THRESHOLD,
+        }
     }
 }
 

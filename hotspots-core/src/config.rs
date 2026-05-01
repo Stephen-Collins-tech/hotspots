@@ -85,9 +85,9 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
 
-    /// Use per-function git log -L for touch metrics (default: true).
+    /// Use per-function git log -L for touch metrics (default: false).
     /// Warm runs use the on-disk cache and are as fast as file-level.
-    /// Set to false to always use file-level batching (faster cold start, less accurate).
+    /// Set to true for full precision; the default is hybrid touch mode (see hybrid_touch_threshold).
     #[serde(default)]
     pub per_function_touches: Option<bool>,
 
@@ -625,7 +625,7 @@ impl HotspotsConfig {
             pattern_thresholds,
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
-            per_function_touches: self.per_function_touches.unwrap_or(true),
+            per_function_touches: self.per_function_touches.unwrap_or(false),
             hybrid_touch_threshold: self.hybrid_touch_threshold,
             driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
