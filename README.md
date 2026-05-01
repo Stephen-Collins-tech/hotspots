@@ -141,6 +141,19 @@ hotspots analyze src/ --format jsonl
 hotspots analyze src/ --mode delta --policy
 ```
 
+**Large repos:** By default, hotspots uses hybrid touch mode — file-level git activity for all functions, with per-function precision only for actively-changed files (≥5 commits in 30 days). This keeps memory usage low and completes reliably on repos of any size.
+
+```bash
+# Default: hybrid touch (fast, completes on any repo)
+hotspots analyze . --mode snapshot --explain
+
+# Full precision (slower cold start, more accurate activity scores)
+hotspots analyze . --mode snapshot --explain --per-function-touches
+
+# Fastest possible (file-level only, no per-function git log)
+hotspots analyze . --mode snapshot --explain --no-per-function-touches
+```
+
 ### 3. Act on Results
 
 **Critical functions (LRS ≥ 9.0):** Refactor now. These are your top priority.
