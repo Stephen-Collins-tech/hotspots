@@ -499,6 +499,7 @@ mod tests {
                     quadrant: None,
                     patterns: vec![],
                     pattern_details: None,
+                    subsystem: None,
                 }],
             ),
             create_test_snapshot(
@@ -531,6 +532,7 @@ mod tests {
                     quadrant: None,
                     patterns: vec![],
                     pattern_details: None,
+                    subsystem: None,
                 }],
             ),
         ];
@@ -575,6 +577,7 @@ mod tests {
                     quadrant: None,
                     patterns: vec![],
                     pattern_details: None,
+                    subsystem: None,
                 }],
             ),
             create_test_snapshot(
@@ -607,6 +610,7 @@ mod tests {
                     quadrant: None,
                     patterns: vec![],
                     pattern_details: None,
+                    subsystem: None,
                 }],
             ),
         ];
@@ -650,6 +654,7 @@ mod tests {
                         quadrant: None,
                         patterns: vec![],
                         pattern_details: None,
+                        subsystem: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -678,6 +683,7 @@ mod tests {
                         quadrant: None,
                         patterns: vec![],
                         pattern_details: None,
+                        subsystem: None,
                     },
                 ],
             ),
@@ -712,6 +718,7 @@ mod tests {
                         quadrant: None,
                         patterns: vec![],
                         pattern_details: None,
+                        subsystem: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -740,6 +747,7 @@ mod tests {
                         quadrant: None,
                         patterns: vec![],
                         pattern_details: None,
+                        subsystem: None,
                     },
                 ],
             ),

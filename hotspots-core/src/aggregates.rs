@@ -1010,6 +1010,7 @@ mod tests {
             quadrant: None,
             patterns: vec![],
             pattern_details: None,
+            subsystem: None,
         }
     }
 
