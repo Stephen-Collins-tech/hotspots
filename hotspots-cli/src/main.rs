@@ -142,6 +142,10 @@ enum Commands {
         /// Compaction level (0 = full snapshots, 1 = deltas only, 2 = band transitions only)
         #[arg(long)]
         level: u32,
+
+        /// Report what would be done without modifying any files
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Analyze trends from snapshot history
     Trends {
@@ -281,7 +285,7 @@ fn main() -> anyhow::Result<()> {
             older_than,
             dry_run,
         } => cmd::prune::handle_prune(unreachable, older_than, dry_run)?,
-        Commands::Compact { level } => cmd::compact::handle_compact(level)?,
+        Commands::Compact { level, dry_run } => cmd::compact::handle_compact(level, dry_run)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
         Commands::Trends {
             path,
