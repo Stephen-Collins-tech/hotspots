@@ -1768,6 +1768,10 @@ pub struct DeltaSnapshot {
     pub added: Vec<FunctionSnapshot>,
     pub modified: Vec<FunctionSnapshot>,
     pub removed: Vec<String>,
+    /// Preserved from the original snapshot so HTML history charts remain intact
+    /// after reconstruction (callers filter on `summary.is_some()`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SnapshotSummary>,
 }
 
 /// Compute a delta from `base` to `current`.
@@ -1823,6 +1827,7 @@ pub fn compute_delta(base: &Snapshot, current: &Snapshot) -> DeltaSnapshot {
         added,
         modified,
         removed,
+        summary: current.summary.clone(),
     }
 }
 
@@ -1854,7 +1859,7 @@ pub fn apply_delta(base: Snapshot, delta: DeltaSnapshot) -> Snapshot {
         commit: delta.commit,
         analysis: delta.analysis,
         functions: result,
-        summary: None,
+        summary: delta.summary,
         aggregates: None,
     }
 }
