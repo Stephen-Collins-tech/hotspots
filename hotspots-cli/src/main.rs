@@ -36,7 +36,7 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: OutputFormat,
 
-        /// Output mode (snapshot or delta)
+        /// Output mode (snapshot, delta, or models)
         #[arg(long)]
         mode: Option<OutputMode>,
 
@@ -98,6 +98,10 @@ enum Commands {
         /// Output all functions as a flat array (only valid with --mode snapshot --format json)
         #[arg(long)]
         all_functions: bool,
+
+        /// Include model risk map data in snapshot JSON/HTML reports.
+        #[arg(long)]
+        include_models: bool,
 
         /// Populate and emit pattern details for --explain-patterns
         #[arg(long)]
@@ -219,6 +223,7 @@ pub(crate) enum OutputFormat {
 pub(crate) enum OutputMode {
     Snapshot,
     Delta,
+    Models,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -248,6 +253,7 @@ fn main() -> anyhow::Result<()> {
             no_per_function_touches,
             skip_touch_metrics,
             all_functions,
+            include_models,
             explain_patterns,
             source_url,
             jobs,
@@ -270,6 +276,7 @@ fn main() -> anyhow::Result<()> {
             no_per_function_touches,
             skip_touch_metrics,
             all_functions,
+            include_models,
             explain_patterns,
             source_url,
             jobs,

@@ -255,6 +255,9 @@ Interactive HTML reports with charts and visualizations.
 # Snapshot mode HTML
 hotspots analyze src/ --mode snapshot --format html
 
+# Snapshot HTML with model risk map
+hotspots analyze src/ --mode snapshot --format html --include-models
+
 # Delta mode HTML
 hotspots analyze src/ --mode delta --format html
 
@@ -291,6 +294,12 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 - **Risk Landscape scatter plot:** all functions plotted by Complexity (LRS, x-axis) vs Change Frequency (recent touches, y-axis). Dots are color-coded by risk band (critical = orange, high = amber, moderate = teal, low = grey). Dashed median lines divide the chart into four quadrants — the top-right quadrant (high complexity + high churn) is the classic Tornhill hotspot zone. Hover any dot to see function name, file path, LRS, and touch count.
 - Historical trend charts: stacked band count, activity risk line, top-1% share line
   (requires ≥2 prior snapshots; up to 30 history points; hover for per-bar detail)
+
+**Model Risk Map** (when generated with `--include-models`):
+- Draggable relationship graph of top data/control models
+- Node size reflects concentrated associated function risk
+- Edge width reflects shared AST/CFG-derived associated references
+- Collapsed raw model table for audit detail
 
 **Delta Mode Additions:**
 - Before/after comparison
@@ -715,7 +724,7 @@ When a function receives the `composite` label, `driver_detail` lists the top di
 
 ### Aggregates (Snapshot Mode)
 
-Snapshot output includes an `aggregates` object with three arrays:
+Snapshot output includes an `aggregates` object with these arrays:
 
 #### `aggregates.file_risk` — File-Level Risk
 
@@ -765,6 +774,43 @@ Robert Martin's instability metric at the directory level: `instability = effere
   efferent: 3,       // external modules this one depends on
   instability: 0.27, // near 0 = risky to change; near 1 = safe
   module_risk: "high"
+}
+```
+
+#### `aggregates.models` — Model Risk Map
+
+Present only when snapshot JSON is generated with `--include-models`.
+
+```typescript
+{
+  models: [{
+    name: "Snapshot",
+    file: "hotspots-core/src/snapshot.rs",
+    line: 219,
+    kind: "struct",
+    score: 52.11,
+    critical: 4,
+    high: 15,
+    moderate: 17,
+    functions: [{
+      function: "Snapshot::populate_callgraph",
+      file: "hotspots-core/src/snapshot.rs",
+      line: 661,
+      lrs: 9.24,
+      quadrant: "debt",
+      association: "same-file"
+    }]
+  }],
+  links: [{
+    source: 0,
+    target: 2,
+    shared_functions: 15,
+    shared_risk: 83.53,
+    functions: [
+      "GoCfgBuilderState::visit_switch",
+      "GoCfgBuilderState::visit_select"
+    ]
+  }]
 }
 ```
 

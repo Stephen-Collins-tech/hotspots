@@ -24,6 +24,7 @@ pub(crate) struct AnalyzeArgs {
     pub level: Option<OutputLevel>,
     pub per_function_touches: bool,
     pub all_functions: bool,
+    pub include_models: bool,
     pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
@@ -51,6 +52,7 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         force,
         level,
         all_functions,
+        include_models,
         explain_patterns,
         ..
     } = args;
@@ -61,10 +63,15 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         anyhow::bail!("--explain flag is only valid with --mode snapshot");
     }
     if *per_function_touches && mode.is_none() {
-        anyhow::bail!("--per-function-touches is only valid with --mode snapshot or --mode delta");
+        anyhow::bail!(
+            "--per-function-touches is only valid with --mode snapshot, --mode delta, or --mode models"
+        );
     }
     if *no_persist {
         if mode.is_none() {
+            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        }
+        if *mode == Some(OutputMode::Models) {
             anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
         }
         if *force {
@@ -86,6 +93,17 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         && (*mode != Some(OutputMode::Snapshot) || !matches!(format, OutputFormat::Json))
     {
         anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
+    }
+    if *mode == Some(OutputMode::Models)
+        && !matches!(format, OutputFormat::Text | OutputFormat::Json)
+    {
+        anyhow::bail!("--mode models supports --format text or --format json");
+    }
+    if *include_models
+        && (*mode != Some(OutputMode::Snapshot)
+            || !matches!(format, OutputFormat::Json | OutputFormat::Html))
+    {
+        anyhow::bail!("--include-models is only valid with --mode snapshot --format json/html");
     }
     if *explain_patterns && *mode != Some(OutputMode::Snapshot) && mode.is_some() {
         anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
@@ -117,6 +135,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         skip_touch_metrics,
         hybrid_touches,
         all_functions,
+        include_models,
         explain_patterns,
         source_url,
         jobs,
@@ -182,6 +201,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 touch_mode: effective_touch_mode,
                 all_functions,
+                include_models,
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
@@ -264,6 +284,7 @@ pub(crate) struct ModeOutputOptions {
     pub level: Option<OutputLevel>,
     pub touch_mode: TouchMode,
     pub all_functions: bool,
+    pub include_models: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
     pub callgraph_skip_above: Option<usize>,
@@ -288,6 +309,7 @@ pub(crate) fn handle_mode_output(
         level,
         touch_mode,
         all_functions,
+        include_models,
         explain_patterns,
         source_url,
         callgraph_skip_above,
@@ -359,6 +381,7 @@ pub(crate) fn handle_mode_output(
                     co_change_window_days: resolved_config.co_change_window_days,
                     co_change_min_count: resolved_config.co_change_min_count,
                     all_functions,
+                    include_models,
                     source_url: source_url.clone(),
                     risk_thresholds: hotspots_core::risk::RiskThresholds {
                         moderate: resolved_config.moderate_threshold,
@@ -367,6 +390,7 @@ pub(crate) fn handle_mode_output(
                     },
                 },
                 &repo_root,
+                path,
             )?;
         }
         OutputMode::Delta => {
@@ -450,6 +474,37 @@ pub(crate) fn handle_mode_output(
                 std::process::exit(1);
             }
         }
+        OutputMode::Models => {
+            let snapshot = build_enriched_snapshot(
+                &repo_root,
+                resolved_config,
+                reports,
+                touch_mode,
+                callgraph_skip_above,
+                skip_touch_metrics,
+            )
+            .context("failed to build enriched snapshot")?;
+            let model_map =
+                hotspots_core::models::compute_model_risk_map(path, &repo_root, &snapshot, top)
+                    .context("failed to compute model risk map")?;
+            match format {
+                OutputFormat::Text => {
+                    print!(
+                        "{}",
+                        hotspots_core::models::render_model_risk_text(&model_map, top)
+                    );
+                }
+                OutputFormat::Json => {
+                    println!(
+                        "{}",
+                        hotspots_core::models::render_model_risk_json(&model_map)?
+                    );
+                }
+                OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
+                    unreachable!("validated by validate_analyze_flags")
+                }
+            }
+        }
     }
 
     Ok(())
@@ -465,6 +520,7 @@ struct SnapshotOutputOpts {
     co_change_window_days: u64,
     co_change_min_count: usize,
     all_functions: bool,
+    include_models: bool,
     source_url: Option<String>,
     risk_thresholds: hotspots_core::risk::RiskThresholds,
 }
@@ -473,6 +529,7 @@ fn emit_snapshot_output(
     snapshot: &mut Snapshot,
     opts: SnapshotOutputOpts,
     repo_root: &Path,
+    analysis_path: &Path,
 ) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
         format,
@@ -484,16 +541,18 @@ fn emit_snapshot_output(
         co_change_window_days,
         co_change_min_count,
         all_functions,
+        include_models,
         source_url,
         risk_thresholds,
     } = opts;
     match format {
         OutputFormat::Json => {
-            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
                 snapshot,
                 repo_root,
                 co_change_window_days,
                 co_change_min_count,
+                include_models.then_some(analysis_path),
             );
             if all_functions {
                 snapshot.aggregates = Some(aggregates);
@@ -558,11 +617,12 @@ fn emit_snapshot_output(
             }
         }
         OutputFormat::Html => {
-            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
                 snapshot,
                 repo_root,
                 co_change_window_days,
                 co_change_min_count,
+                include_models.then_some(analysis_path),
             );
             snapshot.aggregates = Some(aggregates);
             let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)

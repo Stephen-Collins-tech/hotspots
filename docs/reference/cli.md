@@ -83,7 +83,7 @@ hotspots analyze . --mode snapshot --format sarif > results.sarif
 - SARIF format requires `--mode snapshot`. Unlike HTML, SARIF has no default output file — without `--output`, SARIF is written to stdout.
 
 ##### `--mode <mode>`
-**Optional.** Output mode: `snapshot` or `delta`.
+**Optional.** Output mode: `snapshot`, `delta`, or `models`.
 
 ```bash
 # Snapshot mode: capture current state
@@ -91,6 +91,10 @@ hotspots analyze src/ --mode snapshot --format json
 
 # Delta mode: compare against parent commit
 hotspots analyze src/ --mode delta --format json
+
+# Models mode: rank data models by associated hotspot risk
+hotspots analyze src/ --mode models --format text
+hotspots analyze src/ --mode models --format json --top 10
 ```
 
 **Snapshot mode:**
@@ -105,6 +109,12 @@ hotspots analyze src/ --mode delta --format json
 - Shows complexity changes (ΔLRS)
 - PR mode: compares vs merge-base
 - Mainline mode: compares vs direct parent
+
+**Models mode:**
+- Extracts first-party model declarations from supported languages
+- Associates functions in the same file or files that directly import the model file
+- Ranks models by the sum of their top 5 associated function risk scores
+- Supports text and JSON output
 
 ##### `--policy`
 **Optional.** Evaluate policies (only valid with `--mode delta`).
@@ -333,6 +343,19 @@ of quadrant. The default triage-first structure groups functions into `fire`, `d
 agents that prefer a flat list.
 
 See [JSON Schema Reference](../guide/output-formats.md#schema-versions) for the v3 schema.
+
+##### `--include-models`
+**Optional.** Include the model risk map in snapshot JSON and HTML reports.
+**Only valid with:** `--mode snapshot --format json` or `--mode snapshot --format html`
+
+```bash
+hotspots analyze . --mode snapshot --format json --include-models
+hotspots analyze . --mode snapshot --format html --include-models
+```
+
+Adds the top model risk concentrations and shared-reference `links` under `models`
+in agent JSON output, `aggregates.models` in `--all-functions` JSON output, and
+a draggable Model Risk Map graph in HTML reports.
 
 #### Examples
 

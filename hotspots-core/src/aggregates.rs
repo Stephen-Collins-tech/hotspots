@@ -85,6 +85,8 @@ pub struct SnapshotAggregates {
     pub co_change: Vec<crate::git::CoChangePair>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<ModuleInstability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<crate::models::ModelRiskMap>,
 }
 
 /// Delta aggregates for a file
@@ -207,6 +209,8 @@ pub struct AgentSnapshotOutput {
     pub file_risk: Vec<FileRiskView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<ModuleInstability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<crate::models::ModelRiskMap>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<crate::snapshot::SnapshotSummary>,
 }
@@ -385,6 +389,7 @@ pub fn compute_agent_snapshot_output(
         },
         file_risk,
         modules: aggregates.modules.clone(),
+        models: aggregates.models.clone(),
         summary: snapshot.summary.clone(),
     }
 }
@@ -762,6 +767,23 @@ pub fn compute_snapshot_aggregates(
     co_change_window_days: u64,
     co_change_min_count: usize,
 ) -> SnapshotAggregates {
+    compute_snapshot_aggregates_with_models(
+        snapshot,
+        repo_root,
+        co_change_window_days,
+        co_change_min_count,
+        None,
+    )
+}
+
+/// Compute snapshot aggregates, optionally including model risk data.
+pub fn compute_snapshot_aggregates_with_models(
+    snapshot: &Snapshot,
+    repo_root: &std::path::Path,
+    co_change_window_days: u64,
+    co_change_min_count: usize,
+    model_source_root: Option<&std::path::Path>,
+) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
     let file_risk = compute_file_risk_views(&snapshot.functions);
@@ -788,6 +810,9 @@ pub fn compute_snapshot_aggregates(
     annotate_static_deps(&mut co_change, &all_edges, repo_root);
 
     let modules = compute_module_instability_from_edges(&snapshot.functions, &all_edges, repo_root);
+    let models = model_source_root.and_then(|source_root| {
+        crate::models::compute_model_risk_map(source_root, repo_root, snapshot, Some(10)).ok()
+    });
 
     SnapshotAggregates {
         files,
@@ -795,6 +820,7 @@ pub fn compute_snapshot_aggregates(
         file_risk,
         co_change,
         modules,
+        models,
     }
 }
 
