@@ -16,6 +16,7 @@ use crate::risk::RiskBand;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -178,6 +179,15 @@ pub struct FunctionSnapshot {
     /// Full pattern detail for `--explain-patterns`. None unless requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
+    /// Nearest manifest-root ancestor relative to repo root (e.g. "packages/next",
+    /// "turbopack/crates/turbopack-ecmascript"). Empty string when the file belongs
+    /// to the repo root itself. None when no repo_root was provided at snapshot time.
+    ///
+    /// Detected from: package.json, Cargo.toml, pyproject.toml, go.mod,
+    /// setup.py, setup.cfg, Gemfile, build.gradle, pom.xml, mix.exs.
+    /// Populated in `Snapshot::from_reports` when `repo_root` is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subsystem: Option<String>,
 }
 
 /// Risk distribution by band
@@ -253,6 +263,112 @@ pub struct Index {
     pub commits: Vec<IndexEntry>,
 }
 
+/// Manifest filenames that mark a subsystem (package/crate/module) boundary.
+const SUBSYSTEM_MANIFESTS: &[&str] = &[
+    "package.json",
+    "Cargo.toml",
+    "pyproject.toml",
+    "go.mod",
+    "setup.py",
+    "setup.cfg",
+    "Gemfile",
+    "build.gradle",
+    "pom.xml",
+    "mix.exs",
+];
+
+/// Directories that are never subsystem roots (generated, vendored, hidden).
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    "out",
+    "target",
+];
+
+/// Build a cache of `absolute_dir → subsystem_rel_path` for every directory
+/// in `repo_root` that contains a manifest file. Skips hidden and vendor dirs.
+///
+/// The cache maps an absolute directory path to its subsystem label (the
+/// relative path from `repo_root`, using `/` separators, or `""` for root).
+fn build_subsystem_cache(repo_root: &Path) -> HashMap<PathBuf, String> {
+    let mut cache: HashMap<PathBuf, String> = HashMap::new();
+    collect_manifest_dirs(repo_root, repo_root, &mut cache);
+    cache
+}
+
+fn collect_manifest_dirs(dir: &Path, repo_root: &Path, cache: &mut HashMap<PathBuf, String>) {
+    // Check if this directory contains any manifest file
+    for manifest in SUBSYSTEM_MANIFESTS {
+        if dir.join(manifest).exists() {
+            let rel = dir
+                .strip_prefix(repo_root)
+                .unwrap_or(dir)
+                .to_string_lossy()
+                .replace('\\', "/");
+            cache.entry(dir.to_path_buf()).or_insert(rel);
+            break;
+        }
+    }
+
+    // Recurse into subdirectories, skipping hidden and vendor dirs
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let ft = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+        if !ft.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') || SKIP_DIRS.contains(&name_str.as_ref()) {
+            continue;
+        }
+        collect_manifest_dirs(&entry.path(), repo_root, cache);
+    }
+}
+
+/// Given the absolute path of a source file and a pre-built subsystem cache,
+/// return the label of the deepest manifest-containing ancestor directory.
+///
+/// Returns `Some("")` when the file belongs to the repo root itself (a
+/// manifest exists at `repo_root` but nowhere deeper on this path), and
+/// `None` when no manifest ancestor exists at all.
+fn subsystem_for_file(
+    abs_file: &Path,
+    repo_root: &Path,
+    cache: &HashMap<PathBuf, String>,
+) -> Option<String> {
+    let mut best: Option<&str> = None;
+    let mut best_depth = 0usize;
+
+    let mut dir = abs_file.parent()?;
+    loop {
+        if let Some(label) = cache.get(dir) {
+            let depth = dir.components().count();
+            if depth >= best_depth {
+                best = Some(label.as_str());
+                best_depth = depth;
+            }
+        }
+        match dir.parent() {
+            Some(p) if p != dir && dir.starts_with(repo_root) => dir = p,
+            _ => break,
+        }
+    }
+
+    best.map(|s| s.to_string())
+}
+
 impl Snapshot {
     /// Create a new snapshot from git context and function reports
     ///
@@ -306,6 +422,7 @@ impl Snapshot {
                     quadrant: None,
                     patterns: report.patterns,
                     pattern_details: None,
+                    subsystem: None,
                 }
             })
             .collect();
@@ -350,6 +467,26 @@ impl Snapshot {
                     net_change,
                 });
             }
+        }
+    }
+
+    /// Detect and populate the `subsystem` field for every function.
+    ///
+    /// Walks `repo_root` once to find all manifest files, then assigns each
+    /// function its nearest manifest-containing ancestor directory (relative to
+    /// `repo_root`, using `/` separators). Empty string means the file belongs
+    /// to the repo root. Skips hidden and vendored directories.
+    pub fn populate_subsystems(&mut self, repo_root: &Path) {
+        let cache = build_subsystem_cache(repo_root);
+        for function in &mut self.functions {
+            // function.file may be absolute (--all-functions) or repo-relative.
+            let path = Path::new(&function.file);
+            let abs = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                repo_root.join(path)
+            };
+            function.subsystem = subsystem_for_file(&abs, repo_root, &cache);
         }
     }
 
@@ -1430,6 +1567,19 @@ impl SnapshotEnricher {
             snapshot,
             betweenness_approximate: false,
         }
+    }
+
+    /// Detect and populate the `subsystem` field for every function.
+    ///
+    /// Walks `repo_root` once to find manifest files (package.json, Cargo.toml,
+    /// pyproject.toml, go.mod, etc.) and tags each function with its nearest
+    /// manifest-containing ancestor directory relative to `repo_root`.
+    /// No-op (returns self unchanged) if `repo_root` does not exist.
+    pub fn with_subsystems(mut self, repo_root: &Path) -> Self {
+        if repo_root.exists() {
+            self.snapshot.populate_subsystems(repo_root);
+        }
+        self
     }
 
     /// Populate churn metrics from a file churn map.
