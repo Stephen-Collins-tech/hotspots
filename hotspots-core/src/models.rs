@@ -637,6 +637,72 @@ fn truncate_middle(value: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::report::MetricsReport;
+    use crate::snapshot::{AnalysisInfo, CommitInfo};
+
+    fn test_function(
+        file: &str,
+        name: &str,
+        lrs: f64,
+        activity_risk: Option<f64>,
+    ) -> FunctionSnapshot {
+        FunctionSnapshot {
+            function_id: format!("{file}::{name}"),
+            file: file.to_string(),
+            line: 10,
+            language: Language::TypeScript,
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 0,
+                fo: 0,
+                ns: 0,
+                loc: 10,
+            },
+            lrs,
+            band: if lrs >= 8.0 {
+                RiskBand::High
+            } else {
+                RiskBand::Moderate
+            },
+            suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
+            activity_risk,
+            risk_factors: None,
+            percentile: None,
+            driver: None,
+            driver_detail: None,
+            quadrant: Some("fire".to_string()),
+            patterns: vec![],
+            pattern_details: None,
+        }
+    }
+
+    fn test_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
+        Snapshot {
+            schema_version: crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            commit: CommitInfo {
+                sha: "test".to_string(),
+                parents: vec![],
+                timestamp: 0,
+                branch: None,
+                message: None,
+                author: None,
+                is_fix_commit: None,
+                is_revert_commit: None,
+                ticket_ids: vec![],
+            },
+            analysis: AnalysisInfo {
+                scope: ".".to_string(),
+                tool_version: "test".to_string(),
+            },
+            functions,
+            summary: None,
+            aggregates: None,
+        }
+    }
 
     #[test]
     fn extracts_model_declarations_from_supported_languages() {
@@ -652,5 +718,62 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].kind, "struct");
         assert_eq!(models[1].kind, "enum");
+    }
+
+    #[test]
+    fn associates_single_model_file_functions_and_prefers_activity_risk_for_ranking() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("order.ts"),
+            "export interface Order { id: string }\n",
+        )
+        .unwrap();
+        let snapshot = test_snapshot(vec![
+            test_function("order.ts", "validateOrder", 2.0, Some(20.0)),
+            test_function("order.ts", "saveOrder", 9.0, None),
+        ]);
+
+        let map = compute_model_risk_map(dir.path(), dir.path(), &snapshot, None).unwrap();
+
+        assert_eq!(map.models.len(), 1);
+        let order = &map.models[0];
+        assert_eq!(order.name, "Order");
+        assert_eq!(order.functions.len(), 2);
+        assert_eq!(order.functions[0].function, "validateOrder");
+        assert_eq!(order.score, 29.0);
+        assert_eq!(order.high, 1);
+        assert_eq!(order.moderate, 1);
+    }
+
+    #[test]
+    fn does_not_fallback_associate_every_function_when_file_has_multiple_models() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("models.ts"),
+            "export interface Order { id: string }\nexport interface User { id: string }\n",
+        )
+        .unwrap();
+        let snapshot = test_snapshot(vec![
+            test_function("models.ts", "validateOrder", 8.0, None),
+            test_function("models.ts", "saveOrder", 6.0, None),
+            test_function("models.ts", "validateUser", 7.0, None),
+            test_function("models.ts", "saveUser", 5.0, None),
+            test_function("models.ts", "unrelated", 9.0, None),
+        ]);
+
+        let map = compute_model_risk_map(dir.path(), dir.path(), &snapshot, None).unwrap();
+
+        assert_eq!(map.models.len(), 2);
+        assert!(map.models.iter().all(|model| model.functions.len() == 2));
+        assert!(map.models.iter().any(|model| model.name == "Order"
+            && model
+                .functions
+                .iter()
+                .all(|function| function.function.contains("Order"))));
+        assert!(map.models.iter().any(|model| model.name == "User"
+            && model
+                .functions
+                .iter()
+                .all(|function| function.function.contains("User"))));
     }
 }

@@ -209,7 +209,9 @@ pub struct AgentArchitectureView {
     pub models: Option<crate::models::ModelRiskMap>,
 }
 
-/// Agent-optimized snapshot output (schema version 3)
+pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
+
+/// Agent-optimized snapshot output (schema version 4)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentSnapshotOutput {
@@ -283,7 +285,7 @@ fn to_agent_view(
         .collect()
 }
 
-/// Build the agent-optimized v3 JSON output from a fully enriched snapshot and its aggregates.
+/// Build the agent-optimized v4 JSON output from a fully enriched snapshot and its aggregates.
 ///
 /// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
 /// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
@@ -402,7 +404,7 @@ pub fn compute_agent_snapshot_output(
     };
 
     AgentSnapshotOutput {
-        schema_version: 3,
+        schema_version: AGENT_SNAPSHOT_SCHEMA_VERSION,
         commit: snapshot.commit.clone(),
         summary: snapshot.summary.clone(),
         triage,

@@ -337,12 +337,12 @@ structure (quadrant buckets).
 hotspots analyze . --mode snapshot --format json --all-functions
 ```
 
-Produces schema v3 output: a flat `functions` array containing every function, regardless
-of quadrant. The default triage-first structure groups functions into `fire`, `debt`,
-`watch`, and `ok` buckets. Use `--all-functions` when consuming output in tooling or AI
-agents that prefer a flat list.
+Produces schema v2 full snapshot output: a flat `functions` array containing every
+function, regardless of quadrant. The default triage-first structure is schema v4 and
+groups functions into `fire`, `debt`, `watch`, and `ok` buckets. Use `--all-functions`
+when consuming output in tooling that needs the complete snapshot shape.
 
-See [JSON Schema Reference](../guide/output-formats.md#schema-versions) for the v3 schema.
+See [JSON Schema Reference](../guide/output-formats.md#schema-versions) for schema details.
 
 ##### `--include-models`
 **Optional.** Include the model risk map in snapshot JSON and HTML reports.

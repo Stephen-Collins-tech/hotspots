@@ -694,7 +694,8 @@ Hotspots produces versioned JSON output. The `schema_version` field indicates th
 
 | Version | Scope | Added fields |
 |---------|-------|--------------|
-| **v3** (current default snapshot JSON) | Agent-optimized snapshot output | `summary`, `fire`/`debt`/`watch`/`ok` triage buckets, per-function `action` text, `architecture` aggregates |
+| **v4** (current default snapshot JSON) | Agent-optimized snapshot output | `summary`, `fire`/`debt`/`watch`/`ok` triage buckets, per-function `action` text, `architecture` aggregates, optional `architecture.models` |
+| **v3** | Agent-optimized snapshot output | triage buckets and per-function `action` text before architecture aggregates were nested |
 | **v2** | Full snapshot JSON (`--all-functions`) and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
 | **v1** | Delta output (legacy constant) | — |
 
