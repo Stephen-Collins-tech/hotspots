@@ -2101,6 +2101,7 @@ fn inline_javascript() -> &'static str {
         var lastH = 0;
         var dragging = null;
         var colors = { critical: '#ef4444', high: '#f97316', moderate: '#eab308', low: '#22c55e' };
+        var bandWeights = { critical: 1.5, high: 1.25, moderate: 1.0, low: 0.5 };
 
         function isDarkModel() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
         function esc(s) {
@@ -2113,11 +2114,25 @@ fn inline_javascript() -> &'static str {
             var href = normalized.indexOf('/') === 0 ? 'file://' + normalized : normalized;
             return encodeURI(href) + (line ? '#L' + encodeURIComponent(String(line)) : '');
         }
-        function modelRiskColor(m) {
-            if ((m.critical || 0) > 0) return colors.critical;
-            if ((m.high || 0) > 0) return colors.high;
-            if ((m.moderate || 0) > 0) return colors.moderate;
-            return colors.low;
+        function weightedScore(m) {
+            var fns = m.functions || [];
+            if (!fns.length) return m.score || 0;
+            var s = 0;
+            fns.forEach(function(f) {
+                var base = (f.activity_risk != null ? f.activity_risk : f.lrs) || 0;
+                s += base * (bandWeights[f.band] || 1.0);
+            });
+            return s;
+        }
+        var wScores = models.map(weightedScore);
+        var maxWScore = Math.max.apply(null, wScores.concat([1]));
+        function modelRiskColor(m, idx) {
+            var ratio = (typeof idx === 'number' ? wScores[idx] : weightedScore(m)) / maxWScore;
+            if (ratio >= 0.75) return '#b91c1c';
+            if (ratio >= 0.50) return '#ef4444';
+            if (ratio >= 0.30) return '#f97316';
+            if (ratio >= 0.15) return '#eab308';
+            return '#22c55e';
         }
         function modelConnections(idx) {
             return links.filter(function(l) {
@@ -2145,12 +2160,12 @@ fn inline_javascript() -> &'static str {
             return (l.shared_functions || 0) + (l.shared_risk || 0) / 10;
         }
         function initializeGraph(W, H) {
-            var maxScore = Math.max.apply(null, models.map(function(m) { return m.score || 0; })) || 1;
             var cx = W / 2, cy = H / 2, spread = Math.max(70, Math.min(W, H) * 0.34);
             nodes.forEach(function(n, i) {
                 var angle = (Math.PI * 2 * i / Math.max(1, nodes.length)) - Math.PI / 2;
-                var pull = 1 - Math.min(0.45, (n.model.score || 0) / maxScore * 0.35);
-                n.r = 11 + Math.sqrt(Math.max(0, n.model.score || 0)) * 1.4;
+                var ws = wScores[i] || 0;
+                var pull = 1 - Math.min(0.45, ws / maxWScore * 0.35);
+                n.r = 11 + Math.sqrt(Math.max(0, ws)) * 1.4;
                 n.x = cx + Math.cos(angle) * spread * pull;
                 n.y = cy + Math.sin(angle) * spread * pull;
                 n.vx = 0;
@@ -2222,7 +2237,8 @@ fn inline_javascript() -> &'static str {
             name.textContent = m.name || '';
             meta.innerHTML = '<a class="source-link" href="' + sourceHref(m.file, m.line) + '">' + esc((m.file || '') + ':' + (m.line || '')) + '</a> - ' + esc(m.kind || '');
             metrics.innerHTML =
-                '<div class="model-metric"><span>Score</span><strong>' + Number(m.score || 0).toFixed(2) + '</strong></div>' +
+                '<div class="model-metric"><span>Risk Score</span><strong style="color:' + modelRiskColor(m, idx) + '">' + (wScores[idx] || 0).toFixed(2) + '</strong></div>' +
+                '<div class="model-metric"><span>Raw Score</span><strong>' + Number(m.score || 0).toFixed(2) + '</strong></div>' +
                 '<div class="model-metric"><span>Critical</span><strong class="band-critical">' + (m.critical || 0) + '</strong></div>' +
                 '<div class="model-metric"><span>High</span><strong class="band-high">' + (m.high || 0) + '</strong></div>' +
                 '<div class="model-metric"><span>Moderate</span><strong class="band-moderate">' + (m.moderate || 0) + '</strong></div>';
@@ -2292,7 +2308,7 @@ fn inline_javascript() -> &'static str {
                 ctx.stroke();
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-                ctx.fillStyle = modelRiskColor(m);
+                ctx.fillStyle = modelRiskColor(m, i);
                 ctx.globalAlpha = selected || hovered ? 1 : 0.86;
                 ctx.fill();
                 ctx.globalAlpha = 1;
@@ -2308,9 +2324,10 @@ fn inline_javascript() -> &'static str {
                 ctx.font = 'bold 10px system-ui,sans-serif';
                 ctx.lineWidth = 3;
                 ctx.strokeStyle = 'rgba(17, 24, 39, 0.72)';
-                ctx.strokeText(Number(m.score || 0).toFixed(1), n.x, n.y + 3);
+                var wsLabel = (wScores[i] || 0).toFixed(1);
+                ctx.strokeText(wsLabel, n.x, n.y + 3);
                 ctx.fillStyle = '#ffffff';
-                ctx.fillText(Number(m.score || 0).toFixed(1), n.x, n.y + 3);
+                ctx.fillText(wsLabel, n.x, n.y + 3);
             });
             if (links.length === 0) {
                 ctx.fillStyle = fg;
