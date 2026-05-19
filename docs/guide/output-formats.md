@@ -255,6 +255,9 @@ Interactive HTML reports with charts and visualizations.
 # Snapshot mode HTML
 hotspots analyze src/ --mode snapshot --format html
 
+# Snapshot HTML with model risk map
+hotspots analyze src/ --mode snapshot --format html --include-models
+
 # Delta mode HTML
 hotspots analyze src/ --mode delta --format html
 
@@ -291,6 +294,12 @@ hotspots analyze src/ --mode snapshot --format html --output reports/complexity.
 - **Risk Landscape scatter plot:** all functions plotted by Complexity (LRS, x-axis) vs Change Frequency (recent touches, y-axis). Dots are color-coded by risk band (critical = orange, high = amber, moderate = teal, low = grey). Dashed median lines divide the chart into four quadrants — the top-right quadrant (high complexity + high churn) is the classic Tornhill hotspot zone. Hover any dot to see function name, file path, LRS, and touch count.
 - Historical trend charts: stacked band count, activity risk line, top-1% share line
   (requires ≥2 prior snapshots; up to 30 history points; hover for per-bar detail)
+
+**Model Risk Map** (when generated with `--include-models`):
+- Draggable relationship graph of top data/control models
+- Node size reflects concentrated associated function risk
+- Edge width reflects shared AST/CFG-derived associated references
+- Collapsed raw model table for audit detail
 
 **Delta Mode Additions:**
 - Before/after comparison
@@ -685,8 +694,9 @@ Hotspots produces versioned JSON output. The `schema_version` field indicates th
 
 | Version | Scope | Added fields |
 |---------|-------|--------------|
-| **v2** (current) | Snapshot and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
-| **v3** | Agent-optimized (`--all-functions`) | `fire`/`debt`/`watch`/`ok` quadrant buckets, per-function `action` text |
+| **v4** (current default snapshot JSON) | Agent-optimized snapshot output | `summary`, `fire`/`debt`/`watch`/`ok` triage buckets, per-function `action` text, `architecture` aggregates, optional `architecture.models` |
+| **v3** | Agent-optimized snapshot output | triage buckets and per-function `action` text before architecture aggregates were nested |
+| **v2** | Full snapshot JSON (`--all-functions`) and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
 | **v1** | Delta output (legacy constant) | — |
 
 Always check `schema_version` before consuming output in tooling.
@@ -713,9 +723,15 @@ When a function receives the `composite` label, `driver_detail` lists the top di
 
 `driver_detail` is omitted from JSON when null (forward-compatible).
 
-### Aggregates (Snapshot Mode)
+### Architecture Aggregates (Default Snapshot JSON)
 
-Snapshot output includes an `aggregates` object with three arrays:
+Default snapshot JSON groups architectural concentration under `architecture`:
+`architecture.file_risk`, `architecture.modules`, and, when requested,
+`architecture.models`.
+
+### Aggregates (`--all-functions` Snapshot JSON)
+
+Snapshot output includes an `aggregates` object with these arrays:
 
 #### `aggregates.file_risk` — File-Level Risk
 
@@ -765,6 +781,43 @@ Robert Martin's instability metric at the directory level: `instability = effere
   efferent: 3,       // external modules this one depends on
   instability: 0.27, // near 0 = risky to change; near 1 = safe
   module_risk: "high"
+}
+```
+
+#### `aggregates.models` / `architecture.models` — Model Risk Map
+
+Present only when snapshot JSON is generated with `--include-models`.
+
+```typescript
+{
+  items: [{
+    name: "Snapshot",
+    file: "hotspots-core/src/snapshot.rs",
+    line: 219,
+    kind: "struct",
+    score: 52.11,
+    critical: 4,
+    high: 15,
+    moderate: 17,
+    functions: [{
+      function: "Snapshot::populate_callgraph",
+      file: "hotspots-core/src/snapshot.rs",
+      line: 661,
+      lrs: 9.24,
+      quadrant: "debt",
+      association: "same-file"
+    }]
+  }],
+  links: [{
+    source: 0,
+    target: 2,
+    shared_functions: 15,
+    shared_risk: 83.53,
+    functions: [
+      "GoCfgBuilderState::visit_switch",
+      "GoCfgBuilderState::visit_select"
+    ]
+  }]
 }
 ```
 

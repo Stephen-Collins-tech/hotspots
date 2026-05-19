@@ -18,7 +18,7 @@ pub fn render_html_snapshot(
     snapshot: &Snapshot,
     history: &[(CommitInfo, SnapshotSummary)],
     source_url: Option<&str>,
-    thresholds: &RiskThresholds,
+    _thresholds: &RiskThresholds,
 ) -> String {
     let aggregates = snapshot.aggregates.as_ref();
     let history_json = render_history_json(history);
@@ -45,13 +45,14 @@ pub fn render_html_snapshot(
     <div class="container">
         {header}
         {source_banner}
-        {summary}
         {scatter}
-        {trends}
+        {summary}
         {triage}
+        {aggregates_section}
+        {next_actions}
+        {trends}
         {patterns_breakdown}
         {functions_table}
-        {aggregates_section}
         {footer}
     </div>
     <script>{js}</script>
@@ -62,7 +63,8 @@ pub fn render_html_snapshot(
         js = inline_javascript(),
         header = render_header(&snapshot.commit),
         source_banner = source_banner,
-        summary = render_summary(snapshot, thresholds),
+        summary = render_summary(snapshot),
+        next_actions = render_next_actions(&snapshot.functions),
         scatter = scatter,
         trends = trends,
         triage = render_triage_panel(&snapshot.functions),
@@ -152,8 +154,12 @@ fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
                 "moderate" => "m",
                 _ => "l",
             };
-            let name = f.function_id.replace('\\', "\\\\").replace('"', "\\\"");
-            let file = f.file.replace('\\', "\\\\").replace('"', "\\\"");
+            let name = compact_source_label(&f.function_id)
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            let file = compact_source_label(&f.file)
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
             format!(
                 r#"{{"n":"{name}","f":"{file}","x":{x:.2},"y":{y:.2},"b":"{b}"}}"#,
                 name = name,
@@ -171,10 +177,15 @@ fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
 fn render_scatter_section(json: &str) -> String {
     format!(
         r#"<script>window.__hsScatter = {json};</script>
-<section class="section" id="landscape">
-    <h2>Risk Landscape</h2>
-    <div class="chart-label">Complexity (LRS) vs Change Frequency — each dot is a function; top-right quadrant are your hotspots</div>
-    <canvas id="hs-scatter-chart" height="340"></canvas>
+<section class="section landscape-section" id="landscape">
+    <div class="landscape-heading">
+        <div>
+            <h2>Risk Landscape</h2>
+            <div class="chart-label">Start here: high and far-right points are the functions most likely to need attention; top-right means active regression risk.</div>
+        </div>
+        <div class="landscape-kicker">Complexity x Recent Change</div>
+    </div>
+    <canvas id="hs-scatter-chart" height="430"></canvas>
     <div class="scatter-legend">
         <div class="scatter-legend-bands">
             <span class="scatter-dot band-critical">●</span><span class="scatter-legend-label">Critical</span>
@@ -324,6 +335,46 @@ header .meta {
     margin-bottom: 1rem;
 }
 
+details.section > summary {
+    cursor: pointer;
+    list-style: none;
+    color: #1f2937;
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+details.section > summary::-webkit-details-marker {
+    display: none;
+}
+
+details.section > summary::before {
+    content: "Show";
+    display: inline-block;
+    margin-right: 0.65rem;
+    padding: 0.16rem 0.48rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #4b5563;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+details.section[open] > summary {
+    margin-bottom: 1rem;
+}
+
+details.section[open] > summary::before {
+    content: "Hide";
+}
+
+.section-summary-note {
+    display: block;
+    margin-top: 0.25rem;
+    color: #6b7280;
+    font-size: 0.82rem;
+    font-weight: 400;
+}
+
 /* Table */
 table {
     width: 100%;
@@ -358,6 +409,396 @@ tr:last-child td {
 
 tbody tr:hover {
     background: #f3f4f6;
+}
+
+/* Overview */
+.overview-section {
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: #f9fafb;
+}
+
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 0.9rem;
+}
+
+.overview-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    padding: 0.9rem;
+}
+
+.overview-panel h3 {
+    color: #111827;
+    font-size: 0.95rem;
+    margin-bottom: 0.65rem;
+}
+
+.overview-stacked {
+    display: flex;
+    height: 1rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e5e7eb;
+}
+
+.overview-segment {
+    min-width: 2px;
+}
+
+.overview-bars {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.overview-bar-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+    align-items: center;
+}
+
+.overview-bar-label {
+    color: #111827;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.overview-bar-value {
+    color: #6b7280;
+    font-size: 0.78rem;
+}
+
+.overview-mini-bar {
+    grid-column: 1 / -1;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+}
+
+.overview-mini-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #2563eb;
+}
+
+.overview-mini-fill.band-critical { background: #ef4444; }
+.overview-mini-fill.band-high { background: #f97316; }
+.overview-mini-fill.band-moderate { background: #eab308; }
+.overview-mini-fill.band-low { background: #22c55e; }
+
+.overview-kicker {
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: 0.6rem;
+}
+
+/* Visual report surfaces */
+.visual-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 0.75rem;
+}
+
+.visual-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    padding: 0.85rem;
+    min-width: 0;
+}
+
+.visual-card-title {
+    color: #111827;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.visual-card-subtitle {
+    color: #6b7280;
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.source-link {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: #9ca3af;
+    text-underline-offset: 2px;
+}
+
+.source-link:hover {
+    color: #2563eb;
+    text-decoration-color: currentColor;
+}
+
+.visual-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.35rem;
+    margin-top: 0.65rem;
+}
+
+.visual-metric {
+    border-radius: 0.375rem;
+    background: #f9fafb;
+    padding: 0.35rem;
+}
+
+.visual-metric span {
+    display: block;
+    color: #6b7280;
+    font-size: 0.68rem;
+}
+
+.visual-metric strong {
+    color: #111827;
+    font-size: 0.9rem;
+}
+
+.visual-bar {
+    height: 0.55rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+    margin-top: 0.65rem;
+}
+
+.visual-bar-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #2563eb;
+}
+
+.visual-bar-fill.band-critical { background: #ef4444; }
+.visual-bar-fill.band-high { background: #f97316; }
+.visual-bar-fill.band-moderate { background: #eab308; }
+.visual-bar-fill.band-low { background: #22c55e; }
+
+.visual-note {
+    color: #6b7280;
+    font-size: 0.82rem;
+    margin-bottom: 0.75rem;
+}
+
+.raw-data-details {
+    margin-top: 0.9rem;
+}
+
+.raw-data-details summary {
+    cursor: pointer;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.triage-risk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    gap: 0.75rem;
+}
+
+.triage-risk-card {
+    border: 1px solid #e5e7eb;
+    border-left: 4px solid #f97316;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    padding: 0.85rem;
+}
+
+.triage-risk-card.fire {
+    border-left-color: #ef4444;
+}
+
+.coupling-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 0.65rem;
+    align-items: center;
+}
+
+.coupling-link {
+    color: #2563eb;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Model Risk Map */
+.model-risk-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+#hs-model-chart {
+    display: block;
+    width: 100%;
+    border-radius: 0.375rem;
+    background: #f9fafb;
+}
+
+.model-detail-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+.model-detail-header {
+    padding: 0.75rem 0.9rem;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.model-detail-header strong {
+    display: block;
+    color: #111827;
+    margin-bottom: 0.15rem;
+}
+
+.model-detail-meta {
+    font-size: 0.75rem;
+    color: #6b7280;
+    overflow-wrap: anywhere;
+}
+
+.model-metric-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.4rem;
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.model-metric {
+    background: #f9fafb;
+    border-radius: 0.375rem;
+    padding: 0.4rem;
+}
+
+.model-metric span {
+    display: block;
+    font-size: 0.7rem;
+    color: #6b7280;
+    margin-bottom: 0.1rem;
+}
+
+.model-metric strong {
+    color: #111827;
+}
+
+.model-function-list {
+    padding: 0.4rem 0.9rem 0.75rem;
+}
+
+.model-connection-bars {
+    padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.model-panel-label {
+    color: #6b7280;
+    font-size: 0.72rem;
+    margin-bottom: 0.45rem;
+}
+
+.model-connection-label-heading {
+    margin-top: 0.75rem;
+}
+
+.model-connection-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.model-connection-track {
+    height: 0.45rem;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+    margin-top: 0.18rem;
+}
+
+.model-connection-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #2563eb;
+}
+
+.model-connection-label {
+    color: #111827;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-connection-value {
+    color: #6b7280;
+    font-size: 0.72rem;
+}
+
+.model-empty-note {
+    color: #6b7280;
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.model-function-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.model-function-row:last-child {
+    border-bottom: 0;
+}
+
+.model-function-name {
+    color: #111827;
+    overflow-wrap: anywhere;
+}
+
+.model-function-file {
+    display: block;
+    color: #6b7280;
+    font-size: 0.72rem;
+    margin-top: 0.1rem;
+    overflow-wrap: anywhere;
+}
+
+.model-function-score {
+    display: grid;
+    gap: 0.12rem;
+    justify-items: end;
+    color: #6b7280;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.model-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.55rem;
+    color: #6b7280;
+    font-size: 0.78rem;
 }
 
 /* Risk Bands */
@@ -483,6 +924,14 @@ footer a {
     th, td {
         padding: 0.5rem;
     }
+
+    .model-risk-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .model-function-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Filters */
@@ -517,6 +966,86 @@ footer a {
 .filter-group input:focus {
     outline: none;
     border-color: #3b82f6;
+}
+
+/* Next actions */
+.next-actions-section {
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    background: #eff6ff;
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.12);
+}
+
+.next-actions-section h2 {
+    color: #1e3a8a;
+    margin-bottom: 0.35rem;
+}
+
+.next-actions-subtitle {
+    color: #475569;
+    font-size: 0.86rem;
+    margin-bottom: 0.9rem;
+}
+
+.next-actions-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.next-action {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: start;
+    border: 1px solid #dbeafe;
+    border-left: 4px solid #2563eb;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    padding: 0.8rem;
+}
+
+.next-action:first-child {
+    border-left-width: 6px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.next-action-fire { border-left-color: #ef4444; }
+.next-action-debt { border-left-color: #8b5cf6; }
+.next-action-watch { border-left-color: #f59e0b; }
+
+.next-action-rank {
+    color: #1d4ed8;
+    font-weight: 800;
+    font-size: 0.82rem;
+}
+
+.next-action-title {
+    color: #111827;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.next-action-meta {
+    color: #64748b;
+    font-size: 0.76rem;
+    margin-top: 0.15rem;
+    overflow-wrap: anywhere;
+}
+
+.next-action-why {
+    color: #374151;
+    font-size: 0.82rem;
+    margin-top: 0.35rem;
+}
+
+.next-action-score {
+    display: grid;
+    gap: 0.15rem;
+    justify-items: end;
+    color: #64748b;
+    font-size: 0.72rem;
+    white-space: nowrap;
 }
 
 /* Triage section */
@@ -799,8 +1328,37 @@ th.sortable.desc::after {
 
 /* Trend charts */
 .trends-section canvas { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
-#hs-scatter-chart { display:block; border-radius:0.375rem; background:#f9fafb; width:100%; }
-.scatter-legend { display:flex; flex-wrap:wrap; align-items:flex-start; gap:0.75rem 2rem; margin-top:0.75rem; font-size:0.8rem; color:#6b7280; }
+.landscape-section {
+    border: 1px solid #dbeafe;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+.landscape-heading {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:1rem;
+    margin-bottom:0.65rem;
+}
+.landscape-kicker {
+    flex-shrink:0;
+    border:1px solid #bfdbfe;
+    border-radius:999px;
+    background:#eff6ff;
+    color:#1d4ed8;
+    font-size:0.72rem;
+    font-weight:800;
+    letter-spacing:0;
+    padding:0.28rem 0.65rem;
+}
+#hs-scatter-chart {
+    display:block;
+    border:1px solid #e5e7eb;
+    border-radius:0.5rem;
+    background:#ffffff;
+    width:100%;
+}
+.scatter-legend { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:0.75rem 2rem; margin-top:0.75rem; font-size:0.8rem; color:#6b7280; }
 .scatter-legend-bands { display:flex; align-items:center; gap:0.5rem; flex-shrink:0; }
 .scatter-dot { font-size:1rem; line-height:1; }
 .scatter-legend-label { color:#6b7280; margin-right:0.25rem; }
@@ -809,7 +1367,11 @@ th.sortable.desc::after {
 .scatter-axis-key { font-weight:700; color:#374151; white-space:nowrap; min-width:5.5rem; }
 .scatter-axis-desc { color:#9ca3af; }
 .trends-charts { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem; }
-@media (max-width:768px) { .trends-charts { grid-template-columns:1fr; } }
+@media (max-width:768px) {
+    .trends-charts { grid-template-columns:1fr; }
+    .landscape-heading { display:block; }
+    .landscape-kicker { display:inline-block; margin-top:0.5rem; }
+}
 .chart-label { font-size:0.75rem; font-weight:600; color:#6b7280; margin-bottom:0.25rem; }
 
 /* Dark Mode */
@@ -863,6 +1425,41 @@ th.sortable.desc::after {
         background: #111827;
     }
 
+    .overview-section,
+    .overview-panel {
+        background: #111827;
+        border-color: #374151;
+    }
+
+    .overview-panel h3,
+    .overview-bar-label {
+        color: #f9fafb;
+    }
+
+    .overview-stacked,
+    .overview-mini-bar {
+        background: #374151;
+    }
+
+    .visual-card,
+    .triage-risk-card {
+        background: #111827;
+        border-color: #374151;
+    }
+
+    .visual-card-title,
+    .visual-metric strong {
+        color: #f9fafb;
+    }
+
+    .visual-metric {
+        background: #1f2937;
+    }
+
+    .visual-bar {
+        background: #374151;
+    }
+
     footer {
         border-top-color: #374151;
     }
@@ -907,7 +1504,11 @@ th.sortable.desc::after {
     .page-size-select { background: #1f2937; border-color: #374151; color: #f9fafb; }
 
     .triage-section { border-color: #92400e; background: #1c1500; }
-    .triage-section h2 { color: #fbbf24; }
+    details.section > summary { color: #f9fafb; }
+    details.section > summary::before { background: #374151; color: #d1d5db; }
+    .section-summary-note { color: #9ca3af; }
+    .triage-section h2,
+    .triage-section > summary { color: #fbbf24; }
     .triage-subtitle { color: #d1d5db; }
     .quadrant-fire   { background: #1a0000; }
     .quadrant-debt   { background: #140028; }
@@ -919,8 +1520,44 @@ th.sortable.desc::after {
     .triage-active-row:hover { background: #2a1a00; }
     .recency-cold { color: #4b5563; }
     .triage-action { color: #9ca3af; }
+    .next-actions-section {
+        background: #0f172a;
+        border-color: #1d4ed8;
+    }
+    .next-actions-section h2 { color: #93c5fd; }
+    .next-actions-subtitle,
+    .next-action-rank,
+    .next-action-meta,
+    .next-action-score { color: #9ca3af; }
+    .next-action {
+        background: #111827;
+        border-color: #374151;
+    }
+    .next-action-title { color: #f9fafb; }
+    .next-action-why { color: #d1d5db; }
+    .landscape-section {
+        background: #0f172a;
+        border-color: #1f2937;
+        box-shadow: none;
+    }
+    .landscape-kicker {
+        background: #172554;
+        border-color: #1d4ed8;
+        color: #bfdbfe;
+    }
     .trends-section canvas { background:#1f2937; }
-    #hs-scatter-chart { background:#1f2937; }
+    #hs-scatter-chart { background:#111827; border-color:#374151; }
+    #hs-model-chart { background:#1f2937; }
+    .model-detail-panel { background:#111827; border-color:#374151; }
+    .model-detail-header { background:#1f2937; border-color:#374151; }
+    .model-detail-header strong,
+    .model-metric strong,
+    .model-function-name,
+    .model-connection-label { color:#f9fafb; }
+    .model-metric { background:#1f2937; }
+    .model-connection-track { background:#374151; }
+    .model-metric-row,
+    .model-function-row { border-color:#374151; }
     .scatter-legend { color:#9ca3af; }
     .scatter-legend-label { color:#9ca3af; }
     .scatter-axis-key { color:#e5e7eb; }
@@ -1268,9 +1905,14 @@ fn inline_javascript() -> &'static str {
             if (!el) return;
             el.width = el.offsetWidth || 800;
             var ctx = el.getContext('2d'), W = el.width, H = el.height;
-            var lP = 56, rP = 16, tP = 16, bP = 36;
+            var lP = 64, rP = 24, tP = 28, bP = 46;
             var cW = W - lP - rP, cH = H - tP - bP;
             var dark = isDarkSc(), fg = dark ? '#9ca3af' : '#6b7280', grd = dark ? '#374151' : '#e5e7eb';
+            var panel = dark ? '#111827' : '#ffffff';
+            var hotFill = dark ? 'rgba(239,68,68,0.16)' : 'rgba(254,226,226,0.72)';
+            var debtFill = dark ? 'rgba(249,115,22,0.12)' : 'rgba(255,237,213,0.58)';
+            var activeFill = dark ? 'rgba(234,179,8,0.10)' : 'rgba(254,249,195,0.45)';
+            var calmFill = dark ? 'rgba(34,197,94,0.08)' : 'rgba(220,252,231,0.38)';
 
             var xs = pts.map(function(p) { return p.x; });
             var ys = pts.map(function(p) { return p.y; });
@@ -1286,6 +1928,17 @@ fn inline_javascript() -> &'static str {
             ctx.clearRect(0, 0, W, H);
             ctx.font = '10px system-ui,sans-serif';
 
+            ctx.fillStyle = panel;
+            ctx.fillRect(0, 0, W, H);
+
+            // quadrant regions
+            var qx = lP + (medX / maxX) * cW;
+            var qy = tP + cH - (medY / maxY) * cH;
+            ctx.fillStyle = calmFill; ctx.fillRect(lP, qy, qx - lP, tP + cH - qy);
+            ctx.fillStyle = activeFill; ctx.fillRect(lP, tP, qx - lP, qy - tP);
+            ctx.fillStyle = debtFill; ctx.fillRect(qx, qy, lP + cW - qx, tP + cH - qy);
+            ctx.fillStyle = hotFill; ctx.fillRect(qx, tP, lP + cW - qx, qy - tP);
+
             // grid lines
             for (var t = 0; t <= 4; t++) {
                 var xv = maxX * t / 4, xp = lP + (t / 4) * cW;
@@ -1300,13 +1953,22 @@ fn inline_javascript() -> &'static str {
             }
 
             // quadrant dividers at median
-            var qx = lP + (medX / maxX) * cW;
-            var qy = tP + cH - (medY / maxY) * cH;
-            ctx.strokeStyle = dark ? '#4b5563' : '#d1d5db'; ctx.lineWidth = 1;
+            ctx.strokeStyle = dark ? '#6b7280' : '#94a3b8'; ctx.lineWidth = 1;
             ctx.setLineDash([4, 4]);
             ctx.beginPath(); ctx.moveTo(qx, tP); ctx.lineTo(qx, tP + cH); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(lP, qy); ctx.lineTo(lP + cW, qy); ctx.stroke();
             ctx.setLineDash([]);
+
+            function quadrantLabel(text, x, y, align) {
+                ctx.font = 'bold 11px system-ui,sans-serif';
+                ctx.fillStyle = dark ? 'rgba(249,250,251,0.72)' : 'rgba(17,24,39,0.62)';
+                ctx.textAlign = align || 'left';
+                ctx.fillText(text, x, y);
+            }
+            quadrantLabel('watch while active', lP + 10, tP + 18, 'left');
+            quadrantLabel('act now', lP + cW - 10, tP + 18, 'right');
+            quadrantLabel('ignore', lP + 10, tP + cH - 10, 'left');
+            quadrantLabel('schedule debt', lP + cW - 10, tP + cH - 10, 'right');
 
             // dots
             var r = Math.max(3, Math.min(7, Math.round(cW / Math.sqrt(pts.length) * 0.18)));
@@ -1315,11 +1977,37 @@ fn inline_javascript() -> &'static str {
                 var cy = tP + cH - (p.y / maxY) * cH;
                 var col = bandColor[p.b] || '#6b7280';
                 ctx.beginPath();
-                ctx.arc(cx, cy, i === hoveredIdx ? r + 2 : r, 0, Math.PI * 2);
+                ctx.arc(cx, cy, i === hoveredIdx ? r + 3 : r, 0, Math.PI * 2);
                 ctx.fillStyle = col;
-                ctx.globalAlpha = i === hoveredIdx ? 1.0 : 0.72;
+                ctx.globalAlpha = i === hoveredIdx ? 1.0 : (p.b === 'c' ? 0.88 : 0.62);
                 ctx.fill();
+                if (p.b === 'c' || i === hoveredIdx) {
+                    ctx.strokeStyle = dark ? '#111827' : '#ffffff';
+                    ctx.lineWidth = i === hoveredIdx ? 3 : 2;
+                    ctx.stroke();
+                }
                 ctx.globalAlpha = 1.0;
+            });
+
+            var callouts = pts.slice().sort(function(a, b) {
+                var ar = (a.x * 1.4) + (a.y * 2.2) + (a.b === 'c' ? 5 : a.b === 'h' ? 2 : 0);
+                var br = (b.x * 1.4) + (b.y * 2.2) + (b.b === 'c' ? 5 : b.b === 'h' ? 2 : 0);
+                return br - ar;
+            }).slice(0, 3);
+            callouts.forEach(function(p, idx) {
+                var cx = lP + (p.x / maxX) * cW;
+                var cy = tP + cH - (p.y / maxY) * cH;
+                var shortName = String(p.n || '').split('::').pop();
+                if (shortName.length > 24) shortName = shortName.slice(0, 21) + '...';
+                var tx = Math.min(Math.max(cx + 12, lP + 72), lP + cW - 72);
+                var ty = Math.max(tP + 18, cy - 16 - (idx * 4));
+                ctx.strokeStyle = dark ? 'rgba(156,163,175,0.45)' : 'rgba(100,116,139,0.45)';
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(cx + 5, cy - 5); ctx.lineTo(tx - 5, ty + 3); ctx.stroke();
+                ctx.font = 'bold 10px system-ui,sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillStyle = dark ? '#f9fafb' : '#111827';
+                ctx.fillText(shortName, tx, ty);
             });
 
             // tooltip
@@ -1368,7 +2056,7 @@ fn inline_javascript() -> &'static str {
                 var r2 = el.getBoundingClientRect();
                 var mx = (e.clientX - r2.left) * (el.width / r2.width);
                 var my = (e.clientY - r2.top) * (el.height / r2.height);
-                var lP2 = 56, rP2 = 16, tP2 = 16, bP2 = 36;
+                var lP2 = 64, rP2 = 24, tP2 = 28, bP2 = 46;
                 var cW2 = el.width - lP2 - rP2, cH2 = el.height - tP2 - bP2;
                 var xs2 = pts.map(function(p) { return p.x; });
                 var ys2 = pts.map(function(p) { return p.y; });
@@ -1392,7 +2080,342 @@ fn inline_javascript() -> &'static str {
                 if (scatterRaf) cancelAnimationFrame(scatterRaf);
                 scatterRaf = requestAnimationFrame(drawScatter);
             });
-            window.addEventListener('resize', drawScatter);
+            window.addEventListener('resize', function() {
+                drawScatter();
+            });
+        });
+    })();
+
+    // Model Risk Map graph — reads window.__hsModelMap
+    ;(function() {
+        var modelMap = window.__hsModelMap || { models: window.__hsModels || [], links: [] };
+        var models = modelMap.models || [];
+        if (!models || models.length === 0) return;
+        var selectedIdx = 0;
+        var hoverIdx = -1;
+        var nodes = [];
+        var links = modelMap.links || [];
+        var raf = null;
+        var simRaf = null;
+        var lastW = 0;
+        var lastH = 0;
+        var dragging = null;
+        var colors = { critical: '#ef4444', high: '#f97316', moderate: '#eab308', low: '#22c55e' };
+        var bandWeights = { critical: 1.5, high: 1.25, moderate: 1.0, low: 0.5 };
+
+        function isDarkModel() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+        function esc(s) {
+            return String(s || '').replace(/[&<>"']/g, function(c) {
+                return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+            });
+        }
+        function sourceHref(file, line) {
+            var normalized = String(file || '').replace(/\\/g, '/');
+            var href = normalized.indexOf('/') === 0 ? 'file://' + normalized : normalized;
+            return encodeURI(href) + (line ? '#L' + encodeURIComponent(String(line)) : '');
+        }
+        function weightedScore(m) {
+            var fns = m.functions || [];
+            if (!fns.length) return m.score || 0;
+            var s = 0;
+            fns.forEach(function(f) {
+                var base = (f.activity_risk != null ? f.activity_risk : f.lrs) || 0;
+                s += base * (bandWeights[f.band] || 1.0);
+            });
+            return s;
+        }
+        var wScores = models.map(weightedScore);
+        var maxWScore = Math.max.apply(null, wScores.concat([1]));
+        function modelRiskColor(m, idx) {
+            var ratio = (typeof idx === 'number' ? wScores[idx] : weightedScore(m)) / maxWScore;
+            if (ratio >= 0.75) return '#b91c1c';
+            if (ratio >= 0.50) return '#ef4444';
+            if (ratio >= 0.30) return '#f97316';
+            if (ratio >= 0.15) return '#eab308';
+            return '#22c55e';
+        }
+        function modelConnections(idx) {
+            return links.filter(function(l) {
+                return l.source === idx || l.target === idx;
+            }).map(function(l) {
+                var other = l.source === idx ? l.target : l.source;
+                return {
+                    other: other,
+                    name: (models[other] && models[other].name) || '',
+                    count: l.shared_functions || 0,
+                    risk: l.shared_risk || 0,
+                    strength: linkStrength(l),
+                    shared: l.functions || []
+                };
+            }).sort(function(a, b) {
+                return b.strength - a.strength;
+            });
+        }
+        function buildGraph() {
+            nodes = models.map(function(m, i) {
+                return { model: m, idx: i, x: 0, y: 0, vx: 0, vy: 0, r: 12, fixed: false };
+            });
+        }
+        function linkStrength(l) {
+            return (l.shared_functions || 0) + (l.shared_risk || 0) / 10;
+        }
+        function initializeGraph(W, H) {
+            var cx = W / 2, cy = H / 2, spread = Math.max(70, Math.min(W, H) * 0.34);
+            nodes.forEach(function(n, i) {
+                var angle = (Math.PI * 2 * i / Math.max(1, nodes.length)) - Math.PI / 2;
+                var ws = wScores[i] || 0;
+                var pull = 1 - Math.min(0.45, ws / maxWScore * 0.35);
+                n.r = 11 + Math.sqrt(Math.max(0, ws)) * 1.4;
+                n.x = cx + Math.cos(angle) * spread * pull;
+                n.y = cy + Math.sin(angle) * spread * pull;
+                n.vx = 0;
+                n.vy = 0;
+            });
+            for (var tick = 0; tick < 180; tick++) simulateStep(W, H);
+        }
+        function simulateStep(W, H) {
+            var cx = W / 2, cy = H / 2;
+            var maxLink = Math.max.apply(null, links.map(linkStrength)) || 1;
+                for (var a = 0; a < nodes.length; a++) {
+                    for (var b = a + 1; b < nodes.length; b++) {
+                        var na = nodes[a], nb = nodes[b];
+                        var dx = nb.x - na.x, dy = nb.y - na.y;
+                        var d2 = Math.max(64, dx * dx + dy * dy);
+                        var d = Math.sqrt(d2);
+                    var force = 1800 / d2;
+                    if (!na.fixed) {
+                        na.vx -= dx / d * force; na.vy -= dy / d * force;
+                    }
+                    if (!nb.fixed) {
+                        nb.vx += dx / d * force; nb.vy += dy / d * force;
+                    }
+                    }
+                }
+                links.forEach(function(l) {
+                    var a = nodes[l.source], b = nodes[l.target];
+                if (!a || !b) return;
+                    var dx = b.x - a.x, dy = b.y - a.y;
+                    var d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+                var normalized = linkStrength(l) / maxLink;
+                var target = 190 - normalized * 95;
+                var force = (d - target) * (0.01 + normalized * 0.022);
+                if (!a.fixed) {
+                    a.vx += dx / d * force; a.vy += dy / d * force;
+                }
+                if (!b.fixed) {
+                    b.vx -= dx / d * force; b.vy -= dy / d * force;
+                }
+                });
+                nodes.forEach(function(n) {
+                if (n.fixed) {
+                    n.vx = 0; n.vy = 0;
+                    return;
+                }
+                    n.vx += (cx - n.x) * 0.004;
+                    n.vy += (cy - n.y) * 0.004;
+                n.vx *= 0.82; n.vy *= 0.82;
+                    n.x = Math.min(W - n.r - 16, Math.max(n.r + 16, n.x + n.vx));
+                    n.y = Math.min(H - n.r - 22, Math.max(n.r + 18, n.y + n.vy));
+                });
+        }
+        function tick(el) {
+            if (!el) return;
+            simulateStep(el.width, el.height);
+            drawModels(false);
+            simRaf = requestAnimationFrame(function() { tick(el); });
+        }
+        function updateDetail(idx, pin) {
+            var m = models[idx] || models[0];
+            if (pin) selectedIdx = idx;
+            var name = document.getElementById('hs-model-detail-name');
+            var meta = document.getElementById('hs-model-detail-meta');
+            var metrics = document.getElementById('hs-model-detail-metrics');
+            var funcs = document.getElementById('hs-model-detail-functions');
+            if (!m || !name || !meta || !metrics || !funcs) return;
+            var connections = modelConnections(idx);
+            var maxConnection = Math.max.apply(null, connections.map(function(c) { return c.strength; })) || 1;
+            name.textContent = m.name || '';
+            meta.innerHTML = '<a class="source-link" href="' + sourceHref(m.file, m.line) + '">' + esc((m.file || '') + ':' + (m.line || '')) + '</a> - ' + esc(m.kind || '');
+            metrics.innerHTML =
+                '<div class="model-metric"><span>Risk Score</span><strong style="color:' + modelRiskColor(m, idx) + '">' + (wScores[idx] || 0).toFixed(2) + '</strong></div>' +
+                '<div class="model-metric"><span>Raw Score</span><strong>' + Number(m.score || 0).toFixed(2) + '</strong></div>' +
+                '<div class="model-metric"><span>Critical</span><strong class="band-critical">' + (m.critical || 0) + '</strong></div>' +
+                '<div class="model-metric"><span>High</span><strong class="band-high">' + (m.high || 0) + '</strong></div>' +
+                '<div class="model-metric"><span>Moderate</span><strong class="band-moderate">' + (m.moderate || 0) + '</strong></div>';
+            if (connections.length === 0) {
+                funcs.innerHTML = '<div class="model-panel-label">Top associated functions</div>' + (m.functions || []).map(function(f) {
+                    return '<div class="model-function-row">' +
+                        '<div><div class="monospace model-function-name">' + esc(f.function || '') + '</div>' +
+                        '<div class="monospace model-function-file"><a class="source-link" href="' + sourceHref(f.file, f.line) + '">' + esc((f.file || '') + ':' + (f.line || '')) + '</a></div></div>' +
+                        '<div class="model-function-score"><span class="band-' + esc(f.band || 'low') + '">LRS ' + Number(f.lrs || 0).toFixed(2) + '</span>' +
+                        '<span>' + esc(f.quadrant || '-') + '</span><span>' + esc((f.association || '').replace('-', ' ')) + '</span></div>' +
+                    '</div>';
+                }).join('');
+                return;
+            }
+            var functionRows = '<div class="model-panel-label">Top associated functions</div>' + (m.functions || []).map(function(f) {
+                return '<div class="model-function-row">' +
+                    '<div><div class="monospace model-function-name">' + esc(f.function || '') + '</div>' +
+                    '<div class="monospace model-function-file"><a class="source-link" href="' + sourceHref(f.file, f.line) + '">' + esc((f.file || '') + ':' + (f.line || '')) + '</a></div></div>' +
+                    '<div class="model-function-score"><span class="band-' + esc(f.band || 'low') + '">LRS ' + Number(f.lrs || 0).toFixed(2) + '</span>' +
+                    '<span>' + esc(f.quadrant || '-') + '</span><span>' + esc((f.association || '').replace('-', ' ')) + '</span></div>' +
+                '</div>';
+            }).join('');
+            funcs.innerHTML = functionRows + '<div class="model-panel-label model-connection-label-heading">Strongest shared-reference links</div>' +
+                connections.slice(0, 5).map(function(c) {
+                    var width = Math.max(8, Math.round((c.strength / maxConnection) * 100));
+                    return '<div class="model-connection-bar">' +
+                        '<div><div class="model-connection-label">' + esc(c.name) + '</div>' +
+                        '<div class="model-connection-track"><div class="model-connection-fill" style="width:' + width + '%"></div></div></div>' +
+                        '<div class="model-connection-value">' + c.count + ' shared</div>' +
+                    '</div>';
+                }).join('');
+        }
+        function drawModels() {
+            var el = document.getElementById('hs-model-chart');
+            if (!el) return;
+            el.width = el.offsetWidth || 800;
+            var ctx = el.getContext('2d'), W = el.width, H = el.height;
+            var dark = isDarkModel(), fg = dark ? '#9ca3af' : '#6b7280', text = dark ? '#f9fafb' : '#111827', grid = dark ? '#374151' : '#d1d5db';
+            var maxStrength = Math.max.apply(null, links.map(linkStrength)) || 1;
+            if (W !== lastW || H !== lastH || nodes.some(function(n) { return n.x === 0 && n.y === 0; })) {
+                lastW = W; lastH = H; initializeGraph(W, H);
+            }
+            ctx.clearRect(0, 0, W, H);
+            links.forEach(function(l) {
+                var a = nodes[l.source], b = nodes[l.target];
+                if (!a || !b) return;
+                var active = l.source === selectedIdx || l.target === selectedIdx || l.source === hoverIdx || l.target === hoverIdx;
+                ctx.strokeStyle = active ? (dark ? '#93c5fd' : '#2563eb') : grid;
+                ctx.globalAlpha = active ? 0.85 : 0.42;
+                ctx.lineWidth = 1 + (linkStrength(l) / maxStrength) * 7;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(b.x, b.y);
+                ctx.stroke();
+            });
+            ctx.globalAlpha = 1;
+            nodes.forEach(function(n) {
+                var m = n.model, i = n.idx;
+                var selected = i === selectedIdx, hovered = i === hoverIdx;
+                var r = n.r + (selected || hovered ? 3 : 0);
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
+                ctx.fillStyle = selected ? (dark ? '#111827' : '#eff6ff') : (dark ? '#1f2937' : '#ffffff');
+                ctx.fill();
+                ctx.strokeStyle = selected || hovered ? (dark ? '#93c5fd' : '#2563eb') : (dark ? '#374151' : '#e5e7eb');
+                ctx.lineWidth = selected || hovered ? 3 : 1;
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = modelRiskColor(m, i);
+                ctx.globalAlpha = selected || hovered ? 1 : 0.86;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = dark ? '#111827' : '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = text;
+                ctx.textAlign = 'center';
+                ctx.font = selected ? 'bold 11px system-ui,sans-serif' : '11px system-ui,sans-serif';
+                var label = m.name || '';
+                if (label.length > 18) label = label.slice(0, 15) + '...';
+                ctx.fillText(label, n.x, n.y + r + 15);
+                ctx.font = 'bold 10px system-ui,sans-serif';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(17, 24, 39, 0.72)';
+                var wsLabel = (wScores[i] || 0).toFixed(1);
+                ctx.strokeText(wsLabel, n.x, n.y + 3);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(wsLabel, n.x, n.y + 3);
+            });
+            if (links.length === 0) {
+                ctx.fillStyle = fg;
+                ctx.textAlign = 'center';
+                ctx.font = '12px system-ui,sans-serif';
+                ctx.fillText('No shared model references in the displayed top models', W / 2, H - 18);
+            }
+            ctx.fillStyle = fg;
+            ctx.font = '10px system-ui,sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('Drag nodes to explore. Stronger shared-reference bonds pull closer and draw thicker.', 14, H - 10);
+        }
+        function hitTest(mx, my, el) {
+            var best = -1, bestD = 900;
+            nodes.forEach(function(n) {
+                var dx = mx - n.x, dy = my - n.y;
+                var d = dx * dx + dy * dy;
+                if (d < bestD && d <= (n.r + 12) * (n.r + 12)) {
+                    bestD = d;
+                    best = n.idx;
+                }
+            });
+            return best;
+        }
+        function pointerPos(e, el) {
+            var r = el.getBoundingClientRect();
+            return {
+                x: (e.clientX - r.left) * (el.width / r.width),
+                y: (e.clientY - r.top) * (el.height / r.height)
+            };
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('hs-model-chart');
+            if (!el) return;
+            buildGraph();
+            updateDetail(0, true);
+            drawModels();
+            simRaf = requestAnimationFrame(function() { tick(el); });
+            el.addEventListener('mousemove', function(e) {
+                var p = pointerPos(e, el);
+                if (dragging !== null && nodes[dragging]) {
+                    nodes[dragging].x = Math.min(el.width - nodes[dragging].r - 16, Math.max(nodes[dragging].r + 16, p.x));
+                    nodes[dragging].y = Math.min(el.height - nodes[dragging].r - 22, Math.max(nodes[dragging].r + 18, p.y));
+                    nodes[dragging].vx = 0;
+                    nodes[dragging].vy = 0;
+                    drawModels();
+                    return;
+                }
+                var idx = hitTest(p.x, p.y, el);
+                el.style.cursor = idx >= 0 ? 'grab' : 'default';
+                if (idx !== hoverIdx) {
+                    hoverIdx = idx;
+                    if (idx >= 0) updateDetail(idx, false);
+                    if (raf) cancelAnimationFrame(raf);
+                    raf = requestAnimationFrame(drawModels);
+                }
+            });
+            el.addEventListener('mousedown', function(e) {
+                var p = pointerPos(e, el);
+                var idx = hitTest(p.x, p.y, el);
+                if (idx < 0 || !nodes[idx]) return;
+                dragging = idx;
+                nodes[idx].fixed = true;
+                nodes[idx].vx = 0;
+                nodes[idx].vy = 0;
+                hoverIdx = idx;
+                updateDetail(idx, true);
+                el.style.cursor = 'grabbing';
+                e.preventDefault();
+            });
+            el.addEventListener('click', function() {
+                if (hoverIdx >= 0) updateDetail(hoverIdx, true);
+            });
+            el.addEventListener('mouseleave', function() {
+                if (dragging !== null) return;
+                hoverIdx = -1;
+                updateDetail(selectedIdx, false);
+                if (raf) cancelAnimationFrame(raf);
+                raf = requestAnimationFrame(drawModels);
+            });
+            window.addEventListener('mouseup', function() {
+                if (dragging !== null && nodes[dragging]) {
+                    nodes[dragging].fixed = false;
+                    dragging = null;
+                    el.style.cursor = hoverIdx >= 0 ? 'grab' : 'default';
+                }
+            });
+            window.addEventListener('resize', drawModels);
         });
     })();
 })();
@@ -1419,7 +2442,7 @@ fn render_header(commit: &CommitInfo) -> String {
 }
 
 /// Render summary section
-fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
+fn render_summary(snapshot: &Snapshot) -> String {
     let total_functions = snapshot.functions.len();
     let critical_count = snapshot
         .functions
@@ -1431,59 +2454,16 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
         .iter()
         .filter(|f| f.band == RiskBand::High)
         .count();
-    let avg_lrs = if total_functions > 0 {
-        snapshot.functions.iter().map(|f| f.lrs).sum::<f64>() / total_functions as f64
-    } else {
-        0.0
-    };
-
-    let mut extra = String::new();
-    if let Some(summary) = &snapshot.summary {
-        if summary.total_activity_risk > 0.0 {
-            extra.push_str(&format!(
-                r#"
-    <div class="summary-card">
-        <h3>Total Activity Risk</h3>
-        <div class="value">{:.1}</div>
-    </div>"#,
-                summary.total_activity_risk
-            ));
-        }
-        if summary.top_1_pct_share > 0.0 {
-            extra.push_str(&format!(
-                r#"
-    <div class="summary-card">
-        <h3>Top 1% Share</h3>
-        <div class="value">{:.1}%</div>
-    </div>"#,
-                summary.top_1_pct_share * 100.0
-            ));
-        }
-        if let Some(cg) = &summary.call_graph {
-            if cg.total_edges > 0 {
-                extra.push_str(&format!(
-                    r#"
-    <div class="summary-card">
-        <h3>Call Graph Edges</h3>
-        <div class="value">{}</div>
-    </div>"#,
-                    cg.total_edges
-                ));
-            }
-        }
-    }
-
-    // Format threshold values: show as integer when whole, else 1 decimal place.
-    let fmt_t = |v: f64| -> String {
-        if v.fract() == 0.0 {
-            format!("{}", v as i64)
-        } else {
-            format!("{:.1}", v)
-        }
-    };
-    let t_critical = fmt_t(thresholds.critical);
-    let t_high = fmt_t(thresholds.high);
-    let t_moderate = fmt_t(thresholds.moderate);
+    let fire_count = snapshot
+        .functions
+        .iter()
+        .filter(|f| f.quadrant.as_deref() == Some("fire"))
+        .count();
+    let debt_count = snapshot
+        .functions
+        .iter()
+        .filter(|f| f.quadrant.as_deref() == Some("debt"))
+        .count();
 
     format!(
         r#"<div class="summary">
@@ -1492,42 +2472,23 @@ fn render_summary(snapshot: &Snapshot, thresholds: &RiskThresholds) -> String {
         <div class="value">{total}</div>
     </div>
     <div class="summary-card">
-        <h3>Critical Risk</h3>
-        <div class="value band-critical">{critical}</div>
+        <h3>Fire</h3>
+        <div class="value band-critical">{fire}</div>
     </div>
     <div class="summary-card">
-        <h3>High Risk</h3>
-        <div class="value band-high">{high}</div>
+        <h3>Debt</h3>
+        <div class="value band-high">{debt}</div>
     </div>
     <div class="summary-card">
-        <h3>Average LRS</h3>
-        <div class="value">{avg:.2}</div>
-    </div>{extra}
+        <h3>High+ Risk</h3>
+        <div class="value">{high_plus}</div>
+    </div>
 </div>
-<p class="summary-legend">
-    <strong>Risk bands (LRS):</strong>
-    <span class="band-critical">critical</span> ≥ {t_critical} ·
-    <span class="band-high">high</span> {t_high}–&lt;{t_critical} ·
-    <span class="band-moderate">moderate</span> {t_moderate}–&lt;{t_high} ·
-    <span class="band-low">low</span> &lt; {t_moderate}
-</p>
-<div class="metric-legend">
-    <span class="metric-legend-label">Metrics:</span>
-    <span class="metric-pill" title="Cyclomatic Complexity — number of independent execution paths through the function. Each path is a potential bug surface and a required test case."><strong>CC</strong> independent code paths</span>
-    <span class="metric-pill" title="Nesting Depth — maximum level of nested control structures (if / for / while / try). Deeper = harder to reason about."><strong>ND</strong> nesting depth</span>
-    <span class="metric-pill" title="Fan-out — number of distinct functions this function calls. High fan-out = a change here ripples into many call sites."><strong>FO</strong> functions called</span>
-    <span class="metric-pill" title="Non-Structured exits — count of early returns, throws, panics, and other exits that bypass normal control flow. Each one is an additional path a reader must trace."><strong>NS</strong> early exits (returns / throws / panics)</span>
-    <span class="metric-pill" title="Local Risk Score — weighted composite of CC, ND, FO, and NS (non-structured exits — early returns, throws, panics). The structural complexity score for a single function."><strong>LRS</strong> structural complexity (CC + ND + FO + NS combined)</span>
-    <span class="metric-pill" title="Activity Risk = LRS × recent commit frequency, weighted by recency. The primary sort signal: a structurally complex function that is actively being changed is higher priority than one that is merely complex but untouched."><strong>Activity Risk</strong> LRS × how often this function has been committed to recently</span>
-</div>"#,
+"#,
         total = total_functions,
-        critical = critical_count,
-        high = high_count,
-        avg = avg_lrs,
-        extra = extra,
-        t_critical = t_critical,
-        t_high = t_high,
-        t_moderate = t_moderate,
+        fire = fire_count,
+        debt = debt_count,
+        high_plus = critical_count + high_count,
     )
 }
 
@@ -1562,7 +2523,10 @@ fn render_pattern_breakdown(functions: &[FunctionSnapshot]) -> String {
 
     let affected = functions.iter().filter(|f| !f.patterns.is_empty()).count();
     format!(
-        r#"<div class="pattern-breakdown"><h2>Pattern Breakdown</h2><p class="pattern-breakdown-subtitle">Detected across {affected} function{s}</p><div class="pattern-chips">{chips}</div></div>"#,
+        r#"<details class="section pattern-breakdown">
+    <summary>Pattern Breakdown<span class="section-summary-note">Detected across {affected} function{s}</span></summary>
+    <div class="pattern-chips">{chips}</div>
+</details>"#,
         affected = affected,
         s = if affected == 1 { "" } else { "s" },
         chips = chips,
@@ -1589,6 +2553,70 @@ fn pattern_description(id: &str) -> &'static str {
 }
 
 /// Render functions table
+fn render_function_risk_gallery(functions: &[FunctionSnapshot]) -> String {
+    let max_lrs = functions
+        .iter()
+        .map(|f| f.lrs)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let mut sorted = functions.iter().collect::<Vec<_>>();
+    sorted.sort_by(|a, b| {
+        b.activity_risk
+            .unwrap_or(b.lrs)
+            .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.lrs
+                    .partial_cmp(&a.lrs)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    let cards: String = sorted
+        .into_iter()
+        .take(48)
+        .map(|f| {
+            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let width = ((f.lrs / max_lrs) * 100.0).clamp(4.0, 100.0);
+            let activity = f.activity_risk.unwrap_or(f.lrs);
+            let touches = f
+                .touch_count_30d
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            format!(
+                r#"<div class="visual-card" data-band="{band}">
+    <div class="visual-card-title">{function}</div>
+    <div class="visual-card-subtitle monospace">{source}</div>
+    <div class="visual-bar"><div class="visual-bar-fill band-{band}" style="width:{width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>LRS</span><strong>{lrs:.2}</strong></div>
+        <div class="visual-metric"><span>Activity</span><strong>{activity:.2}</strong></div>
+        <div class="visual-metric"><span>Touches</span><strong>{touches}</strong></div>
+        <div class="visual-metric"><span>CC</span><strong>{cc}</strong></div>
+    </div>
+</div>"#,
+                function = html_escape(function_name),
+                source = source_link(
+                    &f.file,
+                    f.line,
+                    &format!("{}:{}", compact_source_label(&f.file), f.line)
+                ),
+                band = f.band.as_str(),
+                width = width,
+                lrs = f.lrs,
+                activity = activity,
+                touches = touches,
+                cc = f.metrics.cc,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="visual-note">Top function risks rendered as bars. Use the raw table below only for exact rows, sorting, and export-style inspection.</div>
+<div class="visual-grid">{cards}</div>"#,
+        cards = cards,
+    )
+}
+
 fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     // Only show churn/fanin columns when enough functions actually have data
     let sparse_min = 10usize;
@@ -1733,7 +2761,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                  {activity_cell}{churn_cell}{touches_cell}{recency_cell}{fanin_cell}{patterns_cell}\
                  </tr>",
                 file = html_escape(&f.file),
-                file_display = html_escape(&f.file),
+                file_display = source_link(&f.file, f.line, &compact_source_label(&f.file)),
                 function = html_escape(function_name),
                 function_display = html_escape(function_name),
                 driver = html_escape(driver_str),
@@ -1800,11 +2828,15 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     } else {
         ""
     };
+    let gallery = render_function_risk_gallery(functions);
 
     format!(
-        r#"<section class="section">
-    <h2>Functions (<span id="visible-count">{count}</span> of {count})</h2>
+        r#"<details class="section">
+    <summary>Function Inventory (<span id="visible-count">{count}</span> of {count})<span class="section-summary-note">Full searchable table and function cards</span></summary>
+    {gallery}
 
+    <details class="raw-data-details">
+        <summary>Show raw function table</summary>
     <div class="filters">
         <div class="filter-group">
             <label for="band-filter">Risk Band</label>
@@ -1861,8 +2893,10 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
             {rows}
         </tbody>
     </table>
-</section>"#,
+    </details>
+</details>"#,
         count = functions.len(),
+        gallery = gallery,
         rows = rows,
         activity_header = activity_header,
         churn_header = churn_header,
@@ -1876,6 +2910,148 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
 /// Map (driver, quadrant) to a one-line recommended action for the triage table.
 fn triage_action(driver: Option<&str>, quadrant: Option<&str>) -> &'static str {
     crate::snapshot::driver_action_for_quadrant(driver.unwrap_or(""), quadrant.unwrap_or(""))
+}
+
+fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
+    let mut candidates: Vec<&FunctionSnapshot> = functions
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.quadrant.as_deref(),
+                Some("fire") | Some("debt") | Some("watch")
+            )
+        })
+        .collect();
+    candidates.sort_by(|a, b| {
+        next_action_rank(a)
+            .cmp(&next_action_rank(b))
+            .then_with(|| {
+                b.activity_risk
+                    .unwrap_or(b.lrs)
+                    .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                b.touch_count_30d
+                    .unwrap_or(0)
+                    .cmp(&a.touch_count_30d.unwrap_or(0))
+            })
+            .then_with(|| {
+                b.lrs
+                    .partial_cmp(&a.lrs)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    candidates.truncate(3);
+    if candidates.is_empty() {
+        return String::new();
+    }
+
+    let rows = candidates
+        .into_iter()
+        .enumerate()
+        .map(|(idx, function)| render_next_action(idx + 1, function))
+        .collect::<String>();
+
+    format!(
+        r#"<section class="section next-actions-section" id="next-actions">
+    <h2>3 Targeted Next Moves</h2>
+    <div class="next-actions-subtitle">A short action list from the highest-priority fire, debt, and watch candidates.</div>
+    <div class="next-actions-list">{rows}</div>
+</section>"#,
+        rows = rows,
+    )
+}
+
+fn next_action_rank(function: &FunctionSnapshot) -> u8 {
+    match function.quadrant.as_deref() {
+        Some("fire") => 0,
+        Some("debt") => 1,
+        Some("watch") => 2,
+        _ => 3,
+    }
+}
+
+fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
+    let function_name = function
+        .function_id
+        .split("::")
+        .last()
+        .unwrap_or(&function.function_id);
+    let quadrant = function.quadrant.as_deref().unwrap_or("ok");
+    let driver = function.driver.as_deref().unwrap_or("composite");
+    let touches = function.touch_count_30d.unwrap_or(0);
+    let fan_in = function.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
+    let activity = function.activity_risk.unwrap_or(function.lrs);
+    let last_change = function
+        .days_since_last_change
+        .map(|d| format!("{d}d ago"))
+        .unwrap_or_else(|| "unknown".to_string());
+    let why = next_action_reason(function, quadrant, driver, touches, fan_in);
+
+    format!(
+        r#"<div class="next-action next-action-{quadrant}">
+    <div class="next-action-rank">#{rank}</div>
+    <div>
+        <div class="next-action-title">{function}</div>
+        <div class="next-action-meta monospace">{source}</div>
+        <div class="next-action-why">{why}</div>
+    </div>
+    <div class="next-action-score">
+        <span class="band-{band}">{band}</span>
+        <span>{quadrant}</span>
+        <span>{touches} touches</span>
+        <span>{last_change}</span>
+        <span>risk {activity:.2}</span>
+    </div>
+</div>"#,
+        rank = rank,
+        function = html_escape(function_name),
+        source = source_link(
+            &function.file,
+            function.line,
+            &format!("{}:{}", compact_source_label(&function.file), function.line)
+        ),
+        why = why,
+        quadrant = html_escape(quadrant),
+        band = function.band.as_str(),
+        touches = touches,
+        last_change = last_change,
+        activity = activity,
+    )
+}
+
+fn next_action_reason(
+    function: &FunctionSnapshot,
+    quadrant: &str,
+    driver: &str,
+    touches: usize,
+    fan_in: usize,
+) -> String {
+    let urgency = match quadrant {
+        "fire" => "Act this week",
+        "debt" => "Schedule deliberately",
+        "watch" => "Watch while active",
+        _ => "Track",
+    };
+    let driver_reason = match driver {
+        "high_complexity" => "complexity is the main driver",
+        "deep_nesting" => "nested control flow is the main driver",
+        "high_fanin_complex" => "wide fan-in raises blast radius",
+        "high_fanout_churning" => "fan-out plus activity raises integration risk",
+        "high_churn_low_cc" => "recent churn is the main signal",
+        "cyclic_dep" => "dependency cycles raise change risk",
+        _ => "multiple factors contribute",
+    };
+    let fan_in_note = if fan_in <= 2 {
+        "low fan-in makes this a smaller first move"
+    } else {
+        "higher fan-in means plan tests before changing it"
+    };
+    format!(
+        "{urgency}: {driver_reason}; {touches} touch(es) in 30 days; {fan_in_note}. {}.",
+        triage_action(function.driver.as_deref(), function.quadrant.as_deref())
+    )
 }
 
 /// Render triage panel: quadrant summary + top risks table
@@ -1961,7 +3137,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 None => "—".to_string(),
             };
 
-            let touches_td = if show_touches {
+            let _touches_td = if show_touches {
                 let inner = match f.touch_count_30d {
                     Some(t) if t > 5 => {
                         format!(r#"<span class="recency-hot">{}</span>"#, t)
@@ -1977,7 +3153,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 String::new()
             };
 
-            let last_change_td = if show_last_change {
+            let _last_change_td = if show_last_change {
                 let inner = match f.days_since_last_change {
                     Some(d) if d <= 7 => {
                         format!(r#"<span class="recency-hot">{d}d</span>"#, d = d)
@@ -1996,7 +3172,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 String::new()
             };
 
-            let fanin_td = match &f.callgraph {
+            let _fanin_td = match &f.callgraph {
                 Some(cg) if cg.fan_in <= 2 => format!(
                     r#"<td><span class="refactor-ready">{} (safe)</span></td>"#,
                     cg.fan_in
@@ -2004,32 +3180,50 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 Some(cg) => format!("<td>{}</td>", cg.fan_in),
                 None => "<td>—</td>".to_string(),
             };
+            let touches_value = f
+                .touch_count_30d
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let last_change_value = f
+                .days_since_last_change
+                .map(|d| format!("{d}d"))
+                .unwrap_or_else(|| "—".to_string());
+            let fanin_value = f
+                .callgraph
+                .as_ref()
+                .map(|cg| cg.fan_in.to_string())
+                .unwrap_or_else(|| "—".to_string());
+            let risk_width = (risk_val * 8.0).clamp(4.0, 100.0);
 
             let row_class = if f.quadrant.as_deref() == Some("fire") {
-                " class=\"triage-active-row\""
+                "fire"
             } else {
                 ""
             };
 
             format!(
-                "<tr{cls}>\n\
-                 <td class=\"monospace\">{file}</td>\n\
-                 <td>{func}</td>\n\
-                 <td><span class=\"band-{band}\">{band}</span></td>\n\
-                 <td>{risk:.2}</td>\n\
-                 <td>{driver}</td>\n\
-                 {touches_td}{last_change_td}{fanin_td}\
-                 <td class=\"triage-action\">{action}</td>\n\
-                 </tr>",
+                r#"<div class="triage-risk-card {cls}">
+    <div class="visual-card-title">{func}</div>
+    <div class="visual-card-subtitle monospace">{source}</div>
+    <div class="visual-bar"><div class="visual-bar-fill band-{band}" style="width:{risk_width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>Band</span><strong class="band-{band}">{band}</strong></div>
+        <div class="visual-metric"><span>Risk</span><strong>{risk:.2}</strong></div>
+        <div class="visual-metric"><span>Touches</span><strong>{touches}</strong></div>
+        <div class="visual-metric"><span>Fan-in</span><strong>{fanin}</strong></div>
+    </div>
+    <div class="visual-note">{driver} · last change {last_change} · {action}</div>
+</div>"#,
                 cls = row_class,
-                file = html_escape(&f.file),
+                source = source_link(&f.file, f.line, &format!("{}:{}", f.file, f.line)),
                 func = html_escape(function_name),
                 band = f.band.as_str(),
                 risk = risk_val,
+                risk_width = risk_width,
                 driver = driver_cell,
-                touches_td = touches_td,
-                last_change_td = last_change_td,
-                fanin_td = fanin_td,
+                touches = touches_value,
+                last_change = last_change_value,
+                fanin = fanin_value,
                 action = triage_action(f.driver.as_deref(), f.quadrant.as_deref()),
             )
         })
@@ -2081,57 +3275,31 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
         String::new()
     };
 
-    let touches_th = if show_touches {
-        "<th>Touches (30d)</th>"
-    } else {
-        ""
-    };
-    let last_change_th = if show_last_change {
-        "<th>Last Change</th>"
-    } else {
-        ""
-    };
-
     format!(
-        r#"<section class="section triage-section" id="triage">
-    <h2>Triage</h2>
+        r#"<details class="section triage-section" id="triage">
+    <summary>Triage Details<span class="section-summary-note">Quadrant counts and the next tier of risky functions</span></summary>
     {chips}
     <h3 class="triage-subtitle">Top Risks ({count})</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>File</th>
-                <th>Function</th>
-                <th>Band</th>
-                <th>Risk</th>
-                <th>Driver</th>
-                {touches_th}
-                {last_change_th}
-                <th>Fan-in</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
-</section>"#,
+    <div class="triage-risk-grid">{rows}</div>
+</details>"#,
         chips = chips_html,
         count = count,
-        touches_th = touches_th,
-        last_change_th = last_change_th,
         rows = rows,
     )
 }
 
-/// Render aggregates section (File Risk, Module Instability, Co-change Coupling)
+/// Render architecture/concentration sections.
 fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
     let mut sections = Vec::new();
 
+    if let Some(model_map) = &aggregates.models {
+        if !model_map.models.is_empty() {
+            sections.push(render_model_risk_section(model_map));
+        }
+    }
+
     // 4a. File Risk Table (joined with FileAggregates for LRS metrics)
     if !aggregates.file_risk.is_empty() {
-        let show_file_churn = aggregates.file_risk.iter().any(|f| f.file_churn > 0);
-
         // Build a lookup: file -> (sum_lrs, max_lrs, high_plus_count)
         let lrs_lookup: std::collections::HashMap<&str, &crate::aggregates::FileAggregates> =
             aggregates
@@ -2146,73 +3314,40 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
             .take(30)
             .map(|f| {
                 let lrs = lrs_lookup.get(f.file.as_str());
-                let sum_lrs = lrs.map(|l| l.sum_lrs).unwrap_or(0.0);
                 let max_lrs = lrs.map(|l| l.max_lrs).unwrap_or(0.0);
                 let high_plus = lrs.map(|l| l.high_plus_count).unwrap_or(0);
-                let churn_td = if show_file_churn {
-                    format!("<td>{}</td>", f.file_churn)
-                } else {
-                    String::new()
-                };
+                let score_width = (f.file_risk_score * 10.0).clamp(4.0, 100.0);
                 format!(
-                    "<tr>\n\
-                     <td class=\"monospace\">{file}</td>\n\
-                     <td>{fns}</td>\n\
-                     <td>{loc}</td>\n\
-                     <td>{max_cc}</td>\n\
-                     <td>{avg_cc:.1}</td>\n\
-                     <td>{critical}</td>\n\
-                     <td>{high_plus}</td>\n\
-                     <td>{sum_lrs:.2}</td>\n\
-                     <td>{max_lrs:.2}</td>\n\
-                     {churn_td}\
-                     <td>{score:.2}</td>\n\
-                     </tr>",
-                    file = html_escape(&f.file),
+                    r#"<div class="visual-card">
+    <div class="visual-card-title monospace">{file}</div>
+    <div class="visual-card-subtitle">{fns} functions · {loc} LOC · {high_plus} high+</div>
+    <div class="visual-bar"><div class="visual-bar-fill band-high" style="width:{score_width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>Risk</span><strong>{score:.2}</strong></div>
+        <div class="visual-metric"><span>Max LRS</span><strong>{max_lrs:.2}</strong></div>
+        <div class="visual-metric"><span>Max CC</span><strong>{max_cc}</strong></div>
+        <div class="visual-metric"><span>Critical</span><strong>{critical}</strong></div>
+    </div>
+</div>"#,
+                    file = source_link(&f.file, 0, &f.file),
                     fns = f.function_count,
                     loc = f.loc,
                     max_cc = f.max_cc,
-                    avg_cc = f.avg_cc,
                     critical = f.critical_count,
                     high_plus = high_plus,
-                    sum_lrs = sum_lrs,
                     max_lrs = max_lrs,
-                    churn_td = churn_td,
                     score = f.file_risk_score,
+                    score_width = score_width,
                 )
             })
             .collect();
 
-        let churn_th = if show_file_churn {
-            "<th title=\"Total lines added + deleted across all recent commits\">Churn (lines)</th>"
-        } else {
-            ""
-        };
         sections.push(format!(
-            r#"<section class="section">
-    <h2>File Risk (Top 30 by Risk Score)</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>File</th>
-                <th title="Number of functions in this file">Fns</th>
-                <th title="Lines of code">LOC</th>
-                <th title="Highest Cyclomatic Complexity of any function in the file">Max CC</th>
-                <th title="Average Cyclomatic Complexity across all functions">Avg CC</th>
-                <th title="Functions in the critical risk band">Critical</th>
-                <th title="Functions in the high or critical risk band">High+</th>
-                <th title="Sum of Local Risk Scores across all functions">Sum LRS</th>
-                <th title="Highest single-function Local Risk Score in the file">Max LRS</th>
-                {churn_th}
-                <th title="Composite file risk: max_cc×0.4 + avg_cc×0.3 + log2(fns+1)×0.2 + churn_factor×0.1">Risk Score</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
-</section>"#,
-            churn_th = churn_th,
+            r#"<details class="section" open>
+    <summary>Risk Concentration: Files<span class="section-summary-note">Top files by composite risk</span></summary>
+    <div class="visual-note">Use this to choose where to inspect first after the start-here actions.</div>
+    <div class="visual-grid">{rows}</div>
+</details>"#,
             rows = rows,
         ));
     }
@@ -2224,7 +3359,7 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
             .iter()
             .map(|m| {
                 // Classify into Martin's zones using instability + complexity
-                let (zone_label, zone_class) = if m.instability < 0.3 {
+                let (zone_label, _zone_class) = if m.instability < 0.3 {
                     if m.avg_complexity > 8.0 {
                         ("zone of pain", "zone-pain")
                     } else {
@@ -2239,51 +3374,36 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
                 } else {
                     ("balanced", "zone-balanced")
                 };
+                let instability_width = (m.instability * 100.0).clamp(4.0, 100.0);
                 format!(
-                    "<tr>\n\
-                     <td class=\"monospace\">{module}</td>\n\
-                     <td>{files}</td>\n\
-                     <td>{fns}</td>\n\
-                     <td>{avg_cc:.1}</td>\n\
-                     <td>{afferent}</td>\n\
-                     <td>{efferent}</td>\n\
-                     <td>{instability:.2}</td>\n\
-                     <td class=\"{zone_class}\">{zone_label}</td>\n\
-                     </tr>",
+                    r#"<div class="visual-card">
+    <div class="visual-card-title monospace">{module}</div>
+    <div class="visual-card-subtitle">{zone_label}</div>
+    <div class="visual-bar"><div class="visual-bar-fill" style="width:{instability_width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>Instability</span><strong>{instability:.2}</strong></div>
+        <div class="visual-metric"><span>Avg CC</span><strong>{avg_cc:.1}</strong></div>
+        <div class="visual-metric"><span>Afferent</span><strong>{afferent}</strong></div>
+        <div class="visual-metric"><span>Efferent</span><strong>{efferent}</strong></div>
+    </div>
+</div>"#,
                     module = html_escape(&m.module),
-                    files = m.file_count,
-                    fns = m.function_count,
                     avg_cc = m.avg_complexity,
                     afferent = m.afferent,
                     efferent = m.efferent,
                     instability = m.instability,
-                    zone_class = zone_class,
+                    instability_width = instability_width,
                     zone_label = zone_label,
                 )
             })
             .collect();
 
         sections.push(format!(
-            r#"<section class="section">
-    <h2>Module Instability</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Module</th>
-                <th>Files</th>
-                <th>Fns</th>
-                <th title="Average Cyclomatic Complexity across all functions in the module">Avg CC</th>
-                <th title="Afferent coupling — modules that depend on this one (higher = more depended upon)">Afferent</th>
-                <th title="Efferent coupling — modules this one depends on (higher = more dependencies)">Efferent</th>
-                <th title="I = Ce / (Ca + Ce). 0 = maximally stable, 1 = maximally unstable">Instability</th>
-                <th title="Zone of Pain: stable but complex (I&lt;0.3, high CC). Volatile: changes often (I&gt;0.7). Balanced: healthy range.">Zone</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
-</section>"#,
+            r#"<details class="section">
+    <summary>Risk Concentration: Modules<span class="section-summary-note">Dependency volatility by directory</span></summary>
+    <div class="visual-note">Instability is Ce / (Ca + Ce). Longer bars are more dependency-volatile.</div>
+    <div class="visual-grid">{rows}</div>
+</details>"#,
             rows = rows,
         ));
     }
@@ -2302,71 +3422,233 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
         .collect();
 
     if !qualifying.is_empty() {
-        let show_static_dep = qualifying.iter().any(|p| p.has_static_dep);
         let rows: String = qualifying
             .iter()
             .map(|p| {
-                let risk_class = match p.risk.as_str() {
-                    "high" => " class=\"co-change-high\"",
-                    "moderate" => " class=\"co-change-moderate\"",
-                    _ => "",
-                };
-                let dep_td = if show_static_dep {
-                    format!("<td>{}</td>", if p.has_static_dep { "yes" } else { "no" })
-                } else {
-                    String::new()
-                };
+                let width = (p.coupling_ratio * 100.0).clamp(4.0, 100.0);
+                let band = if p.risk == "high" { "high" } else { "moderate" };
                 format!(
-                    "<tr>\n\
-                     <td class=\"monospace\">{file_a}</td>\n\
-                     <td class=\"monospace\">{file_b}</td>\n\
-                     <td>{count}</td>\n\
-                     <td>{ratio:.0}%</td>\n\
-                     <td{risk_class}>{risk}</td>\n\
-                     {dep_td}\
-                     </tr>",
-                    file_a = html_escape(&p.file_a),
-                    file_b = html_escape(&p.file_b),
+                    r#"<div class="visual-card coupling-card">
+    <div>
+        <div class="visual-card-title monospace">{file_a}</div>
+        <div class="visual-card-subtitle">source file</div>
+    </div>
+    <div class="coupling-link">{count}x<br>{ratio:.0}%</div>
+    <div>
+        <div class="visual-card-title monospace">{file_b}</div>
+        <div class="visual-card-subtitle">{dep}</div>
+    </div>
+    <div class="visual-bar" style="grid-column:1 / -1"><div class="visual-bar-fill band-{band}" style="width:{width:.0}%"></div></div>
+</div>"#,
+                    file_a = source_link(&p.file_a, 0, &p.file_a),
+                    file_b = source_link(&p.file_b, 0, &p.file_b),
                     count = p.co_change_count,
                     ratio = p.coupling_ratio * 100.0,
-                    risk_class = risk_class,
-                    risk = html_escape(&p.risk),
-                    dep_td = dep_td,
+                    dep = if p.has_static_dep { "static dependency" } else { "implicit coupling" },
+                    band = band,
+                    width = width,
                 )
             })
             .collect();
 
-        let dep_th = if show_static_dep {
-            "<th title=\"Whether a direct import relationship exists between the two files\">Has Static Dep?</th>"
-        } else {
-            ""
-        };
-
         sections.push(format!(
-            r#"<section class="section">
-    <h2>Co-change Coupling</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>File A</th>
-                <th>File B</th>
-                <th title="Number of commits where both files changed together">Co-changes</th>
-                <th title="co_changes / min(total_changes_A, total_changes_B)">Coupling %</th>
-                <th>Risk</th>
-                {dep_th}
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
-</section>"#,
-            dep_th = dep_th,
+            r#"<details class="section">
+    <summary>Risk Concentration: Co-change<span class="section-summary-note">Files that repeatedly change together</span></summary>
+    <div class="visual-note">Bar length reflects coupling ratio.</div>
+    <div class="visual-grid">{rows}</div>
+</details>"#,
             rows = rows,
         ));
     }
 
     sections.join("\n")
+}
+
+fn render_model_risk_section(model_map: &crate::models::ModelRiskMap) -> String {
+    let json = render_model_risk_json(model_map);
+    let initial = model_map.models.first();
+    let initial_name = initial
+        .map(|m| html_escape(&m.name))
+        .unwrap_or_else(|| "No models".to_string());
+    let initial_meta = initial
+        .map(|m| {
+            format!(
+                "{}:{} - {}",
+                source_link(&m.file, m.line, &m.file),
+                m.line,
+                html_escape(&m.kind)
+            )
+        })
+        .unwrap_or_default();
+    let initial_metrics = initial.map(render_model_metrics).unwrap_or_default();
+    let initial_functions = initial.map(render_model_function_list).unwrap_or_else(|| {
+        r#"<div class="model-empty-note">No associated functions.</div>"#.to_string()
+    });
+    let rows: String = model_map
+        .models
+        .iter()
+        .take(10)
+        .enumerate()
+        .map(|(idx, model)| {
+            let functions = model
+                .functions
+                .iter()
+                .map(render_model_function_row)
+                .collect::<String>();
+            format!(
+                r#"<tr>
+                    <td class="model-rank">#{rank}</td>
+                    <td>
+                        <div class="model-name">{name}</div>
+                        <div class="monospace model-file">{file}</div>
+                    </td>
+                    <td>{kind}</td>
+                    <td>{critical}</td>
+                    <td>{high}</td>
+                    <td>{moderate}</td>
+                    <td>{score:.2}</td>
+                    <td>{functions}</td>
+                </tr>"#,
+                rank = idx + 1,
+                name = html_escape(&model.name),
+                file = source_link(
+                    &model.file,
+                    model.line,
+                    &format!("{}:{}", model.file, model.line)
+                ),
+                kind = html_escape(&model.kind),
+                critical = model.critical,
+                high = model.high,
+                moderate = model.moderate,
+                score = model.score,
+                functions = functions,
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<script>window.__hsModelMap = {json}; window.__hsModels = window.__hsModelMap.models;</script>
+<details class="section model-risk-section" open>
+    <summary>Risk Concentration: Models<span class="section-summary-note">Data and control models ranked by associated function risk</span></summary>
+    <div class="chart-label">Stronger links share more associated references.</div>
+    <div class="model-risk-layout">
+        <div>
+            <canvas id="hs-model-chart" height="420"></canvas>
+            <div class="model-legend">
+                <span><span class="scatter-dot band-critical">●</span> Critical functions</span>
+                <span><span class="scatter-dot band-high">●</span> High functions</span>
+                <span><span class="scatter-dot band-moderate">●</span> Moderate functions</span>
+                <span>Node size = risk concentration</span>
+                <span>Edge width = shared references</span>
+            </div>
+        </div>
+        <aside class="model-detail-panel" id="hs-model-detail">
+            <div class="model-detail-header">
+                <strong id="hs-model-detail-name">{initial_name}</strong>
+                <div class="model-detail-meta" id="hs-model-detail-meta">{initial_meta}</div>
+            </div>
+            <div class="model-metric-row" id="hs-model-detail-metrics">{initial_metrics}</div>
+            <div class="model-function-list" id="hs-model-detail-functions">{initial_functions}</div>
+        </aside>
+    </div>
+    <details class="model-table-details">
+        <summary>Show raw model table</summary>
+        <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Model</th>
+                <th>Kind</th>
+                <th>Critical</th>
+                <th>High</th>
+                <th>Moderate</th>
+                <th title="Sum of the top 5 associated function risk scores">Score</th>
+                <th>Top Associated Functions</th>
+            </tr>
+        </thead>
+        <tbody>{rows}</tbody>
+        </table>
+    </details>
+</details>"#,
+        json = json,
+        initial_name = initial_name,
+        initial_meta = initial_meta,
+        initial_metrics = initial_metrics,
+        initial_functions = initial_functions,
+        rows = rows,
+    )
+}
+
+fn render_model_risk_json(model_map: &crate::models::ModelRiskMap) -> String {
+    let models = model_map.models.iter().take(10).collect::<Vec<_>>();
+    let links = model_map
+        .links
+        .iter()
+        .filter(|link| link.source < 10 && link.target < 10)
+        .collect::<Vec<_>>();
+    let json = serde_json::to_string(&serde_json::json!({
+        "models": models,
+        "links": links,
+    }))
+    .unwrap_or_else(|_| r#"{"models":[],"links":[]}"#.to_string());
+    json.replace("</", "<\\/")
+}
+
+fn render_model_metrics(model: &crate::models::ModelRiskEntry) -> String {
+    format!(
+        r#"<div class="model-metric"><span>Score</span><strong>{score:.2}</strong></div>
+<div class="model-metric"><span>Critical</span><strong class="band-critical">{critical}</strong></div>
+<div class="model-metric"><span>High</span><strong class="band-high">{high}</strong></div>
+<div class="model-metric"><span>Moderate</span><strong class="band-moderate">{moderate}</strong></div>"#,
+        score = model.score,
+        critical = model.critical,
+        high = model.high,
+        moderate = model.moderate,
+    )
+}
+
+fn render_model_function_list(model: &crate::models::ModelRiskEntry) -> String {
+    let functions = model
+        .functions
+        .iter()
+        .map(render_model_function_row)
+        .collect::<String>();
+    format!(
+        r#"<div class="model-panel-label">Top associated functions</div>{functions}"#,
+        functions = functions,
+    )
+}
+
+fn render_model_function_row(function: &crate::models::ModelFunction) -> String {
+    let band_class = format!("band-{}", function.band.as_str());
+    let quadrant = function.quadrant.as_deref().unwrap_or("-");
+    let association = match function.association {
+        crate::models::AssociationKind::SameFile => "same file",
+        crate::models::AssociationKind::DirectImport => "direct import",
+    };
+    format!(
+        r#"<div class="model-function-row">
+    <div>
+        <div class="monospace model-function-name">{function}</div>
+        <div class="monospace model-function-file">{file}</div>
+    </div>
+    <div class="model-function-score">
+        <span class="{band_class}">LRS {lrs:.2}</span>
+        <span>{quadrant}</span>
+        <span>{association}</span>
+    </div>
+</div>"#,
+        function = html_escape(&function.function),
+        file = source_link(
+            &function.file,
+            function.line,
+            &format!("{}:{}", function.file, function.line)
+        ),
+        band_class = band_class,
+        lrs = function.lrs,
+        quadrant = html_escape(quadrant),
+        association = association,
+    )
 }
 
 /// Render delta header
@@ -2449,11 +3731,11 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
             .map(|result| {
                 let function_id = result.function_id.as_deref().unwrap_or("N/A");
                 format!(
-                    r#"<tr>
-    <td class="monospace">{function}</td>
-    <td>{policy}</td>
-    <td>{message}</td>
-</tr>"#,
+                    r#"<div class="visual-card">
+    <div class="visual-card-title monospace">{function}</div>
+    <div class="visual-card-subtitle">{policy}</div>
+    <div class="visual-note">{message}</div>
+</div>"#,
                     function = html_escape(function_id),
                     policy = result.id.as_str(),
                     message = html_escape(&result.message),
@@ -2464,18 +3746,7 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
         sections.push(format!(
             r#"<div class="policy-failures">
     <h3>Blocking Failures ({count})</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Function</th>
-                <th>Policy</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
+    <div class="visual-grid">{rows}</div>
 </div>"#,
             count = policy.failed.len(),
             rows = rows,
@@ -2545,14 +3816,19 @@ fn render_warning_group(
                 .map(|a| format!("{:.2}", a.lrs))
                 .unwrap_or_else(|| "N/A".to_string());
 
+            let width = after_lrs.parse::<f64>().unwrap_or(0.0).mul_add(8.0, 0.0).clamp(4.0, 100.0);
             format!(
-                r#"<tr>
-    <td class="monospace">{function}</td>
-    <td>{lrs}</td>
-    <td>{message}</td>
-</tr>"#,
+                r#"<div class="visual-card">
+    <div class="visual-card-title monospace">{function}</div>
+    <div class="visual-bar"><div class="visual-bar-fill band-moderate" style="width:{width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>LRS</span><strong>{lrs}</strong></div>
+    </div>
+    <div class="visual-note">{message}</div>
+</div>"#,
                 function = html_escape(function_id),
                 lrs = after_lrs,
+                width = width,
                 message = html_escape(&result.message),
             )
         })
@@ -2561,18 +3837,7 @@ fn render_warning_group(
     format!(
         r#"<div class="policy-warnings">
     <h3>{title} ({count})</h3>
-    <table>
-        <thead>
-            <tr>
-                <th>Function</th>
-                <th>LRS</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
+    <div class="visual-grid">{rows}</div>
 </div>"#,
         title = title,
         count = warnings.len(),
@@ -2642,30 +3907,34 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
             let status_debug = format!("{:?}", entry.status);
             let status_lowercase = status_debug.to_lowercase();
 
+            let after_lrs_num = entry.after.as_ref().map(|a| a.lrs).unwrap_or(0.0);
+            let width = (after_lrs_num * 8.0).clamp(4.0, 100.0);
             format!(
-                r#"<tr class="{status_class}" data-status="{status}" data-lrs="{after_lrs_val}">
-    <td class="monospace">{file}</td>
-    <td class="monospace">{function}</td>
-    <td>{before_lrs}</td>
-    <td>{after_lrs}</td>
-    <td><span class="band-{before_band}">{before_band}</span></td>
-    <td><span class="band-{after_band}">{after_band}</span></td>
-    <td>{delta_lrs}</td>
-    <td>{transition}</td>
-    <td>{status_display}</td>
-</tr>"#,
+                r#"<div class="visual-card {status_class}" data-status="{status}" data-lrs="{after_lrs_val}">
+    <div class="visual-card-title monospace">{function}</div>
+    <div class="visual-card-subtitle monospace">{source}</div>
+    <div class="visual-bar"><div class="visual-bar-fill band-{after_band}" style="width:{width:.0}%"></div></div>
+    <div class="visual-metrics">
+        <div class="visual-metric"><span>Before</span><strong>{before_lrs}</strong></div>
+        <div class="visual-metric"><span>After</span><strong>{after_lrs}</strong></div>
+        <div class="visual-metric"><span>Delta</span><strong>{delta_lrs}</strong></div>
+        <div class="visual-metric"><span>Status</span><strong>{status_display}</strong></div>
+    </div>
+    <div class="visual-note"><span class="band-{before_band}">{before_band}</span> {transition} <span class="band-{after_band}">{after_band}</span></div>
+</div>"#,
                 status_class = status_class,
                 status = status_lowercase,
-                file = html_escape(file_name),
+                source = source_link(file_name, 0, file_name),
                 function = html_escape(function_name),
                 before_lrs = before_lrs,
                 after_lrs = after_lrs,
-                after_lrs_val = entry.after.as_ref().map(|a| a.lrs).unwrap_or(0.0),
+                after_lrs_val = after_lrs_num,
                 before_band = before_band,
                 after_band = after_band,
                 delta_lrs = delta_lrs,
                 transition = transition,
                 status_display = status_debug,
+                width = width,
             )
         })
         .collect();
@@ -2673,24 +3942,8 @@ fn render_delta_table(deltas: &[FunctionDeltaEntry]) -> String {
     format!(
         r#"<section class="section">
     <h2>Function Changes ({count})</h2>
-    <table id="delta-table">
-        <thead>
-            <tr>
-                <th>File</th>
-                <th>Function</th>
-                <th>Before LRS</th>
-                <th>After LRS</th>
-                <th>Before Band</th>
-                <th>After Band</th>
-                <th>Δ LRS</th>
-                <th>Trend</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {rows}
-        </tbody>
-    </table>
+    <div class="visual-note">Function changes rendered as risk bars. Bar length reflects after-change LRS.</div>
+    <div id="delta-table" class="visual-grid">{rows}</div>
 </section>"#,
         count = deltas.len(),
         rows = rows,
@@ -2819,4 +4072,61 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+fn source_link(file: &str, line: u32, label: &str) -> String {
+    let href = source_href(file, line);
+    let display_label = compact_source_label(label);
+    format!(
+        r#"<a class="source-link" href="{href}">{label}</a>"#,
+        href = html_escape(&href),
+        label = html_escape(&display_label),
+    )
+}
+
+fn compact_source_label(label: &str) -> String {
+    let normalized = label.replace('\\', "/");
+    if let Some((path, suffix)) = normalized.rsplit_once(':') {
+        if suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            return format!("{}:{suffix}", compact_source_label(path));
+        }
+    }
+    if let Some(idx) = normalized.find("/hotspots/") {
+        return normalized[idx + "/hotspots/".len()..].to_string();
+    }
+    if normalized.starts_with('/') {
+        let parts: Vec<&str> = normalized
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .collect();
+        let keep = parts.len().saturating_sub(4);
+        return parts[keep..].join("/");
+    }
+    normalized
+}
+
+fn source_href(file: &str, line: u32) -> String {
+    let normalized = file.replace('\\', "/");
+    let base = if normalized.starts_with('/') {
+        format!("file://{}", normalized)
+    } else {
+        normalized
+    };
+    let encoded = base
+        .chars()
+        .map(|ch| match ch {
+            ' ' => "%20".to_string(),
+            '"' => "%22".to_string(),
+            '<' => "%3C".to_string(),
+            '>' => "%3E".to_string(),
+            '#' => "%23".to_string(),
+            '?' => "%3F".to_string(),
+            _ => ch.to_string(),
+        })
+        .collect::<String>();
+    if line > 0 {
+        format!("{encoded}#L{line}")
+    } else {
+        encoded
+    }
 }
