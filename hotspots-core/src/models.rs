@@ -10,7 +10,7 @@ use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 const DEFAULT_FUNCTIONS_PER_MODEL: usize = 5;
 const MIN_ASSOCIATED_FUNCTIONS: usize = 2;
@@ -28,6 +28,7 @@ pub struct ModelDecl {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct ModelRiskMap {
+    #[serde(rename = "items")]
     pub models: Vec<ModelRiskEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<ModelRiskLink>,
@@ -104,7 +105,11 @@ pub fn compute_model_risk_map(
         });
     }
 
-    let mut files: Vec<String> = snapshot.functions.iter().map(|f| f.file.clone()).collect();
+    let mut files: Vec<String> = snapshot
+        .functions
+        .iter()
+        .map(|f| normalize_file(Path::new(&f.file), repo_root))
+        .collect();
     files.extend(model_files.iter().cloned());
     files.sort();
     files.dedup();
@@ -117,10 +122,10 @@ pub fn compute_model_risk_map(
     }
     let tokens_by_file = load_source_tokens(&files, repo_root);
 
-    let mut functions_by_file: BTreeMap<&str, Vec<&FunctionSnapshot>> = BTreeMap::new();
+    let mut functions_by_file: BTreeMap<String, Vec<&FunctionSnapshot>> = BTreeMap::new();
     for function in &snapshot.functions {
         functions_by_file
-            .entry(function.file.as_str())
+            .entry(normalize_file(Path::new(&function.file), repo_root))
             .or_default()
             .push(function);
     }
@@ -130,12 +135,19 @@ pub fn compute_model_risk_map(
         let mut associated = Vec::new();
         let mut seen = HashSet::new();
 
-        if let Some(functions) = functions_by_file.get(model.file.as_str()) {
+        if let Some(functions) = functions_by_file.get(&model.file) {
             let model_count = model_counts_by_file
                 .get(&model.file)
                 .copied()
                 .unwrap_or_default();
-            add_same_file_functions(&mut associated, &mut seen, functions, &model, model_count);
+            add_same_file_functions(
+                &mut associated,
+                &mut seen,
+                functions,
+                &model,
+                model_count,
+                repo_root,
+            );
         }
 
         for (file, imports) in &import_map {
@@ -149,13 +161,14 @@ pub fn compute_model_risk_map(
                     &mut seen,
                     direct_import_functions(
                         functions_by_file
-                            .get(file.as_str())
+                            .get(file)
                             .map(Vec::as_slice)
                             .unwrap_or(&[]),
                         &model.name,
                     )
                     .iter(),
                     AssociationKind::DirectImport,
+                    repo_root,
                 );
             }
         }
@@ -298,13 +311,16 @@ fn add_associated_functions<'a>(
     seen: &mut HashSet<String>,
     functions: impl Iterator<Item = &'a &'a FunctionSnapshot>,
     association: AssociationKind,
+    repo_root: &Path,
 ) {
     for function in functions {
         if seen.insert(function.function_id.clone()) {
+            let file = normalize_file(Path::new(&function.file), repo_root);
+            let function_name = function_name(function);
             out.push(ModelFunction {
-                function_id: function.function_id.clone(),
-                function: function_name(function),
-                file: function.file.clone(),
+                function_id: format!("{file}::{function_name}"),
+                function: function_name,
+                file,
                 line: function.line,
                 lrs: function.lrs,
                 activity_risk: function.activity_risk,
@@ -322,6 +338,7 @@ fn add_same_file_functions(
     functions: &[&FunctionSnapshot],
     model: &ModelDecl,
     model_count_in_file: usize,
+    repo_root: &Path,
 ) {
     let method_prefix = format!("{}::", model.name);
     let methods: Vec<&FunctionSnapshot> = functions
@@ -330,7 +347,13 @@ fn add_same_file_functions(
         .filter(|function| function_name(function).starts_with(&method_prefix))
         .collect();
     if !methods.is_empty() {
-        add_associated_functions(out, seen, methods.iter(), AssociationKind::SameFile);
+        add_associated_functions(
+            out,
+            seen,
+            methods.iter(),
+            AssociationKind::SameFile,
+            repo_root,
+        );
         return;
     }
 
@@ -340,12 +363,24 @@ fn add_same_file_functions(
         .filter(|function| function_name_mentions_model(&function_name(function), &model.name))
         .collect();
     if !mentioned.is_empty() {
-        add_associated_functions(out, seen, mentioned.iter(), AssociationKind::SameFile);
+        add_associated_functions(
+            out,
+            seen,
+            mentioned.iter(),
+            AssociationKind::SameFile,
+            repo_root,
+        );
         return;
     }
 
     if model_count_in_file <= 1 {
-        add_associated_functions(out, seen, functions.iter(), AssociationKind::SameFile);
+        add_associated_functions(
+            out,
+            seen,
+            functions.iter(),
+            AssociationKind::SameFile,
+            repo_root,
+        );
     }
 }
 
@@ -414,11 +449,32 @@ fn function_name(function: &FunctionSnapshot) -> String {
 }
 
 fn normalize_file(path: &Path, repo_root: &Path) -> String {
-    if path.is_absolute() {
-        path.to_string_lossy().replace('\\', "/")
+    let normalized = if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        repo_root.join(path).to_string_lossy().replace('\\', "/")
+        repo_root.join(path)
+    };
+    let normalized = normalize_path_lexically(&normalized);
+    let repo_root = normalize_path_lexically(repo_root);
+    normalized
+        .strip_prefix(&repo_root)
+        .unwrap_or(normalized.as_path())
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn normalize_path_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            _ => out.push(component.as_os_str()),
+        }
     }
+    out
 }
 
 fn extract_models_from_source(source: &str, language: Language, file: String) -> Vec<ModelDecl> {

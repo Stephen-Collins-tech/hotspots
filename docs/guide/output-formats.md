@@ -694,8 +694,8 @@ Hotspots produces versioned JSON output. The `schema_version` field indicates th
 
 | Version | Scope | Added fields |
 |---------|-------|--------------|
-| **v2** (current) | Snapshot and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
-| **v3** | Agent-optimized (`--all-functions`) | `fire`/`debt`/`watch`/`ok` quadrant buckets, per-function `action` text |
+| **v3** (current default snapshot JSON) | Agent-optimized snapshot output | `summary`, `fire`/`debt`/`watch`/`ok` triage buckets, per-function `action` text, `architecture` aggregates |
+| **v2** | Full snapshot JSON (`--all-functions`) and delta output | `driver`, `driver_detail`, `patterns`, `pattern_details`, enriched `aggregates` (file_risk, co_change, modules) |
 | **v1** | Delta output (legacy constant) | — |
 
 Always check `schema_version` before consuming output in tooling.
@@ -722,7 +722,13 @@ When a function receives the `composite` label, `driver_detail` lists the top di
 
 `driver_detail` is omitted from JSON when null (forward-compatible).
 
-### Aggregates (Snapshot Mode)
+### Architecture Aggregates (Default Snapshot JSON)
+
+Default snapshot JSON groups architectural concentration under `architecture`:
+`architecture.file_risk`, `architecture.modules`, and, when requested,
+`architecture.models`.
+
+### Aggregates (`--all-functions` Snapshot JSON)
 
 Snapshot output includes an `aggregates` object with these arrays:
 
@@ -777,13 +783,13 @@ Robert Martin's instability metric at the directory level: `instability = effere
 }
 ```
 
-#### `aggregates.models` — Model Risk Map
+#### `aggregates.models` / `architecture.models` — Model Risk Map
 
 Present only when snapshot JSON is generated with `--include-models`.
 
 ```typescript
 {
-  models: [{
+  items: [{
     name: "Snapshot",
     file: "hotspots-core/src/snapshot.rs",
     line: 219,

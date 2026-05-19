@@ -356,7 +356,10 @@ pub(crate) fn handle_mode_output(
             let total_function_count = snapshot.functions.len();
             let is_aggregate_level =
                 level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
-            if (explain || top.is_some()) && !is_aggregate_level {
+            if matches!(format, OutputFormat::Text)
+                && (explain || top.is_some())
+                && !is_aggregate_level
+            {
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -554,7 +557,28 @@ fn emit_snapshot_output(
                 co_change_min_count,
                 include_models.then_some(analysis_path),
             );
-            if all_functions {
+            if let Some(output_path) = output {
+                if all_functions {
+                    snapshot.aggregates = Some(aggregates);
+                    write_snapshot_json_file(&output_path, |out| {
+                        snapshot
+                            .write_json_to(out)
+                            .context("failed to write snapshot JSON")
+                    })?;
+                } else {
+                    let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
+                        snapshot,
+                        &aggregates,
+                        repo_root,
+                    );
+                    write_snapshot_json_file(&output_path, |out| {
+                        agent_output
+                            .write_json_to(out)
+                            .context("failed to write agent snapshot JSON")
+                    })?;
+                }
+                eprintln!("JSON report written to: {}", output_path.display());
+            } else if all_functions {
                 snapshot.aggregates = Some(aggregates);
                 let stdout = std::io::stdout();
                 let mut out = std::io::BufWriter::new(stdout.lock());
@@ -658,6 +682,20 @@ fn emit_snapshot_output(
         }
     }
     Ok(())
+}
+
+fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>
+where
+    F: FnOnce(&mut std::io::BufWriter<std::fs::File>) -> anyhow::Result<()>,
+{
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+    }
+    let file = std::fs::File::create(output_path)
+        .with_context(|| format!("failed to create {}", output_path.display()))?;
+    let mut out = std::io::BufWriter::new(file);
+    write(&mut out)
 }
 
 /// Returns true if there are blocking policy failures (caller should exit non-zero).

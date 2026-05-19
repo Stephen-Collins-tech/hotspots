@@ -197,22 +197,30 @@ pub struct AgentCoChangeView {
     pub total_pairs: usize,
 }
 
-/// Agent-optimized snapshot output (schema version 3)
+/// Architecture-oriented aggregate views for agent-optimized output.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub struct AgentSnapshotOutput {
-    pub schema_version: u32,
-    pub commit: crate::snapshot::CommitInfo,
-    pub triage: TriageView,
-    pub co_change: AgentCoChangeView,
+pub struct AgentArchitectureView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_risk: Vec<FileRiskView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub modules: Vec<ModuleInstability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<crate::models::ModelRiskMap>,
+}
+
+/// Agent-optimized snapshot output (schema version 3)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgentSnapshotOutput {
+    pub schema_version: u32,
+    pub commit: crate::snapshot::CommitInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<crate::snapshot::SnapshotSummary>,
+    pub triage: TriageView,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<AgentArchitectureView>,
+    pub co_change: AgentCoChangeView,
 }
 
 impl AgentSnapshotOutput {
@@ -378,20 +386,73 @@ pub fn compute_agent_snapshot_output(
         })
         .collect();
 
+    let models = aggregates
+        .models
+        .as_ref()
+        .map(|model_map| normalize_model_risk_map(model_map, repo_root));
+    let architecture = if file_risk.is_empty() && aggregates.modules.is_empty() && models.is_none()
+    {
+        None
+    } else {
+        Some(AgentArchitectureView {
+            file_risk,
+            modules: aggregates.modules.clone(),
+            models,
+        })
+    };
+
     AgentSnapshotOutput {
         schema_version: 3,
         commit: snapshot.commit.clone(),
+        summary: snapshot.summary.clone(),
         triage,
+        architecture,
         co_change: AgentCoChangeView {
             hidden_coupling,
             hidden_count,
             total_pairs,
         },
-        file_risk,
-        modules: aggregates.modules.clone(),
-        models: aggregates.models.clone(),
-        summary: snapshot.summary.clone(),
     }
+}
+
+fn normalize_model_risk_map(
+    map: &crate::models::ModelRiskMap,
+    repo_root: &std::path::Path,
+) -> crate::models::ModelRiskMap {
+    crate::models::ModelRiskMap {
+        models: map
+            .models
+            .iter()
+            .map(|model| {
+                let functions = model
+                    .functions
+                    .iter()
+                    .map(|function| crate::models::ModelFunction {
+                        file: normalize_path_relative_to_repo(&function.file, repo_root)
+                            .unwrap_or_else(|| function.file.clone()),
+                        function_id: relativize_function_id(&function.function_id, repo_root),
+                        ..function.clone()
+                    })
+                    .collect();
+                crate::models::ModelRiskEntry {
+                    file: normalize_path_relative_to_repo(&model.file, repo_root)
+                        .unwrap_or_else(|| model.file.clone()),
+                    functions,
+                    ..model.clone()
+                }
+            })
+            .collect(),
+        links: map.links.clone(),
+    }
+}
+
+fn relativize_function_id(function_id: &str, repo_root: &std::path::Path) -> String {
+    let Some((file, function)) = function_id.split_once("::") else {
+        return function_id.to_string();
+    };
+    normalize_path_relative_to_repo(file, repo_root)
+        .map(|rel| format!("{rel}::{function}"))
+        .unwrap_or_else(|| function_id.to_string())
 }
 
 /// Check if a band is High+ (high or critical)

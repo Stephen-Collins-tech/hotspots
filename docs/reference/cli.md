@@ -353,9 +353,9 @@ hotspots analyze . --mode snapshot --format json --include-models
 hotspots analyze . --mode snapshot --format html --include-models
 ```
 
-Adds the top model risk concentrations and shared-reference `links` under `models`
-in agent JSON output, `aggregates.models` in `--all-functions` JSON output, and
-a draggable Model Risk Map graph in HTML reports.
+Adds the top model risk concentrations and shared-reference `links` under
+`architecture.models` in agent JSON output, `aggregates.models` in `--all-functions`
+JSON output, and a Model Risk Map section in HTML reports.
 
 #### Examples
 
