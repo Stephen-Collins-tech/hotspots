@@ -677,6 +677,7 @@ mod tests {
             quadrant: Some("fire".to_string()),
             patterns: vec![],
             pattern_details: None,
+            subsystem: None,
         }
     }
 
