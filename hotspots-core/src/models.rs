@@ -164,7 +164,6 @@ pub fn compute_model_risk_map(
                             .get(file)
                             .map(Vec::as_slice)
                             .unwrap_or(&[]),
-                        &model.name,
                     )
                     .iter(),
                     AssociationKind::DirectImport,
@@ -384,18 +383,7 @@ fn add_same_file_functions(
     }
 }
 
-fn direct_import_functions<'a>(
-    functions: &'a [&'a FunctionSnapshot],
-    model_name: &str,
-) -> Vec<&'a FunctionSnapshot> {
-    let mentioned: Vec<&FunctionSnapshot> = functions
-        .iter()
-        .copied()
-        .filter(|function| function_name_mentions_model(&function_name(function), model_name))
-        .collect();
-    if !mentioned.is_empty() || functions.len() > 1 {
-        return mentioned;
-    }
+fn direct_import_functions<'a>(functions: &'a [&'a FunctionSnapshot]) -> Vec<&'a FunctionSnapshot> {
     functions.to_vec()
 }
 
