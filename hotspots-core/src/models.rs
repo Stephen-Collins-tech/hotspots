@@ -164,7 +164,6 @@ pub fn compute_model_risk_map(
                             .get(file)
                             .map(Vec::as_slice)
                             .unwrap_or(&[]),
-                        &model.name,
                     )
                     .iter(),
                     AssociationKind::DirectImport,
@@ -384,18 +383,7 @@ fn add_same_file_functions(
     }
 }
 
-fn direct_import_functions<'a>(
-    functions: &'a [&'a FunctionSnapshot],
-    model_name: &str,
-) -> Vec<&'a FunctionSnapshot> {
-    let mentioned: Vec<&FunctionSnapshot> = functions
-        .iter()
-        .copied()
-        .filter(|function| function_name_mentions_model(&function_name(function), model_name))
-        .collect();
-    if !mentioned.is_empty() || functions.len() > 1 {
-        return mentioned;
-    }
+fn direct_import_functions<'a>(functions: &'a [&'a FunctionSnapshot]) -> Vec<&'a FunctionSnapshot> {
     functions.to_vec()
 }
 
@@ -516,16 +504,10 @@ const GO_MODEL_PATTERNS: &[PatternSpec] = &[PatternSpec {
     kind: "struct",
 }];
 
-const RUST_MODEL_PATTERNS: &[PatternSpec] = &[
-    PatternSpec {
-        pattern: r"\b(?:pub(?:\([^)]*\))?\s+)?struct\s+([A-Za-z_]\w*)\b",
-        kind: "struct",
-    },
-    PatternSpec {
-        pattern: r"\b(?:pub(?:\([^)]*\))?\s+)?enum\s+([A-Za-z_]\w*)\b",
-        kind: "enum",
-    },
-];
+const RUST_MODEL_PATTERNS: &[PatternSpec] = &[PatternSpec {
+    pattern: r"\b(?:pub(?:\([^)]*\))?\s+)?struct\s+([A-Za-z_]\w*)\b",
+    kind: "struct",
+}];
 
 const PYTHON_MODEL_PATTERNS: &[PatternSpec] = &[PatternSpec {
     pattern: r"(?m)^\s*class\s+([A-Za-z_]\w*)\b",
@@ -716,9 +698,9 @@ mod tests {
 
         let rust = "struct Order { id: u64 }\nenum State { Ready(String), Done }";
         let models = extract_models_from_source(rust, Language::Rust, "a.rs".to_string());
-        assert_eq!(models.len(), 2);
+        // Enums are excluded until data-carrying variants can be reliably distinguished.
+        assert_eq!(models.len(), 1);
         assert_eq!(models[0].kind, "struct");
-        assert_eq!(models[1].kind, "enum");
     }
 
     #[test]
