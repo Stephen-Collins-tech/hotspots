@@ -121,6 +121,7 @@ pub struct CallGraphMetrics {
     pub betweenness: f64,
     pub scc_id: usize,
     pub scc_size: usize,
+    #[serde(default)]
     pub is_entrypoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_depth: Option<usize>,
