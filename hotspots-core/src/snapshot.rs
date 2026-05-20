@@ -121,6 +121,7 @@ pub struct CallGraphMetrics {
     pub betweenness: f64,
     pub scc_id: usize,
     pub scc_size: usize,
+    #[serde(default)]
     pub is_entrypoint: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_depth: Option<usize>,
@@ -1748,6 +1749,132 @@ impl Default for Index {
     }
 }
 
+/// Delta encoding schema version
+const DELTA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+
+/// Delta between two snapshots — stores only what changed.
+///
+/// Stored as `<sha>.delta.json.zst` in the snapshots directory.
+/// Reconstruct the full snapshot by loading the base and calling `apply_delta`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct DeltaSnapshot {
+    pub schema_version: u32,
+    /// Schema version of the full snapshot this delta reconstructs.
+    pub snapshot_schema_version: u32,
+    pub commit: CommitInfo,
+    pub analysis: AnalysisInfo,
+    /// SHA of the snapshot used as the delta base.
+    pub base_sha: String,
+    pub added: Vec<FunctionSnapshot>,
+    pub modified: Vec<FunctionSnapshot>,
+    pub removed: Vec<String>,
+    /// Preserved from the original snapshot so HTML history charts remain intact
+    /// after reconstruction (callers filter on `summary.is_some()`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<SnapshotSummary>,
+}
+
+/// Compute a delta from `base` to `current`.
+///
+/// The returned `DeltaSnapshot` encodes only the functions that were added,
+/// modified, or removed relative to `base`.
+pub fn compute_delta(base: &Snapshot, current: &Snapshot) -> DeltaSnapshot {
+    use std::collections::HashMap;
+
+    let base_map: HashMap<&str, &FunctionSnapshot> = base
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), f))
+        .collect();
+    let current_map: HashMap<&str, ()> = current
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), ()))
+        .collect();
+
+    let added: Vec<FunctionSnapshot> = current
+        .functions
+        .iter()
+        .filter(|f| !base_map.contains_key(f.function_id.as_str()))
+        .cloned()
+        .collect();
+
+    let modified: Vec<FunctionSnapshot> = current
+        .functions
+        .iter()
+        .filter(|f| {
+            base_map
+                .get(f.function_id.as_str())
+                .map(|bf| *bf != *f)
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+
+    let removed: Vec<String> = base
+        .functions
+        .iter()
+        .filter(|f| !current_map.contains_key(f.function_id.as_str()))
+        .map(|f| f.function_id.clone())
+        .collect();
+
+    DeltaSnapshot {
+        schema_version: DELTA_SNAPSHOT_SCHEMA_VERSION,
+        snapshot_schema_version: current.schema_version,
+        commit: current.commit.clone(),
+        analysis: current.analysis.clone(),
+        base_sha: base.commit.sha.clone(),
+        added,
+        modified,
+        removed,
+        summary: current.summary.clone(),
+    }
+}
+
+/// Reconstruct a full `Snapshot` by applying a delta on top of `base`.
+pub fn apply_delta(base: Snapshot, delta: DeltaSnapshot) -> Snapshot {
+    use std::collections::HashMap;
+
+    let mut functions: HashMap<String, FunctionSnapshot> = base
+        .functions
+        .into_iter()
+        .map(|f| (f.function_id.clone(), f))
+        .collect();
+
+    for id in &delta.removed {
+        functions.remove(id);
+    }
+    for func in delta.modified {
+        functions.insert(func.function_id.clone(), func);
+    }
+    for func in delta.added {
+        functions.insert(func.function_id.clone(), func);
+    }
+
+    let mut result: Vec<FunctionSnapshot> = functions.into_values().collect();
+    result.sort_by(|a, b| a.function_id.cmp(&b.function_id));
+
+    Snapshot {
+        schema_version: delta.snapshot_schema_version,
+        commit: delta.commit,
+        analysis: delta.analysis,
+        functions: result,
+        summary: delta.summary,
+        aggregates: None,
+    }
+}
+
+/// Persist a delta snapshot to `<sha>.delta.json.zst`.
+pub fn persist_delta(repo_root: &Path, delta: &DeltaSnapshot) -> Result<()> {
+    let path = delta_snapshot_path(repo_root, &delta.commit.sha);
+    let json = serde_json::to_string_pretty(delta).context("failed to serialize delta snapshot")?;
+    let compressed =
+        zstd::encode_all(json.as_bytes(), 3).context("failed to compress delta snapshot")?;
+    atomic_write_bytes(&path, &compressed)
+        .with_context(|| format!("failed to persist delta snapshot: {}", path.display()))
+}
+
 /// Get the path to the `.hotspots` directory in the repository root
 pub fn hotspots_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(".hotspots")
@@ -1768,6 +1895,11 @@ pub fn snapshot_path(repo_root: &Path, commit_sha: &str) -> PathBuf {
     snapshots_dir(repo_root).join(format!("{}.json.zst", commit_sha))
 }
 
+/// Get the path to a delta snapshot file for a given commit SHA
+pub fn delta_snapshot_path(repo_root: &Path, commit_sha: &str) -> PathBuf {
+    snapshots_dir(repo_root).join(format!("{}.delta.json.zst", commit_sha))
+}
+
 /// Return the path of the snapshot file that actually exists on disk,
 /// trying `.json.zst` (new) before `.json` (legacy).  Returns `None` if
 /// neither exists.
@@ -1785,16 +1917,36 @@ pub fn snapshot_path_existing(repo_root: &Path, commit_sha: &str) -> Option<Path
 
 /// Load a snapshot for the given commit SHA from disk.
 ///
-/// Handles both compressed (`.json.zst`) and legacy plain (`.json`) formats.
-/// Returns `None` if no snapshot file exists for the SHA.
+/// Handles full snapshots (`.json.zst`, `.json`), delta snapshots
+/// (`.delta.json.zst`), and transparent reconstruction of delta chains.
+/// Returns `None` if no snapshot or delta file exists for the SHA.
 pub fn load_snapshot(repo_root: &Path, commit_sha: &str) -> Result<Option<Snapshot>> {
-    let path = match snapshot_path_existing(repo_root, commit_sha) {
-        Some(p) => p,
-        None => return Ok(None),
-    };
+    // Full snapshot takes priority.
+    if let Some(path) = snapshot_path_existing(repo_root, commit_sha) {
+        return Ok(Some(read_snapshot_file(&path)?));
+    }
 
-    let snapshot = read_snapshot_file(&path)?;
-    Ok(Some(snapshot))
+    // Fall back to delta reconstruction.
+    let dpath = delta_snapshot_path(repo_root, commit_sha);
+    if dpath.exists() {
+        let compressed = std::fs::read(&dpath)
+            .with_context(|| format!("failed to read delta: {}", dpath.display()))?;
+        let bytes = zstd::decode_all(compressed.as_slice())
+            .with_context(|| format!("failed to decompress delta: {}", dpath.display()))?;
+        let json = String::from_utf8(bytes).context("delta snapshot contains invalid UTF-8")?;
+        let delta: DeltaSnapshot = serde_json::from_str(&json)
+            .with_context(|| format!("failed to parse delta: {}", dpath.display()))?;
+        let base = load_snapshot(repo_root, &delta.base_sha)?.ok_or_else(|| {
+            anyhow::anyhow!(
+                "base snapshot {} not found for delta {}",
+                delta.base_sha,
+                commit_sha
+            )
+        })?;
+        return Ok(Some(apply_delta(base, delta)));
+    }
+
+    Ok(None)
 }
 
 /// Read and parse a snapshot from an arbitrary path, auto-detecting compression.
