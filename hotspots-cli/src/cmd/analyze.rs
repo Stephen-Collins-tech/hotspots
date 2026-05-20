@@ -356,7 +356,9 @@ pub(crate) fn handle_mode_output(
             let total_function_count = snapshot.functions.len();
             let is_aggregate_level =
                 level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
-            if (explain || top.is_some()) && !is_aggregate_level {
+            if !is_aggregate_level
+                && (top.is_some() || (matches!(format, OutputFormat::Text) && explain))
+            {
                 snapshot.functions.sort_by(|a, b| {
                     let a_score = a.activity_risk.unwrap_or(a.lrs);
                     let b_score = b.activity_risk.unwrap_or(b.lrs);
