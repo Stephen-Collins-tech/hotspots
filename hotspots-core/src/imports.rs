@@ -26,6 +26,7 @@ pub fn extract_raw_imports(source: &str, language: Language) -> Vec<String> {
         | Language::JavaScript
         | Language::JavaScriptReact
         | Language::Vue => extract_ecmascript_imports(source),
+        Language::CSharp => extract_csharp_imports(source),
     }
 }
 
@@ -168,6 +169,21 @@ fn extract_java_imports(source: &str) -> Vec<String> {
     dedup(imports)
 }
 
+fn extract_csharp_imports(source: &str) -> Vec<String> {
+    use regex::Regex;
+
+    static USING_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    // Matches: using Foo.Bar; and using static Foo.Bar; but not using var x = ...
+    let using_re =
+        USING_RE.get_or_init(|| Regex::new(r"(?m)^\s*using\s+(?:static\s+)?([\w.]+)\s*;").unwrap());
+
+    let imports: Vec<_> = using_re
+        .captures_iter(source)
+        .map(|c| c[1].to_string())
+        .collect();
+    dedup(imports)
+}
+
 fn extract_ecmascript_imports(source: &str) -> Vec<String> {
     use regex::Regex;
 
@@ -276,6 +292,7 @@ fn resolve_import(
         Language::Go => resolve_go(raw, all_files_set),
         Language::Python => resolve_python(raw, importing_file, all_files_set, repo_root),
         Language::Java => resolve_java(raw, all_files_set),
+        Language::CSharp => resolve_java(raw, all_files_set), // namespace-style, same strategy
     }
 }
 

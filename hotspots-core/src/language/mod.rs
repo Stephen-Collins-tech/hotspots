@@ -4,6 +4,7 @@
 //! source code across multiple programming languages.
 
 pub mod cfg_builder;
+pub mod csharp;
 pub mod ecmascript;
 pub mod function_body;
 pub mod go;
@@ -19,6 +20,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
+pub use csharp::{CSharpCfgBuilder, CSharpParser};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
@@ -49,6 +51,8 @@ pub enum Language {
     Rust,
     /// Vue Single File Component (.vue)
     Vue,
+    /// C# (.cs)
+    CSharp,
 }
 
 impl Language {
@@ -84,6 +88,8 @@ impl Language {
             "rs" => Some(Language::Rust),
             // Vue Single File Component
             "vue" => Some(Language::Vue),
+            // C#
+            "cs" => Some(Language::CSharp),
             // Unknown
             _ => None,
         }
@@ -141,6 +147,7 @@ impl Language {
             Language::Python => "Python",
             Language::Rust => "Rust",
             Language::Vue => "Vue",
+            Language::CSharp => "C#",
         }
     }
 
@@ -173,6 +180,7 @@ impl Language {
             Language::Python => &["py", "pyw"],
             Language::Rust => &["rs"],
             Language::Vue => &["vue"],
+            Language::CSharp => &["cs"],
         }
     }
 
@@ -188,6 +196,7 @@ impl Language {
             "Python" => Some(Language::Python),
             "Rust" => Some(Language::Rust),
             "Vue" => Some(Language::Vue),
+            "C#" => Some(Language::CSharp),
             _ => None,
         }
     }

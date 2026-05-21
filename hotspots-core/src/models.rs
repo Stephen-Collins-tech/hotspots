@@ -476,6 +476,7 @@ fn extract_models_from_source(source: &str, language: Language, file: String) ->
         | Language::JavaScript
         | Language::JavaScriptReact
         | Language::Vue => extract_regex_models(source, language, file, ECMASCRIPT_MODEL_PATTERNS),
+        Language::CSharp => extract_regex_models(source, language, file, CSHARP_MODEL_PATTERNS),
     }
 }
 
@@ -526,6 +527,25 @@ const JAVA_MODEL_PATTERNS: &[PatternSpec] = &[
     PatternSpec {
         pattern: r"(?m)^\s*(?:(?:public|private|protected|final|static)\s+)*record\s+([A-Za-z_]\w*)\b",
         kind: "record",
+    },
+];
+
+const CSHARP_MODEL_PATTERNS: &[PatternSpec] = &[
+    PatternSpec {
+        pattern: r"(?m)^\s*(?:(?:public|private|protected|internal|abstract|sealed|static|partial)\s+)*class\s+([A-Za-z_]\w*)\b",
+        kind: "class",
+    },
+    PatternSpec {
+        pattern: r"(?m)^\s*(?:(?:public|private|protected|internal)\s+)*interface\s+([A-Za-z_]\w*)\b",
+        kind: "interface",
+    },
+    PatternSpec {
+        pattern: r"(?m)^\s*(?:(?:public|private|protected|internal)\s+)*record\s+([A-Za-z_]\w*)\b",
+        kind: "record",
+    },
+    PatternSpec {
+        pattern: r"(?m)^\s*(?:(?:public|private|protected|internal)\s+)*enum\s+([A-Za-z_]\w*)\b",
+        kind: "enum",
     },
 ];
 

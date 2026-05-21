@@ -32,6 +32,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
         FunctionBody::Java { .. } => Box::new(super::java::JavaCfgBuilder),
         FunctionBody::Python { .. } => Box::new(super::python::PythonCfgBuilder),
         FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
+        FunctionBody::CSharp { .. } => Box::new(super::csharp::CSharpCfgBuilder),
     }
 }
 

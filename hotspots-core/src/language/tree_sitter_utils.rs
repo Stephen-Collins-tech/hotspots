@@ -96,3 +96,9 @@ make_parse_cache!(
     with_cached_python_tree,
     tree_sitter_python::LANGUAGE
 );
+
+make_parse_cache!(
+    CSHARP_TREE_CACHE,
+    with_cached_csharp_tree,
+    tree_sitter_c_sharp::LANGUAGE
+);
