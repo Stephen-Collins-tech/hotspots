@@ -368,19 +368,7 @@ fn handle_snapshot_mode(
     }
 
     let total_function_count = snapshot.functions.len();
-    let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
-    if !is_aggregate_level && (top.is_some() || (matches!(format, OutputFormat::Text) && explain)) {
-        snapshot.functions.sort_by(|a, b| {
-            let a_score = a.activity_risk.unwrap_or(a.lrs);
-            let b_score = b.activity_risk.unwrap_or(b.lrs);
-            b_score
-                .partial_cmp(&a_score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        if let Some(n) = top {
-            snapshot.functions.truncate(n);
-        }
-    }
+    apply_top_n(&mut snapshot, format, explain, level, top);
 
     emit_snapshot_output(
         &mut snapshot,
@@ -583,125 +571,171 @@ fn emit_snapshot_output(
     repo_root: &Path,
     analysis_path: &Path,
 ) -> anyhow::Result<()> {
+    match opts.format {
+        OutputFormat::Json => emit_json_output(snapshot, repo_root, analysis_path, opts),
+        OutputFormat::Jsonl => emit_jsonl_output(snapshot),
+        OutputFormat::Text => emit_text_output(snapshot, repo_root, opts),
+        OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
+        OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
+    }
+}
+
+fn emit_json_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    analysis_path: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
-        format,
-        explain,
-        level,
-        top,
-        total_function_count,
-        output,
+        all_functions,
+        include_models,
         co_change_window_days,
         co_change_min_count,
-        all_functions,
+        output,
+        ..
+    } = opts;
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+        snapshot,
+        repo_root,
+        co_change_window_days,
+        co_change_min_count,
+        include_models.then_some(analysis_path),
+    );
+    if all_functions {
+        snapshot.aggregates = Some(aggregates);
+        write_json_snapshot(snapshot, output)
+    } else {
+        let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
+            snapshot,
+            &aggregates,
+            repo_root,
+        );
+        write_json_agent(&agent_output, output)
+    }
+}
+
+fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
+    let stdout = std::io::stdout();
+    let mut out = std::io::BufWriter::new(stdout.lock());
+    snapshot
+        .write_jsonl_to(&mut out)
+        .context("failed to write snapshot JSONL")
+}
+
+fn emit_text_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let SnapshotOutputOpts {
+        level,
+        explain,
+        top,
+        total_function_count,
+        co_change_window_days,
+        co_change_min_count,
+        ..
+    } = opts;
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+        snapshot,
+        repo_root,
+        co_change_window_days,
+        co_change_min_count,
+    );
+    if level == Some(OutputLevel::File) {
+        explain::print_file_risk_output(&aggregates.file_risk, top)?;
+    } else if level == Some(OutputLevel::Module) {
+        explain::print_module_output(&aggregates.modules, top)?;
+    } else if explain {
+        explain::print_explain_output(snapshot, total_function_count, &aggregates.co_change)?;
+    } else {
+        anyhow::bail!(
+            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+        );
+    }
+    Ok(())
+}
+
+fn emit_html_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    analysis_path: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let SnapshotOutputOpts {
+        co_change_window_days,
+        co_change_min_count,
         include_models,
         source_url,
         risk_thresholds,
+        output,
+        ..
     } = opts;
-    match format {
-        OutputFormat::Json => {
-            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
-                snapshot,
-                repo_root,
-                co_change_window_days,
-                co_change_min_count,
-                include_models.then_some(analysis_path),
-            );
-            if all_functions {
-                snapshot.aggregates = Some(aggregates);
-                write_json_snapshot(snapshot, output)?;
-            } else {
-                let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
-                    snapshot,
-                    &aggregates,
-                    repo_root,
-                );
-                write_json_agent(&agent_output, output)?;
-            }
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+        snapshot,
+        repo_root,
+        co_change_window_days,
+        co_change_min_count,
+        include_models.then_some(analysis_path),
+    );
+    snapshot.aggregates = Some(aggregates);
+    let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
+        .collect();
+    let html = hotspots_core::html::render_html_snapshot(
+        snapshot,
+        &history,
+        source_url.as_deref(),
+        &risk_thresholds,
+    );
+    let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+    write_html_report(&output_path, &html)?;
+    eprintln!("HTML report written to: {}", output_path.display());
+    Ok(())
+}
+
+fn emit_sarif_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let sarif = hotspots_core::sarif::render_sarif(snapshot, repo_root);
+    if let Some(output_path) = opts.output {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
         }
-        OutputFormat::Jsonl => {
-            let stdout = std::io::stdout();
-            let mut out = std::io::BufWriter::new(stdout.lock());
-            snapshot
-                .write_jsonl_to(&mut out)
-                .context("failed to write snapshot JSONL")?;
-        }
-        OutputFormat::Text => {
-            if level == Some(OutputLevel::File) {
-                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                    snapshot,
-                    repo_root,
-                    co_change_window_days,
-                    co_change_min_count,
-                );
-                explain::print_file_risk_output(&aggregates.file_risk, top)?;
-            } else if level == Some(OutputLevel::Module) {
-                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                    snapshot,
-                    repo_root,
-                    co_change_window_days,
-                    co_change_min_count,
-                );
-                explain::print_module_output(&aggregates.modules, top)?;
-            } else if explain {
-                let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
-                    snapshot,
-                    repo_root,
-                    co_change_window_days,
-                    co_change_min_count,
-                );
-                explain::print_explain_output(
-                    snapshot,
-                    total_function_count,
-                    &aggregates.co_change,
-                )?;
-            } else {
-                anyhow::bail!(
-                    "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
-                );
-            }
-        }
-        OutputFormat::Html => {
-            let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
-                snapshot,
-                repo_root,
-                co_change_window_days,
-                co_change_min_count,
-                include_models.then_some(analysis_path),
-            );
-            snapshot.aggregates = Some(aggregates);
-            let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
-                .collect();
-            let html = hotspots_core::html::render_html_snapshot(
-                snapshot,
-                &history,
-                source_url.as_deref(),
-                &risk_thresholds,
-            );
-            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-            write_html_report(&output_path, &html)?;
-            eprintln!("HTML report written to: {}", output_path.display());
-        }
-        OutputFormat::Sarif => {
-            let sarif = hotspots_core::sarif::render_sarif(snapshot, repo_root);
-            if let Some(output_path) = output {
-                if let Some(parent) = output_path.parent() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("failed to create directory: {}", parent.display())
-                    })?;
-                }
-                std::fs::write(&output_path, &sarif).with_context(|| {
-                    format!("failed to write SARIF to {}", output_path.display())
-                })?;
-                eprintln!("SARIF report written to: {}", output_path.display());
-            } else {
-                println!("{sarif}");
-            }
-        }
+        std::fs::write(&output_path, &sarif)
+            .with_context(|| format!("failed to write SARIF to {}", output_path.display()))?;
+        eprintln!("SARIF report written to: {}", output_path.display());
+    } else {
+        println!("{sarif}");
     }
     Ok(())
+}
+
+fn apply_top_n(
+    snapshot: &mut Snapshot,
+    format: OutputFormat,
+    explain: bool,
+    level: Option<OutputLevel>,
+    top: Option<usize>,
+) {
+    let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+    if !is_aggregate_level && (top.is_some() || (matches!(format, OutputFormat::Text) && explain)) {
+        snapshot.functions.sort_by(|a, b| {
+            let a_score = a.activity_risk.unwrap_or(a.lrs);
+            let b_score = b.activity_risk.unwrap_or(b.lrs);
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if let Some(n) = top {
+            snapshot.functions.truncate(n);
+        }
+    }
 }
 
 fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>
