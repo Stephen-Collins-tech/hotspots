@@ -172,15 +172,16 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let using_default_touch_mode = !no_per_function_touches
-        && !per_function_touches
-        && hybrid_touches.is_none()
-        && resolved_config.hybrid_touch_threshold.is_none()
-        && !resolved_config.per_function_touches;
+    let touch_args = TouchArgs {
+        no_per_function: no_per_function_touches,
+        per_function: per_function_touches,
+        hybrid: hybrid_touches,
+        skip: skip_touch_metrics,
+    };
     let effective_touch_mode = resolve_touch_mode(
-        no_per_function_touches,
-        per_function_touches,
-        hybrid_touches.or(resolved_config.hybrid_touch_threshold),
+        touch_args.no_per_function,
+        touch_args.per_function,
+        touch_args.hybrid.or(resolved_config.hybrid_touch_threshold),
         resolved_config.per_function_touches,
     );
 
@@ -205,10 +206,10 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
-                skip_touch_metrics,
+                skip_touch_metrics: touch_args.skip,
             },
         );
-        if using_default_touch_mode && !skip_touch_metrics {
+        if touch_args.is_default(&resolved_config) {
             eprintln!(
                 "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
             );
@@ -225,6 +226,24 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         effective_top,
         &resolved_config,
     )
+}
+
+struct TouchArgs {
+    no_per_function: bool,
+    per_function: bool,
+    hybrid: Option<usize>,
+    skip: bool,
+}
+
+impl TouchArgs {
+    fn is_default(&self, config: &hotspots_core::ResolvedConfig) -> bool {
+        !self.no_per_function
+            && !self.per_function
+            && self.hybrid.is_none()
+            && config.hybrid_touch_threshold.is_none()
+            && !config.per_function_touches
+            && !self.skip
+    }
 }
 
 fn handle_default_output(
