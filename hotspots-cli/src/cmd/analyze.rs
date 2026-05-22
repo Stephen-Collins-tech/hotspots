@@ -297,12 +297,40 @@ pub(crate) fn handle_mode_output(
     resolved_config: &hotspots_core::ResolvedConfig,
     opts: ModeOutputOptions,
 ) -> anyhow::Result<()> {
+    let repo_root = find_repo_root(path)?;
+    let analysis_progress = make_analysis_progress();
+    let reports = analyze_with_progress(
+        path,
+        AnalysisOptions {
+            min_lrs: opts.min_lrs,
+            top_n: None,
+        },
+        Some(resolved_config),
+        Some(analysis_progress.as_ref()),
+    )?;
+    let pr_context = git::detect_pr_context();
+
+    match mode {
+        OutputMode::Snapshot => {
+            handle_snapshot_mode(path, &repo_root, resolved_config, reports, pr_context, opts)
+        }
+        OutputMode::Delta => {
+            handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
+        }
+        OutputMode::Models => handle_models_mode(path, &repo_root, resolved_config, reports, opts),
+    }
+}
+
+fn handle_snapshot_mode(
+    path: &Path,
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+    pr_context: hotspots_core::git::PrContext,
+    opts: ModeOutputOptions,
+) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
-        policy,
-        top,
-        min_lrs,
-        output,
         explain,
         force,
         no_persist,
@@ -314,201 +342,223 @@ pub(crate) fn handle_mode_output(
         source_url,
         callgraph_skip_above,
         skip_touch_metrics,
+        top,
+        output,
+        ..
     } = opts;
+    let mut snapshot = build_snapshot_via_db(
+        repo_root,
+        resolved_config,
+        reports,
+        touch_mode,
+        callgraph_skip_above,
+        skip_touch_metrics,
+    )
+    .context("failed to build enriched snapshot")?;
 
-    let repo_root = find_repo_root(path)?;
-    let analysis_progress = make_analysis_progress();
-    let reports = analyze_with_progress(
-        path,
-        AnalysisOptions {
-            min_lrs,
-            top_n: None,
-        },
-        Some(resolved_config),
-        Some(analysis_progress.as_ref()),
-    )?;
-    let pr_context = git::detect_pr_context();
+    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
+    if explain_patterns {
+        snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
+    }
 
-    match mode {
-        OutputMode::Snapshot => {
-            let mut snapshot = build_snapshot_via_db(
-                &repo_root,
-                resolved_config,
-                reports,
-                touch_mode,
-                callgraph_skip_above,
-                skip_touch_metrics,
-            )
-            .context("failed to build enriched snapshot")?;
+    if !pr_context.is_pr && !no_persist {
+        snapshot::persist_snapshot(repo_root, &snapshot, force)
+            .context("failed to persist snapshot")?;
+        snapshot::append_to_index(repo_root, &snapshot).context("failed to update index")?;
+    }
 
-            snapshot.populate_patterns(&resolved_config.pattern_thresholds);
-            if explain_patterns {
-                snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
-            }
-
-            if !pr_context.is_pr && !no_persist {
-                snapshot::persist_snapshot(&repo_root, &snapshot, force)
-                    .context("failed to persist snapshot")?;
-                snapshot::append_to_index(&repo_root, &snapshot)
-                    .context("failed to update index")?;
-            }
-
-            let total_function_count = snapshot.functions.len();
-            let is_aggregate_level =
-                level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
-            if !is_aggregate_level
-                && (top.is_some() || (matches!(format, OutputFormat::Text) && explain))
-            {
-                snapshot.functions.sort_by(|a, b| {
-                    let a_score = a.activity_risk.unwrap_or(a.lrs);
-                    let b_score = b.activity_risk.unwrap_or(b.lrs);
-                    b_score
-                        .partial_cmp(&a_score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-                if let Some(n) = top {
-                    snapshot.functions.truncate(n);
-                }
-            }
-
-            emit_snapshot_output(
-                &mut snapshot,
-                SnapshotOutputOpts {
-                    format,
-                    explain,
-                    level,
-                    top,
-                    total_function_count,
-                    output,
-                    co_change_window_days: resolved_config.co_change_window_days,
-                    co_change_min_count: resolved_config.co_change_min_count,
-                    all_functions,
-                    include_models,
-                    source_url: source_url.clone(),
-                    risk_thresholds: hotspots_core::risk::RiskThresholds {
-                        moderate: resolved_config.moderate_threshold,
-                        high: resolved_config.high_threshold,
-                        critical: resolved_config.critical_threshold,
-                    },
-                },
-                &repo_root,
-                path,
-            )?;
-        }
-        OutputMode::Delta => {
-            let snapshot = build_enriched_snapshot(
-                &repo_root,
-                resolved_config,
-                reports,
-                touch_mode,
-                callgraph_skip_above,
-                skip_touch_metrics,
-            )
-            .context("failed to build enriched snapshot")?;
-
-            let delta_val = if pr_context.is_pr {
-                compute_pr_delta(&repo_root, &snapshot)?
-            } else {
-                delta::compute_delta(&repo_root, &snapshot)?
-            };
-
-            let mut unique_files: Vec<String> = snapshot
-                .functions
-                .iter()
-                .map(|f| f.file.clone())
-                .collect::<std::collections::HashSet<_>>()
-                .into_iter()
-                .collect();
-            unique_files.sort();
-            let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-            let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, &repo_root);
-            let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
-                &repo_root,
-                resolved_config.co_change_window_days,
-                resolved_config.co_change_min_count,
-            )
-            .unwrap_or_default();
-            hotspots_core::aggregates::annotate_static_deps(
-                &mut current_co_change,
-                &import_edges,
-                &repo_root,
-            );
-
-            let parent_sha = snapshot.commit.parents.first().cloned();
-            let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_sha
-                .as_deref()
-                .and_then(|sha| {
-                    hotspots_core::delta::load_parent_snapshot(&repo_root, sha)
-                        .ok()
-                        .flatten()
-                })
-                .and_then(|s| s.aggregates)
-                .map(|a| a.co_change)
-                .unwrap_or_default();
-
-            let mut delta_with_extras = delta_val.clone();
-            if policy {
-                let policy_results = hotspots_core::policy::evaluate_policies(
-                    &delta_val,
-                    &snapshot,
-                    &repo_root,
-                    resolved_config,
-                )
-                .context("failed to evaluate policies")?;
-                if let Some(results) = policy_results {
-                    delta_with_extras.policy = Some(results);
-                }
-            }
-            delta_with_extras.aggregates =
-                Some(hotspots_core::aggregates::compute_delta_aggregates(
-                    &delta_val,
-                    &current_co_change,
-                    &prev_co_change,
-                ));
-
-            if emit_delta_output(
-                &delta_with_extras,
-                format,
-                policy,
-                output,
-                source_url.as_deref(),
-            )? {
-                std::process::exit(1);
-            }
-        }
-        OutputMode::Models => {
-            let snapshot = build_enriched_snapshot(
-                &repo_root,
-                resolved_config,
-                reports,
-                touch_mode,
-                callgraph_skip_above,
-                skip_touch_metrics,
-            )
-            .context("failed to build enriched snapshot")?;
-            let model_map =
-                hotspots_core::models::compute_model_risk_map(path, &repo_root, &snapshot, top)
-                    .context("failed to compute model risk map")?;
-            match format {
-                OutputFormat::Text => {
-                    print!(
-                        "{}",
-                        hotspots_core::models::render_model_risk_text(&model_map, top)
-                    );
-                }
-                OutputFormat::Json => {
-                    println!(
-                        "{}",
-                        hotspots_core::models::render_model_risk_json(&model_map)?
-                    );
-                }
-                OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
-                    unreachable!("validated by validate_analyze_flags")
-                }
-            }
+    let total_function_count = snapshot.functions.len();
+    let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+    if !is_aggregate_level && (top.is_some() || (matches!(format, OutputFormat::Text) && explain)) {
+        snapshot.functions.sort_by(|a, b| {
+            let a_score = a.activity_risk.unwrap_or(a.lrs);
+            let b_score = b.activity_risk.unwrap_or(b.lrs);
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if let Some(n) = top {
+            snapshot.functions.truncate(n);
         }
     }
 
+    emit_snapshot_output(
+        &mut snapshot,
+        SnapshotOutputOpts {
+            format,
+            explain,
+            level,
+            top,
+            total_function_count,
+            output,
+            co_change_window_days: resolved_config.co_change_window_days,
+            co_change_min_count: resolved_config.co_change_min_count,
+            all_functions,
+            include_models,
+            source_url: source_url.clone(),
+            risk_thresholds: hotspots_core::risk::RiskThresholds {
+                moderate: resolved_config.moderate_threshold,
+                high: resolved_config.high_threshold,
+                critical: resolved_config.critical_threshold,
+            },
+        },
+        repo_root,
+        path,
+    )
+}
+
+fn handle_delta_mode(
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+    pr_context: hotspots_core::git::PrContext,
+    opts: ModeOutputOptions,
+) -> anyhow::Result<()> {
+    let ModeOutputOptions {
+        format,
+        policy,
+        output,
+        source_url,
+        touch_mode,
+        callgraph_skip_above,
+        skip_touch_metrics,
+        ..
+    } = opts;
+    let snapshot = build_enriched_snapshot(
+        repo_root,
+        resolved_config,
+        reports,
+        touch_mode,
+        callgraph_skip_above,
+        skip_touch_metrics,
+    )
+    .context("failed to build enriched snapshot")?;
+
+    let delta_val = if pr_context.is_pr {
+        compute_pr_delta(repo_root, &snapshot)?
+    } else {
+        delta::compute_delta(repo_root, &snapshot)?
+    };
+
+    let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
+
+    if emit_delta_output(
+        &delta_with_extras,
+        format,
+        policy,
+        output,
+        source_url.as_deref(),
+    )? {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+fn enrich_delta(
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    snapshot: &Snapshot,
+    delta_val: delta::Delta,
+    policy: bool,
+) -> anyhow::Result<delta::Delta> {
+    let mut unique_files: Vec<String> = snapshot
+        .functions
+        .iter()
+        .map(|f| f.file.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    unique_files.sort();
+    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
+    let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, repo_root);
+    let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
+        repo_root,
+        resolved_config.co_change_window_days,
+        resolved_config.co_change_min_count,
+    )
+    .unwrap_or_default();
+    hotspots_core::aggregates::annotate_static_deps(
+        &mut current_co_change,
+        &import_edges,
+        repo_root,
+    );
+
+    let parent_sha = snapshot.commit.parents.first().cloned();
+    let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_sha
+        .as_deref()
+        .and_then(|sha| {
+            hotspots_core::delta::load_parent_snapshot(repo_root, sha)
+                .ok()
+                .flatten()
+        })
+        .and_then(|s| s.aggregates)
+        .map(|a| a.co_change)
+        .unwrap_or_default();
+
+    let mut enriched = delta_val.clone();
+    if policy {
+        let policy_results = hotspots_core::policy::evaluate_policies(
+            &delta_val,
+            snapshot,
+            repo_root,
+            resolved_config,
+        )
+        .context("failed to evaluate policies")?;
+        if let Some(results) = policy_results {
+            enriched.policy = Some(results);
+        }
+    }
+    enriched.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
+        &delta_val,
+        &current_co_change,
+        &prev_co_change,
+    ));
+    Ok(enriched)
+}
+
+fn handle_models_mode(
+    path: &Path,
+    repo_root: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    reports: Vec<hotspots_core::FunctionRiskReport>,
+    opts: ModeOutputOptions,
+) -> anyhow::Result<()> {
+    let ModeOutputOptions {
+        format,
+        top,
+        touch_mode,
+        callgraph_skip_above,
+        skip_touch_metrics,
+        ..
+    } = opts;
+    let snapshot = build_enriched_snapshot(
+        repo_root,
+        resolved_config,
+        reports,
+        touch_mode,
+        callgraph_skip_above,
+        skip_touch_metrics,
+    )
+    .context("failed to build enriched snapshot")?;
+    let model_map = hotspots_core::models::compute_model_risk_map(path, repo_root, &snapshot, top)
+        .context("failed to compute model risk map")?;
+    match format {
+        OutputFormat::Text => {
+            print!(
+                "{}",
+                hotspots_core::models::render_model_risk_text(&model_map, top)
+            );
+        }
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                hotspots_core::models::render_model_risk_json(&model_map)?
+            );
+        }
+        OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif => {
+            unreachable!("validated by validate_analyze_flags")
+        }
+    }
     Ok(())
 }
 
@@ -556,45 +606,16 @@ fn emit_snapshot_output(
                 co_change_min_count,
                 include_models.then_some(analysis_path),
             );
-            if let Some(output_path) = output {
-                if all_functions {
-                    snapshot.aggregates = Some(aggregates);
-                    write_snapshot_json_file(&output_path, |out| {
-                        snapshot
-                            .write_json_to(out)
-                            .context("failed to write snapshot JSON")
-                    })?;
-                } else {
-                    let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
-                        snapshot,
-                        &aggregates,
-                        repo_root,
-                    );
-                    write_snapshot_json_file(&output_path, |out| {
-                        agent_output
-                            .write_json_to(out)
-                            .context("failed to write agent snapshot JSON")
-                    })?;
-                }
-                eprintln!("JSON report written to: {}", output_path.display());
-            } else if all_functions {
+            if all_functions {
                 snapshot.aggregates = Some(aggregates);
-                let stdout = std::io::stdout();
-                let mut out = std::io::BufWriter::new(stdout.lock());
-                snapshot
-                    .write_json_to(&mut out)
-                    .context("failed to write snapshot JSON")?;
+                write_json_snapshot(snapshot, output)?;
             } else {
                 let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
                     snapshot,
                     &aggregates,
                     repo_root,
                 );
-                let stdout = std::io::stdout();
-                let mut out = std::io::BufWriter::new(stdout.lock());
-                agent_output
-                    .write_json_to(&mut out)
-                    .context("failed to write agent snapshot JSON")?;
+                write_json_agent(&agent_output, output)?;
             }
         }
         OutputFormat::Jsonl => {
@@ -695,6 +716,45 @@ where
         .with_context(|| format!("failed to create {}", output_path.display()))?;
     let mut out = std::io::BufWriter::new(file);
     write(&mut out)
+}
+
+fn write_json_snapshot(snapshot: &Snapshot, output: Option<PathBuf>) -> anyhow::Result<()> {
+    if let Some(output_path) = output {
+        write_snapshot_json_file(&output_path, |out| {
+            snapshot
+                .write_json_to(out)
+                .context("failed to write snapshot JSON")
+        })?;
+        eprintln!("JSON report written to: {}", output_path.display());
+    } else {
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        snapshot
+            .write_json_to(&mut out)
+            .context("failed to write snapshot JSON")?;
+    }
+    Ok(())
+}
+
+fn write_json_agent(
+    agent_output: &hotspots_core::aggregates::AgentSnapshotOutput,
+    output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(output_path) = output {
+        write_snapshot_json_file(&output_path, |out| {
+            agent_output
+                .write_json_to(out)
+                .context("failed to write agent snapshot JSON")
+        })?;
+        eprintln!("JSON report written to: {}", output_path.display());
+    } else {
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        agent_output
+            .write_json_to(&mut out)
+            .context("failed to write agent snapshot JSON")?;
+    }
+    Ok(())
 }
 
 /// Returns true if there are blocking policy failures (caller should exit non-zero).
