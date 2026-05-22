@@ -217,59 +217,76 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     }
 
     // Default behavior (no --mode): simple text/JSON output
-    let options = AnalysisOptions {
-        min_lrs: effective_min_lrs,
-        top_n: effective_top,
-    };
+    handle_default_output(
+        &normalized_path,
+        format,
+        explain_patterns,
+        effective_min_lrs,
+        effective_top,
+        &resolved_config,
+    )
+}
+
+fn handle_default_output(
+    path: &Path,
+    format: OutputFormat,
+    explain_patterns: bool,
+    min_lrs: Option<f64>,
+    top: Option<usize>,
+    resolved_config: &hotspots_core::ResolvedConfig,
+) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
     let mut reports = analyze_with_progress(
-        &normalized_path,
-        options,
-        Some(&resolved_config),
+        path,
+        AnalysisOptions {
+            min_lrs,
+            top_n: top,
+        },
+        Some(resolved_config),
         Some(analysis_progress.as_ref()),
     )?;
 
     if explain_patterns {
-        for report in &mut reports {
-            let t1 = hotspots_core::patterns::Tier1Input {
-                cc: report.metrics.cc as usize,
-                nd: report.metrics.nd as usize,
-                fo: report.metrics.fo as usize,
-                ns: report.metrics.ns as usize,
-                loc: report.metrics.loc as usize,
-            };
-            let t2 = hotspots_core::patterns::Tier2Input {
-                fan_in: None,
-                scc_size: None,
-                churn_lines: None,
-                days_since_last_change: None,
-                neighbor_churn: None,
-                is_entrypoint: false,
-            };
-            report.pattern_details = Some(hotspots_core::patterns::classify_detailed(
-                &t1,
-                &t2,
-                &resolved_config.pattern_thresholds,
-            ));
-        }
+        populate_pattern_details(&mut reports, resolved_config);
     }
 
     match format {
-        OutputFormat::Text => {
-            print!("{}", hotspots_core::render_text(&reports));
-        }
-        OutputFormat::Json => {
-            println!("{}", hotspots_core::render_json(&reports));
-        }
+        OutputFormat::Text => print!("{}", hotspots_core::render_text(&reports)),
+        OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif => {
-            anyhow::bail!("SARIF format requires --mode snapshot");
-        }
+        OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
     }
-
     Ok(())
+}
+
+fn populate_pattern_details(
+    reports: &mut [hotspots_core::FunctionRiskReport],
+    resolved_config: &hotspots_core::ResolvedConfig,
+) {
+    for report in reports.iter_mut() {
+        let t1 = hotspots_core::patterns::Tier1Input {
+            cc: report.metrics.cc as usize,
+            nd: report.metrics.nd as usize,
+            fo: report.metrics.fo as usize,
+            ns: report.metrics.ns as usize,
+            loc: report.metrics.loc as usize,
+        };
+        let t2 = hotspots_core::patterns::Tier2Input {
+            fan_in: None,
+            scc_size: None,
+            churn_lines: None,
+            days_since_last_change: None,
+            neighbor_churn: None,
+            is_entrypoint: false,
+        };
+        report.pattern_details = Some(hotspots_core::patterns::classify_detailed(
+            &t1,
+            &t2,
+            &resolved_config.pattern_thresholds,
+        ));
+    }
 }
 
 pub(crate) struct ModeOutputOptions {
@@ -813,29 +830,10 @@ fn emit_delta_output(
             anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
         }
         OutputFormat::Text => {
-            if with_policy {
-                if let Some(ref policy_results) = delta_val.policy {
-                    policy::print_policy_text_output(delta_val, policy_results)?;
-                } else {
-                    println!("Delta Analysis");
-                    println!("{}", "=".repeat(80));
-                    println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
-                    println!(
-                        "\nDelta contains {} function changes.",
-                        delta_val.deltas.len()
-                    );
-                }
-            } else {
-                anyhow::bail!(
-                    "text format is not supported for delta mode without --policy (use --format json)"
-                );
-            }
+            emit_delta_text(delta_val, with_policy)?;
         }
         OutputFormat::Html => {
-            let html = hotspots_core::html::render_html_delta(delta_val, source_url);
-            let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-            write_html_report(&output_path, &html)?;
-            eprintln!("HTML report written to: {}", output_path.display());
+            emit_delta_html(delta_val, source_url, output)?;
         }
         OutputFormat::Sarif => {
             anyhow::bail!("SARIF format is not supported for delta mode (use --mode snapshot)");
@@ -845,34 +843,66 @@ fn emit_delta_output(
     Ok(has_blocking_failures)
 }
 
+fn emit_delta_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<()> {
+    if !with_policy {
+        anyhow::bail!(
+            "text format is not supported for delta mode without --policy (use --format json)"
+        );
+    }
+    if let Some(ref policy_results) = delta_val.policy {
+        policy::print_policy_text_output(delta_val, policy_results)?;
+    } else {
+        println!("Delta Analysis");
+        println!("{}", "=".repeat(80));
+        println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
+        println!(
+            "\nDelta contains {} function changes.",
+            delta_val.deltas.len()
+        );
+    }
+    Ok(())
+}
+
+fn emit_delta_html(
+    delta_val: &Delta,
+    source_url: Option<&str>,
+    output: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let html = hotspots_core::html::render_html_delta(delta_val, source_url);
+    let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
+    write_html_report(&output_path, &html)?;
+    eprintln!("HTML report written to: {}", output_path.display());
+    Ok(())
+}
+
 /// Compute delta for PR mode (compares vs merge-base).
 fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<delta::Delta> {
     let merge_base_sha = git::resolve_merge_base_auto();
+    let fallback_sha = snapshot.commit.parents.first().map(|s| s.as_str());
+    let parent = load_merge_base_or_fallback(repo_root, merge_base_sha.as_deref(), fallback_sha)?;
+    delta::Delta::new(snapshot, parent.as_ref())
+}
 
-    let parent = if let Some(sha) = &merge_base_sha {
+fn load_merge_base_or_fallback(
+    repo_root: &Path,
+    merge_base_sha: Option<&str>,
+    fallback_sha: Option<&str>,
+) -> anyhow::Result<Option<Snapshot>> {
+    if let Some(sha) = merge_base_sha {
         match delta::load_parent_snapshot(repo_root, sha)? {
-            Some(parent_snapshot) => Some(parent_snapshot),
+            Some(snap) => return Ok(Some(snap)),
             None => {
-                eprintln!("Warning: merge-base snapshot not found, falling back to direct parent");
-                let parent_sha = snapshot.commit.parents.first();
-                if let Some(sha) = parent_sha {
-                    delta::load_parent_snapshot(repo_root, sha)?
-                } else {
-                    None
-                }
+                eprintln!("Warning: merge-base snapshot not found, falling back to direct parent")
             }
         }
     } else {
         eprintln!("Warning: failed to resolve merge-base, falling back to direct parent");
-        let parent_sha = snapshot.commit.parents.first();
-        if let Some(sha) = parent_sha {
-            delta::load_parent_snapshot(repo_root, sha)?
-        } else {
-            None
-        }
-    };
-
-    delta::Delta::new(snapshot, parent.as_ref())
+    }
+    if let Some(sha) = fallback_sha {
+        delta::load_parent_snapshot(repo_root, sha)
+    } else {
+        Ok(None)
+    }
 }
 
 /// Memory-efficient snapshot pipeline using SQLite as an in-process buffer.
@@ -1185,22 +1215,9 @@ pub(crate) fn analyze_and_persist_at_ref(
     )
     .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
-    // Rewrite absolute worktree paths back to real repo paths so that
-    // function_ids are stable across snapshots (each worktree lives in a
-    // unique temp dir, so without this diff matching produces 0 matches).
     let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
     let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
-    for f in &mut snapshot.functions {
-        if f.file.starts_with(&worktree_prefix) {
-            let rel = f.file[worktree_prefix.len()..].to_string();
-            let old_file = f.file.clone();
-            f.file = format!("{}{}", repo_prefix, rel);
-            // function_id is "<file>::<symbol>" — rebuild using the corrected file path
-            if let Some(symbol) = f.function_id.strip_prefix(&format!("{old_file}::")) {
-                f.function_id = format!("{}::{}", f.file, symbol);
-            }
-        }
-    }
+    rewrite_worktree_paths(&mut snapshot, &worktree_prefix, &repo_prefix);
 
     snapshot.populate_patterns(&resolved_config.pattern_thresholds);
 
@@ -1212,6 +1229,19 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Drop of `worktree` runs `git worktree remove` here.
     Ok(snapshot)
+}
+
+fn rewrite_worktree_paths(snapshot: &mut Snapshot, worktree_prefix: &str, repo_prefix: &str) {
+    for f in &mut snapshot.functions {
+        if f.file.starts_with(worktree_prefix) {
+            let rel = f.file[worktree_prefix.len()..].to_string();
+            let old_file = f.file.clone();
+            f.file = format!("{}{}", repo_prefix, rel);
+            if let Some(symbol) = f.function_id.strip_prefix(&format!("{old_file}::")) {
+                f.function_id = format!("{}::{}", f.file, symbol);
+            }
+        }
+    }
 }
 
 fn resolve_touch_mode(
