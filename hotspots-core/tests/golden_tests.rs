@@ -998,3 +998,8 @@ fn test_csharp_golden_determinism() {
     let json2 = render_json(&reports2);
     assert_eq!(json1, json2, "C# analysis is not deterministic");
 }
+
+#[test]
+fn test_csharp_golden_switches() {
+    test_csharp_golden("Switches");
+}
