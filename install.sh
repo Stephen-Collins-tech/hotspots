@@ -30,13 +30,60 @@ esac
 
 ASSET="hotspots-${os}-${arch}.tar.gz"
 
+# ── Resolve latest version (HEAD request only — no body, no API key) ─────────
+#
+# GitHub redirects /releases/latest to /releases/tag/<version>.
+# A HEAD request reveals the tag in the Location header without downloading
+# anything or sending any identifying information.
+
+latest_version() {
+  curl --silent --head --location \
+    "https://github.com/${REPO}/releases/latest" \
+    | grep -i "^location:" \
+    | grep -o 'tag/[^[:space:]]*' \
+    | sed 's|tag/||' \
+    | tr -d '\r'
+}
+
+# ── Check for existing install ────────────────────────────────────────────────
+
+INSTALLED_VERSION=""
+if command -v "$BIN_NAME" >/dev/null 2>&1; then
+  INSTALLED_VERSION="$("$BIN_NAME" --version 2>/dev/null | grep -o 'v[0-9][^ ]*' || true)"
+fi
+
 # ── Resolve download URL ──────────────────────────────────────────────────────
 
 if [ -n "$HOTSPOTS_VERSION" ]; then
-  URL="https://github.com/${REPO}/releases/download/${HOTSPOTS_VERSION}/${ASSET}"
+  TARGET_VERSION="$HOTSPOTS_VERSION"
 else
-  URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
+  echo "Checking latest version..."
+  TARGET_VERSION="$(latest_version)"
+  if [ -z "$TARGET_VERSION" ]; then
+    echo "error: could not determine latest version" >&2
+    exit 1
+  fi
 fi
+
+# ── Version comparison ────────────────────────────────────────────────────────
+
+if [ -n "$INSTALLED_VERSION" ]; then
+  if [ "$INSTALLED_VERSION" = "$TARGET_VERSION" ]; then
+    echo "hotspots $INSTALLED_VERSION is already up to date."
+    exit 0
+  fi
+  echo "Update available: $INSTALLED_VERSION → $TARGET_VERSION"
+  printf "Install update? [y/N] "
+  read -r answer
+  case "$answer" in
+    [yY]*) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+else
+  echo "Installing hotspots $TARGET_VERSION..."
+fi
+
+URL="https://github.com/${REPO}/releases/download/${TARGET_VERSION}/${ASSET}"
 
 # ── Download and install ──────────────────────────────────────────────────────
 
@@ -50,7 +97,7 @@ mkdir -p "$INSTALL_DIR"
 mv "$TMP/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 chmod +x "$INSTALL_DIR/$BIN_NAME"
 
-echo "Installed to $INSTALL_DIR/$BIN_NAME"
+echo "Installed $TARGET_VERSION to $INSTALL_DIR/$BIN_NAME"
 
 # ── PATH check ───────────────────────────────────────────────────────────────
 
