@@ -79,6 +79,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             // Extract Rust-specific metrics from syn AST
             extract_rust_metrics(function, cfg)
         }
+        FunctionBody::CSharp { .. } => extract_csharp_metrics(function, cfg),
     }
 }
 
@@ -888,6 +889,119 @@ fn python_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize
 }
 
 // Note: Python metrics tests are integrated with cfg_builder tests
+
+// ============================================================================
+// C# Metrics Implementation
+// ============================================================================
+
+/// Extract metrics for C# functions using tree-sitter
+fn extract_csharp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_csharp();
+    ts_with_function_body(
+        source,
+        tree_sitter_c_sharp::LANGUAGE.into(),
+        function.span.start,
+        &[
+            "method_declaration",
+            "constructor_declaration",
+            "local_function_statement",
+            "operator_declaration",
+            "conversion_operator_declaration",
+        ],
+        &["block"],
+        |func_node, body_node| {
+            let callee_names = csharp_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + csharp_count_cc_extras(&body_node, source),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "foreach_statement",
+                        "switch_statement",
+                        "try_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "throw_statement",
+                        "break_statement",
+                        "continue_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+        loc: 0,
+        callee_names: vec![],
+    })
+}
+
+/// Extract callee names from a C# function body.
+fn csharp_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
+        node: tree_sitter::Node,
+        source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
+        if node.kind() == "invocation_expression" {
+            let call_text = &source[node.start_byte()..node.end_byte()];
+            calls.insert(call_text.to_string());
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            collect(child, source, calls);
+        }
+    }
+
+    let mut calls = std::collections::HashSet::new();
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
+}
+
+/// Count additional CC contributors in C# (ternary, boolean operators, null-coalescing)
+fn csharp_count_cc_extras(body_node: &tree_sitter::Node, _source: &str) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
+        match node.kind() {
+            "conditional_expression" => {
+                *count += 1;
+            }
+            "binary_expression" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "&&" || child.kind() == "||" || child.kind() == "??" {
+                        *count += 1;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_extras(child, count);
+        }
+    }
+
+    let mut count = 0;
+    count_extras(*body_node, &mut count);
+    count
+}
 
 // ========================================
 // Rust Metrics Extraction

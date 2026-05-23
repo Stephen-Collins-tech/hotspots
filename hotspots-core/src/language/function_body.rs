@@ -55,6 +55,16 @@ pub enum FunctionBody {
         /// The source code for the entire function (signature + body)
         source: String,
     },
+
+    /// C# function body
+    ///
+    /// Contains the tree-sitter node ID for the block and the source code.
+    CSharp {
+        /// The tree-sitter node ID for the function body block
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: String,
+    },
 }
 
 impl FunctionBody {
@@ -86,6 +96,11 @@ impl FunctionBody {
     /// Check if this is a Rust function body
     pub fn is_rust(&self) -> bool {
         matches!(self, FunctionBody::Rust { .. })
+    }
+
+    /// Check if this is a C# function body
+    pub fn is_csharp(&self) -> bool {
+        matches!(self, FunctionBody::CSharp { .. })
     }
 
     /// Get the ECMAScript body, if this is one
@@ -158,6 +173,18 @@ impl FunctionBody {
         match self {
             FunctionBody::Rust { source } => source.as_str(),
             _ => panic!("FunctionBody is not Rust"),
+        }
+    }
+
+    /// Get the C# body node ID and source, if this is a C# function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a C# body. Use `is_csharp()` to check first.
+    pub fn as_csharp(&self) -> (usize, &str) {
+        match self {
+            FunctionBody::CSharp { body_node, source } => (*body_node, source.as_str()),
+            _ => panic!("FunctionBody is not CSharp"),
         }
     }
 }

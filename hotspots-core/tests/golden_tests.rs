@@ -919,3 +919,87 @@ function add(a: number, b: number): number {
         );
     }
 }
+
+fn test_csharp_golden(fixture_name: &str) {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("csharp")
+        .join(format!("{}.cs", fixture_name));
+    let golden_name = fixture_name.to_lowercase();
+    let golden = golden_path(&format!("csharp-{}.json", golden_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("csharp-{}.json", golden_name));
+
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Golden file mismatch for C# fixture: {}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_csharp_golden_simple() {
+    test_csharp_golden("Simple");
+}
+
+#[test]
+fn test_csharp_golden_loops() {
+    test_csharp_golden("Loops");
+}
+
+#[test]
+fn test_csharp_golden_exceptions() {
+    test_csharp_golden("Exceptions");
+}
+
+#[test]
+fn test_csharp_golden_determinism() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("csharp")
+        .join("Simple.cs");
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports1 = analyze(&fixture, options).unwrap();
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports2 = analyze(&fixture, options).unwrap();
+
+    let json1 = render_json(&reports1);
+    let json2 = render_json(&reports2);
+    assert_eq!(json1, json2, "C# analysis is not deterministic");
+}
+
+#[test]
+fn test_csharp_golden_switches() {
+    test_csharp_golden("Switches");
+}

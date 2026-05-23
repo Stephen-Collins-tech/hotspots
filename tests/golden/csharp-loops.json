@@ -1,0 +1,86 @@
+[
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/csharp/Loops.cs",
+    "function": "ForLoop",
+    "language": "C#",
+    "line": 3,
+    "lrs": 3.821928094887362,
+    "metrics": {
+      "cc": 4,
+      "fo": 0,
+      "loc": 9,
+      "nd": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 1.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/csharp/Loops.cs",
+    "function": "WhileLoop",
+    "language": "C#",
+    "line": 13,
+    "lrs": 3.821928094887362,
+    "metrics": {
+      "cc": 4,
+      "fo": 0,
+      "loc": 9,
+      "nd": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 1.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/csharp/Loops.cs",
+    "function": "DoWhileLoop",
+    "language": "C#",
+    "line": 23,
+    "lrs": 3.821928094887362,
+    "metrics": {
+      "cc": 4,
+      "fo": 0,
+      "loc": 9,
+      "nd": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 1.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/csharp/Loops.cs",
+    "function": "ForeachLoop",
+    "language": "C#",
+    "line": 33,
+    "lrs": 3.821928094887362,
+    "metrics": {
+      "cc": 4,
+      "fo": 0,
+      "loc": 9,
+      "nd": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 1.0
+    }
+  }
+]
