@@ -43,7 +43,7 @@ pub mod trends;
 pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;
 pub use git::GitContext;
-pub use report::{render_json, render_text, sort_reports, FunctionRiskReport};
+pub use report::{render_json, render_text, render_text_grouped, sort_reports, FunctionRiskReport};
 pub use snapshot::TouchMode;
 
 use anyhow::{Context, Result};

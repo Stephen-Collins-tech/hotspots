@@ -255,11 +255,17 @@ fn handle_default_output(
     resolved_config: &hotspots_core::ResolvedConfig,
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
+    let explicit_top = top.or(resolved_config.top_n);
+    let limit = explicit_top.unwrap_or(10);
     let mut reports = analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs,
-            top_n: top,
+            top_n: if matches!(format, OutputFormat::Text) {
+                Some(limit)
+            } else {
+                explicit_top
+            },
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -270,7 +276,9 @@ fn handle_default_output(
     }
 
     match format {
-        OutputFormat::Text => print!("{}", hotspots_core::render_text(&reports)),
+        OutputFormat::Text => {
+            print!("{}", hotspots_core::render_text_grouped(&reports, limit));
+        }
         OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");

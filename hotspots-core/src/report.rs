@@ -195,6 +195,82 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     output
 }
 
+/// Render reports grouped by file, with a footer showing counts and usage hints.
+///
+/// `limit` is the top-N that was requested so the footer can hint at using --top.
+pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> String {
+    use std::collections::BTreeMap;
+    let mut output = String::new();
+    let cwd = std::env::current_dir().ok();
+
+    let rel_path = |p: &str| -> String {
+        cwd.as_ref()
+            .and_then(|cwd| {
+                std::path::Path::new(p)
+                    .strip_prefix(cwd)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| p.to_string())
+    };
+
+    let mut by_file: BTreeMap<String, Vec<&FunctionRiskReport>> = BTreeMap::new();
+    let mut file_order: Vec<String> = Vec::new();
+    for r in reports {
+        let key = rel_path(&r.file);
+        if !by_file.contains_key(&key) {
+            file_order.push(key.clone());
+        }
+        by_file.entry(key).or_default().push(r);
+    }
+
+    for file_key in &file_order {
+        let fns = &by_file[file_key];
+        output.push_str(&format!("{}\n", file_key));
+        for r in fns.iter() {
+            let lrs_str = format!("{:.2}", r.lrs);
+            let band = r.band.as_str();
+            let patterns_str = if r.patterns.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", r.patterns.join(", "))
+            };
+            output.push_str(&format!(
+                "  {:<6}  {:<8}  {}  line {}{}",
+                lrs_str, band, r.function, r.line, patterns_str
+            ));
+            output.push('\n');
+            if let Some(ref details) = r.pattern_details {
+                for d in details {
+                    let conds = d
+                        .triggered_by
+                        .iter()
+                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    output.push_str(&format!("             {}: {}\n", d.id, conds));
+                }
+            }
+        }
+        output.push('\n');
+    }
+
+    let shown = reports.len();
+    let sep = "─".repeat(60);
+    output.push_str(&sep);
+    output.push('\n');
+    output.push_str(&format!(
+        "Top {} functions across {} files\n",
+        shown,
+        file_order.len()
+    ));
+    output.push_str(&format!(
+        "Use --top N to see more (default {})  ·  --format json for full output\n",
+        limit
+    ));
+    output
+}
+
 /// Render reports as JSON output
 pub fn render_json(reports: &[FunctionRiskReport]) -> String {
     // Use serde_json with sorted keys for deterministic output
@@ -207,5 +283,89 @@ fn truncate_or_pad(s: &str, width: usize) -> String {
         format!("{}...", &s[..width.saturating_sub(3)])
     } else {
         format!("{:<width$}", s, width = width)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::Language;
+    use crate::risk::RiskBand;
+
+    fn make_report(file: &str, function: &str, line: u32, lrs: f64) -> FunctionRiskReport {
+        FunctionRiskReport {
+            file: file.to_string(),
+            function: function.to_string(),
+            line,
+            language: Language::TypeScript,
+            metrics: MetricsReport {
+                cc: 5,
+                nd: 1,
+                fo: 2,
+                ns: 0,
+                loc: 20,
+            },
+            risk: RiskReport {
+                r_cc: 1.0,
+                r_nd: 0.5,
+                r_fo: 0.5,
+                r_ns: 0.0,
+            },
+            lrs,
+            band: RiskBand::High,
+            suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
+            callees: vec![],
+        }
+    }
+
+    #[test]
+    fn test_render_text_grouped_groups_by_file() {
+        let reports = vec![
+            make_report("/repo/src/a.ts", "foo", 10, 8.0),
+            make_report("/repo/src/b.ts", "bar", 20, 7.0),
+            make_report("/repo/src/a.ts", "baz", 30, 6.0),
+        ];
+        let out = render_text_grouped(&reports, 10);
+        // a.ts section appears before b.ts (rank order)
+        let a_pos = out.find("src/a.ts").unwrap_or(usize::MAX);
+        let b_pos = out.find("src/b.ts").unwrap_or(usize::MAX);
+        assert!(a_pos < b_pos, "a.ts should appear before b.ts");
+        // both functions from a.ts are present
+        assert!(out.contains("foo"), "should contain foo");
+        assert!(out.contains("baz"), "should contain baz");
+        assert!(out.contains("bar"), "should contain bar");
+    }
+
+    #[test]
+    fn test_render_text_grouped_footer_counts() {
+        let reports = vec![
+            make_report("/repo/src/a.ts", "foo", 10, 8.0),
+            make_report("/repo/src/b.ts", "bar", 20, 7.0),
+        ];
+        let out = render_text_grouped(&reports, 10);
+        assert!(
+            out.contains("Top 2 functions across 2 files"),
+            "footer should show correct counts"
+        );
+        assert!(
+            out.contains("default 10"),
+            "footer should show the default limit"
+        );
+    }
+
+    #[test]
+    fn test_render_text_grouped_patterns_shown() {
+        let mut r = make_report("/repo/src/a.ts", "foo", 10, 8.0);
+        r.patterns = vec!["god_function".to_string(), "exit_heavy".to_string()];
+        let out = render_text_grouped(&[r], 10);
+        assert!(out.contains("[god_function, exit_heavy]"));
+    }
+
+    #[test]
+    fn test_render_text_grouped_empty() {
+        let out = render_text_grouped(&[], 10);
+        assert!(out.contains("Top 0 functions across 0 files"));
     }
 }
