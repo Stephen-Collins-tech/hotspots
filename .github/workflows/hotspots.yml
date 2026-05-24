@@ -22,19 +22,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Restore cached binary
         id: binary-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-hotspots-bin-
 
-      - name: Build hotspots binary
+      - name: Install Rust toolchain (cache miss only)
+        if: steps.binary-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build hotspots binary (cache miss only)
         if: steps.binary-cache.outputs.cache-hit != 'true'
         run: cargo build --release --bin hotspots
 

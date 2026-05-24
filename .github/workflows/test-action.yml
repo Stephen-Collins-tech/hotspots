@@ -22,25 +22,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
       - name: Restore cached release binary (by commit)
-        uses: actions/cache@v4
+        id: bin-cache
+        uses: actions/cache/restore@v4
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-hotspots-bin-
 
-      - name: Ensure hotspots binary present
-        run: |
-          if [ -x target/release/hotspots ]; then
-            echo "Using cached binary"
-          else
-            echo "Cache miss: building binary"
-            cargo build --release --bin hotspots
-          fi
+      - name: Install Rust toolchain (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build hotspots binary (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        run: cargo build --release --bin hotspots
 
       - name: Create sample TypeScript project
         run: |
