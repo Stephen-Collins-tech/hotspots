@@ -1,6 +1,6 @@
 [
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/csharp/Switches.cs",
+    "file": "tests/fixtures/csharp/Switches.cs",
     "function": "DayName",
     "line": 3,
     "language": "C#",
@@ -21,7 +21,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/csharp/Switches.cs",
+    "file": "tests/fixtures/csharp/Switches.cs",
     "function": "WithBreak",
     "line": 44,
     "language": "C#",
@@ -42,7 +42,7 @@
     "band": "high"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/csharp/Switches.cs",
+    "file": "tests/fixtures/csharp/Switches.cs",
     "function": "Classify",
     "line": 18,
     "language": "C#",
@@ -63,7 +63,7 @@
     "band": "moderate"
   },
   {
-    "file": "/Users/stephencollins/projects/stephencollins.tech-repos/hotspots/tests/fixtures/csharp/Switches.cs",
+    "file": "tests/fixtures/csharp/Switches.cs",
     "function": "NoDefault",
     "line": 32,
     "language": "C#",
