@@ -259,7 +259,7 @@ fn handle_default_output(
         path,
         AnalysisOptions {
             min_lrs,
-            top_n: top,
+            top_n: None,
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -270,7 +270,12 @@ fn handle_default_output(
     }
 
     match format {
-        OutputFormat::Text => print!("{}", hotspots_core::render_text(&reports)),
+        OutputFormat::Text => {
+            let total = reports.len();
+            let limit = top.unwrap_or(10);
+            reports.truncate(limit);
+            print!("{}", hotspots_core::render_text_grouped(&reports, total));
+        }
         OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");

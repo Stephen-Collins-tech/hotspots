@@ -195,6 +195,92 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     output
 }
 
+/// Render reports grouped by file, with a footer showing totals and usage hints.
+///
+/// `total_functions` is the count before any top-N truncation so the footer
+/// can say "showing X of Y".
+pub fn render_text_grouped(reports: &[FunctionRiskReport], total_functions: usize) -> String {
+    use std::collections::BTreeMap;
+    let mut output = String::new();
+    let cwd = std::env::current_dir().ok();
+
+    let rel_path = |p: &str| -> String {
+        cwd.as_ref()
+            .and_then(|cwd| {
+                std::path::Path::new(p)
+                    .strip_prefix(cwd)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| p.to_string())
+    };
+
+    let mut by_file: BTreeMap<String, Vec<&FunctionRiskReport>> = BTreeMap::new();
+    let mut file_order: Vec<String> = Vec::new();
+    for r in reports {
+        let key = rel_path(&r.file);
+        if !by_file.contains_key(&key) {
+            file_order.push(key.clone());
+        }
+        by_file.entry(key).or_default().push(r);
+    }
+
+    let total_files: std::collections::HashSet<String> =
+        reports.iter().map(|r| rel_path(&r.file)).collect();
+
+    for file_key in &file_order {
+        let fns = &by_file[file_key];
+        output.push_str(&format!("{}\n", file_key));
+        for r in fns.iter() {
+            let lrs_str = format!("{:.2}", r.lrs);
+            let band = r.band.as_str();
+            let patterns_str = if r.patterns.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", r.patterns.join(", "))
+            };
+            output.push_str(&format!(
+                "  {:<6}  {:<8}  {}  line {}{}",
+                lrs_str, band, r.function, r.line, patterns_str
+            ));
+            output.push('\n');
+            if let Some(ref details) = r.pattern_details {
+                for d in details {
+                    let conds = d
+                        .triggered_by
+                        .iter()
+                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    output.push_str(&format!("             {}: {}\n", d.id, conds));
+                }
+            }
+        }
+        output.push('\n');
+    }
+
+    let shown = reports.len();
+    let sep = "─".repeat(60);
+    output.push_str(&sep);
+    output.push('\n');
+    if shown < total_functions {
+        output.push_str(&format!(
+            "Showing top {} of {} functions across {} files\n",
+            shown,
+            total_functions,
+            total_files.len()
+        ));
+        output.push_str("Use --top N to see more  ·  --format json for full output\n");
+    } else {
+        output.push_str(&format!(
+            "{} functions across {} files\n",
+            shown,
+            total_files.len()
+        ));
+    }
+    output
+}
+
 /// Render reports as JSON output
 pub fn render_json(reports: &[FunctionRiskReport]) -> String {
     // Use serde_json with sorted keys for deterministic output
