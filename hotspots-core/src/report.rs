@@ -224,9 +224,6 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> Stri
         by_file.entry(key).or_default().push(r);
     }
 
-    let total_files: std::collections::HashSet<String> =
-        reports.iter().map(|r| rel_path(&r.file)).collect();
-
     for file_key in &file_order {
         let fns = &by_file[file_key];
         output.push_str(&format!("{}\n", file_key));
@@ -265,7 +262,7 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> Stri
     output.push_str(&format!(
         "Top {} functions across {} files\n",
         shown,
-        total_files.len()
+        file_order.len()
     ));
     output.push_str(&format!(
         "Use --top N to see more (default {})  ·  --format json for full output\n",
@@ -286,5 +283,89 @@ fn truncate_or_pad(s: &str, width: usize) -> String {
         format!("{}...", &s[..width.saturating_sub(3)])
     } else {
         format!("{:<width$}", s, width = width)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::language::Language;
+    use crate::risk::RiskBand;
+
+    fn make_report(file: &str, function: &str, line: u32, lrs: f64) -> FunctionRiskReport {
+        FunctionRiskReport {
+            file: file.to_string(),
+            function: function.to_string(),
+            line,
+            language: Language::TypeScript,
+            metrics: MetricsReport {
+                cc: 5,
+                nd: 1,
+                fo: 2,
+                ns: 0,
+                loc: 20,
+            },
+            risk: RiskReport {
+                r_cc: 1.0,
+                r_nd: 0.5,
+                r_fo: 0.5,
+                r_ns: 0.0,
+            },
+            lrs,
+            band: RiskBand::High,
+            suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
+            callees: vec![],
+        }
+    }
+
+    #[test]
+    fn test_render_text_grouped_groups_by_file() {
+        let reports = vec![
+            make_report("/repo/src/a.ts", "foo", 10, 8.0),
+            make_report("/repo/src/b.ts", "bar", 20, 7.0),
+            make_report("/repo/src/a.ts", "baz", 30, 6.0),
+        ];
+        let out = render_text_grouped(&reports, 10);
+        // a.ts section appears before b.ts (rank order)
+        let a_pos = out.find("src/a.ts").unwrap_or(usize::MAX);
+        let b_pos = out.find("src/b.ts").unwrap_or(usize::MAX);
+        assert!(a_pos < b_pos, "a.ts should appear before b.ts");
+        // both functions from a.ts are present
+        assert!(out.contains("foo"), "should contain foo");
+        assert!(out.contains("baz"), "should contain baz");
+        assert!(out.contains("bar"), "should contain bar");
+    }
+
+    #[test]
+    fn test_render_text_grouped_footer_counts() {
+        let reports = vec![
+            make_report("/repo/src/a.ts", "foo", 10, 8.0),
+            make_report("/repo/src/b.ts", "bar", 20, 7.0),
+        ];
+        let out = render_text_grouped(&reports, 10);
+        assert!(
+            out.contains("Top 2 functions across 2 files"),
+            "footer should show correct counts"
+        );
+        assert!(
+            out.contains("default 10"),
+            "footer should show the default limit"
+        );
+    }
+
+    #[test]
+    fn test_render_text_grouped_patterns_shown() {
+        let mut r = make_report("/repo/src/a.ts", "foo", 10, 8.0);
+        r.patterns = vec!["god_function".to_string(), "exit_heavy".to_string()];
+        let out = render_text_grouped(&[r], 10);
+        assert!(out.contains("[god_function, exit_heavy]"));
+    }
+
+    #[test]
+    fn test_render_text_grouped_empty() {
+        let out = render_text_grouped(&[], 10);
+        assert!(out.contains("Top 0 functions across 0 files"));
     }
 }
