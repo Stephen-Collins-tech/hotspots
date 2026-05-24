@@ -195,11 +195,10 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     output
 }
 
-/// Render reports grouped by file, with a footer showing totals and usage hints.
+/// Render reports grouped by file, with a footer showing counts and usage hints.
 ///
-/// `total_functions` is the count before any top-N truncation so the footer
-/// can say "showing X of Y".
-pub fn render_text_grouped(reports: &[FunctionRiskReport], total_functions: usize) -> String {
+/// `limit` is the top-N that was requested so the footer can hint at using --top.
+pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> String {
     use std::collections::BTreeMap;
     let mut output = String::new();
     let cwd = std::env::current_dir().ok();
@@ -263,21 +262,15 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], total_functions: usiz
     let sep = "─".repeat(60);
     output.push_str(&sep);
     output.push('\n');
-    if shown < total_functions {
-        output.push_str(&format!(
-            "Showing top {} of {} functions across {} files\n",
-            shown,
-            total_functions,
-            total_files.len()
-        ));
-        output.push_str("Use --top N to see more  ·  --format json for full output\n");
-    } else {
-        output.push_str(&format!(
-            "{} functions across {} files\n",
-            shown,
-            total_files.len()
-        ));
-    }
+    output.push_str(&format!(
+        "Top {} functions across {} files\n",
+        shown,
+        total_files.len()
+    ));
+    output.push_str(&format!(
+        "Use --top N to see more (default {})  ·  --format json for full output\n",
+        limit
+    ));
     output
 }
 
