@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Use relative path in csharp-switches golden file
+
+
 ### Features
 - Add C# language support (.cs files) (#71)
 
