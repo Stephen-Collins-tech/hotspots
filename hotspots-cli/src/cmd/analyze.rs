@@ -255,7 +255,8 @@ fn handle_default_output(
     resolved_config: &hotspots_core::ResolvedConfig,
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
-    let limit = top.or(resolved_config.top_n).unwrap_or(10);
+    let explicit_top = top.or(resolved_config.top_n);
+    let limit = explicit_top.unwrap_or(10);
     let mut reports = analyze_with_progress(
         path,
         AnalysisOptions {
@@ -263,7 +264,7 @@ fn handle_default_output(
             top_n: if matches!(format, OutputFormat::Text) {
                 Some(limit)
             } else {
-                None
+                explicit_top
             },
         },
         Some(resolved_config),
