@@ -15,9 +15,6 @@ jobs:
   hotspots:
     name: Hotspots
     runs-on: ubuntu-latest
-    concurrency:
-      group: hotspots-bin-ubuntu-latest-${{ github.sha }}
-      cancel-in-progress: false
 
     steps:
       - name: Checkout
@@ -45,6 +42,7 @@ jobs:
       - name: Save cached binary
         if: steps.binary-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
+        continue-on-error: true
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
