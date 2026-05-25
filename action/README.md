@@ -10,7 +10,7 @@ Multi-language static analysis tool - analyze complexity and block regressions i
 - 🎯 **PR-aware** - Automatically detects PRs and runs delta analysis
 - 📊 **HTML Reports** - Interactive reports as workflow artifacts
 - 💬 **PR Comments** - Posts results directly to pull requests
-- ⚡ **Fast** - Cached binary downloads, incremental analysis
+- ⚡ **Fast** - Supports prebuilt CLI binaries, cached downloads, and source-build fallback
 - 🔒 **Deterministic** - Byte-for-byte reproducible results
 
 ## Quick Start
@@ -48,6 +48,7 @@ jobs:
 | `config` | Path to hotspots config file | - |
 | `fail-on` | When to fail (`error`, `warn`, `never`) | `error` |
 | `version` | Hotspots version to use | `latest` |
+| `binary-path` | Path to a prebuilt hotspots binary from an earlier workflow step/job | - |
 | `github-token` | GitHub token for posting comments | `${{ github.token }}` |
 | `post-comment` | Post results as PR comment | `true` |
 
@@ -161,6 +162,21 @@ See [docs/json-schema.md](../docs/json-schema.md) for complete documentation and
     path: packages/frontend
 ```
 
+### Reuse a Binary Built Earlier in the Workflow
+
+```yaml
+- uses: actions/download-artifact@v4
+  with:
+    name: hotspots-linux-x86_64
+    path: .hotspots-bin
+
+- run: chmod +x .hotspots-bin/hotspots
+
+- uses: ./action
+  with:
+    binary-path: .hotspots-bin/hotspots
+```
+
 ### Upload HTML Report
 
 ```yaml
@@ -272,7 +288,7 @@ permissions:
 
 ### Binary Download Fails
 
-If the action can't download the prebuilt binary, it will attempt to build from source. Ensure you have Rust/Cargo available:
+The action can use a binary supplied via `binary-path`. Otherwise, it downloads the release asset and caches it with the Actions tool cache. If the action can't download the prebuilt binary, it will attempt to build from source. Ensure you have Rust/Cargo available:
 
 ```yaml
 - uses: actions-rs/toolchain@v1

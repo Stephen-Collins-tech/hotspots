@@ -13,6 +13,9 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     if: github.actor != 'github-actions[bot]'
+    concurrency:
+      group: hotspots-bin-ubuntu-latest-${{ github.sha }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
@@ -77,6 +80,9 @@ jobs:
     name: Integration Tests
     runs-on: ubuntu-latest
     needs: test
+    concurrency:
+      group: hotspots-bin-ubuntu-latest-${{ github.sha }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
