@@ -28,8 +28,6 @@ jobs:
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-hotspots-bin-
 
       - name: Install Rust toolchain (cache miss only)
         if: steps.binary-cache.outputs.cache-hit != 'true'
