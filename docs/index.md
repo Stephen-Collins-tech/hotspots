@@ -36,6 +36,16 @@ LRS   File                  Line  Function
   <a href="/reference/cli" style="padding: 0.75rem 1.5rem; background: var(--vp-c-bg-soft); border-radius: 6px; text-decoration: none; font-weight: 600;">CLI Reference →</a>
 </div>
 
+## For Contributors
+
+Maintaining or extending Hotspots? Start with the [Codebase Guide](/code-architecture/) for the current implementation map, then use the [Contributing Guide](/contributing/) for development workflow.
+
+Useful maintainer entry points:
+
+- [Analysis Pipeline](/code-architecture/pipeline) — how files become reports, snapshots, and deltas.
+- [Contributor Change Guide](/code-architecture/change-guide) — where to make common changes.
+- [Architecture Notes](/architecture/) — design records, invariants, and historical deep dives.
+
 ---
 
 ## Supported Languages

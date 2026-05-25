@@ -24,6 +24,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/usage' },
       { text: 'Reference', link: '/reference/cli' },
+      { text: 'Codebase Guide', link: '/code-architecture/' },
       { text: 'hotspots.dev', link: 'https://hotspots.dev' },
       { text: 'GitHub', link: 'https://github.com/Stephen-Collins-tech/hotspots' }
     ],
@@ -58,6 +59,27 @@ export default defineConfig({
         text: 'Security',
         items: [
           { text: 'Supply Chain Security', link: '/security/supply-chain' },
+        ]
+      },
+      {
+        text: 'Codebase Guide',
+        items: [
+          { text: 'Overview', link: '/code-architecture/' },
+          { text: 'Analysis Pipeline', link: '/code-architecture/pipeline' },
+          { text: 'Core Crate Modules', link: '/code-architecture/core-modules' },
+          { text: 'CLI and GitHub Action', link: '/code-architecture/cli-and-action' },
+          { text: 'Data Model and Persistence', link: '/code-architecture/data-model' },
+          { text: 'Contributor Change Guide', link: '/code-architecture/change-guide' },
+        ]
+      },
+      {
+        text: 'Architecture Notes',
+        items: [
+          { text: 'Overview', link: '/architecture/' },
+          { text: 'Design Decisions', link: '/architecture/design-decisions' },
+          { text: 'Invariants', link: '/architecture/invariants' },
+          { text: 'Multi-language Design', link: '/architecture/multi-language' },
+          { text: 'Testing Strategy', link: '/architecture/testing' },
         ]
       },
       {
