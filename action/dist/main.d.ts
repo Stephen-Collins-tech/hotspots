@@ -5,3 +5,4 @@ export declare function getPlatformInfo(): {
     binaryName: string;
 };
 export declare function installFaultline(version: string, token?: string, binaryPath?: string): Promise<string>;
+//# sourceMappingURL=main.d.ts.map

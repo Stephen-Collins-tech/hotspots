@@ -33,6 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getPlatformInfo = getPlatformInfo;
+exports.installFaultline = installFaultline;
 const core = __importStar(require("@actions/core"));
 const exec = __importStar(require("@actions/exec"));
 const github = __importStar(require("@actions/github"));
@@ -48,6 +50,7 @@ async function getInputs() {
         config: core.getInput('config') || undefined,
         failOn: core.getInput('fail-on') || 'error',
         version: core.getInput('version') || 'latest',
+        binaryPath: core.getInput('binary-path') || undefined,
         githubToken: core.getInput('github-token'),
         postComment: core.getBooleanInput('post-comment')
     };
@@ -95,8 +98,19 @@ async function resolveVersion(version, token) {
     core.info(`Resolved latest version: ${resolved}`);
     return resolved;
 }
-async function installFaultline(version, token) {
+async function installFaultline(version, token, binaryPath) {
     core.info(`Installing hotspots version: ${version}`);
+    if (binaryPath) {
+        const resolvedPath = path.resolve(binaryPath);
+        if (!fs.existsSync(resolvedPath)) {
+            throw new Error(`Configured hotspots binary does not exist: ${resolvedPath}`);
+        }
+        if (os.platform() !== 'win32') {
+            fs.chmodSync(resolvedPath, 0o755);
+        }
+        core.info(`Using configured hotspots binary at ${resolvedPath}`);
+        return resolvedPath;
+    }
     const resolvedVersion = await resolveVersion(version, token);
     // Check if already cached
     const cachedPath = tc.find('hotspots', resolvedVersion);
@@ -457,7 +471,7 @@ async function run() {
         core.info('Starting Faultline analysis...');
         core.info(`Inputs: ${JSON.stringify(inputs, null, 2)}`);
         // Install hotspots
-        const binaryPath = await installFaultline(inputs.version, inputs.githubToken);
+        const binaryPath = await installFaultline(inputs.version, inputs.githubToken, inputs.binaryPath);
         // Detect context (PR or push)
         const context = await detectContext();
         core.info(`Detected context: ${context}`);
@@ -495,5 +509,7 @@ async function run() {
         }
     }
 }
-run();
+if (require.main === module) {
+    run();
+}
 //# sourceMappingURL=main.js.map
