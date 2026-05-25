@@ -26,27 +26,28 @@ jobs:
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-registry-
 
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-index-
 
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-target-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-target-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Build
-        run: cargo build --verbose
 
       - name: Run tests
         run: cargo test --verbose
@@ -55,13 +56,23 @@ jobs:
         run: cargo test --package hotspots-core --test golden_tests
 
       - name: Restore cached release binary (by commit)
-        uses: actions/cache@v4
+        id: bin-cache
+        uses: actions/cache/restore@v4
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
 
       - name: Build release binary
+        if: steps.bin-cache.outputs.cache-hit != 'true'
         run: cargo build --release
+
+      - name: Save release binary cache
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
 
   integration-tests:
     name: Integration Tests
@@ -70,23 +81,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Restore cached release binary (by commit)
-        uses: actions/cache@v4
+        id: bin-cache
+        uses: actions/cache/restore@v4
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
 
-      - name: Ensure binary present
-        run: |
-          if [ -x target/release/hotspots ]; then
-            echo "Using cached binary"
-          else
-            echo "Cache miss: building binary"
-            cargo build --release
-          fi
+      - name: Install Rust (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        run: cargo build --release
       
       - name: Install Python
         uses: actions/setup-python@v5

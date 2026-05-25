@@ -13,6 +13,7 @@ interface FaultlineInputs {
   config?: string;
   failOn: string;
   version: string;
+  binaryPath?: string;
   githubToken: string;
   postComment: boolean;
 }
@@ -32,12 +33,13 @@ async function getInputs(): Promise<FaultlineInputs> {
     config: core.getInput('config') || undefined,
     failOn: core.getInput('fail-on') || 'error',
     version: core.getInput('version') || 'latest',
+    binaryPath: core.getInput('binary-path') || undefined,
     githubToken: core.getInput('github-token'),
     postComment: core.getBooleanInput('post-comment')
   };
 }
 
-function getPlatformInfo(): { platform: string; arch: string; ext: string; binaryName: string } {
+export function getPlatformInfo(): { platform: string; arch: string; ext: string; binaryName: string } {
   const nodePlatform = os.platform();
   const nodeArch = os.arch();
 
@@ -90,8 +92,20 @@ async function resolveVersion(version: string, token?: string): Promise<string> 
   return resolved;
 }
 
-async function installFaultline(version: string, token?: string): Promise<string> {
+export async function installFaultline(version: string, token?: string, binaryPath?: string): Promise<string> {
   core.info(`Installing hotspots version: ${version}`);
+
+  if (binaryPath) {
+    const resolvedPath = path.resolve(binaryPath);
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`Configured hotspots binary does not exist: ${resolvedPath}`);
+    }
+    if (os.platform() !== 'win32') {
+      fs.chmodSync(resolvedPath, 0o755);
+    }
+    core.info(`Using configured hotspots binary at ${resolvedPath}`);
+    return resolvedPath;
+  }
 
   const resolvedVersion = await resolveVersion(version, token);
 
@@ -522,7 +536,7 @@ async function run(): Promise<void> {
     core.info(`Inputs: ${JSON.stringify(inputs, null, 2)}`);
 
     // Install hotspots
-    const binaryPath = await installFaultline(inputs.version, inputs.githubToken);
+    const binaryPath = await installFaultline(inputs.version, inputs.githubToken, inputs.binaryPath);
 
     // Detect context (PR or push)
     const context = await detectContext();
@@ -565,4 +579,6 @@ async function run(): Promise<void> {
   }
 }
 
-run();
+if (require.main === module) {
+  run();
+}

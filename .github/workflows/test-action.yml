@@ -12,35 +12,67 @@ permissions:
   pull-requests: write
 
 jobs:
-  test-action:
-    name: Test Action on Sample TypeScript
+  prepare-hotspots:
+    name: Prepare CLI binary
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      - name: Restore cached release binary (by commit)
-        uses: actions/cache@v4
+      - name: Restore cached release binary
+        id: bin-cache
+        uses: actions/cache/restore@v4
         with:
           path: target/release/hotspots
           key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
 
-      - name: Ensure hotspots binary present
+      - name: Install Rust toolchain (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build hotspots binary (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        run: cargo build --release --bin hotspots
+
+      - name: Save cached release binary
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+
+      - name: Upload binary for this workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotspots-bin-${{ runner.os }}-${{ github.sha }}
+          path: target/release/hotspots
+          retention-days: 1
+
+  test-action:
+    name: Test Action using prepared CLI binary
+    needs: prepare-hotspots
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download prepared binary
+        uses: actions/download-artifact@v4
+        with:
+          name: hotspots-bin-${{ runner.os }}-${{ github.sha }}
+          path: .hotspots-bin
+
+      - name: Verify prepared binary
         run: |
-          if [ -x target/release/hotspots ]; then
-            echo "Using cached binary"
-          else
-            echo "Cache miss: building binary"
-            cargo build --release --bin hotspots
-          fi
+          chmod +x .hotspots-bin/hotspots
+          .hotspots-bin/hotspots --version
 
       - name: Create sample TypeScript project
         run: |
@@ -85,13 +117,14 @@ jobs:
           }
           EOF
 
-      - name: Run Hotspots Action
+      - name: Run Hotspots Action with prepared binary
         uses: ./action
         id: hotspots
         with:
+          binary-path: .hotspots-bin/hotspots
           path: test-ts-project
           policy: critical-introduction
-          fail-on: never  # Don't fail the test workflow
+          fail-on: never
           github-token: ${{ secrets.GITHUB_TOKEN }}
           post-comment: ${{ github.event_name == 'pull_request' }}
 
