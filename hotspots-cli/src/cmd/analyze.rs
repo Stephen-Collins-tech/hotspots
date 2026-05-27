@@ -411,6 +411,8 @@ fn handle_snapshot_mode(
         snapshot::append_to_index(repo_root, &snapshot).context("failed to update index")?;
     }
 
+    apply_trained_ranker(repo_root, &mut snapshot);
+
     let total_function_count = snapshot.functions.len();
     apply_top_n(&mut snapshot, format, explain, level, top);
 
@@ -779,6 +781,26 @@ fn apply_top_n(
         if let Some(n) = top {
             snapshot.functions.truncate(n);
         }
+    }
+}
+
+/// If `.hotspots/ranker.json` exists, overwrite each function's `activity_risk`
+/// with the trained model's vote score.  Silent no-op if the model is absent or
+/// fails to load — the formula score is the fallback.
+fn apply_trained_ranker(repo_root: &Path, snapshot: &mut Snapshot) {
+    let model_path = snapshot::hotspots_dir(repo_root).join("ranker.json");
+    if !model_path.exists() {
+        return;
+    }
+    let model = match hotspots_core::trainer::RankerModel::load(&model_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("hotspots: warning: failed to load ranker.json: {e}");
+            return;
+        }
+    };
+    for func in &mut snapshot.functions {
+        func.activity_risk = Some(hotspots_core::trainer::score(&model, func));
     }
 }
 

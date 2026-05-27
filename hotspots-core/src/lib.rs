@@ -38,6 +38,7 @@ pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
 pub mod touch_cache;
+pub mod trainer;
 pub mod trends;
 
 pub use callgraph::CallGraph;
