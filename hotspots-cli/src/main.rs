@@ -126,6 +126,11 @@ enum Commands {
         /// large repos. Conflicts with --per-function-touches and --no-per-function-touches.
         #[arg(long, value_name = "N", conflicts_with_all = ["per_function_touches", "no_per_function_touches"])]
         hybrid_touches: Option<usize>,
+
+        /// Skip the suppression gate check (the P@10 calibration that warns when
+        /// the activity ranker may be producing misleading rankings).
+        #[arg(long)]
+        skip_gate: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -291,6 +296,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            skip_gate,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -314,6 +320,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            skip_gate,
         })?,
         Commands::Prune {
             unreachable,

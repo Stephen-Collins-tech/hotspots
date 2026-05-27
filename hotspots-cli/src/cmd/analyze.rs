@@ -40,6 +40,8 @@ pub(crate) struct AnalyzeArgs {
     pub skip_touch_metrics: bool,
     /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
     pub hybrid_touches: Option<usize>,
+    /// Skip the suppression gate check entirely.
+    pub skip_gate: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -142,6 +144,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         source_url,
         jobs,
         callgraph_skip_above,
+        skip_gate,
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
@@ -209,6 +212,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 source_url,
                 callgraph_skip_above,
                 skip_touch_metrics: touch_args.skip,
+                skip_gate,
             },
         );
         return result;
@@ -242,6 +246,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 source_url,
                 callgraph_skip_above,
                 skip_touch_metrics: touch_args.skip,
+                skip_gate,
             },
         );
         return result;
@@ -361,6 +366,7 @@ pub(crate) struct ModeOutputOptions {
     pub source_url: Option<String>,
     pub callgraph_skip_above: Option<usize>,
     pub skip_touch_metrics: bool,
+    pub skip_gate: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -414,6 +420,7 @@ fn handle_snapshot_mode(
         source_url,
         callgraph_skip_above,
         skip_touch_metrics,
+        skip_gate,
         top,
         output,
         ..
@@ -473,20 +480,22 @@ fn handle_snapshot_mode(
     // sees a representative top-50.
     // Inconclusive is silent — it fires on greenfield repos or non-conventional
     // commit histories and is not actionable.
-    let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
-    if let GateVerdict::Suppressed {
-        p_at_10, threshold, ..
-    } = &gate_verdict
-    {
-        if ranker_applied {
-            eprintln!(
-                "hotspots: activity ranker P@10={p_at_10:.2} (< {threshold:.2}); using trained ranker instead."
-            );
-        } else {
-            eprintln!(
-                "hotspots: warning: activity ranker P@10={p_at_10:.2} < {threshold:.2} — rankings may be misleading."
-            );
-            eprintln!("          Run `hotspots train` to fit a local ranker from this repo's fix history.");
+    if !skip_gate {
+        let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
+        if let GateVerdict::Suppressed {
+            p_at_10, threshold, ..
+        } = &gate_verdict
+        {
+            if ranker_applied {
+                eprintln!(
+                    "hotspots: activity ranker P@10={p_at_10:.2} (< {threshold:.2}); using trained ranker instead."
+                );
+            } else {
+                eprintln!(
+                    "hotspots: warning: activity ranker P@10={p_at_10:.2} < {threshold:.2} — rankings may be misleading."
+                );
+                eprintln!("          Run `hotspots train` to fit a local ranker from this repo's fix history.");
+            }
         }
     }
 
