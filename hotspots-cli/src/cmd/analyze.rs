@@ -3,6 +3,7 @@ use crate::util::{find_repo_root, write_html_report};
 use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
 use hotspots_core::delta::Delta;
+use hotspots_core::gate::{check_gate, GateConfig, GateVerdict};
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
@@ -414,6 +415,26 @@ fn handle_snapshot_mode(
     apply_trained_ranker(repo_root, &mut snapshot);
 
     let total_function_count = snapshot.functions.len();
+
+    // Suppression gate: check if the activity ranker is working on this repo.
+    // Run on the full sorted snapshot (before top-N truncation) so calibration
+    // sees a representative top-50.
+    let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
+    match &gate_verdict {
+        GateVerdict::Suppressed {
+            p_at_10, threshold, ..
+        } => {
+            eprintln!(
+                "warning: suppression gate fired — activity ranker P@10={p_at_10:.2} < {threshold:.2} on this repo."
+            );
+            eprintln!("         Rankings may be misleading. Consider running: hotspots classify");
+        }
+        GateVerdict::Inconclusive { reason } => {
+            eprintln!("info: suppression gate inconclusive — {reason}");
+        }
+        GateVerdict::Pass { .. } => {}
+    }
+
     apply_top_n(&mut snapshot, format, explain, level, top);
 
     emit_snapshot_output(
