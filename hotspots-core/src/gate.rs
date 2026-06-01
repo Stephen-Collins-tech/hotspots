@@ -146,7 +146,13 @@ fn scan_fix_files(repo_root: &Path, window_days: u32) -> anyhow::Result<HashSet<
     let since_arg = format!("--since={since}");
 
     let result = Command::new("git")
-        .args(["log", "--format=COMMIT %s", "--name-only", &since_arg])
+        .args([
+            "log",
+            "--format=COMMIT %s",
+            "--name-only",
+            "--max-count=5000",
+            &since_arg,
+        ])
         .current_dir(repo_root)
         .output()?;
 
