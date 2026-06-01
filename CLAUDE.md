@@ -2,6 +2,15 @@
 
 This file contains conventions and rules for Claude Code when working on this project.
 
+## Research sync
+
+This CLI is the promotion target for `../hotspots-research`. Before implementing any ranker change,
+new snapshot field, or formula modification, check
+[`../hotspots-research/docs/promotion-tracker.md`](../hotspots-research/docs/promotion-tracker.md)
+to confirm the finding is validated and see whether a cross-repo task is already tracked.
+
+When a CLI change completes a promotion, update the tracker row to `promoted` and link the commit or PR.
+
 ## General Principles
 
 - **Keep changes minimal and focused.** Do not refactor, rename, or restructure code beyond what is required for the task at hand.
