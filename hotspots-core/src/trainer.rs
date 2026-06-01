@@ -145,13 +145,50 @@ pub fn collect_fix_functions(
     use std::process::Command;
 
     // Build a per-file sorted index of function start lines from the snapshot.
-    // file_path -> sorted Vec<(start_line, function_id)>
+    // Snapshot stores absolute paths; git diff-tree emits repo-relative paths.
+    // Strip the repo_root prefix so lookup keys match diff-tree output.
+    // On macOS /tmp is a symlink to /private/tmp — canonicalize both sides so the
+    // prefix strip works regardless of which form the snapshot recorded.
+    let repo_canonical = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+    let repo_prefix_canonical = format!(
+        "{}/",
+        repo_canonical.to_str().unwrap_or("").trim_end_matches('/')
+    );
+    let repo_prefix_raw = repo_root
+        .to_str()
+        .map(|s| format!("{}/", s.trim_end_matches('/')))
+        .unwrap_or_default();
+
+    let make_rel = |path: &str| -> String {
+        let p = path.replace('\\', "/");
+        // Try exact prefix strip first (fastest).
+        if let Some(r) = p.strip_prefix(&repo_prefix_canonical) {
+            return r.to_string();
+        }
+        if let Some(r) = p.strip_prefix(&repo_prefix_raw) {
+            return r.to_string();
+        }
+        // Snapshot may store a symlink path (e.g. /tmp/…) while repo_root
+        // canonicalises to a different form (e.g. /private/tmp/… on macOS).
+        // Canonicalise the snapshot path and retry.
+        if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+            cp.to_str()
+                .and_then(|s| s.strip_prefix(&repo_prefix_canonical))
+                .map(str::to_string)
+        }) {
+            return r;
+        }
+        p
+    };
+
     let mut file_index: std::collections::HashMap<String, Vec<(u32, String)>> =
         std::collections::HashMap::new();
     for func in &snapshot.functions {
-        let path = func.file.replace('\\', "/");
+        let rel = make_rel(&func.file);
         file_index
-            .entry(path)
+            .entry(rel)
             .or_default()
             .push((func.line, func.function_id.clone()));
     }
@@ -222,7 +259,6 @@ pub fn collect_fix_functions(
 
         let diff_text = String::from_utf8_lossy(&diff_out.stdout);
         let mut current_file: Option<String> = None;
-
         for dline in diff_text.lines() {
             // "--- a/path" or "+++ b/path" lines
             if let Some(rest) = dline.strip_prefix("+++ b/") {
@@ -314,9 +350,37 @@ pub fn train(
 
     if cfg.blame_labels {
         let fix_funcs = collect_fix_functions(snapshot, repo_root, cfg.label_window_days)?;
+        let repo_canonical = repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.to_path_buf());
+        let prefix_can = format!(
+            "{}/",
+            repo_canonical.to_str().unwrap_or("").trim_end_matches('/')
+        );
+        let prefix_raw = repo_root
+            .to_str()
+            .map(|s| format!("{}/", s.trim_end_matches('/')))
+            .unwrap_or_default();
+        let make_rel = |path: &str| -> String {
+            let p = path.replace('\\', "/");
+            if let Some(r) = p.strip_prefix(&prefix_can) {
+                return r.to_string();
+            }
+            if let Some(r) = p.strip_prefix(&prefix_raw) {
+                return r.to_string();
+            }
+            if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+                cp.to_str()
+                    .and_then(|s| s.strip_prefix(&prefix_can))
+                    .map(str::to_string)
+            }) {
+                return r;
+            }
+            p
+        };
         for func in &snapshot.functions {
-            let file_norm = func.file.replace('\\', "/");
-            let label = fix_funcs.contains(&(file_norm, func.line));
+            let rel = make_rel(&func.file);
+            let label = fix_funcs.contains(&(rel, func.line));
             rows.push((extract_features(func), label));
         }
     } else {
