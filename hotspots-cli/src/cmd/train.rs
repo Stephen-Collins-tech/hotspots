@@ -11,6 +11,7 @@ pub(crate) struct TrainArgs {
     pub label_window_days: u32,
     pub n_estimators: usize,
     pub max_depth: usize,
+    pub blame_labels: bool,
 }
 
 pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
@@ -21,19 +22,25 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
         label_window_days: args.label_window_days,
         n_estimators: args.n_estimators,
         max_depth: args.max_depth,
+        blame_labels: args.blame_labels,
         ..Default::default()
     };
 
     let n_funcs = snapshot.functions.len();
+    let label_mode = if cfg.blame_labels {
+        "blame-based function labels"
+    } else {
+        "file-level labels"
+    };
     eprintln!(
-        "hotspots train: {} functions in snapshot, scanning {} days of git history for fix commits…",
-        n_funcs, cfg.label_window_days
+        "hotspots train: {} functions in snapshot, scanning {} days of git history ({})…",
+        n_funcs, cfg.label_window_days, label_mode
     );
 
     match train(&snapshot, &repo_root, &cfg)? {
         None => {
             bail!(
-                "Not enough training signal: need ≥20 functions and ≥2 positive/negative labels. \
+                "Not enough training signal: need ≥50 labelled functions, ≥5 positive and ≥10 negative. \
                  Try a larger --label-window or run `hotspots analyze` first to build a snapshot."
             );
         }

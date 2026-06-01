@@ -431,6 +431,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             patterns,
             pattern_details: None,
             subsystem: None,
+            authors_90d: None,
         });
     }
 

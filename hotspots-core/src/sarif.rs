@@ -286,6 +286,7 @@ mod tests {
             patterns: vec![],
             pattern_details: None,
             subsystem: None,
+            authors_90d: None,
         }
     }
 

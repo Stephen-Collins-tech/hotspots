@@ -233,6 +233,12 @@ enum Commands {
         /// Maximum tree depth
         #[arg(long, default_value = "6")]
         max_depth: usize,
+
+        /// Use blame-based function-level labelling instead of file-level labelling.
+        /// More precise labels (only the function that owned the changed lines is
+        /// marked positive) but slower on repos with many fix commits.
+        #[arg(long, default_value = "false")]
+        blame: bool,
     },
 }
 
@@ -348,12 +354,14 @@ fn main() -> anyhow::Result<()> {
             label_window,
             n_estimators,
             max_depth,
+            blame,
         } => cmd::train::handle_train(cmd::train::TrainArgs {
             path,
             output,
             label_window_days: label_window,
             n_estimators,
             max_depth,
+            blame_labels: blame,
         })?,
     }
 

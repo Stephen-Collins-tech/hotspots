@@ -189,6 +189,14 @@ pub struct FunctionSnapshot {
     /// Populated in `Snapshot::from_reports` when `repo_root` is available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subsystem: Option<String>,
+    /// Number of distinct commit authors for this file in the last 90 days.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_authors_90d()`.
+    /// Used as a training feature in `hotspots train` — author diversity is a
+    /// non-windowed ownership signal that doesn't share the temporal leakage
+    /// of touch_count_30d.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authors_90d: Option<u32>,
 }
 
 /// Risk distribution by band
@@ -424,6 +432,7 @@ impl Snapshot {
                     patterns: report.patterns,
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }
             })
             .collect();
@@ -467,6 +476,54 @@ impl Snapshot {
                     lines_deleted: file_churn.lines_deleted,
                     net_change,
                 });
+            }
+        }
+    }
+
+    /// Populate `authors_90d` for every function.
+    ///
+    /// Runs one `git log` subprocess per unique file in the snapshot to count
+    /// distinct commit-author emails in the last 90 days.  File-level: all
+    /// functions in the same file receive the same value.  Functions in files
+    /// with no matching history receive `Some(0)`.
+    ///
+    /// Errors are soft: a failed git call leaves the affected file's functions
+    /// with `authors_90d = None`.
+    pub fn populate_authors_90d(&mut self, repo_root: &Path) {
+        use std::collections::{HashMap, HashSet};
+        use std::process::Command;
+
+        // Build unique-file → function-indices map
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            file_indices.entry(func.file.clone()).or_default().push(i);
+        }
+
+        for (abs_path, indices) in &file_indices {
+            let rel = if let Ok(r) = std::path::Path::new(abs_path).strip_prefix(repo_root) {
+                r.to_string_lossy().to_string()
+            } else {
+                abs_path.clone()
+            };
+
+            let out = Command::new("git")
+                .args(["log", "--after=90.days.ago", "--format=%ae", "--", &rel])
+                .current_dir(repo_root)
+                .output();
+
+            let count = match out {
+                Ok(o) if o.status.success() => {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    text.lines()
+                        .filter(|l| !l.is_empty())
+                        .collect::<HashSet<_>>()
+                        .len() as u32
+                }
+                _ => continue, // leave as None on error
+            };
+
+            for &i in indices {
+                self.functions[i].authors_90d = Some(count);
             }
         }
     }
