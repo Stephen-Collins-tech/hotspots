@@ -452,6 +452,13 @@ fn handle_snapshot_mode(
 
     let ranker_applied = apply_trained_ranker(repo_root, &mut snapshot);
 
+    // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
+    // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
+    // even if they haven't been touched in the last 30 days.
+    if ranker_applied {
+        snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
+    }
+
     let total_function_count = snapshot.functions.len();
 
     // Suppression gate: check if the activity ranker is working on this repo.

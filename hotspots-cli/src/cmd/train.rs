@@ -18,6 +18,14 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     let repo_root = args.path.canonicalize().context("resolve repo path")?;
     let snapshot = load_latest_snapshot(&repo_root)?;
 
+    // Resolve relative --output against repo_root, not CWD.
+    let output = if args.output.is_relative() {
+        repo_root.join(&args.output)
+    } else {
+        args.output.clone()
+    };
+    let args = TrainArgs { output, ..args };
+
     let cfg = TrainConfig {
         label_window_days: args.label_window_days,
         n_estimators: args.n_estimators,

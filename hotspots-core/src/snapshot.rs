@@ -1159,13 +1159,18 @@ impl Snapshot {
     ///
     /// Quadrant logic (Option C — combines both signals):
     ///   is_active = touches_30d > touch_p50 OR days_since_last_change <= 30
+    ///              [+ activity_risk >= 0.7 when ranker_applied]
     ///   fire  = high/critical + is_active
     ///   debt  = high/critical + !is_active
     ///   watch = moderate/low  + is_active
     ///   ok    = everything else
     ///
+    /// When `ranker_applied` is true, a trained RF score >= 0.7 also counts as
+    /// active — promoting structurally-risky-but-dormant functions from debt to
+    /// fire when the model predicts they are likely to be touched in a fix commit.
+    ///
     /// Must be called after populate_driver_labels().
-    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8) {
+    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8, ranker_applied: bool) {
         if self.functions.is_empty() {
             return;
         }
@@ -1181,7 +1186,9 @@ impl Snapshot {
                 .days_since_last_change
                 .map(|d| d <= 30)
                 .unwrap_or(false);
-            let is_active = touch_above_p50 || recently_changed;
+            let high_ranker_score =
+                ranker_applied && function.activity_risk.map(|r| r >= 0.7).unwrap_or(false);
+            let is_active = touch_above_p50 || recently_changed || high_ranker_score;
             let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
 
             function.quadrant = Some(
@@ -1707,7 +1714,8 @@ impl SnapshotEnricher {
         self.snapshot.compute_percentiles();
         self.snapshot
             .populate_driver_labels(driver_threshold_percentile);
-        self.snapshot.compute_quadrants(driver_threshold_percentile);
+        self.snapshot
+            .compute_quadrants(driver_threshold_percentile, false);
         self.snapshot.compute_summary(self.betweenness_approximate);
         self
     }
