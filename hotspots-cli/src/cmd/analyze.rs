@@ -412,27 +412,30 @@ fn handle_snapshot_mode(
         snapshot::append_to_index(repo_root, &snapshot).context("failed to update index")?;
     }
 
-    apply_trained_ranker(repo_root, &mut snapshot);
+    let ranker_applied = apply_trained_ranker(repo_root, &mut snapshot);
 
     let total_function_count = snapshot.functions.len();
 
     // Suppression gate: check if the activity ranker is working on this repo.
     // Run on the full sorted snapshot (before top-N truncation) so calibration
     // sees a representative top-50.
+    // Inconclusive is silent — it fires on greenfield repos or non-conventional
+    // commit histories and is not actionable.
     let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
-    match &gate_verdict {
-        GateVerdict::Suppressed {
-            p_at_10, threshold, ..
-        } => {
+    if let GateVerdict::Suppressed {
+        p_at_10, threshold, ..
+    } = &gate_verdict
+    {
+        if ranker_applied {
             eprintln!(
-                "warning: suppression gate fired — activity ranker P@10={p_at_10:.2} < {threshold:.2} on this repo."
+                "hotspots: activity ranker P@10={p_at_10:.2} (< {threshold:.2}); using trained ranker instead."
             );
-            eprintln!("         Rankings may be misleading. Consider running: hotspots classify");
+        } else {
+            eprintln!(
+                "hotspots: warning: activity ranker P@10={p_at_10:.2} < {threshold:.2} — rankings may be misleading."
+            );
+            eprintln!("          Run `hotspots train` to fit a local ranker from this repo's fix history.");
         }
-        GateVerdict::Inconclusive { reason } => {
-            eprintln!("info: suppression gate inconclusive — {reason}");
-        }
-        GateVerdict::Pass { .. } => {}
     }
 
     apply_top_n(&mut snapshot, format, explain, level, top);
@@ -806,23 +809,24 @@ fn apply_top_n(
 }
 
 /// If `.hotspots/ranker.json` exists, overwrite each function's `activity_risk`
-/// with the trained model's vote score.  Silent no-op if the model is absent or
-/// fails to load — the formula score is the fallback.
-fn apply_trained_ranker(repo_root: &Path, snapshot: &mut Snapshot) {
+/// with the trained model's vote score.  Returns true if the ranker was applied.
+/// Silent no-op (returns false) if the model is absent or fails to load.
+fn apply_trained_ranker(repo_root: &Path, snapshot: &mut Snapshot) -> bool {
     let model_path = snapshot::hotspots_dir(repo_root).join("ranker.json");
     if !model_path.exists() {
-        return;
+        return false;
     }
     let model = match hotspots_core::trainer::RankerModel::load(&model_path) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("hotspots: warning: failed to load ranker.json: {e}");
-            return;
+            return false;
         }
     };
     for func in &mut snapshot.functions {
         func.activity_risk = Some(hotspots_core::trainer::score(&model, func));
     }
+    true
 }
 
 fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>
