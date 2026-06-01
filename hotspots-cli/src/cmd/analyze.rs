@@ -218,6 +218,44 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         return result;
     }
 
+    // If a trained ranker exists, promote to snapshot mode so activity_risk
+    // fields are populated and the ranker can be applied. The ranker has no
+    // effect in the default LRS-only path.
+    let repo_root_for_ranker =
+        find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
+    let ranker_path = snapshot::hotspots_dir(&repo_root_for_ranker).join("ranker.json");
+    if ranker_path.exists() {
+        let result = handle_mode_output(
+            &normalized_path,
+            OutputMode::Snapshot,
+            &resolved_config,
+            ModeOutputOptions {
+                format,
+                policy: false,
+                top: effective_top,
+                min_lrs: effective_min_lrs,
+                output,
+                explain: matches!(format, OutputFormat::Text),
+                force,
+                no_persist: true, // default analyze doesn't persist snapshots
+                level,
+                touch_mode: effective_touch_mode,
+                all_functions: false,
+                include_models: false,
+                explain_patterns,
+                source_url,
+                callgraph_skip_above,
+                skip_touch_metrics: touch_args.skip,
+            },
+        );
+        if touch_args.is_default(&resolved_config) {
+            eprintln!(
+                "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
+            );
+        }
+        return result;
+    }
+
     // Default behavior (no --mode): simple text/JSON output
     handle_default_output(
         &normalized_path,
