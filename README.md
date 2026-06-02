@@ -83,6 +83,20 @@ Your CI fails if someone introduces high-risk code. No manual review needed.
 
 > **GitHub Action coming soon.** A native `hotspots-action` for GitHub Actions is not yet available. Use the CLI directly in your workflows in the meantime.
 
+### ✅ Fine-Tune Rankings with Repo-Specific ML
+
+The default heuristic ranker works out of the box, but every codebase is different. Train a local RandomForest ranker from your own fix-commit history to score functions based on patterns that actually predict bugs in your repo:
+
+```bash
+# Fit a ranker from the last year of fix commits (precise blame-based labels)
+hotspots train . --blame
+
+# Next analyze picks up the trained ranker automatically
+hotspots analyze .
+```
+
+The trained model learns which structural features (complexity, churn, call graph) correlate with real bug fixes in your history — not a generic heuristic. Scores are saved to `.hotspots/ranker.json` and reused on every subsequent `analyze`.
+
 ### ✅ Ship with Confidence, Not Crossed Fingers
 
 Know which files are landmines before you touch them. See complexity trends over time. Make informed decisions about refactoring vs rewriting vs leaving it alone.
@@ -410,6 +424,9 @@ hotspots diff main HEAD --top 10 --policy
 # See complexity trends
 hotspots trends .
 
+# Train a repo-specific ranker from fix-commit history
+hotspots train . --blame
+
 # Prune unreachable snapshots (after force-push or branch deletion)
 hotspots prune --unreachable --older-than 30
 
@@ -441,7 +458,7 @@ hotspots config validate
 
 - 🚀 [Quick Start](docs/getting-started/quick-start.md) - Get started in 5 minutes
 - 📖 [CLI Reference](docs/reference/cli.md) - All commands and options
-- 🎯 GitHub Action - CI/CD integration *(coming soon)*
+- 🎯 [CI Integration](docs/guide/ci-integration.md) - GitHub Actions, GitLab CI
 - 🤖 [AI Integration](docs/integrations/ai-agents.md) - Claude, Cursor, Copilot
 - 🏗️ [Architecture](docs/architecture/overview.md) - How it works
 - 🤝 [Contributing](docs/contributing/index.md) - Add languages, fix bugs, improve docs
@@ -550,7 +567,8 @@ MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
 2. 🔍 Run your first analysis: `hotspots analyze src/`
 3. 🎯 Identify your top 10 hotspots
 4. 🛠️ Refactor the worst offender
-5. 📊 Add to CI/CD: `hotspots analyze src/ --mode delta --policy` (GitHub Action coming soon)
+5. 📊 Add to CI/CD: `hotspots analyze src/ --mode delta --policy`
+6. 🧠 Train a repo-specific ranker: `hotspots train . --blame`
 6. 🤖 Integrate with AI: [AI Integration Guide](docs/integrations/ai-agents.md)
 
 **Questions?** Open a [GitHub Discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
