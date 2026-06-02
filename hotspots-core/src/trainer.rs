@@ -1,6 +1,6 @@
 //! `hotspots train` — fit a local RandomForest ranker from git history.
 //!
-//! # Feature set (9 features, index-stable — model_version = 2)
+//! # Feature set (8 features, index-stable — model_version = 3)
 //!
 //! 0  lrs           composite complexity score
 //! 1  cc            cyclomatic complexity
@@ -9,8 +9,7 @@
 //! 4  fo            fan-out
 //! 5  fan_in        call-graph fan-in
 //! 6  total_churn   lifetime lines added + deleted (non-windowed structural signal)
-//! 7  activity_risk hotspots composite score (formula)
-//! 8  authors_90d   distinct commit authors in last 90 days (ownership diversity)
+//! 7  authors_90d   distinct commit authors in last 90 days (ownership diversity)
 //!
 //! Deliberately excluded:
 //! - `touch_count_30d`, `days_since_last_change` — windowed activity signals that
@@ -18,6 +17,10 @@
 //!   scan window (temporal leakage; see research Finding 15 and Finding 31).
 //! - `bug_commits`, `convention_bug_fix_count` — derived from the same fix-keyword
 //!   scan used to construct labels (direct data leakage).
+//! - `activity_risk` — a composite of `touch_count_30d` and `days_since_last_change`;
+//!   including it is indirect temporal leakage of the same windowed signals. It also
+//!   causes the trained ranker to reproduce the heuristic score rather than learning
+//!   from structural features, making `hotspots train` a no-op in practice.
 
 use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{bail, Context, Result};
@@ -34,7 +37,7 @@ use std::path::Path;
 
 // ── Feature extraction ────────────────────────────────────────────────────────
 
-pub const FEATURE_NAMES: [&str; 9] = [
+pub const FEATURE_NAMES: [&str; 8] = [
     "lrs",
     "cc",
     "nd",
@@ -42,11 +45,10 @@ pub const FEATURE_NAMES: [&str; 9] = [
     "fo",
     "fan_in",
     "total_churn",
-    "activity_risk",
     "authors_90d",
 ];
 
-pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
+pub fn extract_features(func: &FunctionSnapshot) -> [f64; 8] {
     let cg = func.callgraph.as_ref();
     let total_churn = func
         .churn
@@ -61,7 +63,6 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
         f64::from(func.metrics.fo),
         cg.map(|c| c.fan_in as f64).unwrap_or(0.0),
         total_churn,
-        func.activity_risk.unwrap_or(func.lrs),
         func.authors_90d.unwrap_or(0) as f64,
     ]
 }
@@ -346,7 +347,7 @@ pub fn train(
     cfg: &TrainConfig,
 ) -> Result<Option<RankerModel>> {
     // Build (features, label) pairs from snapshot functions
-    let mut rows: Vec<([f64; 9], bool)> = Vec::new();
+    let mut rows: Vec<([f64; 8], bool)> = Vec::new();
 
     if cfg.blame_labels {
         let fix_funcs = collect_fix_functions(snapshot, repo_root, cfg.label_window_days)?;
@@ -410,7 +411,7 @@ pub fn train(
     }
 
     let x: Array2<f64> =
-        Array2::from_shape_vec((n, 9), x_data).context("feature matrix shape error")?;
+        Array2::from_shape_vec((n, 8), x_data).context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
     let dataset = Dataset::new(x, y).with_feature_names(
@@ -449,7 +450,7 @@ pub fn train(
     };
 
     Ok(Some(RankerModel {
-        model_version: 2,
+        model_version: 3,
         trees,
         meta,
     }))
@@ -552,7 +553,7 @@ pub fn score(model: &RankerModel, func: &FunctionSnapshot) -> f64 {
     votes as f64 / n as f64
 }
 
-fn vote(tree: &SerializedTree, feats: &[f64; 9]) -> bool {
+fn vote(tree: &SerializedTree, feats: &[f64; 8]) -> bool {
     let nodes = &tree.nodes;
     if nodes.is_empty() {
         return false;
@@ -569,7 +570,7 @@ fn vote(tree: &SerializedTree, feats: &[f64; 9]) -> bool {
             .get(node.feature_idx)
             .copied()
             .unwrap_or(node.feature_idx);
-        let val = if global_idx < 9 {
+        let val = if global_idx < 8 {
             feats[global_idx]
         } else {
             0.0
@@ -620,7 +621,7 @@ impl RankerModel {
     pub fn load(path: &Path) -> Result<Self> {
         let json = std::fs::read_to_string(path).context("read model file")?;
         let model: Self = serde_json::from_str(&json).context("deserialize model")?;
-        if model.model_version < 2 {
+        if model.model_version < 3 {
             bail!(
                 "{} was trained with an older feature set (model_version={}). \
                  Run `hotspots train` to retrain with the current feature set.",
@@ -642,7 +643,7 @@ mod tests {
 
     #[test]
     fn feature_names_count_matches_array() {
-        assert_eq!(FEATURE_NAMES.len(), 9);
+        assert_eq!(FEATURE_NAMES.len(), 8);
     }
 
     #[test]
@@ -653,6 +654,7 @@ mod tests {
                 name, "days_since_last_change",
                 "leaky feature still present"
             );
+            assert_ne!(name, "activity_risk", "leaky feature still present");
         }
         assert!(FEATURE_NAMES.contains(&"total_churn"));
     }
@@ -738,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn load_v2_model_succeeds() {
+    fn load_v2_model_returns_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("ranker.json");
         std::fs::write(
@@ -746,7 +748,23 @@ mod tests {
             r#"{"model_version":2,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
         )
         .unwrap();
+        let err = RankerModel::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("retrain") || err.contains("model_version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_v3_model_succeeds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ranker.json");
+        std::fs::write(
+            &path,
+            r#"{"model_version":3,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
+        )
+        .unwrap();
         let model = RankerModel::load(&path).expect("should load");
-        assert_eq!(model.model_version, 2);
+        assert_eq!(model.model_version, 3);
     }
 }
