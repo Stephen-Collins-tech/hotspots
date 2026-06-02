@@ -164,24 +164,23 @@ pub fn collect_fix_functions(
 
     let make_rel = |path: &str| -> String {
         let p = path.replace('\\', "/");
-        // Try exact prefix strip first (fastest).
-        if let Some(r) = p.strip_prefix(&repo_prefix_canonical) {
-            return r.to_string();
-        }
-        if let Some(r) = p.strip_prefix(&repo_prefix_raw) {
-            return r.to_string();
-        }
-        // Snapshot may store a symlink path (e.g. /tmp/…) while repo_root
-        // canonicalises to a different form (e.g. /private/tmp/… on macOS).
-        // Canonicalise the snapshot path and retry.
-        if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+        let rel = if let Some(r) = p.strip_prefix(&repo_prefix_canonical) {
+            r.to_string()
+        } else if let Some(r) = p.strip_prefix(&repo_prefix_raw) {
+            r.to_string()
+        } else if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+            // Snapshot may store a symlink path (e.g. /tmp/…) while repo_root
+            // canonicalises to a different form (e.g. /private/tmp/… on macOS).
             cp.to_str()
                 .and_then(|s| s.strip_prefix(&repo_prefix_canonical))
                 .map(str::to_string)
         }) {
-            return r;
-        }
-        p
+            r
+        } else {
+            return p;
+        };
+        // Strip leading "./" that appears when the repo was analyzed as "."
+        rel.strip_prefix("./").unwrap_or(&rel).to_string()
     };
 
     let mut file_index: std::collections::HashMap<String, Vec<(u32, String)>> =
@@ -364,20 +363,20 @@ pub fn train(
             .unwrap_or_default();
         let make_rel = |path: &str| -> String {
             let p = path.replace('\\', "/");
-            if let Some(r) = p.strip_prefix(&prefix_can) {
-                return r.to_string();
-            }
-            if let Some(r) = p.strip_prefix(&prefix_raw) {
-                return r.to_string();
-            }
-            if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+            let rel = if let Some(r) = p.strip_prefix(&prefix_can) {
+                r.to_string()
+            } else if let Some(r) = p.strip_prefix(&prefix_raw) {
+                r.to_string()
+            } else if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
                 cp.to_str()
                     .and_then(|s| s.strip_prefix(&prefix_can))
                     .map(str::to_string)
             }) {
-                return r;
-            }
-            p
+                r
+            } else {
+                return p;
+            };
+            rel.strip_prefix("./").unwrap_or(&rel).to_string()
         };
         for func in &snapshot.functions {
             let rel = make_rel(&func.file);
