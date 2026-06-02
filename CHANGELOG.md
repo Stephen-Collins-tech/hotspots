@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Add codebase guide (#77)
 
+
+### Features
+- Hotspots train — RandomForest ranker from fix-commit history (v3) (#79)
+
 ## [1.20.1] - 2026-05-24
 
 ### Features
