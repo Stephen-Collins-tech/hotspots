@@ -212,6 +212,34 @@ enum Commands {
         #[arg(long)]
         auto_analyze: bool,
     },
+    /// Train a local RandomForest ranker from fix-commit history
+    Train {
+        /// Path to repository root
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output path for the trained model (JSON)
+        #[arg(long, default_value = ".hotspots/ranker.json")]
+        output: PathBuf,
+
+        /// Days of git history to scan for fix-commit labels
+        #[arg(long, default_value = "365")]
+        label_window: u32,
+
+        /// Number of trees in the RandomForest
+        #[arg(long, default_value = "200")]
+        n_estimators: usize,
+
+        /// Maximum tree depth
+        #[arg(long, default_value = "6")]
+        max_depth: usize,
+
+        /// Use blame-based function-level labelling instead of file-level labelling.
+        /// More precise labels (only the function that owned the changed lines is
+        /// marked positive) but slower on repos with many fix commits.
+        #[arg(long, default_value = "false")]
+        blame: bool,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -319,6 +347,21 @@ fn main() -> anyhow::Result<()> {
             top,
             config_path: config,
             auto_analyze,
+        })?,
+        Commands::Train {
+            path,
+            output,
+            label_window,
+            n_estimators,
+            max_depth,
+            blame,
+        } => cmd::train::handle_train(cmd::train::TrainArgs {
+            path,
+            output,
+            label_window_days: label_window,
+            n_estimators,
+            max_depth,
+            blame_labels: blame,
         })?,
     }
 

@@ -21,6 +21,7 @@ pub mod config;
 pub mod db;
 pub mod delta;
 pub mod discover;
+pub mod gate;
 pub mod git;
 pub mod html;
 pub mod imports;
@@ -38,6 +39,7 @@ pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
 pub mod touch_cache;
+pub mod trainer;
 pub mod trends;
 
 pub use callgraph::CallGraph;

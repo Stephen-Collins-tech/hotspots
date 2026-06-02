@@ -189,6 +189,14 @@ pub struct FunctionSnapshot {
     /// Populated in `Snapshot::from_reports` when `repo_root` is available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subsystem: Option<String>,
+    /// Number of distinct commit authors for this file in the last 90 days.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_authors_90d()`.
+    /// Used as a training feature in `hotspots train` — author diversity is a
+    /// non-windowed ownership signal that doesn't share the temporal leakage
+    /// of touch_count_30d.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authors_90d: Option<u32>,
 }
 
 /// Risk distribution by band
@@ -424,6 +432,7 @@ impl Snapshot {
                     patterns: report.patterns,
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }
             })
             .collect();
@@ -467,6 +476,54 @@ impl Snapshot {
                     lines_deleted: file_churn.lines_deleted,
                     net_change,
                 });
+            }
+        }
+    }
+
+    /// Populate `authors_90d` for every function.
+    ///
+    /// Runs one `git log` subprocess per unique file in the snapshot to count
+    /// distinct commit-author emails in the last 90 days.  File-level: all
+    /// functions in the same file receive the same value.  Functions in files
+    /// with no matching history receive `Some(0)`.
+    ///
+    /// Errors are soft: a failed git call leaves the affected file's functions
+    /// with `authors_90d = None`.
+    pub fn populate_authors_90d(&mut self, repo_root: &Path) {
+        use std::collections::{HashMap, HashSet};
+        use std::process::Command;
+
+        // Build unique-file → function-indices map
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            file_indices.entry(func.file.clone()).or_default().push(i);
+        }
+
+        for (abs_path, indices) in &file_indices {
+            let rel = if let Ok(r) = std::path::Path::new(abs_path).strip_prefix(repo_root) {
+                r.to_string_lossy().to_string()
+            } else {
+                abs_path.clone()
+            };
+
+            let out = Command::new("git")
+                .args(["log", "--after=90.days.ago", "--format=%ae", "--", &rel])
+                .current_dir(repo_root)
+                .output();
+
+            let count = match out {
+                Ok(o) if o.status.success() => {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    text.lines()
+                        .filter(|l| !l.is_empty())
+                        .collect::<HashSet<_>>()
+                        .len() as u32
+                }
+                _ => continue, // leave as None on error
+            };
+
+            for &i in indices {
+                self.functions[i].authors_90d = Some(count);
             }
         }
     }
@@ -1102,13 +1159,18 @@ impl Snapshot {
     ///
     /// Quadrant logic (Option C — combines both signals):
     ///   is_active = touches_30d > touch_p50 OR days_since_last_change <= 30
+    ///              [+ activity_risk >= 0.7 when ranker_applied]
     ///   fire  = high/critical + is_active
     ///   debt  = high/critical + !is_active
     ///   watch = moderate/low  + is_active
     ///   ok    = everything else
     ///
+    /// When `ranker_applied` is true, a trained RF score >= 0.7 also counts as
+    /// active — promoting structurally-risky-but-dormant functions from debt to
+    /// fire when the model predicts they are likely to be touched in a fix commit.
+    ///
     /// Must be called after populate_driver_labels().
-    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8) {
+    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8, ranker_applied: bool) {
         if self.functions.is_empty() {
             return;
         }
@@ -1124,7 +1186,9 @@ impl Snapshot {
                 .days_since_last_change
                 .map(|d| d <= 30)
                 .unwrap_or(false);
-            let is_active = touch_above_p50 || recently_changed;
+            let high_ranker_score =
+                ranker_applied && function.activity_risk.map(|r| r >= 0.7).unwrap_or(false);
+            let is_active = touch_above_p50 || recently_changed || high_ranker_score;
             let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
 
             function.quadrant = Some(
@@ -1650,7 +1714,8 @@ impl SnapshotEnricher {
         self.snapshot.compute_percentiles();
         self.snapshot
             .populate_driver_labels(driver_threshold_percentile);
-        self.snapshot.compute_quadrants(driver_threshold_percentile);
+        self.snapshot
+            .compute_quadrants(driver_threshold_percentile, false);
         self.snapshot.compute_summary(self.betweenness_approximate);
         self
     }

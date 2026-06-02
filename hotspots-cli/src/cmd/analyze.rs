@@ -3,6 +3,7 @@ use crate::util::{find_repo_root, write_html_report};
 use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
 use hotspots_core::delta::Delta;
+use hotspots_core::gate::{check_gate, GateConfig, GateVerdict};
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
@@ -217,6 +218,44 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         return result;
     }
 
+    // If a trained ranker exists, promote to snapshot mode so activity_risk
+    // fields are populated and the ranker can be applied. The ranker has no
+    // effect in the default LRS-only path.
+    let repo_root_for_ranker =
+        find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
+    let ranker_path = snapshot::hotspots_dir(&repo_root_for_ranker).join("ranker.json");
+    if ranker_path.exists() {
+        let result = handle_mode_output(
+            &normalized_path,
+            OutputMode::Snapshot,
+            &resolved_config,
+            ModeOutputOptions {
+                format,
+                policy: false,
+                top: effective_top,
+                min_lrs: effective_min_lrs,
+                output,
+                explain: matches!(format, OutputFormat::Text),
+                force,
+                no_persist: true, // default analyze doesn't persist snapshots
+                level,
+                touch_mode: effective_touch_mode,
+                all_functions: false,
+                include_models: false,
+                explain_patterns,
+                source_url,
+                callgraph_skip_above,
+                skip_touch_metrics: touch_args.skip,
+            },
+        );
+        if touch_args.is_default(&resolved_config) {
+            eprintln!(
+                "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
+            );
+        }
+        return result;
+    }
+
     // Default behavior (no --mode): simple text/JSON output
     handle_default_output(
         &normalized_path,
@@ -411,7 +450,39 @@ fn handle_snapshot_mode(
         snapshot::append_to_index(repo_root, &snapshot).context("failed to update index")?;
     }
 
+    let ranker_applied = apply_trained_ranker(repo_root, &mut snapshot);
+
+    // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
+    // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
+    // even if they haven't been touched in the last 30 days.
+    if ranker_applied {
+        snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
+    }
+
     let total_function_count = snapshot.functions.len();
+
+    // Suppression gate: check if the activity ranker is working on this repo.
+    // Run on the full sorted snapshot (before top-N truncation) so calibration
+    // sees a representative top-50.
+    // Inconclusive is silent — it fires on greenfield repos or non-conventional
+    // commit histories and is not actionable.
+    let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
+    if let GateVerdict::Suppressed {
+        p_at_10, threshold, ..
+    } = &gate_verdict
+    {
+        if ranker_applied {
+            eprintln!(
+                "hotspots: activity ranker P@10={p_at_10:.2} (< {threshold:.2}); using trained ranker instead."
+            );
+        } else {
+            eprintln!(
+                "hotspots: warning: activity ranker P@10={p_at_10:.2} < {threshold:.2} — rankings may be misleading."
+            );
+            eprintln!("          Run `hotspots train` to fit a local ranker from this repo's fix history.");
+        }
+    }
+
     apply_top_n(&mut snapshot, format, explain, level, top);
 
     emit_snapshot_output(
@@ -780,6 +851,27 @@ fn apply_top_n(
             snapshot.functions.truncate(n);
         }
     }
+}
+
+/// If `.hotspots/ranker.json` exists, overwrite each function's `activity_risk`
+/// with the trained model's vote score.  Returns true if the ranker was applied.
+/// Silent no-op (returns false) if the model is absent or fails to load.
+fn apply_trained_ranker(repo_root: &Path, snapshot: &mut Snapshot) -> bool {
+    let model_path = snapshot::hotspots_dir(repo_root).join("ranker.json");
+    if !model_path.exists() {
+        return false;
+    }
+    let model = match hotspots_core::trainer::RankerModel::load(&model_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("hotspots: warning: failed to load ranker.json: {e}");
+            return false;
+        }
+    };
+    for func in &mut snapshot.functions {
+        func.activity_risk = Some(hotspots_core::trainer::score(&model, func));
+    }
+    true
 }
 
 fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>

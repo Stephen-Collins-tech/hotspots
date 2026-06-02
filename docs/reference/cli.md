@@ -425,6 +425,113 @@ hotspots analyze src/ --mode snapshot --format json --explain-patterns
 
 ---
 
+### `hotspots train`
+
+Fit a local RandomForest ranker from the repo's own fix-commit git history.
+
+The trained model scores functions based on which structural features (complexity, churn, call graph) correlate with real bugs in your codebase — not a generic heuristic. Once trained, `hotspots analyze` picks up the ranker automatically and uses it to recompute triage quadrants.
+
+#### Usage
+
+```bash
+# Train with file-level labels (fast)
+hotspots train .
+
+# Train with blame-based function-level labels (more precise, slower)
+hotspots train . --blame
+
+# Custom label window and output path
+hotspots train . --blame --label-window 180 --output .hotspots/ranker.json
+```
+
+#### Arguments
+
+##### `[PATH]`
+**Optional.** Path to repository root.
+**Default:** `.` (current directory)
+
+```bash
+hotspots train /path/to/repo --blame
+```
+
+#### Options
+
+##### `--blame`
+**Optional.** Use blame-based function-level labelling instead of file-level labelling.
+
+Without `--blame`, every function in a file touched by a fix commit is marked positive. With `--blame`, `git diff-tree` hunk headers are parsed to identify the exact function that owned the changed lines — only that function is marked positive.
+
+**Trade-off:** More precise signal but one `git diff-tree` subprocess per fix commit. Recommended for repos with many large files.
+
+```bash
+# File-level labels (default): fast, noisy
+hotspots train .
+
+# Blame-based function labels: slower, more precise
+hotspots train . --blame
+```
+
+##### `--label-window <DAYS>`
+**Optional.** Days of git history to scan for fix-commit labels.
+**Default:** `365`
+
+```bash
+# Use 6 months of history
+hotspots train . --blame --label-window 180
+```
+
+##### `--n-estimators <N>`
+**Optional.** Number of trees in the RandomForest.
+**Default:** `200`
+
+##### `--max-depth <N>`
+**Optional.** Maximum tree depth.
+**Default:** `6`
+
+##### `--output <PATH>`
+**Optional.** Output path for the trained model JSON.
+**Default:** `.hotspots/ranker.json`
+
+#### Training signal requirements
+
+Training returns an error if the snapshot has fewer than 50 functions, or if the fix scan yields fewer than 5 positive or 10 negative labels. If this happens:
+
+- Try a larger `--label-window` (e.g. `--label-window 730` for 2 years)
+- Run `hotspots analyze . --mode snapshot --force` to regenerate a fresh snapshot
+- Check that your fix commits use conventional keywords (`fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`)
+
+#### How it integrates with `hotspots analyze`
+
+Once `.hotspots/ranker.json` exists, `hotspots analyze` automatically:
+
+1. Loads the ranker and scores every function
+2. Uses RF scores in place of the activity heuristic to determine triage quadrants
+3. Promotes high-RF functions from `debt` → `fire` where warranted
+
+The suppression gate runs on every `analyze` to verify the heuristic ranker is working. If it detects poor P@10, it recommends running `hotspots train`.
+
+#### Feature set
+
+The v3 model trains on 8 structural features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`. Windowed activity signals (`touch_count_30d`, `days_since_last_change`, `activity_risk`) are deliberately excluded to prevent temporal leakage from the label scan window.
+
+#### Examples
+
+```bash
+# Basic training (fast, file-level labels)
+hotspots train .
+
+# Precise blame-based training
+hotspots train . --blame
+
+# Train on a specific repo with 2-year history
+hotspots train /path/to/repo --blame --label-window 730
+
+# Re-train after new commits land
+hotspots train . --blame && hotspots analyze .
+```
+
+---
+
 ### `hotspots prune`
 
 Prune unreachable snapshots to reduce storage.
@@ -1069,3 +1176,4 @@ hotspots analyze . --mode snapshot --force         # overwrite existing snapshot
 - [Output Formats](../guide/output-formats.md) - JSON schema, HTML reports
 - [LRS Specification](./lrs-spec.md) - How LRS is calculated
 - [Policy Engine](../guide/usage.md#policy-engine) - Policy rules and enforcement
+- [`hotspots train`](#hotspots-train) - Repo-specific ML ranker from fix-commit history

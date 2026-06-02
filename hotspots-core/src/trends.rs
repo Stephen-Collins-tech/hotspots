@@ -500,6 +500,7 @@ mod tests {
                     patterns: vec![],
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }],
             ),
             create_test_snapshot(
@@ -533,6 +534,7 @@ mod tests {
                     patterns: vec![],
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }],
             ),
         ];
@@ -578,6 +580,7 @@ mod tests {
                     patterns: vec![],
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }],
             ),
             create_test_snapshot(
@@ -611,6 +614,7 @@ mod tests {
                     patterns: vec![],
                     pattern_details: None,
                     subsystem: None,
+                    authors_90d: None,
                 }],
             ),
         ];
@@ -655,6 +659,7 @@ mod tests {
                         patterns: vec![],
                         pattern_details: None,
                         subsystem: None,
+                        authors_90d: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -684,6 +689,7 @@ mod tests {
                         patterns: vec![],
                         pattern_details: None,
                         subsystem: None,
+                        authors_90d: None,
                     },
                 ],
             ),
@@ -719,6 +725,7 @@ mod tests {
                         patterns: vec![],
                         pattern_details: None,
                         subsystem: None,
+                        authors_90d: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -748,6 +755,7 @@ mod tests {
                         patterns: vec![],
                         pattern_details: None,
                         subsystem: None,
+                        authors_90d: None,
                     },
                 ],
             ),

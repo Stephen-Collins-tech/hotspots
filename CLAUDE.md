@@ -2,6 +2,30 @@
 
 This file contains conventions and rules for Claude Code when working on this project.
 
+## Research sync
+
+This CLI is the promotion target for `../hotspots-research`. Before implementing any ranker change,
+new snapshot field, or formula modification, check
+[`../hotspots-research/docs/promotion-tracker.md`](../hotspots-research/docs/promotion-tracker.md)
+to confirm the finding is validated and see whether a cross-repo task is already tracked.
+
+When a CLI change completes a promotion, update the tracker row to `promoted` and link the commit or PR.
+
+### Reading a promotion brief
+
+Each finding that is ready to implement has a brief in
+[`../hotspots-research/docs/promotion-briefs/`](../hotspots-research/docs/promotion-briefs/).
+**Before writing any code for a promoted finding, read its brief.** The brief is the
+authoritative spec — it overrides any general intuition about what "seems right."
+
+Rules for consuming a brief:
+
+- **Files to change** is exhaustive. Do not modify files not listed there.
+- **Exact names** are mandatory. Use the struct fields, flag names, enum variants, and constants exactly as spelled in the brief table.
+- **Do not** is a hard constraint. If the brief says "do not add a flag", do not add it even if it seems useful.
+- **Acceptance criteria** is the definition of done. Mark the brief `done` and update the tracker only when every numbered item passes.
+- If the brief is ambiguous or a criterion cannot be met, note the blocker in the tracker row and ask — do not silently work around it.
+
 ## General Principles
 
 - **Keep changes minimal and focused.** Do not refactor, rename, or restructure code beyond what is required for the task at hand.
