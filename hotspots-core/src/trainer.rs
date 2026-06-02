@@ -35,6 +35,49 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
+// ── Path helpers ─────────────────────────────────────────────────────────────
+
+/// Strip `repo_root` prefix from an absolute snapshot path to produce a
+/// repo-relative key matching `git diff-tree` / `git log --name-only` output.
+///
+/// Handles three sources of mismatch:
+/// - macOS `/tmp` → `/private/tmp` symlink: tries both canonical and raw prefix forms
+/// - Snapshot path itself may be a symlink: canonicalises as a last resort
+/// - `hotspots analyze .` stores paths with a leading `./` component: strips it
+pub(crate) fn make_rel(path: &str, prefix_can: &str, prefix_raw: &str) -> String {
+    let p = path.replace('\\', "/");
+    let rel = if let Some(r) = p.strip_prefix(prefix_can) {
+        r.to_string()
+    } else if let Some(r) = p.strip_prefix(prefix_raw) {
+        r.to_string()
+    } else if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
+        cp.to_str()
+            .and_then(|s| s.strip_prefix(prefix_can))
+            .map(str::to_string)
+    }) {
+        r
+    } else {
+        return p;
+    };
+    rel.strip_prefix("./").unwrap_or(&rel).to_string()
+}
+
+/// Build the canonical and raw prefix strings for a repo root.
+pub(crate) fn repo_prefixes(repo_root: &Path) -> (String, String) {
+    let canonical = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
+    let prefix_can = format!(
+        "{}/",
+        canonical.to_str().unwrap_or("").trim_end_matches('/')
+    );
+    let prefix_raw = repo_root
+        .to_str()
+        .map(|s| format!("{}/", s.trim_end_matches('/')))
+        .unwrap_or_default();
+    (prefix_can, prefix_raw)
+}
+
 // ── Feature extraction ────────────────────────────────────────────────────────
 
 pub const FEATURE_NAMES: [&str; 8] = [
@@ -150,43 +193,12 @@ pub fn collect_fix_functions(
     // Strip the repo_root prefix so lookup keys match diff-tree output.
     // On macOS /tmp is a symlink to /private/tmp — canonicalize both sides so the
     // prefix strip works regardless of which form the snapshot recorded.
-    let repo_canonical = repo_root
-        .canonicalize()
-        .unwrap_or_else(|_| repo_root.to_path_buf());
-    let repo_prefix_canonical = format!(
-        "{}/",
-        repo_canonical.to_str().unwrap_or("").trim_end_matches('/')
-    );
-    let repo_prefix_raw = repo_root
-        .to_str()
-        .map(|s| format!("{}/", s.trim_end_matches('/')))
-        .unwrap_or_default();
-
-    let make_rel = |path: &str| -> String {
-        let p = path.replace('\\', "/");
-        let rel = if let Some(r) = p.strip_prefix(&repo_prefix_canonical) {
-            r.to_string()
-        } else if let Some(r) = p.strip_prefix(&repo_prefix_raw) {
-            r.to_string()
-        } else if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
-            // Snapshot may store a symlink path (e.g. /tmp/…) while repo_root
-            // canonicalises to a different form (e.g. /private/tmp/… on macOS).
-            cp.to_str()
-                .and_then(|s| s.strip_prefix(&repo_prefix_canonical))
-                .map(str::to_string)
-        }) {
-            r
-        } else {
-            return p;
-        };
-        // Strip leading "./" that appears when the repo was analyzed as "."
-        rel.strip_prefix("./").unwrap_or(&rel).to_string()
-    };
+    let (repo_prefix_canonical, repo_prefix_raw) = repo_prefixes(repo_root);
 
     let mut file_index: std::collections::HashMap<String, Vec<(u32, String)>> =
         std::collections::HashMap::new();
     for func in &snapshot.functions {
-        let rel = make_rel(&func.file);
+        let rel = make_rel(&func.file, &repo_prefix_canonical, &repo_prefix_raw);
         file_index
             .entry(rel)
             .or_default()
@@ -350,36 +362,9 @@ pub fn train(
 
     if cfg.blame_labels {
         let fix_funcs = collect_fix_functions(snapshot, repo_root, cfg.label_window_days)?;
-        let repo_canonical = repo_root
-            .canonicalize()
-            .unwrap_or_else(|_| repo_root.to_path_buf());
-        let prefix_can = format!(
-            "{}/",
-            repo_canonical.to_str().unwrap_or("").trim_end_matches('/')
-        );
-        let prefix_raw = repo_root
-            .to_str()
-            .map(|s| format!("{}/", s.trim_end_matches('/')))
-            .unwrap_or_default();
-        let make_rel = |path: &str| -> String {
-            let p = path.replace('\\', "/");
-            let rel = if let Some(r) = p.strip_prefix(&prefix_can) {
-                r.to_string()
-            } else if let Some(r) = p.strip_prefix(&prefix_raw) {
-                r.to_string()
-            } else if let Some(r) = std::path::Path::new(&p).canonicalize().ok().and_then(|cp| {
-                cp.to_str()
-                    .and_then(|s| s.strip_prefix(&prefix_can))
-                    .map(str::to_string)
-            }) {
-                r
-            } else {
-                return p;
-            };
-            rel.strip_prefix("./").unwrap_or(&rel).to_string()
-        };
+        let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
         for func in &snapshot.functions {
-            let rel = make_rel(&func.file);
+            let rel = make_rel(&func.file, &prefix_can, &prefix_raw);
             let label = fix_funcs.contains(&(rel, func.line));
             rows.push((extract_features(func), label));
         }
@@ -401,7 +386,7 @@ pub fn train(
     }
 
     let n = rows.len();
-    let mut x_data = Vec::with_capacity(n * 9);
+    let mut x_data = Vec::with_capacity(n * 8);
     let mut y_data: Vec<bool> = Vec::with_capacity(n);
 
     for (feats, label) in &rows {

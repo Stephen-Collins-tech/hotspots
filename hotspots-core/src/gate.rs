@@ -24,6 +24,7 @@
 //! and the LLM fallback prompt.
 
 use crate::snapshot::FunctionSnapshot;
+use crate::trainer::{make_rel, repo_prefixes};
 use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
@@ -111,12 +112,15 @@ pub fn check_gate(
         };
     }
 
-    // Score top-cal_n functions descending (functions is already sorted)
+    // Score top-cal_n functions descending (functions is already sorted).
+    // Snapshot paths are absolute; fix_files has repo-relative paths from git log.
+    // Normalise before comparison so the sets can actually intersect.
+    let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
     let cal_n = config.cal_n.min(functions.len());
     let top_n = &functions[..cal_n];
 
     // P@10: of top-10, how many files are in the fix-touched set?
-    let p_at_10 = precision_at_k(top_n, &fix_files, 10);
+    let p_at_10 = precision_at_k(top_n, &fix_files, 10, &prefix_can, &prefix_raw);
 
     if p_at_10 < config.threshold {
         GateVerdict::Suppressed {
@@ -170,14 +174,20 @@ fn scan_fix_files(repo_root: &Path, window_days: u32) -> anyhow::Result<HashSet<
 }
 
 /// Precision at K: of the top-K functions by score, what fraction are in fix-touched files?
-fn precision_at_k(functions: &[FunctionSnapshot], fix_files: &HashSet<String>, k: usize) -> f64 {
+fn precision_at_k(
+    functions: &[FunctionSnapshot],
+    fix_files: &HashSet<String>,
+    k: usize,
+    prefix_can: &str,
+    prefix_raw: &str,
+) -> f64 {
     let k = k.min(functions.len());
     if k == 0 {
         return 0.0;
     }
     let hits = functions[..k]
         .iter()
-        .filter(|f| fix_files.contains(&f.file))
+        .filter(|f| fix_files.contains(&make_rel(&f.file, prefix_can, prefix_raw)))
         .count();
     hits as f64 / k as f64
 }
@@ -220,7 +230,7 @@ mod tests {
         ];
         let fns = stub_fns(&files);
         let fix_files = fix_set(&files);
-        assert_eq!(precision_at_k(&fns, &fix_files, 10), 1.0);
+        assert_eq!(precision_at_k(&fns, &fix_files, 10, "", ""), 1.0);
     }
 
     #[test]
@@ -231,7 +241,7 @@ mod tests {
         ];
         let fns = stub_fns(&files);
         let fix_files = fix_set(&["bug.rs"]);
-        assert_eq!(precision_at_k(&fns, &fix_files, 10), 0.0);
+        assert_eq!(precision_at_k(&fns, &fix_files, 10, "", ""), 0.0);
     }
 
     #[test]
@@ -242,7 +252,7 @@ mod tests {
         ];
         let fns = stub_fns(&files);
         let fix_files = fix_set(&["bug.rs"]);
-        assert!((precision_at_k(&fns, &fix_files, 10) - 0.1).abs() < 1e-9);
+        assert!((precision_at_k(&fns, &fix_files, 10, "", "") - 0.1).abs() < 1e-9);
     }
 
     #[test]
