@@ -8,6 +8,7 @@ use crate::ast::FunctionNode;
 use crate::language::Language;
 use crate::metrics::RawMetrics;
 use crate::risk::{RiskBand, RiskComponents};
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
 /// Complete risk report for a function
@@ -200,8 +201,6 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
 /// MODERATE and LOW are omitted unless `limit` is `usize::MAX` (i.e. `--top 0`).
 /// `color` enables ANSI codes — pass `false` when stdout is not a TTY.
 pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: bool) -> String {
-    use owo_colors::OwoColorize;
-
     let show_all = limit == usize::MAX;
     let mut output = String::new();
     let cwd = std::env::current_dir().ok();
