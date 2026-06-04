@@ -108,8 +108,10 @@ pub(crate) fn print_module_output(
 pub(crate) fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
     total_count: usize,
+    color: bool,
 ) -> anyhow::Result<()> {
     use hotspots_core::risk::RiskBand;
+    use owo_colors::OwoColorize;
 
     let funcs = &snapshot.functions;
     if funcs.is_empty() {
@@ -154,37 +156,51 @@ pub(crate) fn print_explain_output(
         .unwrap_or(30)
         .min(55);
 
-    let print_section =
-        |header: &str, rows: &[&hotspots_core::snapshot::FunctionSnapshot], col_w: usize| {
-            if rows.is_empty() {
-                return;
-            }
-            println!("{} ({})", header, rows.len());
-            for f in rows {
-                let score = f.activity_risk.unwrap_or(f.lrs);
-                let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
-                let loc = format!("{}:{}", rel_path(&f.file), f.line);
-                let patterns_str = if f.patterns.is_empty() {
-                    String::new()
-                } else {
-                    format!("  [{}]", f.patterns.join(", "))
-                };
-                println!(
-                    "  {:.2}  {:<col_w$}  {}{}",
-                    score,
-                    loc,
-                    name,
-                    patterns_str,
-                    col_w = col_w
-                );
-            }
-            println!();
-        };
+    let paint = |s: &str, paint_fn: &dyn Fn(&str) -> String| -> String {
+        if color {
+            paint_fn(s)
+        } else {
+            s.to_string()
+        }
+    };
+    let red = |s: &str| s.red().bold().to_string();
+    let yellow = |s: &str| s.yellow().bold().to_string();
+    let green = |s: &str| s.green().to_string();
 
-    print_section("CRITICAL", &critical, col_width);
-    print_section("HIGH", &high, col_width);
+    let print_section = |header: &str,
+                         rows: &[&hotspots_core::snapshot::FunctionSnapshot],
+                         col_w: usize,
+                         painter: &dyn Fn(&str) -> String| {
+        if rows.is_empty() {
+            return;
+        }
+        println!("{} ({})", paint(header, painter), rows.len());
+        for f in rows {
+            let score = f.activity_risk.unwrap_or(f.lrs);
+            let score_str = format!("{:.2}", score);
+            let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let loc = format!("{}:{}", rel_path(&f.file), f.line);
+            let patterns_str = if f.patterns.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", f.patterns.join(", "))
+            };
+            println!(
+                "  {}  {:<col_w$}  {}{}",
+                paint(&score_str, painter),
+                loc,
+                name,
+                patterns_str,
+                col_w = col_w
+            );
+        }
+        println!();
+    };
+
+    print_section("CRITICAL", &critical, col_width, &red);
+    print_section("HIGH", &high, col_width, &yellow);
     if show_all {
-        print_section("MEDIUM / LOW", &lower, col_width);
+        print_section("MEDIUM / LOW", &lower, col_width, &green);
     }
 
     println!("{}", "─".repeat(60));

@@ -198,8 +198,10 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
 /// Render reports grouped by risk band (CRITICAL → HIGH → MODERATE/LOW).
 ///
 /// MODERATE and LOW are omitted unless `limit` is `usize::MAX` (i.e. `--top 0`).
-/// `limit` is also used in the footer hint.
-pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> String {
+/// `color` enables ANSI codes — pass `false` when stdout is not a TTY.
+pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: bool) -> String {
+    use owo_colors::OwoColorize;
+
     let show_all = limit == usize::MAX;
     let mut output = String::new();
     let cwd = std::env::current_dir().ok();
@@ -244,23 +246,25 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> Stri
     let render_section = |header: &str,
                           rows: &[&FunctionRiskReport],
                           col_w: usize,
-                          rel: &dyn Fn(&str) -> String|
+                          rel: &dyn Fn(&str) -> String,
+                          paint: &dyn Fn(&str) -> String|
      -> String {
         let mut s = String::new();
         if rows.is_empty() {
             return s;
         }
-        s.push_str(&format!("{} ({})\n", header, rows.len()));
+        s.push_str(&format!("{} ({})\n", paint(header), rows.len()));
         for r in rows {
             let loc = format!("{}:{}", rel(&r.file), r.line);
+            let score_str = format!("{:.2}", r.lrs);
             let patterns_str = if r.patterns.is_empty() {
                 String::new()
             } else {
                 format!("  [{}]", r.patterns.join(", "))
             };
             s.push_str(&format!(
-                "  {:.2}  {:<col_w$}  {}{}",
-                r.lrs,
+                "  {}  {:<col_w$}  {}{}",
+                paint(&score_str),
                 loc,
                 r.function,
                 patterns_str,
@@ -272,14 +276,41 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> Stri
         s
     };
 
-    output.push_str(&render_section("CRITICAL", &critical, col_width, &rel_path));
-    output.push_str(&render_section("HIGH", &high, col_width, &rel_path));
+    let red = |s: &str| -> String {
+        if color {
+            s.red().bold().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let yellow = |s: &str| -> String {
+        if color {
+            s.yellow().bold().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let green = |s: &str| -> String {
+        if color {
+            s.green().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+
+    output.push_str(&render_section(
+        "CRITICAL", &critical, col_width, &rel_path, &red,
+    ));
+    output.push_str(&render_section(
+        "HIGH", &high, col_width, &rel_path, &yellow,
+    ));
     if show_all {
         output.push_str(&render_section(
             "MEDIUM / LOW",
             &lower,
             col_width,
             &rel_path,
+            &green,
         ));
     }
 
@@ -356,7 +387,7 @@ mod tests {
         let mut high = make_report("/repo/src/b.ts", "bar", 20, 7.0);
         high.band = RiskBand::High;
         let reports = vec![critical, high];
-        let out = render_text_grouped(&reports, 20);
+        let out = render_text_grouped(&reports, 20, false);
         let crit_pos = out.find("CRITICAL").unwrap_or(usize::MAX);
         let high_pos = out.find("HIGH").unwrap_or(usize::MAX);
         assert!(
@@ -373,7 +404,7 @@ mod tests {
         r1.band = RiskBand::Critical;
         let mut r2 = make_report("/repo/src/b.ts", "bar", 20, 7.0);
         r2.band = RiskBand::High;
-        let out = render_text_grouped(&[r1, r2], 20);
+        let out = render_text_grouped(&[r1, r2], 20, false);
         assert!(
             out.contains("2 functions shown"),
             "footer should show shown count"
@@ -384,7 +415,7 @@ mod tests {
     fn test_render_text_grouped_lower_omitted_by_default() {
         let mut r = make_report("/repo/src/a.ts", "foo", 10, 2.0);
         r.band = RiskBand::Low;
-        let out = render_text_grouped(&[r], 20);
+        let out = render_text_grouped(&[r], 20, false);
         assert!(
             !out.contains("foo"),
             "low band should be omitted by default"
@@ -399,7 +430,7 @@ mod tests {
     fn test_render_text_grouped_lower_shown_when_show_all() {
         let mut r = make_report("/repo/src/a.ts", "foo", 10, 2.0);
         r.band = RiskBand::Low;
-        let out = render_text_grouped(&[r], usize::MAX);
+        let out = render_text_grouped(&[r], usize::MAX, false);
         assert!(
             out.contains("foo"),
             "low band should be shown with show-all"
@@ -412,13 +443,13 @@ mod tests {
         let mut r = make_report("/repo/src/a.ts", "foo", 10, 12.0);
         r.band = RiskBand::Critical;
         r.patterns = vec!["god_function".to_string(), "exit_heavy".to_string()];
-        let out = render_text_grouped(&[r], 20);
+        let out = render_text_grouped(&[r], 20, false);
         assert!(out.contains("[god_function, exit_heavy]"));
     }
 
     #[test]
     fn test_render_text_grouped_empty() {
-        let out = render_text_grouped(&[], 20);
+        let out = render_text_grouped(&[], 20, false);
         assert!(out.contains("0 functions shown"));
     }
 }

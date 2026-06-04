@@ -21,6 +21,8 @@ hotspots-core = { version = "1.21.1", path = "../hotspots-core" }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 indicatif = "0.17"
+is-terminal = "0.4"
+owo-colors = "4"
 rayon = "1"
 
 [lints]

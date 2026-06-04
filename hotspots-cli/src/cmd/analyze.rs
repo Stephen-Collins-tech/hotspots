@@ -321,7 +321,12 @@ fn handle_default_output(
 
     match format {
         OutputFormat::Text => {
-            print!("{}", hotspots_core::render_text_grouped(&reports, limit));
+            use is_terminal::IsTerminal;
+            let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+            print!(
+                "{}",
+                hotspots_core::render_text_grouped(&reports, limit, color)
+            );
         }
         OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
         OutputFormat::Html | OutputFormat::Jsonl => {
@@ -767,7 +772,9 @@ fn emit_text_output(
     } else if level == Some(OutputLevel::Module) {
         explain::print_module_output(&aggregates.modules, top)?;
     } else if explain {
-        explain::print_explain_output(snapshot, total_function_count)?;
+        use is_terminal::IsTerminal;
+        let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+        explain::print_explain_output(snapshot, total_function_count, color)?;
     } else {
         anyhow::bail!(
             "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
