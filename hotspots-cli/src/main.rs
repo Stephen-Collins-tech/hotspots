@@ -244,6 +244,12 @@ enum Commands {
         /// marked positive) but slower on repos with many fix commits.
         #[arg(long, default_value = "false")]
         blame: bool,
+
+        /// After training, evaluate the model with P@K on the same label window.
+        /// Prints a table of Precision@K for K in [10, 20, 50, 100, 200] alongside
+        /// the fix-label base rate so you can judge whether the ranker beats random.
+        #[arg(long, default_value = "false")]
+        eval: bool,
     },
 }
 
@@ -362,6 +368,7 @@ fn main() -> anyhow::Result<()> {
             n_estimators,
             max_depth,
             blame,
+            eval,
         } => cmd::train::handle_train(cmd::train::TrainArgs {
             path,
             output,
@@ -369,6 +376,7 @@ fn main() -> anyhow::Result<()> {
             n_estimators,
             max_depth,
             blame_labels: blame,
+            eval,
         })?,
     }
 

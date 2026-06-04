@@ -542,6 +542,34 @@ where
     idx
 }
 
+// ── P@K evaluation ───────────────────────────────────────────────────────────
+
+pub type FunctionId = String;
+
+/// A function scored by the ranker, for P@K evaluation.
+pub struct ScoredFunction {
+    pub function_id: FunctionId,
+    pub score: f64,
+}
+
+/// Precision at K: fraction of top-K ranked functions that are true positives.
+/// Returns 0.0 when K exceeds list length or no positives in top-K.
+pub fn precision_at_k(
+    ranked: &[ScoredFunction],
+    labels: &std::collections::HashMap<FunctionId, bool>,
+    k: usize,
+) -> f64 {
+    let top_k = ranked.iter().take(k);
+    let count = top_k.clone().count();
+    if count == 0 {
+        return 0.0;
+    }
+    let hits = top_k
+        .filter(|f| labels.get(&f.function_id).copied().unwrap_or(false))
+        .count();
+    hits as f64 / count as f64
+}
+
 // ── Inference ─────────────────────────────────────────────────────────────────
 
 /// Score a function using the trained ranker.
@@ -645,6 +673,79 @@ impl RankerModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── precision_at_k ────────────────────────────────────────────────────────
+
+    fn make_scored(ids: &[&str], scores: &[f64]) -> Vec<ScoredFunction> {
+        ids.iter()
+            .zip(scores.iter())
+            .map(|(id, &s)| ScoredFunction {
+                function_id: id.to_string(),
+                score: s,
+            })
+            .collect()
+    }
+
+    fn make_labels(pairs: &[(&str, bool)]) -> std::collections::HashMap<FunctionId, bool> {
+        pairs.iter().map(|(id, v)| (id.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn pak_all_positives() {
+        let ranked = make_scored(
+            &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+            &[1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1],
+        );
+        let labels = make_labels(&[
+            ("a", true),
+            ("b", true),
+            ("c", true),
+            ("d", true),
+            ("e", true),
+            ("f", true),
+            ("g", true),
+            ("h", true),
+            ("i", true),
+            ("j", true),
+        ]);
+        assert_eq!(precision_at_k(&ranked, &labels, 10), 1.0);
+    }
+
+    #[test]
+    fn pak_no_positives() {
+        let ranked = make_scored(
+            &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+            &[1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1],
+        );
+        let labels = make_labels(&[
+            ("a", false),
+            ("b", false),
+            ("c", false),
+            ("d", false),
+            ("e", false),
+            ("f", false),
+            ("g", false),
+            ("h", false),
+            ("i", false),
+            ("j", false),
+        ]);
+        assert_eq!(precision_at_k(&ranked, &labels, 10), 0.0);
+    }
+
+    #[test]
+    fn pak_k_larger_than_list() {
+        let ranked = make_scored(&["a", "b", "c", "d", "e"], &[1.0, 0.9, 0.8, 0.7, 0.6]);
+        let labels = make_labels(&[
+            ("a", true),
+            ("b", false),
+            ("c", true),
+            ("d", false),
+            ("e", false),
+        ]);
+        let result = precision_at_k(&ranked, &labels, 20);
+        assert!(result <= 1.0);
+        assert!((result - 0.4).abs() < 1e-10);
+    }
 
     // ── Feature names ─────────────────────────────────────────────────────────
 

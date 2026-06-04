@@ -2,7 +2,10 @@
 
 use anyhow::{bail, Context, Result};
 use hotspots_core::snapshot::{index_path, load_snapshot, Snapshot};
-use hotspots_core::trainer::{train, RankerModel, TrainConfig};
+use hotspots_core::trainer::{
+    collect_fix_files, precision_at_k, score, train, FunctionId, RankerModel, ScoredFunction,
+    TrainConfig,
+};
 use std::path::{Path, PathBuf};
 
 pub(crate) struct TrainArgs {
@@ -12,6 +15,7 @@ pub(crate) struct TrainArgs {
     pub n_estimators: usize,
     pub max_depth: usize,
     pub blame_labels: bool,
+    pub eval: bool,
 }
 
 pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
@@ -56,7 +60,57 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
             report_model(&model, n_funcs);
             model.save(&args.output)?;
             eprintln!("Model saved → {}", args.output.display());
+            if args.eval {
+                run_eval(&model, &snapshot, &repo_root, args.label_window_days)?;
+            }
         }
+    }
+
+    Ok(())
+}
+
+fn run_eval(
+    model: &RankerModel,
+    snapshot: &Snapshot,
+    repo_root: &Path,
+    label_window_days: u32,
+) -> Result<()> {
+    let fix_files = collect_fix_files(repo_root, label_window_days)?;
+    let base_rate = snapshot.functions.len() as f64;
+
+    let labels: std::collections::HashMap<FunctionId, bool> = snapshot
+        .functions
+        .iter()
+        .map(|f| {
+            let file_norm = f.file.replace('\\', "/");
+            let is_pos = fix_files.contains(&file_norm)
+                || fix_files.iter().any(|ff| file_norm.ends_with(ff.as_str()));
+            (f.function_id.clone(), is_pos)
+        })
+        .collect();
+
+    let n_pos = labels.values().filter(|&&v| v).count();
+    let base_rate = n_pos as f64 / base_rate;
+
+    let mut ranked: Vec<ScoredFunction> = snapshot
+        .functions
+        .iter()
+        .map(|f| ScoredFunction {
+            function_id: f.function_id.clone(),
+            score: score(model, f),
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    println!("\nP@K evaluation ({label_window_days}-day fix-label window):");
+    println!("  {:<6} {:<8} base_rate", "K", "P@K");
+    for k in [10, 20, 50, 100, 200] {
+        let pak = precision_at_k(&ranked, &labels, k);
+        println!("  {k:<6} {pak:<8.3} {base_rate:.3}");
     }
 
     Ok(())
