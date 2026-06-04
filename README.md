@@ -97,6 +97,26 @@ hotspots analyze .
 
 The trained model learns which structural features (complexity, churn, call graph) correlate with real bug fixes in your history — not a generic heuristic. Scores are saved to `.hotspots/ranker.json` and reused on every subsequent `analyze`.
 
+**Not sure if training actually helped?** Use `--eval` to check:
+
+```bash
+hotspots train . --eval
+```
+
+This prints a Precision@K table after training — how many of the top-K ranked functions were genuinely in fix commits:
+
+```
+P@K evaluation (365-day fix-label window):
+  K      P@K      base_rate
+  10     0.400    0.084
+  20     0.300    0.084
+  50     0.200    0.084
+  100    0.150    0.084
+  200    0.110    0.084
+```
+
+**How to read it:** `base_rate` is the fraction of all functions that appeared in a bug-fix commit. If `P@10` is much higher than `base_rate`, the ranker is genuinely surfacing risky functions at the top. If `P@10` ≈ `base_rate`, the model is no better than random — skip applying it and rely on the default LRS ranking instead.
+
 ### ✅ Ship with Confidence, Not Crossed Fingers
 
 Know which files are landmines before you touch them. See complexity trends over time. Make informed decisions about refactoring vs rewriting vs leaving it alone.
@@ -426,6 +446,9 @@ hotspots trends .
 
 # Train a repo-specific ranker from fix-commit history
 hotspots train . --blame
+
+# Check whether the trained model is actually useful (P@K evaluation)
+hotspots train . --eval
 
 # Prune unreachable snapshots (after force-push or branch deletion)
 hotspots prune --unreachable --older-than 30
