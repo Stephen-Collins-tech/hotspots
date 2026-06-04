@@ -767,7 +767,7 @@ fn emit_text_output(
     } else if level == Some(OutputLevel::Module) {
         explain::print_module_output(&aggregates.modules, top)?;
     } else if explain {
-        explain::print_explain_output(snapshot, total_function_count, &aggregates.co_change)?;
+        explain::print_explain_output(snapshot, total_function_count)?;
     } else {
         anyhow::bail!(
             "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"

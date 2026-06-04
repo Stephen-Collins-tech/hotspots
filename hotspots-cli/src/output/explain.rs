@@ -104,61 +104,10 @@ pub(crate) fn print_module_output(
     Ok(())
 }
 
-/// Format non-zero risk factor lines for a single function.
-/// Print co-change coupling section (source files only).
-pub(crate) fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
-    const SRC_EXTS: &[&str] = &[
-        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
-    ];
-    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
-    let is_notable = |p: &&hotspots_core::git::CoChangePair| {
-        is_src(&p.file_a) && is_src(&p.file_b) && p.risk != "low"
-    };
-    let notable: Vec<_> = co_change.iter().filter(is_notable).take(10).collect();
-    if notable.is_empty() {
-        return;
-    }
-    println!();
-    println!("Co-Change Coupling (90-day window)");
-    println!("{}", "=".repeat(80));
-    for (i, pair) in notable.iter().enumerate() {
-        let label = if pair.has_static_dep {
-            "expected".to_string()
-        } else {
-            pair.risk.to_uppercase()
-        };
-        println!(
-            "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
-            i + 1,
-            label,
-            pair.coupling_ratio,
-            pair.co_change_count,
-            pair.file_a,
-            pair.file_b,
-        );
-    }
-    println!("{}", "-".repeat(80));
-    let hidden_count = co_change
-        .iter()
-        .filter(|p| {
-            (p.risk == "high" || p.risk == "moderate")
-                && !p.has_static_dep
-                && is_src(&p.file_a)
-                && is_src(&p.file_b)
-        })
-        .count();
-    let total_notable = co_change.iter().filter(is_notable).count();
-    println!(
-        "{} notable pairs ({} hidden coupling)  |  Run with --format json for full list",
-        total_notable, hidden_count
-    );
-}
-
 /// Print human-readable risk explanations for top functions.
 pub(crate) fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
     total_count: usize,
-    co_change: &[hotspots_core::git::CoChangePair],
 ) -> anyhow::Result<()> {
     use hotspots_core::risk::RiskBand;
 
@@ -247,8 +196,6 @@ pub(crate) fn print_explain_output(
         println!("{} functions shown ({} medium/low omitted)", shown, hidden);
         println!("Use --top 0 to show all  ·  --top N for a different limit  ·  --format json for full output");
     }
-
-    print_co_change_section(co_change);
 
     Ok(())
 }
