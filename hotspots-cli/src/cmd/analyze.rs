@@ -295,15 +295,20 @@ fn handle_default_output(
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
     let explicit_top = top.or(resolved_config.top_n);
-    let limit = explicit_top.unwrap_or(10);
+    // 0 is the sentinel for "show all"; otherwise default to 20 for text output
+    let limit = match explicit_top {
+        Some(0) => usize::MAX,
+        Some(n) => n,
+        None => 20,
+    };
     let mut reports = analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs,
             top_n: if matches!(format, OutputFormat::Text) {
-                Some(limit)
+                Some(limit).filter(|&n| n != usize::MAX)
             } else {
-                explicit_top
+                explicit_top.filter(|&n| n != 0)
             },
         },
         Some(resolved_config),
@@ -839,7 +844,8 @@ fn apply_top_n(
     top: Option<usize>,
 ) {
     let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
-    if !is_aggregate_level && (top.is_some() || (matches!(format, OutputFormat::Text) && explain)) {
+    let is_text = matches!(format, OutputFormat::Text);
+    if !is_aggregate_level && (top.is_some() || (is_text && explain)) {
         snapshot.functions.sort_by(|a, b| {
             let a_score = a.activity_risk.unwrap_or(a.lrs);
             let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -847,8 +853,15 @@ fn apply_top_n(
                 .partial_cmp(&a_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        if let Some(n) = top {
-            snapshot.functions.truncate(n);
+        // 0 = show all; None in text+explain defaults to 20
+        let limit = match top {
+            Some(0) => usize::MAX,
+            Some(n) => n,
+            None if is_text => 20,
+            None => usize::MAX,
+        };
+        if limit != usize::MAX {
+            snapshot.functions.truncate(limit);
         }
     }
 }
