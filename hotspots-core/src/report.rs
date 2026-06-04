@@ -195,11 +195,14 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     output
 }
 
-/// Render reports grouped by file, with a footer showing counts and usage hints.
+/// Render reports grouped by risk band (CRITICAL → HIGH → MODERATE/LOW).
 ///
-/// `limit` is the top-N that was requested so the footer can hint at using --top.
-pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> String {
-    use std::collections::BTreeMap;
+/// MODERATE and LOW are omitted unless `limit` is `usize::MAX` (i.e. `--top 0`).
+/// `color` enables ANSI codes — pass `false` when stdout is not a TTY.
+pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: bool) -> String {
+    use owo_colors::OwoColorize;
+
+    let show_all = limit == usize::MAX;
     let mut output = String::new();
     let cwd = std::env::current_dir().ok();
 
@@ -214,60 +217,116 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize) -> Stri
             .unwrap_or_else(|| p.to_string())
     };
 
-    let mut by_file: BTreeMap<String, Vec<&FunctionRiskReport>> = BTreeMap::new();
-    let mut file_order: Vec<String> = Vec::new();
-    for r in reports {
-        let key = rel_path(&r.file);
-        if !by_file.contains_key(&key) {
-            file_order.push(key.clone());
-        }
-        by_file.entry(key).or_default().push(r);
-    }
+    let critical: Vec<&FunctionRiskReport> = reports
+        .iter()
+        .filter(|r| r.band == RiskBand::Critical)
+        .collect();
+    let high: Vec<&FunctionRiskReport> = reports
+        .iter()
+        .filter(|r| r.band == RiskBand::High)
+        .collect();
+    let lower: Vec<&FunctionRiskReport> = reports
+        .iter()
+        .filter(|r| matches!(r.band, RiskBand::Moderate | RiskBand::Low))
+        .collect();
 
-    for file_key in &file_order {
-        let fns = &by_file[file_key];
-        output.push_str(&format!("{}\n", file_key));
-        for r in fns.iter() {
-            let lrs_str = format!("{:.2}", r.lrs);
-            let band = r.band.as_str();
+    // Compute file:line column width across all visible rows for alignment.
+    let visible: Vec<&&FunctionRiskReport> = critical
+        .iter()
+        .chain(high.iter())
+        .chain(if show_all { lower.iter() } else { [].iter() })
+        .collect();
+    let col_width = visible
+        .iter()
+        .map(|r| format!("{}:{}", rel_path(&r.file), r.line).len())
+        .max()
+        .unwrap_or(30)
+        .min(55);
+
+    let render_section = |header: &str,
+                          rows: &[&FunctionRiskReport],
+                          col_w: usize,
+                          rel: &dyn Fn(&str) -> String,
+                          paint: &dyn Fn(&str) -> String|
+     -> String {
+        let mut s = String::new();
+        if rows.is_empty() {
+            return s;
+        }
+        s.push_str(&format!("{} ({})\n", paint(header), rows.len()));
+        for r in rows {
+            let loc = format!("{}:{}", rel(&r.file), r.line);
             let patterns_str = if r.patterns.is_empty() {
                 String::new()
             } else {
                 format!("  [{}]", r.patterns.join(", "))
             };
-            output.push_str(&format!(
-                "  {:<6}  {:<8}  {}  line {}{}",
-                lrs_str, band, r.function, r.line, patterns_str
+            s.push_str(&format!(
+                "  {:.2}  {:<col_w$}  {}{}",
+                r.lrs,
+                loc,
+                r.function,
+                patterns_str,
+                col_w = col_w
             ));
-            output.push('\n');
-            if let Some(ref details) = r.pattern_details {
-                for d in details {
-                    let conds = d
-                        .triggered_by
-                        .iter()
-                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    output.push_str(&format!("             {}: {}\n", d.id, conds));
-                }
-            }
+            s.push('\n');
         }
-        output.push('\n');
+        s.push('\n');
+        s
+    };
+
+    let red = |s: &str| -> String {
+        if color {
+            s.red().bold().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let yellow = |s: &str| -> String {
+        if color {
+            s.yellow().bold().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let green = |s: &str| -> String {
+        if color {
+            s.green().to_string()
+        } else {
+            s.to_string()
+        }
+    };
+
+    output.push_str(&render_section(
+        "CRITICAL", &critical, col_width, &rel_path, &red,
+    ));
+    output.push_str(&render_section(
+        "HIGH", &high, col_width, &rel_path, &yellow,
+    ));
+    if show_all {
+        output.push_str(&render_section(
+            "MEDIUM / LOW",
+            &lower,
+            col_width,
+            &rel_path,
+            &green,
+        ));
     }
 
-    let shown = reports.len();
     let sep = "─".repeat(60);
     output.push_str(&sep);
     output.push('\n');
-    output.push_str(&format!(
-        "Top {} functions across {} files\n",
-        shown,
-        file_order.len()
-    ));
-    output.push_str(&format!(
-        "Use --top N to see more (default {})  ·  --format json for full output\n",
-        limit
-    ));
+    if show_all {
+        output.push_str(&format!("{} functions total\n", reports.len()));
+    } else {
+        let shown = critical.len() + high.len();
+        let hidden = lower.len();
+        output.push_str(&format!(
+            "{} functions shown ({} medium/low omitted)\n",
+            shown, hidden
+        ));
+        output.push_str("Use --top 0 to show all  ·  --top N for a different limit  ·  --format json for full output\n");
+    }
     output
 }
 
@@ -321,51 +380,75 @@ mod tests {
     }
 
     #[test]
-    fn test_render_text_grouped_groups_by_file() {
-        let reports = vec![
-            make_report("/repo/src/a.ts", "foo", 10, 8.0),
-            make_report("/repo/src/b.ts", "bar", 20, 7.0),
-            make_report("/repo/src/a.ts", "baz", 30, 6.0),
-        ];
-        let out = render_text_grouped(&reports, 10);
-        // a.ts section appears before b.ts (rank order)
-        let a_pos = out.find("src/a.ts").unwrap_or(usize::MAX);
-        let b_pos = out.find("src/b.ts").unwrap_or(usize::MAX);
-        assert!(a_pos < b_pos, "a.ts should appear before b.ts");
-        // both functions from a.ts are present
+    fn test_render_text_grouped_groups_by_band() {
+        let mut critical = make_report("/repo/src/a.ts", "foo", 10, 12.0);
+        critical.band = RiskBand::Critical;
+        let mut high = make_report("/repo/src/b.ts", "bar", 20, 7.0);
+        high.band = RiskBand::High;
+        let reports = vec![critical, high];
+        let out = render_text_grouped(&reports, 20, false);
+        let crit_pos = out.find("CRITICAL").unwrap_or(usize::MAX);
+        let high_pos = out.find("HIGH").unwrap_or(usize::MAX);
+        assert!(
+            crit_pos < high_pos,
+            "CRITICAL section should appear before HIGH"
+        );
         assert!(out.contains("foo"), "should contain foo");
-        assert!(out.contains("baz"), "should contain baz");
         assert!(out.contains("bar"), "should contain bar");
     }
 
     #[test]
     fn test_render_text_grouped_footer_counts() {
-        let reports = vec![
-            make_report("/repo/src/a.ts", "foo", 10, 8.0),
-            make_report("/repo/src/b.ts", "bar", 20, 7.0),
-        ];
-        let out = render_text_grouped(&reports, 10);
+        let mut r1 = make_report("/repo/src/a.ts", "foo", 10, 12.0);
+        r1.band = RiskBand::Critical;
+        let mut r2 = make_report("/repo/src/b.ts", "bar", 20, 7.0);
+        r2.band = RiskBand::High;
+        let out = render_text_grouped(&[r1, r2], 20, false);
         assert!(
-            out.contains("Top 2 functions across 2 files"),
-            "footer should show correct counts"
-        );
-        assert!(
-            out.contains("default 10"),
-            "footer should show the default limit"
+            out.contains("2 functions shown"),
+            "footer should show shown count"
         );
     }
 
     #[test]
+    fn test_render_text_grouped_lower_omitted_by_default() {
+        let mut r = make_report("/repo/src/a.ts", "foo", 10, 2.0);
+        r.band = RiskBand::Low;
+        let out = render_text_grouped(&[r], 20, false);
+        assert!(
+            !out.contains("foo"),
+            "low band should be omitted by default"
+        );
+        assert!(
+            out.contains("medium/low omitted"),
+            "footer should note omission"
+        );
+    }
+
+    #[test]
+    fn test_render_text_grouped_lower_shown_when_show_all() {
+        let mut r = make_report("/repo/src/a.ts", "foo", 10, 2.0);
+        r.band = RiskBand::Low;
+        let out = render_text_grouped(&[r], usize::MAX, false);
+        assert!(
+            out.contains("foo"),
+            "low band should be shown with show-all"
+        );
+        assert!(out.contains("MEDIUM / LOW"));
+    }
+
+    #[test]
     fn test_render_text_grouped_patterns_shown() {
-        let mut r = make_report("/repo/src/a.ts", "foo", 10, 8.0);
+        let mut r = make_report("/repo/src/a.ts", "foo", 10, 12.0);
+        r.band = RiskBand::Critical;
         r.patterns = vec!["god_function".to_string(), "exit_heavy".to_string()];
-        let out = render_text_grouped(&[r], 10);
+        let out = render_text_grouped(&[r], 20, false);
         assert!(out.contains("[god_function, exit_heavy]"));
     }
 
     #[test]
     fn test_render_text_grouped_empty() {
-        let out = render_text_grouped(&[], 10);
-        assert!(out.contains("Top 0 functions across 0 files"));
+        let out = render_text_grouped(&[], 20, false);
+        assert!(out.contains("0 functions shown"));
     }
 }

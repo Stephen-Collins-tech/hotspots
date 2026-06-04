@@ -1,4 +1,4 @@
-use crate::util::{driving_dimension, truncate_string};
+use crate::util::truncate_string;
 
 /// Print ranked file risk table.
 pub(crate) fn print_file_risk_output(
@@ -104,226 +104,113 @@ pub(crate) fn print_module_output(
     Ok(())
 }
 
-/// Format non-zero risk factor lines for a single function.
-pub(crate) fn format_risk_factor_lines(
-    func: &hotspots_core::snapshot::FunctionSnapshot,
-) -> Vec<String> {
-    let factors = match func.risk_factors.as_ref() {
-        Some(f) => f,
-        None => return Vec::new(),
-    };
-    let mut lines = Vec::new();
-    if factors.complexity > 0.0 {
-        lines.push(format!(
-            "     • Complexity:      {:>6.2}  (cyclomatic={}, nesting={}, fanout={})",
-            factors.complexity, func.metrics.cc, func.metrics.nd, func.metrics.fo
-        ));
-    }
-    if factors.churn > 0.0 {
-        let churn_lines = func
-            .churn
-            .as_ref()
-            .map(|c| c.lines_added + c.lines_deleted)
-            .unwrap_or(0);
-        lines.push(format!(
-            "     • Churn:           {:>6.2}  ({} lines changed recently)",
-            factors.churn, churn_lines
-        ));
-    }
-    if factors.activity > 0.0 {
-        let touches = func.touch_count_30d.unwrap_or(0);
-        lines.push(format!(
-            "     • Activity:        {:>6.2}  ({} commits in last 30 days)",
-            factors.activity, touches
-        ));
-    }
-    if factors.recency > 0.0 {
-        let days = func.days_since_last_change.unwrap_or(0);
-        lines.push(format!(
-            "     • Recency:         {:>6.2}  (last changed {} days ago)",
-            factors.recency, days
-        ));
-    }
-    if factors.fan_in > 0.0 {
-        let fi = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-        lines.push(format!(
-            "     • Fan-in:          {:>6.2}  ({} functions depend on this)",
-            factors.fan_in, fi
-        ));
-    }
-    if factors.cyclic_dependency > 0.0 {
-        let scc = func.callgraph.as_ref().map(|cg| cg.scc_size).unwrap_or(1);
-        lines.push(format!(
-            "     • Cyclic deps:     {:>6.2}  (in a {}-function cycle)",
-            factors.cyclic_dependency, scc
-        ));
-    }
-    if factors.depth > 0.0 {
-        let depth = func
-            .callgraph
-            .as_ref()
-            .and_then(|cg| cg.dependency_depth)
-            .unwrap_or(0);
-        lines.push(format!(
-            "     • Depth:           {:>6.2}  ({} levels from entry point)",
-            factors.depth, depth
-        ));
-    }
-    if factors.neighbor_churn > 0.0 {
-        let nc = func
-            .callgraph
-            .as_ref()
-            .and_then(|cg| cg.neighbor_churn)
-            .unwrap_or(0);
-        lines.push(format!(
-            "     • Neighbor churn:  {:>6.2}  ({} lines changed in dependencies)",
-            factors.neighbor_churn, nc
-        ));
-    }
-    lines
-}
-
-/// Print co-change coupling section (source files only).
-pub(crate) fn print_co_change_section(co_change: &[hotspots_core::git::CoChangePair]) {
-    const SRC_EXTS: &[&str] = &[
-        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
-    ];
-    let is_src = |f: &str| SRC_EXTS.iter().any(|ext| f.ends_with(ext));
-    let is_notable = |p: &&hotspots_core::git::CoChangePair| {
-        is_src(&p.file_a) && is_src(&p.file_b) && p.risk != "low"
-    };
-    let notable: Vec<_> = co_change.iter().filter(is_notable).take(10).collect();
-    if notable.is_empty() {
-        return;
-    }
-    println!();
-    println!("Co-Change Coupling (90-day window)");
-    println!("{}", "=".repeat(80));
-    for (i, pair) in notable.iter().enumerate() {
-        let label = if pair.has_static_dep {
-            "expected".to_string()
-        } else {
-            pair.risk.to_uppercase()
-        };
-        println!(
-            "#{:<2} [{:8}] {:.2} ({:2}x)  {}  ↔  {}",
-            i + 1,
-            label,
-            pair.coupling_ratio,
-            pair.co_change_count,
-            pair.file_a,
-            pair.file_b,
-        );
-    }
-    println!("{}", "-".repeat(80));
-    let hidden_count = co_change
-        .iter()
-        .filter(|p| {
-            (p.risk == "high" || p.risk == "moderate")
-                && !p.has_static_dep
-                && is_src(&p.file_a)
-                && is_src(&p.file_b)
-        })
-        .count();
-    let total_notable = co_change.iter().filter(is_notable).count();
-    println!(
-        "{} notable pairs ({} hidden coupling)  |  Run with --format json for full list",
-        total_notable, hidden_count
-    );
-}
-
 /// Print human-readable risk explanations for top functions.
 pub(crate) fn print_explain_output(
     snapshot: &hotspots_core::snapshot::Snapshot,
     total_count: usize,
-    co_change: &[hotspots_core::git::CoChangePair],
+    color: bool,
 ) -> anyhow::Result<()> {
-    let display_count = snapshot.functions.len();
+    use hotspots_core::risk::RiskBand;
+    use owo_colors::OwoColorize;
 
-    if display_count == 0 {
+    let funcs = &snapshot.functions;
+    if funcs.is_empty() {
         println!("No functions to display.");
         return Ok(());
     }
 
-    let title = if display_count < total_count {
-        format!("Top {} Functions by Activity Risk", display_count)
-    } else {
-        "All Functions by Activity Risk".to_string()
+    let show_all = funcs.len() >= total_count;
+
+    let critical: Vec<_> = funcs
+        .iter()
+        .filter(|f| f.band == RiskBand::Critical)
+        .collect();
+    let high: Vec<_> = funcs.iter().filter(|f| f.band == RiskBand::High).collect();
+    let lower: Vec<_> = funcs
+        .iter()
+        .filter(|f| matches!(f.band, RiskBand::Moderate | RiskBand::Low))
+        .collect();
+
+    let cwd = std::env::current_dir().ok();
+    let rel_path = |p: &str| -> String {
+        cwd.as_ref()
+            .and_then(|cwd| {
+                std::path::Path::new(p)
+                    .strip_prefix(cwd)
+                    .ok()
+                    .map(|r| r.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| p.to_string())
     };
 
-    println!("{}", title);
-    println!("{}", "=".repeat(80));
-    println!();
+    // Compute file:line column width across all visible rows.
+    let visible_iter: Box<dyn Iterator<Item = &&hotspots_core::snapshot::FunctionSnapshot>> =
+        if show_all {
+            Box::new(critical.iter().chain(high.iter()).chain(lower.iter()))
+        } else {
+            Box::new(critical.iter().chain(high.iter()))
+        };
+    let col_width = visible_iter
+        .map(|f| format!("{}:{}", rel_path(&f.file), f.line).len())
+        .max()
+        .unwrap_or(30)
+        .min(55);
 
-    for (i, func) in snapshot.functions.iter().take(display_count).enumerate() {
-        let score = func.activity_risk.unwrap_or(func.lrs);
-        let func_name = func
-            .function_id
-            .split("::")
-            .last()
-            .unwrap_or(&func.function_id);
-        let (driver, action) = driving_dimension(func);
-        println!(
-            "#{} {} [{}] [{}]",
-            i + 1,
-            func_name,
-            func.band.as_str().to_uppercase(),
-            driver
-        );
-        println!("   File: {}:{}", func.file, func.line);
-        println!(
-            "   Risk Score: {:.2} (complexity base: {:.2})",
-            score, func.lrs
-        );
-        let factor_lines = format_risk_factor_lines(func);
-        if !factor_lines.is_empty() {
-            println!("   Risk Breakdown:");
-            for line in factor_lines {
-                println!("{}", line);
-            }
+    let paint = |s: &str, paint_fn: &dyn Fn(&str) -> String| -> String {
+        if color {
+            paint_fn(s)
+        } else {
+            s.to_string()
         }
-        println!("   Action: {}", action);
-        if driver == "composite" {
-            if let Some(ref detail) = func.driver_detail {
-                println!("   Near-threshold: {}", detail);
-            }
+    };
+    let red = |s: &str| s.red().bold().to_string();
+    let yellow = |s: &str| s.yellow().bold().to_string();
+    let green = |s: &str| s.green().to_string();
+
+    let print_section = |header: &str,
+                         rows: &[&hotspots_core::snapshot::FunctionSnapshot],
+                         col_w: usize,
+                         painter: &dyn Fn(&str) -> String| {
+        if rows.is_empty() {
+            return;
         }
-        if !func.patterns.is_empty() {
-            println!("   Patterns: {}", func.patterns.join(", "));
-            if let Some(ref details) = func.pattern_details {
-                for pd in details {
-                    let triggered = pd
-                        .triggered_by
-                        .iter()
-                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    println!("     • {}: {}", pd.id, triggered);
-                }
-            }
+        println!("{} ({})", paint(header, painter), rows.len());
+        for f in rows {
+            let score = f.activity_risk.unwrap_or(f.lrs);
+            let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let loc = format!("{}:{}", rel_path(&f.file), f.line);
+            let patterns_str = if f.patterns.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", f.patterns.join(", "))
+            };
+            println!(
+                "  {:.2}  {:<col_w$}  {}{}",
+                score,
+                loc,
+                name,
+                patterns_str,
+                col_w = col_w
+            );
         }
         println!();
+    };
+
+    print_section("CRITICAL", &critical, col_width, &red);
+    print_section("HIGH", &high, col_width, &yellow);
+    if show_all {
+        print_section("MEDIUM / LOW", &lower, col_width, &green);
     }
 
-    println!("{}", "-".repeat(80));
-    let critical_count = snapshot
-        .functions
-        .iter()
-        .take(display_count)
-        .filter(|f| f.band == hotspots_core::risk::RiskBand::Critical)
-        .count();
-    let high_count = snapshot
-        .functions
-        .iter()
-        .take(display_count)
-        .filter(|f| f.band == hotspots_core::risk::RiskBand::High)
-        .count();
-    println!(
-        "Showing {}/{} functions  |  Critical: {}  High: {}",
-        display_count, total_count, critical_count, high_count
-    );
-
-    print_co_change_section(co_change);
+    println!("{}", "─".repeat(60));
+    if show_all {
+        println!("{} functions total", funcs.len());
+    } else {
+        let shown = critical.len() + high.len();
+        let hidden = lower.len();
+        println!("{} functions shown ({} medium/low omitted)", shown, hidden);
+        println!("Use --top 0 to show all  ·  --top N for a different limit  ·  --format json for full output");
+    }
 
     Ok(())
 }
