@@ -492,6 +492,40 @@ hotspots train . --blame --label-window 180
 **Optional.** Output path for the trained model JSON.
 **Default:** `.hotspots/ranker.json`
 
+##### `--eval`
+**Optional.** After training, evaluate the model using Precision@K and print a table.
+
+`hotspots train` always produces a model — it never tells you whether that model is actually better than the default LRS ranking. `--eval` answers that question by scoring every function with the freshly trained model, sorting them highest to lowest, and checking how many of the top K functions genuinely appeared in a bug-fix commit (Precision@K). It prints results for K = 10, 20, 50, 100, and 200 alongside the base rate — the fraction you'd get by picking functions at random.
+
+**How to read the output:**
+
+```
+P@K evaluation (365-day fix-label window):
+  K      P@K      base_rate
+  10     0.400    0.084
+  20     0.300    0.084
+  50     0.200    0.084
+  100    0.150    0.084
+  200    0.110    0.084
+```
+
+- **P@K well above base_rate** (e.g. P@10 = 0.40 vs base_rate = 0.08) — the model is finding real bugs at the top of the list. Apply it.
+- **P@K ≈ base_rate** (e.g. P@10 = 0.09 vs base_rate = 0.08) — the model learned nothing useful from this repo's history. Do not apply it; the default LRS ranking is just as good and won't mislead you.
+
+**When training is not worth it:**
+
+- Library/framework repos — bugs are rare, base rate is tiny, signal is noise
+- Repos with less than ~1 year of history — not enough fix commits to learn from
+- Repos with poor commit hygiene — if fix commits don't use conventional keywords (`fix:`, `bug`, `patch`, `hotfix`), the label scanner misses them
+- Mature stable codebases — bugs are subtle and spread across the whole codebase rather than concentrated in hot files; P@K can be zero even when the model looks fine by other measures
+
+**Note:** `--eval` re-scans git history for fix-commit labels, which adds a few seconds. Without `--eval`, training behavior is unchanged.
+
+```bash
+# Train and immediately check whether it's worth using
+hotspots train . --blame --eval
+```
+
 #### Training signal requirements
 
 Training returns an error if the snapshot has fewer than 50 functions, or if the fix scan yields fewer than 5 positive or 10 negative labels. If this happens:
@@ -522,6 +556,9 @@ hotspots train .
 
 # Precise blame-based training
 hotspots train . --blame
+
+# Train and check whether the model is worth applying
+hotspots train . --blame --eval
 
 # Train on a specific repo with 2-year history
 hotspots train /path/to/repo --blame --label-window 730

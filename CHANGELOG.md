@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+- `hotspots train --eval`: print Precision@K table (K = 10/20/50/100/200) after training so you can verify whether the trained ranker beats the default LRS ranking before applying it. P@K ≈ base_rate means training did not help; do not apply the model.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
