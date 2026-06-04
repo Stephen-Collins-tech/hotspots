@@ -1,16 +1,6 @@
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 
-/// Map a driving dimension label to its (label, action) pair.
-pub(crate) fn driving_dimension(
-    func: &hotspots_core::snapshot::FunctionSnapshot,
-) -> (&'static str, &'static str) {
-    let label = hotspots_core::snapshot::normalize_driver_label(
-        func.driver.as_deref().unwrap_or("composite"),
-    );
-    (label, hotspots_core::snapshot::driver_action(label))
-}
-
 /// Truncate a string to at most `max_len` characters, appending `...` if truncated.
 pub(crate) fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
