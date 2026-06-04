@@ -792,14 +792,6 @@ impl Snapshot {
             return Ok(());
         }
 
-        let total = self.functions.len();
-        eprintln!(
-            "hybrid touch: {}/{} functions qualify (≥{} touches/30d), refining with git log -L",
-            hot_indices.len(),
-            total,
-            threshold
-        );
-
         self.populate_per_function_touch_for_indices(repo_root, &hot_indices, progress_fn)
     }
 

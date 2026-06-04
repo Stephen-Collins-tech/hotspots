@@ -210,11 +210,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_touch_metrics: touch_args.skip,
             },
         );
-        if touch_args.is_default(&resolved_config) {
-            eprintln!(
-                "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
-            );
-        }
         return result;
     }
 
@@ -248,11 +243,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_touch_metrics: touch_args.skip,
             },
         );
-        if touch_args.is_default(&resolved_config) {
-            eprintln!(
-                "tip: ran with hybrid touch mode (default). For full per-function precision, rerun with --per-function-touches."
-            );
-        }
         return result;
     }
 
@@ -272,17 +262,6 @@ struct TouchArgs {
     per_function: bool,
     hybrid: Option<usize>,
     skip: bool,
-}
-
-impl TouchArgs {
-    fn is_default(&self, config: &hotspots_core::ResolvedConfig) -> bool {
-        !self.no_per_function
-            && !self.per_function
-            && self.hybrid.is_none()
-            && config.hybrid_touch_threshold.is_none()
-            && !config.per_function_touches
-            && !self.skip
-    }
 }
 
 fn handle_default_output(
@@ -1104,15 +1083,6 @@ pub(crate) fn build_snapshot_via_db(
     if function_count <= effective_skip_above {
         let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
             .context("failed to build call graph from DB")?;
-        let total = call_graph.total_callee_names;
-        let resolved = call_graph.resolved_callee_names;
-        if total > 0 {
-            let pct = (resolved as f64 / total as f64) * 100.0;
-            eprintln!(
-                "call graph: resolved {}/{} callee references ({:.0}% internal)",
-                resolved, total, pct
-            );
-        }
         db.update_callgraph_metrics(
             &sha,
             &call_graph,
@@ -1198,19 +1168,7 @@ pub(crate) fn build_enriched_snapshot(
         );
         None
     } else {
-        let cg = hotspots_core::build_call_graph(&reports, repo_root).ok();
-        if let Some(ref cg) = cg {
-            let total = cg.total_callee_names;
-            let resolved = cg.resolved_callee_names;
-            if total > 0 {
-                let pct = (resolved as f64 / total as f64) * 100.0;
-                eprintln!(
-                    "call graph: resolved {}/{} callee references ({:.0}% internal)",
-                    resolved, total, pct
-                );
-            }
-        }
-        cg
+        hotspots_core::build_call_graph(&reports, repo_root).ok()
     };
 
     for r in &mut reports {
