@@ -177,7 +177,6 @@ pub(crate) fn print_explain_output(
         println!("{} ({})", paint(header, painter), rows.len());
         for f in rows {
             let score = f.activity_risk.unwrap_or(f.lrs);
-            let score_str = format!("{:.2}", score);
             let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
             let loc = format!("{}:{}", rel_path(&f.file), f.line);
             let patterns_str = if f.patterns.is_empty() {
@@ -186,8 +185,8 @@ pub(crate) fn print_explain_output(
                 format!("  [{}]", f.patterns.join(", "))
             };
             println!(
-                "  {}  {:<col_w$}  {}{}",
-                paint(&score_str, painter),
+                "  {:.2}  {:<col_w$}  {}{}",
+                score,
                 loc,
                 name,
                 patterns_str,

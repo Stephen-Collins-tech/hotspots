@@ -256,15 +256,14 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: 
         s.push_str(&format!("{} ({})\n", paint(header), rows.len()));
         for r in rows {
             let loc = format!("{}:{}", rel(&r.file), r.line);
-            let score_str = format!("{:.2}", r.lrs);
             let patterns_str = if r.patterns.is_empty() {
                 String::new()
             } else {
                 format!("  [{}]", r.patterns.join(", "))
             };
             s.push_str(&format!(
-                "  {}  {:<col_w$}  {}{}",
-                paint(&score_str),
+                "  {:.2}  {:<col_w$}  {}{}",
+                r.lrs,
                 loc,
                 r.function,
                 patterns_str,
