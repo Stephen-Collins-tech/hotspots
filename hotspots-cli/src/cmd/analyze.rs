@@ -435,12 +435,18 @@ fn handle_snapshot_mode(
 
     // Populate DC before persisting so the snapshot on disk includes the values,
     // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
+    // Partner scores use make_rel so keys match the repo-relative paths that
+    // compute_directed_coupling_for_repo produces from git log output.
     {
-        use std::collections::HashMap;
-        let partner_scores: HashMap<String, f64> = snapshot
+        use hotspots_core::trainer::{make_rel, repo_prefixes};
+        let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
+        let partner_scores: std::collections::HashMap<String, f64> = snapshot
             .functions
             .iter()
-            .map(|f| (f.file.clone(), f.activity_risk.unwrap_or(f.lrs)))
+            .map(|f| {
+                let rel = make_rel(&f.file, &prefix_can, &prefix_raw);
+                (rel, f.activity_risk.unwrap_or(f.lrs))
+            })
             .collect();
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }

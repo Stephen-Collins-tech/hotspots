@@ -282,6 +282,15 @@ pub fn compute_directed_coupling_for_repo(
         return (HashMap::new(), None);
     }
 
+    // On large repos the git log traversal can take several seconds.
+    // Surface this so users aren't surprised by latency in hotspots analyze.
+    if commits.len() > 50_000 {
+        eprintln!(
+            "hotspots: directed coupling loading {} commits (large repo — may be slow)",
+            commits.len()
+        );
+    }
+
     let jaccard = compute_jaccard_stability(&commits, DC_TRAIN_PCT, DC_TOP_FILE_PCT);
 
     let window_days = match jaccard {
@@ -293,4 +302,124 @@ pub fn compute_directed_coupling_for_repo(
         compute_directed_coupling(&commits, partner_scores, MIN_DC_APPEARANCES, window_days);
 
     (scores, jaccard)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(ts: i64, subj: &str, files: &[&str]) -> (i64, String, Vec<String>) {
+        (
+            ts,
+            subj.to_string(),
+            files.iter().map(|f| f.to_string()).collect(),
+        )
+    }
+
+    // ── is_fix_subject ────────────────────────────────────────────────────────
+
+    #[test]
+    fn fix_subject_keyword_variants() {
+        assert!(is_fix_subject("fix: null deref"));
+        assert!(is_fix_subject("bug in parser"));
+        assert!(is_fix_subject("hotfix prod"));
+        assert!(is_fix_subject("patch security hole"));
+        assert!(is_fix_subject("regression in v2"));
+        assert!(is_fix_subject("defect resolved"));
+        assert!(!is_fix_subject("feat: add login"));
+        assert!(!is_fix_subject("refactor: cleanup"));
+        assert!(!is_fix_subject("chore: bump deps"));
+    }
+
+    // ── compute_directed_coupling ─────────────────────────────────────────────
+
+    #[test]
+    fn dc_empty_commits_returns_empty() {
+        let scores = compute_directed_coupling(&[], &HashMap::new(), 1, None);
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn dc_single_file_commits_no_co_change() {
+        let commits = vec![
+            commit(1, "fix: a", &["a.rs"]),
+            commit(2, "fix: a", &["a.rs"]),
+            commit(3, "fix: a", &["a.rs"]),
+        ];
+        let partner_scores: HashMap<String, f64> = [("a.rs".to_string(), 1.0)].into();
+        // a.rs never co-changes with anything, so weighted_co stays 0 → dc = 0
+        let scores = compute_directed_coupling(&commits, &partner_scores, 1, None);
+        assert_eq!(scores.get("a.rs").copied(), Some(0.0));
+    }
+
+    #[test]
+    fn dc_co_change_weights_by_partner_score() {
+        // a.rs and b.rs co-change in 10 commits; b.rs has score 2.0
+        let commits: Vec<_> = (0..10)
+            .map(|i| commit(i, "fix: x", &["a.rs", "b.rs"]))
+            .collect();
+        let partner_scores: HashMap<String, f64> = [("b.rs".to_string(), 2.0)].into();
+        let scores = compute_directed_coupling(&commits, &partner_scores, 1, None);
+        // a.rs appears 10 times; accumulated weight = 10 × 2.0 = 20.0; dc = 20/10 = 2.0
+        assert!((scores["a.rs"] - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dc_min_appearances_filters_rare_files() {
+        let commits: Vec<_> = (0..5)
+            .map(|i| commit(i, "fix: x", &["a.rs", "b.rs"]))
+            .collect();
+        let partner_scores: HashMap<String, f64> = [("b.rs".to_string(), 1.0)].into();
+        // require 10 appearances — both files appear only 5 times
+        let scores = compute_directed_coupling(&commits, &partner_scores, 10, None);
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn dc_window_restricts_to_recent_commits() {
+        // 5 old commits outside window, 5 new commits inside window
+        let mut commits: Vec<_> = (0..5)
+            .map(|i| commit(i * 86_400, "chore: old", &["a.rs", "b.rs"]))
+            .collect();
+        let base = 1_000 * 86_400_i64;
+        commits.extend((0..5).map(|i| commit(base + i * 86_400, "fix: new", &["a.rs", "b.rs"])));
+        let partner_scores: HashMap<String, f64> = [("b.rs".to_string(), 1.0)].into();
+        // window=10 days from last commit — only the 5 recent commits fall in
+        let scores = compute_directed_coupling(&commits, &partner_scores, 1, Some(10));
+        // a.rs appears 5 times in the window; dc = 5/5 = 1.0
+        assert!((scores["a.rs"] - 1.0).abs() < 1e-9);
+    }
+
+    // ── compute_jaccard_stability ─────────────────────────────────────────────
+
+    #[test]
+    fn jaccard_empty_returns_none() {
+        assert_eq!(compute_jaccard_stability(&[], 0.8, 0.2), None);
+    }
+
+    #[test]
+    fn jaccard_no_fix_commits_returns_none() {
+        let commits = vec![
+            commit(1, "feat: add login", &["a.rs"]),
+            commit(2, "chore: cleanup", &["b.rs"]),
+        ];
+        assert_eq!(compute_jaccard_stability(&commits, 0.8, 0.2), None);
+    }
+
+    #[test]
+    fn jaccard_same_files_in_both_windows_returns_one() {
+        // 10 fix commits on a.rs spread across both train and holdout windows
+        let commits: Vec<_> = (0..10).map(|i| commit(i, "fix: x", &["a.rs"])).collect();
+        let j = compute_jaccard_stability(&commits, 0.8, 0.2).unwrap();
+        assert!((j - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn jaccard_disjoint_files_returns_zero() {
+        // train window: only a.rs; holdout window: only b.rs
+        let mut commits: Vec<_> = (0..8).map(|i| commit(i, "fix: x", &["a.rs"])).collect();
+        commits.extend((8..10).map(|i| commit(i, "fix: y", &["b.rs"])));
+        let j = compute_jaccard_stability(&commits, 0.8, 0.2).unwrap();
+        assert!((j - 0.0).abs() < 1e-9);
+    }
 }

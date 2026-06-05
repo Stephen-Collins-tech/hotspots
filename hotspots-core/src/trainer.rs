@@ -45,7 +45,7 @@ use std::path::Path;
 /// - macOS `/tmp` → `/private/tmp` symlink: tries both canonical and raw prefix forms
 /// - Snapshot path itself may be a symlink: canonicalises as a last resort
 /// - `hotspots analyze .` stores paths with a leading `./` component: strips it
-pub(crate) fn make_rel(path: &str, prefix_can: &str, prefix_raw: &str) -> String {
+pub fn make_rel(path: &str, prefix_can: &str, prefix_raw: &str) -> String {
     let p = path.replace('\\', "/");
     let rel = if let Some(r) = p.strip_prefix(prefix_can) {
         r.to_string()
@@ -64,7 +64,7 @@ pub(crate) fn make_rel(path: &str, prefix_can: &str, prefix_raw: &str) -> String
 }
 
 /// Build the canonical and raw prefix strings for a repo root.
-pub(crate) fn repo_prefixes(repo_root: &Path) -> (String, String) {
+pub fn repo_prefixes(repo_root: &Path) -> (String, String) {
     let canonical = repo_root
         .canonicalize()
         .unwrap_or_else(|_| repo_root.to_path_buf());
