@@ -501,6 +501,8 @@ mod tests {
                     pattern_details: None,
                     subsystem: None,
                     authors_90d: None,
+                    directed_coupling: None,
+                    jaccard_label_stability: None,
                 }],
             ),
             create_test_snapshot(
@@ -535,6 +537,8 @@ mod tests {
                     pattern_details: None,
                     subsystem: None,
                     authors_90d: None,
+                    directed_coupling: None,
+                    jaccard_label_stability: None,
                 }],
             ),
         ];
@@ -581,6 +585,8 @@ mod tests {
                     pattern_details: None,
                     subsystem: None,
                     authors_90d: None,
+                    directed_coupling: None,
+                    jaccard_label_stability: None,
                 }],
             ),
             create_test_snapshot(
@@ -615,6 +621,8 @@ mod tests {
                     pattern_details: None,
                     subsystem: None,
                     authors_90d: None,
+                    directed_coupling: None,
+                    jaccard_label_stability: None,
                 }],
             ),
         ];
@@ -660,6 +668,8 @@ mod tests {
                         pattern_details: None,
                         subsystem: None,
                         authors_90d: None,
+                        directed_coupling: None,
+                        jaccard_label_stability: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -690,6 +700,8 @@ mod tests {
                         pattern_details: None,
                         subsystem: None,
                         authors_90d: None,
+                        directed_coupling: None,
+                        jaccard_label_stability: None,
                     },
                 ],
             ),
@@ -726,6 +738,8 @@ mod tests {
                         pattern_details: None,
                         subsystem: None,
                         authors_90d: None,
+                        directed_coupling: None,
+                        jaccard_label_stability: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -756,6 +770,8 @@ mod tests {
                         pattern_details: None,
                         subsystem: None,
                         authors_90d: None,
+                        directed_coupling: None,
+                        jaccard_label_stability: None,
                     },
                 ],
             ),

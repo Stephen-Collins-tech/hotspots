@@ -1,15 +1,16 @@
 //! `hotspots train` — fit a local RandomForest ranker from git history.
 //!
-//! # Feature set (8 features, index-stable — model_version = 3)
+//! # Feature set (9 features, index-stable — model_version = 4)
 //!
-//! 0  lrs           composite complexity score
-//! 1  cc            cyclomatic complexity
-//! 2  nd            nesting depth
-//! 3  loc           lines of code
-//! 4  fo            fan-out
-//! 5  fan_in        call-graph fan-in
-//! 6  total_churn   lifetime lines added + deleted (non-windowed structural signal)
-//! 7  authors_90d   distinct commit authors in last 90 days (ownership diversity)
+//! 0  lrs                composite complexity score
+//! 1  cc                 cyclomatic complexity
+//! 2  nd                 nesting depth
+//! 3  loc                lines of code
+//! 4  fo                 fan-out
+//! 5  fan_in             call-graph fan-in
+//! 6  total_churn        lifetime lines added + deleted (non-windowed structural signal)
+//! 7  authors_90d        distinct commit authors in last 90 days (ownership diversity)
+//! 8  directed_coupling  co-change weighted by partner defect score (F37/F38/F39)
 //!
 //! Deliberately excluded:
 //! - `touch_count_30d`, `days_since_last_change` — windowed activity signals that
@@ -80,7 +81,7 @@ pub(crate) fn repo_prefixes(repo_root: &Path) -> (String, String) {
 
 // ── Feature extraction ────────────────────────────────────────────────────────
 
-pub const FEATURE_NAMES: [&str; 8] = [
+pub const FEATURE_NAMES: [&str; 9] = [
     "lrs",
     "cc",
     "nd",
@@ -89,9 +90,10 @@ pub const FEATURE_NAMES: [&str; 8] = [
     "fan_in",
     "total_churn",
     "authors_90d",
+    "directed_coupling",
 ];
 
-pub fn extract_features(func: &FunctionSnapshot) -> [f64; 8] {
+pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
     let cg = func.callgraph.as_ref();
     let total_churn = func
         .churn
@@ -107,6 +109,7 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 8] {
         cg.map(|c| c.fan_in as f64).unwrap_or(0.0),
         total_churn,
         func.authors_90d.unwrap_or(0) as f64,
+        func.directed_coupling.unwrap_or(0.0),
     ]
 }
 
@@ -357,11 +360,31 @@ pub fn train(
     repo_root: &Path,
     cfg: &TrainConfig,
 ) -> Result<Option<RankerModel>> {
+    // Populate directed coupling on a mutable clone so the caller's snapshot
+    // is unchanged.  Partner scores are the hotspots_score proxy: use
+    // activity_risk when available, falling back to lrs.
+    let mut snapshot = snapshot.clone();
+    {
+        let partner_scores: std::collections::HashMap<String, f64> = {
+            let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
+            snapshot
+                .functions
+                .iter()
+                .map(|f| {
+                    let rel = make_rel(&f.file, &prefix_can, &prefix_raw);
+                    let score = f.activity_risk.unwrap_or(f.lrs);
+                    (rel, score)
+                })
+                .collect()
+        };
+        snapshot.populate_directed_coupling(repo_root, &partner_scores);
+    }
+
     // Build (features, label) pairs from snapshot functions
-    let mut rows: Vec<([f64; 8], bool)> = Vec::new();
+    let mut rows: Vec<([f64; 9], bool)> = Vec::new();
 
     if cfg.blame_labels {
-        let fix_funcs = collect_fix_functions(snapshot, repo_root, cfg.label_window_days)?;
+        let fix_funcs = collect_fix_functions(&snapshot, repo_root, cfg.label_window_days)?;
         let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
         for func in &snapshot.functions {
             let rel = make_rel(&func.file, &prefix_can, &prefix_raw);
@@ -386,7 +409,7 @@ pub fn train(
     }
 
     let n = rows.len();
-    let mut x_data = Vec::with_capacity(n * 8);
+    let mut x_data = Vec::with_capacity(n * 9);
     let mut y_data: Vec<bool> = Vec::with_capacity(n);
 
     for (feats, label) in &rows {
@@ -395,7 +418,7 @@ pub fn train(
     }
 
     let x: Array2<f64> =
-        Array2::from_shape_vec((n, 8), x_data).context("feature matrix shape error")?;
+        Array2::from_shape_vec((n, 9), x_data).context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
     let dataset = Dataset::new(x, y).with_feature_names(
@@ -434,7 +457,7 @@ pub fn train(
     };
 
     Ok(Some(RankerModel {
-        model_version: 3,
+        model_version: 4,
         trees,
         meta,
     }))
@@ -537,7 +560,7 @@ pub fn score(model: &RankerModel, func: &FunctionSnapshot) -> f64 {
     votes as f64 / n as f64
 }
 
-fn vote(tree: &SerializedTree, feats: &[f64; 8]) -> bool {
+fn vote(tree: &SerializedTree, feats: &[f64; 9]) -> bool {
     let nodes = &tree.nodes;
     if nodes.is_empty() {
         return false;
@@ -627,7 +650,7 @@ mod tests {
 
     #[test]
     fn feature_names_count_matches_array() {
-        assert_eq!(FEATURE_NAMES.len(), 8);
+        assert_eq!(FEATURE_NAMES.len(), 9);
     }
 
     #[test]

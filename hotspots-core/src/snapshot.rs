@@ -197,6 +197,19 @@ pub struct FunctionSnapshot {
     /// of touch_count_30d.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authors_90d: Option<u32>,
+    /// Directed coupling score for this file.
+    /// dc(i) = Σ_j [co_changes(i,j) × hotspots_score(j)] / commit_count(i)
+    /// Weights co-change relationships by partner defect density.
+    /// Variant (full-history or 365d) selected by the Jaccard screener (F38/F39).
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_directed_coupling()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directed_coupling: Option<f64>,
+    /// Jaccard label stability score for this repo (F38 screener).
+    /// Overlap of top-20% defect files between train and holdout windows.
+    /// Repo-level: same value for all functions. None when DC was not computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jaccard_label_stability: Option<f64>,
 }
 
 /// Risk distribution by band
@@ -433,6 +446,8 @@ impl Snapshot {
                     pattern_details: None,
                     subsystem: None,
                     authors_90d: None,
+                    directed_coupling: None,
+                    jaccard_label_stability: None,
                 }
             })
             .collect();
@@ -524,6 +539,48 @@ impl Snapshot {
 
             for &i in indices {
                 self.functions[i].authors_90d = Some(count);
+            }
+        }
+    }
+
+    /// Populate `directed_coupling` and `jaccard_label_stability` for every function.
+    ///
+    /// Calls `crate::coupling::compute_directed_coupling_for_repo` which:
+    /// 1. Loads full commit history via git log.
+    /// 2. Computes Jaccard label stability to select dc_full vs dc_365d.
+    /// 3. Computes directed coupling scores keyed by file path.
+    ///
+    /// All functions in the same file receive the same file-level DC score.
+    /// Functions in files with no co-change history receive `directed_coupling = None`.
+    /// `jaccard_label_stability` is set repo-wide (same value for all functions).
+    ///
+    /// `partner_scores` is typically `file → hotspots_score` from the snapshot itself
+    /// (built before calling this method, or passed in from cheap_signals.csv).
+    pub fn populate_directed_coupling(
+        &mut self,
+        repo_root: &Path,
+        partner_scores: &std::collections::HashMap<String, f64>,
+    ) {
+        let (dc_scores, jaccard) =
+            crate::coupling::compute_directed_coupling_for_repo(repo_root, partner_scores);
+
+        // Build file → function-indices map
+        let mut file_indices: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            // DC scores are keyed by repo-relative path; snapshot paths may be absolute.
+            let rel = std::path::Path::new(&func.file)
+                .strip_prefix(repo_root)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| func.file.replace('\\', "/"));
+            file_indices.entry(rel).or_default().push(i);
+        }
+
+        for (rel_path, indices) in &file_indices {
+            let score = dc_scores.get(rel_path).copied();
+            for &i in indices {
+                self.functions[i].directed_coupling = score;
+                self.functions[i].jaccard_label_stability = jaccard;
             }
         }
     }
