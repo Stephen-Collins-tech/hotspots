@@ -433,6 +433,18 @@ fn handle_snapshot_mode(
         snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
     }
 
+    // Populate DC before persisting so the snapshot on disk includes the values,
+    // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
+    {
+        use std::collections::HashMap;
+        let partner_scores: HashMap<String, f64> = snapshot
+            .functions
+            .iter()
+            .map(|f| (f.file.clone(), f.activity_risk.unwrap_or(f.lrs)))
+            .collect();
+        snapshot.populate_directed_coupling(repo_root, &partner_scores);
+    }
+
     if !pr_context.is_pr && !no_persist {
         snapshot::persist_snapshot(repo_root, &snapshot, force)
             .context("failed to persist snapshot")?;
