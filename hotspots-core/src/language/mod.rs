@@ -3,6 +3,7 @@
 //! This module provides language-agnostic interfaces for parsing and analyzing
 //! source code across multiple programming languages.
 
+pub mod c;
 pub mod cfg_builder;
 pub mod csharp;
 pub mod ecmascript;
@@ -19,6 +20,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+pub use c::{CCfgBuilder, CParser};
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
 pub use csharp::{CSharpCfgBuilder, CSharpParser};
 pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
@@ -53,6 +55,10 @@ pub enum Language {
     Vue,
     /// C# (.cs)
     CSharp,
+    /// C (.c)
+    C,
+    /// C header (.h)
+    CHeader,
 }
 
 impl Language {
@@ -90,6 +96,9 @@ impl Language {
             "vue" => Some(Language::Vue),
             // C#
             "cs" => Some(Language::CSharp),
+            // C
+            "c" => Some(Language::C),
+            "h" => Some(Language::CHeader),
             // Unknown
             _ => None,
         }
@@ -148,6 +157,8 @@ impl Language {
             Language::Rust => "Rust",
             Language::Vue => "Vue",
             Language::CSharp => "C#",
+            Language::C => "C",
+            Language::CHeader => "C Header",
         }
     }
 
@@ -181,6 +192,8 @@ impl Language {
             Language::Rust => &["rs"],
             Language::Vue => &["vue"],
             Language::CSharp => &["cs"],
+            Language::C => &["c"],
+            Language::CHeader => &["h"],
         }
     }
 
@@ -197,6 +210,8 @@ impl Language {
             "Rust" => Some(Language::Rust),
             "Vue" => Some(Language::Vue),
             "C#" => Some(Language::CSharp),
+            "C" => Some(Language::C),
+            "C Header" => Some(Language::CHeader),
             _ => None,
         }
     }
@@ -260,8 +275,13 @@ mod tests {
     #[test]
     fn test_from_extension_unknown() {
         assert_eq!(Language::from_extension("cpp"), None);
-        assert_eq!(Language::from_extension("c"), None);
         assert_eq!(Language::from_extension(""), None);
+    }
+
+    #[test]
+    fn test_from_extension_c() {
+        assert_eq!(Language::from_extension("c"), Some(Language::C));
+        assert_eq!(Language::from_extension("h"), Some(Language::CHeader));
     }
 
     #[test]

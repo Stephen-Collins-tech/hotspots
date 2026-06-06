@@ -80,6 +80,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
             extract_rust_metrics(function, cfg)
         }
         FunctionBody::CSharp { .. } => extract_csharp_metrics(function, cfg),
+        FunctionBody::C { .. } => extract_c_metrics(function, cfg),
     }
 }
 
@@ -948,6 +949,88 @@ fn extract_csharp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         loc: 0,
         callee_names: vec![],
     })
+}
+
+// ============================================================================
+// C Metrics Implementation
+// ============================================================================
+
+fn extract_c_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_c();
+    ts_with_function_body(
+        source,
+        tree_sitter_c::LANGUAGE.into(),
+        function.span.start,
+        &["function_definition"],
+        &["compound_statement"],
+        |func_node, body_node| {
+            let callee_names = c_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "switch_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "break_statement",
+                        "continue_statement",
+                        "goto_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+        loc: 0,
+        callee_names: vec![],
+    })
+}
+
+/// Extract callee names from a C function body (call_expression nodes).
+fn c_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
+    fn collect(
+        node: tree_sitter::Node,
+        source: &str,
+        calls: &mut std::collections::HashSet<String>,
+    ) {
+        if node.kind() == "call_expression" {
+            // First child of call_expression is the function identifier
+            let child_count = node.child_count();
+            if child_count > 0 {
+                if let Some(callee) = node.child(0) {
+                    let text = &source[callee.start_byte()..callee.end_byte()];
+                    calls.insert(text.to_string());
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        for child in children {
+            collect(child, source, calls);
+        }
+    }
+
+    let mut calls = std::collections::HashSet::new();
+    collect(*body_node, source, &mut calls);
+    let mut result: Vec<String> = calls.into_iter().collect();
+    result.sort();
+    result
 }
 
 /// Extract callee names from a C# function body.

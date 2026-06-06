@@ -9,7 +9,7 @@ repository = { workspace = true }
 homepage = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
-description = "Core library for static analysis and Local Risk Score (LRS) computation across TypeScript, JavaScript, Go, Python, Rust, Java, and C#"
+description = "Core library for static analysis and Local Risk Score (LRS) computation across TypeScript, JavaScript, Go, Python, Rust, Java, C#, and C"
 readme = "../README.md"
 
 [lib]
@@ -44,6 +44,7 @@ linfa-trees = "0.8.1"
 linfa-ensemble = "0.8.1"
 rand = { version = "0.8", features = ["small_rng"] }
 ndarray = "0.16"
+tree-sitter-c = "0.24.2"
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -65,6 +65,16 @@ pub enum FunctionBody {
         /// The source code (needed to reconstruct the tree)
         source: String,
     },
+
+    /// C function body
+    ///
+    /// Contains the tree-sitter node ID for the compound_statement and the source code.
+    C {
+        /// The tree-sitter node ID for the function body compound_statement
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: String,
+    },
 }
 
 impl FunctionBody {
@@ -101,6 +111,11 @@ impl FunctionBody {
     /// Check if this is a C# function body
     pub fn is_csharp(&self) -> bool {
         matches!(self, FunctionBody::CSharp { .. })
+    }
+
+    /// Check if this is a C function body
+    pub fn is_c(&self) -> bool {
+        matches!(self, FunctionBody::C { .. })
     }
 
     /// Get the ECMAScript body, if this is one
@@ -185,6 +200,18 @@ impl FunctionBody {
         match self {
             FunctionBody::CSharp { body_node, source } => (*body_node, source.as_str()),
             _ => panic!("FunctionBody is not CSharp"),
+        }
+    }
+
+    /// Get the C body node ID and source, if this is a C function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a C body. Use `is_c()` to check first.
+    pub fn as_c(&self) -> (usize, &str) {
+        match self {
+            FunctionBody::C { body_node, source } => (*body_node, source.as_str()),
+            _ => panic!("FunctionBody is not C"),
         }
     }
 }
