@@ -81,6 +81,8 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         pattern_details: None,
         subsystem: None,
         authors_90d: None,
+        directed_coupling: None,
+        jaccard_label_stability: None,
     }
 }
 
@@ -114,12 +116,14 @@ fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
 fn extract_features_baseline() {
     let func = make_func("src/foo.py", "foo", 1);
     let feats = extract_features(&func);
-    assert_eq!(feats.len(), 8);
-    assert_eq!(FEATURE_NAMES.len(), 8);
+    assert_eq!(feats.len(), 9);
+    assert_eq!(FEATURE_NAMES.len(), 9);
     // total_churn = 0 when no ChurnMetrics
     assert_eq!(feats[6], 0.0);
     // authors_90d = 0 by default
     assert_eq!(feats[7], 0.0);
+    // directed_coupling = 0 by default
+    assert_eq!(feats[8], 0.0);
 }
 
 #[test]
@@ -147,6 +151,7 @@ fn extract_features_with_churn_and_callgraph() {
     assert_eq!(feats[5], 5.0); // fan_in
     assert_eq!(feats[6], 400.0); // total_churn = 300+100
     assert_eq!(feats[7], 0.0); // authors_90d
+    assert_eq!(feats[8], 0.0); // directed_coupling
 }
 
 // ── collect_fix_files ─────────────────────────────────────────────────────────
@@ -363,7 +368,7 @@ fn trained_model_ranks_buggy_functions_above_clean() {
         .expect("train")
         .expect("model should be returned — enough training signal");
 
-    assert_eq!(model.model_version, 3);
+    assert_eq!(model.model_version, 4);
 
     // Score all functions
     let scores: Vec<(String, f64)> = snapshot
