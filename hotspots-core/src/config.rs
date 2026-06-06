@@ -66,6 +66,13 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     // Java/Kotlin build output
     "**/target/**",
     "**/out/**",
+    // C/C++ vendored dependencies (common bundling conventions)
+    "**/deps/**",
+    "**/third_party/**",
+    "**/thirdparty/**",
+    "**/external/**",
+    "**/extern/**",
+    "**/contrib/**",
 ];
 
 /// Hotspots configuration loaded from a JSON config file
@@ -882,6 +889,16 @@ mod tests {
         assert!(!resolved.should_include(Path::new("dist/bundle.js")));
         assert!(resolved.should_include(Path::new("src/api.ts")));
         assert!(resolved.should_include(Path::new("src/components/Button.tsx")));
+        // C/C++ vendored directories
+        assert!(!resolved.should_include(Path::new("deps/jemalloc/src/arena.c")));
+        assert!(!resolved.should_include(Path::new("third_party/abseil/absl/base/base.cc")));
+        assert!(!resolved.should_include(Path::new("thirdparty/openssl/ssl/ssl_lib.c")));
+        assert!(!resolved.should_include(Path::new("external/zlib/deflate.c")));
+        assert!(!resolved.should_include(Path::new("extern/lua/lvm.c")));
+        assert!(!resolved.should_include(Path::new("contrib/hiredis/net.c")));
+        // Own source should still be included
+        assert!(resolved.should_include(Path::new("src/server.c")));
+        assert!(resolved.should_include(Path::new("src/networking.c")));
     }
 
     #[test]
