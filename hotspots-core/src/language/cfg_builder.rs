@@ -33,6 +33,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
         FunctionBody::Python { .. } => Box::new(super::python::PythonCfgBuilder),
         FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
         FunctionBody::CSharp { .. } => Box::new(super::csharp::CSharpCfgBuilder),
+        FunctionBody::C { .. } => Box::new(super::c::CCfgBuilder),
     }
 }
 

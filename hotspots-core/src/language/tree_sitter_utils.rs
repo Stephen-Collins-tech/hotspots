@@ -102,3 +102,5 @@ make_parse_cache!(
     with_cached_csharp_tree,
     tree_sitter_c_sharp::LANGUAGE
 );
+
+make_parse_cache!(C_TREE_CACHE, with_cached_c_tree, tree_sitter_c::LANGUAGE);

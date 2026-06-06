@@ -143,6 +143,9 @@ fn create_parser(
         Language::CSharp => {
             Box::new(language::CSharpParser::new().context("Failed to create C# parser")?)
         }
+        Language::C | Language::CHeader => {
+            Box::new(language::CParser::new().context("Failed to create C parser")?)
+        }
     };
     Ok(parser)
 }
