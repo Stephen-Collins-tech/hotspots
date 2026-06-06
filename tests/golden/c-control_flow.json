@@ -1,0 +1,65 @@
+[
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/c/control_flow.c",
+    "function": "boolean_ops",
+    "language": "C",
+    "line": 30,
+    "lrs": 5.8999999999999995,
+    "metrics": {
+      "cc": 7,
+      "fo": 0,
+      "loc": 9,
+      "nd": 1,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 3.0,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 3.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/c/control_flow.c",
+    "function": "switch_days",
+    "language": "C",
+    "line": 18,
+    "lrs": 5.707354922057604,
+    "metrics": {
+      "cc": 6,
+      "fo": 0,
+      "loc": 7,
+      "nd": 1,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 3.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/c/control_flow.c",
+    "function": "ternary_example",
+    "language": "C",
+    "line": 26,
+    "lrs": 2.2849625007211563,
+    "metrics": {
+      "cc": 2,
+      "fo": 0,
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 1.0
+    }
+  }
+]

@@ -966,7 +966,7 @@ fn extract_c_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         |func_node, body_node| {
             let callee_names = c_extract_callees(&body_node, source);
             RawMetrics {
-                cc: calculate_cc_from_cfg(cfg),
+                cc: calculate_cc_from_cfg(cfg) + c_count_cc_extras(&body_node),
                 nd: ts_nesting_depth(
                     &body_node,
                     &[
@@ -1031,6 +1031,34 @@ fn c_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String>
     let mut result: Vec<String> = calls.into_iter().collect();
     result.sort();
     result
+}
+
+/// Count additional CC contributors in C (ternary expressions, boolean short-circuit operators).
+fn c_count_cc_extras(body_node: &tree_sitter::Node) -> usize {
+    fn count_extras(node: tree_sitter::Node, count: &mut usize) {
+        match node.kind() {
+            "conditional_expression" => {
+                *count += 1;
+            }
+            "binary_expression" => {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if child.kind() == "&&" || child.kind() == "||" {
+                        *count += 1;
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            count_extras(child, count);
+        }
+    }
+    let mut count = 0;
+    count_extras(*body_node, &mut count);
+    count
 }
 
 /// Extract callee names from a C# function body.
