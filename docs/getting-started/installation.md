@@ -26,10 +26,14 @@ curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/
 
 This installs the binary to `~/.local/bin/hotspots` and prints a PATH reminder if needed.
 
+**Update check:** If `hotspots` is already installed, the script checks whether you're already on the latest version. If an update is available, it shows the current and target versions and prompts `[y/N]` before installing. Re-running the script on an up-to-date install exits immediately with no changes.
+
 **Install a specific version:**
 ```bash
 HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
+
+Setting `HOTSPOTS_VERSION` skips the version check and installs the pinned release directly.
 
 ### Windows
 

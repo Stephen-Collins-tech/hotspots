@@ -81,6 +81,7 @@ hotspots analyze . --mode snapshot --format sarif > results.sarif
 **Notes:**
 - HTML format requires `--mode snapshot` or `--mode delta`.
 - SARIF format requires `--mode snapshot`. Unlike HTML, SARIF has no default output file — without `--output`, SARIF is written to stdout.
+- `text` output is color-coded when stdout is a TTY: `critical` rows are red bold, `high` are yellow bold, and `moderate`/`low` are green. Colors are automatically suppressed when piped, redirected, or when the `NO_COLOR` environment variable is set (per [no-color.org](https://no-color.org/)).
 
 ##### `--mode <mode>`
 **Optional.** Output mode: `snapshot`, `delta`, or `models`.
@@ -327,6 +328,15 @@ hotspots analyze . --mode snapshot --callgraph-skip-above 50000
 Fan-in and fan-out are still computed; only betweenness (and derived PageRank) is
 skipped. Recommended for repositories with 50k+ functions where the full call graph
 would otherwise take many minutes.
+
+##### `--skip-gate`
+**Optional.** Disable the suppression gate P@10 calibration check that runs after every
+`analyze --mode snapshot`. Use when you know the gate would fire spuriously (e.g. a
+codebase with no conventional fix-commit keywords, or a greenfield repo with no bug history).
+
+```bash
+hotspots analyze . --mode snapshot --skip-gate
+```
 
 ##### `--all-functions`
 **Optional.** Output all functions as a flat array instead of the default triage-first
