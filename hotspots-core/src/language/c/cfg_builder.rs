@@ -697,4 +697,289 @@ int test_func(int x) {
         let cfg = CCfgBuilder.build(&function);
         assert!(cfg.node_count() >= 2);
     }
+
+    // --- aggressive edge-case tests ---
+
+    #[test]
+    fn test_break_outside_loop_no_panic() {
+        // Malformed: break with no enclosing loop — must not panic or index-overflow
+        let source = r#"
+void test_func(void) {
+    break;
+    return;
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_infinite_for_always_breaks() {
+        // Infinite for whose body always breaks — join node created lazily
+        let source = r#"
+void test_func(int n) {
+    for (;;) {
+        if (n <= 0) break;
+        n--;
+        break;
+    }
+}
+"#;
+        let c = cc(source);
+        assert!(
+            c >= 2,
+            "infinite for with breaks should have CC >= 2, got {}",
+            c
+        );
+    }
+
+    #[test]
+    fn test_chained_else_if() {
+        let source = r#"
+int test_func(int x) {
+    if (x < 0) return -1;
+    else if (x == 0) return 0;
+    else if (x < 10) return 1;
+    else return 2;
+}
+"#;
+        // 3 conditions → CC 4
+        assert_eq!(cc(source), 4);
+    }
+
+    #[test]
+    fn test_nested_loops_break_continue() {
+        let source = r#"
+void test_func(int n) {
+    int i, j;
+    for (i = 0; i < n; i++) {
+        for (j = 0; j < n; j++) {
+            if (j == 0) continue;
+            if (j > 5) break;
+        }
+    }
+}
+"#;
+        let c = cc(source);
+        assert!(
+            c >= 5,
+            "nested loops with break+continue should have CC >= 5, got {}",
+            c
+        );
+    }
+
+    #[test]
+    fn test_switch_fallthrough() {
+        // Cases without break fall through — CFG should not panic
+        let source = r#"
+void test_func(int x) {
+    switch (x) {
+        case 1:
+        case 2:
+            x = 0;
+            break;
+        case 3:
+            x = 1;
+        default:
+            x = -1;
+    }
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_switch_body_always_returns() {
+        // Every case returns — join node created lazily, CFG stays valid
+        let source = r#"
+int test_func(int x) {
+    switch (x) {
+        case 1: return 1;
+        case 2: return 2;
+        default: return 0;
+    }
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_empty_switch() {
+        let source = r#"
+void test_func(int x) {
+    switch (x) {}
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_multiple_gotos_same_label() {
+        let source = r#"
+int test_func(int x, int y) {
+    if (x < 0) goto fail;
+    if (y < 0) goto fail;
+    if (x + y > 100) goto fail;
+    return 0;
+    fail:
+    return -1;
+}
+"#;
+        let c = cc(source);
+        // 3 ifs + 3 gotos = at least 4
+        assert!(c >= 4, "multiple gotos should contribute to CC, got {}", c);
+    }
+
+    #[test]
+    fn test_label_dead_code_then_more_code() {
+        // After goto skips to label, execution continues past label
+        let source = r#"
+int test_func(int x) {
+    goto mid;
+    x = x * 2;
+    mid:
+    x = x + 1;
+    return x;
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_consecutive_returns_no_panic() {
+        // Dead code: two returns in a row
+        let source = r#"
+int test_func(int x) {
+    return x;
+    return x + 1;
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_do_while_body_always_returns() {
+        // do-while where body always returns — join node never needed
+        let source = r#"
+int test_func(int x) {
+    do {
+        return x;
+    } while (x > 0);
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_while_body_always_returns() {
+        let source = r#"
+int test_func(int x) {
+    while (x > 0) {
+        return x;
+    }
+    return 0;
+}
+"#;
+        let c = cc(source);
+        assert!(c >= 2, "while should have CC >= 2, got {}", c);
+    }
+
+    #[test]
+    fn test_deeply_nested_if() {
+        let source = r#"
+int test_func(int a, int b, int c, int d) {
+    if (a > 0) {
+        if (b > 0) {
+            if (c > 0) {
+                if (d > 0) return 1;
+                return 2;
+            }
+            return 3;
+        }
+        return 4;
+    }
+    return 5;
+}
+"#;
+        assert_eq!(cc(source), 5);
+    }
+
+    #[test]
+    fn test_goto_after_goto_no_panic() {
+        // Two consecutive gotos — second is dead code
+        let source = r#"
+void test_func(void) {
+    goto a;
+    goto b;
+    a:
+    b:
+    return;
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_braceless_nested_if_else() {
+        let source = r#"
+int test_func(int x, int y) {
+    if (x > 0)
+        if (y > 0)
+            return 1;
+        else
+            return 2;
+    return 0;
+}
+"#;
+        assert_eq!(cc(source), 3);
+    }
+
+    #[test]
+    fn test_for_no_condition_with_break() {
+        // for(;;) with explicit break — lazy join must fire
+        let source = r#"
+int test_func(int x) {
+    for (;;) {
+        break;
+    }
+    return x;
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_continue_in_do_while() {
+        let source = r#"
+void test_func(int n) {
+    do {
+        if (n % 2 == 0) continue;
+        n--;
+    } while (n > 0);
+}
+"#;
+        let c = cc(source);
+        assert!(
+            c >= 3,
+            "do-while+if+continue should have CC >= 3, got {}",
+            c
+        );
+    }
 }
