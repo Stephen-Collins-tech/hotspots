@@ -570,6 +570,60 @@ pub fn precision_at_k(
     hits as f64 / count as f64
 }
 
+// ── Repo screener ─────────────────────────────────────────────────────────────
+
+/// Repos with mean score below this are too flat for fine-tuning to be useful.
+/// Derived from F08: midpoint between facebook/react (0.0332) and golang/go (0.0421)
+/// across a 32-repo validation corpus.
+pub const SCREENER_SKIP_THRESHOLD: f64 = 0.03;
+
+/// Repos between SKIP and RUN thresholds are ambiguous — training is allowed but
+/// a warning is emitted. The gap covers the overlap zone observed in F08.
+pub const SCREENER_RUN_THRESHOLD: f64 = 0.06;
+
+/// Pre-flight verdict before committing to a full training run.
+///
+/// Derived from F08 (32-repo corpus validation). Clear cases are separated by
+/// the SKIP/RUN zone; repos in the middle are ambiguous and emit a warning
+/// but are not blocked.
+#[derive(Debug, PartialEq)]
+pub enum ScreenerVerdict {
+    /// mean_hotspots_score >= 0.06 — training is likely to beat the tabular baseline.
+    RunFt,
+    /// 0.03 <= mean_hotspots_score < 0.06 — outcome is uncertain; training proceeds with a warning.
+    Ambiguous,
+    /// mean_hotspots_score < 0.03 — signal is too flat; skip fine-tuning.
+    SkipFt,
+}
+
+/// Compute a pre-flight screener verdict from snapshot functions.
+///
+/// Uses `activity_risk` when available, falling back to `lrs` — the same
+/// signal used as the partner-score proxy in `train()`.
+pub fn screen_repo(snapshot: &Snapshot) -> (ScreenerVerdict, f64) {
+    let scores: Vec<f64> = snapshot
+        .functions
+        .iter()
+        .map(|f| f.activity_risk.unwrap_or(f.lrs))
+        .collect();
+
+    if scores.is_empty() {
+        return (ScreenerVerdict::SkipFt, 0.0);
+    }
+
+    let mean_hs = scores.iter().sum::<f64>() / scores.len() as f64;
+
+    let verdict = if mean_hs >= SCREENER_RUN_THRESHOLD {
+        ScreenerVerdict::RunFt
+    } else if mean_hs >= SCREENER_SKIP_THRESHOLD {
+        ScreenerVerdict::Ambiguous
+    } else {
+        ScreenerVerdict::SkipFt
+    };
+
+    (verdict, mean_hs)
+}
+
 // ── Inference ─────────────────────────────────────────────────────────────────
 
 /// Score a function using the trained ranker.
@@ -861,6 +915,105 @@ mod tests {
             err.contains("retrain") || err.contains("model_version"),
             "unexpected error: {err}"
         );
+    }
+
+    // ── screen_repo ───────────────────────────────────────────────────────────
+
+    fn make_snapshot_with_activity(scores: &[f64]) -> Snapshot {
+        use crate::language::Language;
+        use crate::report::MetricsReport;
+        use crate::risk::RiskBand;
+        use crate::snapshot::{AnalysisInfo, CommitInfo, FunctionSnapshot};
+
+        let functions = scores
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| FunctionSnapshot {
+                function_id: format!("f{i}"),
+                file: "src/lib.rs".into(),
+                line: i as u32 + 1,
+                language: Language::Rust,
+                metrics: MetricsReport {
+                    cc: 1,
+                    nd: 0,
+                    fo: 0,
+                    ns: 0,
+                    loc: 10,
+                },
+                lrs: 0.0,
+                band: RiskBand::Low,
+                suppression_reason: None,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                callgraph: None,
+                activity_risk: Some(s),
+                risk_factors: None,
+                percentile: None,
+                driver: None,
+                driver_detail: None,
+                quadrant: None,
+                patterns: vec![],
+                pattern_details: None,
+                subsystem: None,
+                authors_90d: None,
+                directed_coupling: None,
+                jaccard_label_stability: None,
+            })
+            .collect();
+
+        Snapshot {
+            schema_version: 1,
+            commit: CommitInfo {
+                sha: "test".into(),
+                parents: vec![],
+                timestamp: 0,
+                branch: None,
+                message: None,
+                author: None,
+                is_fix_commit: None,
+                is_revert_commit: None,
+                ticket_ids: vec![],
+            },
+            analysis: AnalysisInfo {
+                scope: "test".into(),
+                tool_version: "0.0.0".into(),
+            },
+            functions,
+            summary: None,
+            aggregates: None,
+        }
+    }
+
+    #[test]
+    fn screener_skip_ft_below_threshold() {
+        let snap = make_snapshot_with_activity(&[0.01, 0.01, 0.01]);
+        let (verdict, mean_hs) = screen_repo(&snap);
+        assert_eq!(verdict, ScreenerVerdict::SkipFt);
+        assert!(mean_hs < SCREENER_SKIP_THRESHOLD);
+    }
+
+    #[test]
+    fn screener_ambiguous_zone() {
+        let snap = make_snapshot_with_activity(&[0.045, 0.045, 0.045]);
+        let (verdict, mean_hs) = screen_repo(&snap);
+        assert_eq!(verdict, ScreenerVerdict::Ambiguous);
+        assert!((SCREENER_SKIP_THRESHOLD..SCREENER_RUN_THRESHOLD).contains(&mean_hs));
+    }
+
+    #[test]
+    fn screener_run_ft_above_threshold() {
+        let snap = make_snapshot_with_activity(&[0.15, 0.15, 0.15]);
+        let (verdict, _) = screen_repo(&snap);
+        assert_eq!(verdict, ScreenerVerdict::RunFt);
+    }
+
+    #[test]
+    fn screener_empty_snapshot_is_skip() {
+        let snap = make_snapshot_with_activity(&[]);
+        let (verdict, mean_hs) = screen_repo(&snap);
+        assert_eq!(verdict, ScreenerVerdict::SkipFt);
+        assert_eq!(mean_hs, 0.0);
     }
 
     #[test]
