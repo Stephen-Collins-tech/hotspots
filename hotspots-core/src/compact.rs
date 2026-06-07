@@ -59,49 +59,12 @@ pub fn compact_to_level1(
         if keep_full.contains(&i) {
             continue;
         }
-
-        let entry = &commits[i];
-        let prev_entry = &commits[i - 1];
-
-        // Skip if already a delta.
-        if snapshot::delta_snapshot_path(repo_root, &entry.sha).exists() {
-            continue;
+        if let Some(freed) =
+            convert_one_to_delta(repo_root, &commits[i].sha, &commits[i - 1].sha, dry_run)?
+        {
+            bytes_freed += freed;
+            converted_count += 1;
         }
-
-        // Skip if there is no full snapshot on disk for this entry.
-        let full_path = match snapshot::snapshot_path_existing(repo_root, &entry.sha) {
-            Some(p) => p,
-            None => continue,
-        };
-
-        // Load this snapshot and its chronological predecessor.
-        let current = match snapshot::load_snapshot(repo_root, &entry.sha)? {
-            Some(s) => s,
-            None => continue,
-        };
-        let base = match snapshot::load_snapshot(repo_root, &prev_entry.sha)? {
-            Some(s) => s,
-            None => continue,
-        };
-
-        if let Ok(meta) = std::fs::metadata(&full_path) {
-            bytes_freed += meta.len();
-        }
-
-        if !dry_run {
-            let delta = snapshot::compute_delta(&base, &current);
-            snapshot::persist_delta(repo_root, &delta)?;
-            // Subtract the new delta file size from bytes_freed.
-            let delta_path = snapshot::delta_snapshot_path(repo_root, &entry.sha);
-            if let Ok(meta) = std::fs::metadata(&delta_path) {
-                bytes_freed = bytes_freed.saturating_sub(meta.len());
-            }
-            std::fs::remove_file(&full_path).with_context(|| {
-                format!("failed to remove full snapshot: {}", full_path.display())
-            })?;
-        }
-
-        converted_count += 1;
     }
 
     if !dry_run {
@@ -116,27 +79,6 @@ pub fn compact_to_level1(
         bytes_freed,
         dry_run,
     })
-}
-
-/// Returns true if any function changed its risk band between `prev` and `curr`,
-/// or if functions were added or removed.
-fn has_band_change(prev: &Snapshot, curr: &Snapshot) -> bool {
-    let prev_bands: HashMap<&str, crate::risk::RiskBand> = prev
-        .functions
-        .iter()
-        .map(|f| (f.function_id.as_str(), f.band))
-        .collect();
-    let curr_bands: HashMap<&str, crate::risk::RiskBand> = curr
-        .functions
-        .iter()
-        .map(|f| (f.function_id.as_str(), f.band))
-        .collect();
-
-    // Any function added, removed, or changed band.
-    curr_bands
-        .iter()
-        .any(|(id, band)| prev_bands.get(id).map(|pb| pb != band).unwrap_or(true))
-        || prev_bands.keys().any(|id| !curr_bands.contains_key(id))
 }
 
 /// Level 2: delete snapshots where no function changed risk band.
@@ -162,111 +104,19 @@ pub fn compact_to_level2(repo_root: &Path, dry_run: bool) -> Result<CompactionRe
         });
     }
 
-    // Load all snapshots (handles full and delta transparently).
-    let mut loaded: Vec<(String, Option<Snapshot>)> = Vec::with_capacity(total);
-    for entry in &commits {
-        let snap = snapshot::load_snapshot(repo_root, &entry.sha)?;
-        loaded.push((entry.sha.clone(), snap));
-    }
-
-    // Determine which SHAs to keep via band-change filter.
-    let mut keep_shas: HashSet<String> = HashSet::new();
-    keep_shas.insert(loaded[0].0.clone()); // always keep oldest
-    keep_shas.insert(loaded[total - 1].0.clone()); // always keep newest
-
-    let mut last_kept_idx = 0usize;
-    for i in 1..total {
-        let (sha, snap_opt) = &loaded[i];
-        let is_last = i == total - 1;
-
-        let keep = is_last
-            || match (snap_opt, &loaded[last_kept_idx].1) {
-                (Some(curr), Some(prev)) => has_band_change(prev, curr),
-                _ => true,
-            };
-
-        if keep {
-            keep_shas.insert(sha.clone());
-            last_kept_idx = i;
-        }
-    }
-
+    let loaded = load_all_snapshots(repo_root, &commits)?;
+    let keep_shas = select_keep_shas(&loaded, total);
     let drop_shas: Vec<String> = commits
         .iter()
         .map(|e| e.sha.clone())
         .filter(|sha| !keep_shas.contains(sha))
         .collect();
 
-    let dropped_set: HashSet<String> = drop_shas.iter().cloned().collect();
-    let mut bytes_freed = 0u64;
+    let bytes_freed = delete_snapshot_files(repo_root, &drop_shas, dry_run)?;
 
-    // Measure and delete snapshot files for dropped SHAs.
-    for sha in &drop_shas {
-        if let Some(p) = snapshot::snapshot_path_existing(repo_root, sha) {
-            if let Ok(meta) = std::fs::metadata(&p) {
-                bytes_freed += meta.len();
-            }
-            if !dry_run {
-                std::fs::remove_file(&p)
-                    .with_context(|| format!("failed to remove snapshot: {}", p.display()))?;
-            }
-        }
-        let dp = snapshot::delta_snapshot_path(repo_root, sha);
-        if dp.exists() {
-            if let Ok(meta) = std::fs::metadata(&dp) {
-                bytes_freed += meta.len();
-            }
-            if !dry_run {
-                std::fs::remove_file(&dp)
-                    .with_context(|| format!("failed to remove delta: {}", dp.display()))?;
-            }
-        }
-    }
-
-    // Fix orphaned delta snapshots: if a kept delta's base was dropped, convert
-    // it to a full snapshot using the already-reconstructed in-memory copy.
-    if !dry_run && !dropped_set.is_empty() {
-        // Build a map sha → reconstructed Snapshot for kept entries.
-        let reconstructed: HashMap<&str, &Snapshot> = loaded
-            .iter()
-            .filter_map(|(sha, s)| s.as_ref().map(|snap| (sha.as_str(), snap)))
-            .collect();
-
-        for entry in &commits {
-            if dropped_set.contains(&entry.sha) {
-                continue;
-            }
-            let delta_path = snapshot::delta_snapshot_path(repo_root, &entry.sha);
-            if !delta_path.exists() {
-                continue;
-            }
-            // Read the delta to check its base_sha.
-            let base_sha = read_delta_base_sha(&delta_path)?;
-            if dropped_set.contains(&base_sha) {
-                // Convert to full snapshot.
-                if let Some(&snap) = reconstructed.get(entry.sha.as_str()) {
-                    let json = snap
-                        .to_json()
-                        .context("failed to serialize reconstructed snapshot")?;
-                    let compressed = zstd::encode_all(json.as_bytes(), 3)
-                        .context("failed to compress reconstructed snapshot")?;
-                    let full_path = snapshot::snapshot_path(repo_root, &entry.sha);
-                    snapshot::atomic_write_bytes(&full_path, &compressed).with_context(|| {
-                        format!(
-                            "failed to write reconstructed snapshot: {}",
-                            full_path.display()
-                        )
-                    })?;
-                    std::fs::remove_file(&delta_path).with_context(|| {
-                        format!("failed to remove orphaned delta: {}", delta_path.display())
-                    })?;
-                }
-            }
-        }
-    }
-
-    // Update index.
-    if !dry_run {
+    if !dry_run && !drop_shas.is_empty() {
+        let dropped_set: HashSet<&str> = drop_shas.iter().map(|s| s.as_str()).collect();
+        fix_orphaned_deltas(repo_root, &commits, &dropped_set, &loaded)?;
         let mut index = Index::load_or_new(&index_path)?;
         for sha in &drop_shas {
             index.remove_commit(sha);
@@ -281,6 +131,174 @@ pub fn compact_to_level2(repo_root: &Path, dry_run: bool) -> Result<CompactionRe
         bytes_freed,
         dry_run,
     })
+}
+
+// ── private helpers ───────────────────────────────────────────────────────────
+
+/// Try to convert snapshot `sha` to a delta against `prev_sha`.
+/// Returns `Some(bytes_freed)` if conversion happened, `None` if skipped.
+fn convert_one_to_delta(
+    repo_root: &Path,
+    sha: &str,
+    prev_sha: &str,
+    dry_run: bool,
+) -> Result<Option<u64>> {
+    // Already a delta — nothing to do.
+    if snapshot::delta_snapshot_path(repo_root, sha).exists() {
+        return Ok(None);
+    }
+    let full_path = match snapshot::snapshot_path_existing(repo_root, sha) {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let current = match snapshot::load_snapshot(repo_root, sha)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+    let base = match snapshot::load_snapshot(repo_root, prev_sha)? {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let full_size = std::fs::metadata(&full_path).map(|m| m.len()).unwrap_or(0);
+
+    if !dry_run {
+        let delta = snapshot::compute_delta(&base, &current);
+        snapshot::persist_delta(repo_root, &delta)?;
+        let delta_path = snapshot::delta_snapshot_path(repo_root, sha);
+        let delta_size = std::fs::metadata(&delta_path).map(|m| m.len()).unwrap_or(0);
+        std::fs::remove_file(&full_path)
+            .with_context(|| format!("failed to remove full snapshot: {}", full_path.display()))?;
+        return Ok(Some(full_size.saturating_sub(delta_size)));
+    }
+
+    Ok(Some(full_size))
+}
+
+/// Load every snapshot in `commits` into memory (full and delta handled transparently).
+fn load_all_snapshots(
+    repo_root: &Path,
+    commits: &[crate::snapshot::IndexEntry],
+) -> Result<Vec<(String, Option<Snapshot>)>> {
+    let mut loaded = Vec::with_capacity(commits.len());
+    for entry in commits {
+        let snap = snapshot::load_snapshot(repo_root, &entry.sha)?;
+        loaded.push((entry.sha.clone(), snap));
+    }
+    Ok(loaded)
+}
+
+/// Decide which SHAs to keep: oldest + newest always kept; others only if a
+/// band change occurred since the last kept snapshot.
+fn select_keep_shas(loaded: &[(String, Option<Snapshot>)], total: usize) -> HashSet<String> {
+    let mut keep: HashSet<String> = HashSet::new();
+    keep.insert(loaded[0].0.clone());
+    keep.insert(loaded[total - 1].0.clone());
+
+    let mut last_kept_idx = 0usize;
+    for i in 1..total {
+        let is_last = i == total - 1;
+        let should_keep = is_last
+            || match (&loaded[i].1, &loaded[last_kept_idx].1) {
+                (Some(curr), Some(prev)) => has_band_change(prev, curr),
+                _ => true,
+            };
+        if should_keep {
+            keep.insert(loaded[i].0.clone());
+            last_kept_idx = i;
+        }
+    }
+    keep
+}
+
+/// Delete on-disk files (full + delta) for each SHA in `drop_shas`.
+/// Returns total bytes freed; skips file ops when `dry_run` is true.
+fn delete_snapshot_files(repo_root: &Path, drop_shas: &[String], dry_run: bool) -> Result<u64> {
+    let mut bytes_freed = 0u64;
+    for sha in drop_shas {
+        if let Some(p) = snapshot::snapshot_path_existing(repo_root, sha) {
+            bytes_freed += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+            if !dry_run {
+                std::fs::remove_file(&p)
+                    .with_context(|| format!("failed to remove snapshot: {}", p.display()))?;
+            }
+        }
+        let dp = snapshot::delta_snapshot_path(repo_root, sha);
+        if dp.exists() {
+            bytes_freed += std::fs::metadata(&dp).map(|m| m.len()).unwrap_or(0);
+            if !dry_run {
+                std::fs::remove_file(&dp)
+                    .with_context(|| format!("failed to remove delta: {}", dp.display()))?;
+            }
+        }
+    }
+    Ok(bytes_freed)
+}
+
+/// For any kept delta whose base SHA was dropped, rewrite it as a full snapshot
+/// using the already-reconstructed in-memory copy.
+fn fix_orphaned_deltas(
+    repo_root: &Path,
+    commits: &[crate::snapshot::IndexEntry],
+    dropped_set: &HashSet<&str>,
+    loaded: &[(String, Option<Snapshot>)],
+) -> Result<()> {
+    let reconstructed: HashMap<&str, &Snapshot> = loaded
+        .iter()
+        .filter_map(|(sha, s)| s.as_ref().map(|snap| (sha.as_str(), snap)))
+        .collect();
+
+    for entry in commits {
+        if dropped_set.contains(entry.sha.as_str()) {
+            continue;
+        }
+        let delta_path = snapshot::delta_snapshot_path(repo_root, &entry.sha);
+        if !delta_path.exists() {
+            continue;
+        }
+        let base_sha = read_delta_base_sha(&delta_path)?;
+        if !dropped_set.contains(base_sha.as_str()) {
+            continue;
+        }
+        if let Some(&snap) = reconstructed.get(entry.sha.as_str()) {
+            let json = snap
+                .to_json()
+                .context("failed to serialize reconstructed snapshot")?;
+            let compressed = zstd::encode_all(json.as_bytes(), 3)
+                .context("failed to compress reconstructed snapshot")?;
+            let full_path = snapshot::snapshot_path(repo_root, &entry.sha);
+            snapshot::atomic_write_bytes(&full_path, &compressed).with_context(|| {
+                format!(
+                    "failed to write reconstructed snapshot: {}",
+                    full_path.display()
+                )
+            })?;
+            std::fs::remove_file(&delta_path).with_context(|| {
+                format!("failed to remove orphaned delta: {}", delta_path.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Returns true if any function changed its risk band between `prev` and `curr`,
+/// or if functions were added or removed.
+fn has_band_change(prev: &Snapshot, curr: &Snapshot) -> bool {
+    let prev_bands: HashMap<&str, crate::risk::RiskBand> = prev
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), f.band))
+        .collect();
+    let curr_bands: HashMap<&str, crate::risk::RiskBand> = curr
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), f.band))
+        .collect();
+
+    curr_bands
+        .iter()
+        .any(|(id, band)| prev_bands.get(id).map(|pb| pb != band).unwrap_or(true))
+        || prev_bands.keys().any(|id| !curr_bands.contains_key(id))
 }
 
 /// Read the `base_sha` field from a `.delta.json.zst` file without fully parsing it.
