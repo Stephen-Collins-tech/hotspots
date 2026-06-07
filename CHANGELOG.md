@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add version check and update prompt to installer (#74)
 - Color-coded terminal output (red/yellow/green by band) (#82)
+- Add suppression gate to detect activity ranker failure (#78)
 
 ## [1.23.3] - 2026-06-07
 
