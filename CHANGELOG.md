@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Document --skip-gate, color output, and installer update check (#90)
+
+
 ### Features
 - Add version check and update prompt to installer (#74)
 - Color-coded terminal output (red/yellow/green by band) (#82)
