@@ -1,10 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-### Features
-- `hotspots train --eval`: print Precision@K table (K = 10/20/50/100/200) after training so you can verify whether the trained ranker beats the default LRS ranking before applying it. P@K ≈ base_rate means training did not help; do not apply the model.
-
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -16,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add version check and update prompt to installer (#74)
 - Color-coded terminal output (red/yellow/green by band) (#82)
 - Add suppression gate to detect activity ranker failure (#78)
+- Hotspots train --eval with P@K output (#84)
 
 ## [1.23.3] - 2026-06-07
 
