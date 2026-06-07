@@ -130,7 +130,12 @@ impl CCfgBuilderState {
 
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, condition_node);
-        let join_node = self.cfg.add_node(NodeKind::Join);
+
+        // join_node is created lazily — only if at least one branch falls through.
+        let mut join_node: Option<NodeId> = None;
+        let mut get_join = |cfg: &mut Cfg| -> NodeId {
+            *join_node.get_or_insert_with(|| cfg.add_node(NodeKind::Join))
+        };
 
         // Then branch
         if let Some(consequence) = Self::get_if_consequence(node) {
@@ -140,7 +145,8 @@ impl CCfgBuilderState {
             self.visit_body(&consequence, source);
             if let Some(end) = self.current_node {
                 if end != self.cfg.exit {
-                    self.cfg.add_edge(end, join_node);
+                    let j = get_join(&mut self.cfg);
+                    self.cfg.add_edge(end, j);
                 }
             }
         }
@@ -152,7 +158,6 @@ impl CCfgBuilderState {
         for child in &children {
             if child.kind() == "else_clause" {
                 found_else = true;
-                // else_clause wraps the alternative — get its first named child
                 let mut ec_cursor = child.walk();
                 let alt_children: Vec<_> = child.children(&mut ec_cursor).collect();
                 if let Some(alt) = alt_children.iter().find(|c| c.is_named()) {
@@ -162,18 +167,21 @@ impl CCfgBuilderState {
                     self.visit_body(alt, source);
                     if let Some(end) = self.current_node {
                         if end != self.cfg.exit {
-                            self.cfg.add_edge(end, join_node);
+                            let j = get_join(&mut self.cfg);
+                            self.cfg.add_edge(end, j);
                         }
                     }
                 }
             }
         }
 
+        // No else: condition always has a fallthrough path to join.
         if !found_else {
-            self.cfg.add_edge(condition_node, join_node);
+            let j = get_join(&mut self.cfg);
+            self.cfg.add_edge(condition_node, j);
         }
 
-        self.current_node = Some(join_node);
+        self.current_node = join_node;
     }
 
     fn visit_while(&mut self, node: &Node, source: &str) {
@@ -456,6 +464,46 @@ mod tests {
     fn test_simple_function() {
         let source = "int test_func(int x) { return x + 1; }";
         assert_eq!(cc(source), 1);
+    }
+
+    #[test]
+    fn test_if_else_both_return_no_orphan() {
+        // Both branches return — join_node must not be created (would be unreachable).
+        // Previously caused "Nodes not reachable from entry" CFG validation failure.
+        let source = r#"
+int test_func(int x) {
+    if (x > 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2, "CFG must be valid");
+        assert_eq!(cc(source), 2);
+    }
+
+    #[test]
+    fn test_chained_else_if_all_return_no_orphan() {
+        // if / else-if / else all return — no join node, valid CFG.
+        let source = r#"
+int test_func(int x) {
+    if (x > 0) {
+        return 1;
+    } else if (x < 0) {
+        return -1;
+    } else {
+        return 0;
+    }
+}
+"#;
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.node_count() >= 2, "CFG must be valid");
+        // 2 conditions → CC 3
+        assert_eq!(cc(source), 3);
     }
 
     #[test]
