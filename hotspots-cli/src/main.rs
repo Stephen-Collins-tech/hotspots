@@ -121,6 +121,11 @@ enum Commands {
         #[arg(long, value_name = "N")]
         callgraph_skip_above: Option<usize>,
 
+        /// Skip the suppression gate check (the P@10 calibration that warns when
+        /// the activity ranker may be producing misleading rankings).
+        #[arg(long)]
+        skip_gate: bool,
+
         /// Hybrid touch mode: run file-level touch first, then per-function only for
         /// files with touch_count_30d >= N. Balances accuracy and performance for
         /// large repos. Conflicts with --per-function-touches and --no-per-function-touches.
@@ -291,6 +296,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            skip_gate,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -314,6 +320,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            skip_gate,
         })?,
         Commands::Prune {
             unreachable,
