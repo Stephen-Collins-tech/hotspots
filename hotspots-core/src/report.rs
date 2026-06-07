@@ -8,6 +8,7 @@ use crate::ast::FunctionNode;
 use crate::language::Language;
 use crate::metrics::RawMetrics;
 use crate::risk::{RiskBand, RiskComponents};
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
 /// Complete risk report for a function
@@ -200,8 +201,6 @@ pub fn render_text(reports: &[FunctionRiskReport]) -> String {
 /// MODERATE and LOW are omitted unless `limit` is `usize::MAX` (i.e. `--top 0`).
 /// `color` enables ANSI codes — pass `false` when stdout is not a TTY.
 pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: bool) -> String {
-    use owo_colors::OwoColorize;
-
     let show_all = limit == usize::MAX;
     let mut output = String::new();
     let cwd = std::env::current_dir().ok();
@@ -450,5 +449,27 @@ mod tests {
     fn test_render_text_grouped_empty() {
         let out = render_text_grouped(&[], 20, false);
         assert!(out.contains("0 functions shown"));
+    }
+
+    #[test]
+    fn test_render_text_grouped_color_emits_ansi() {
+        let mut r = make_report("/repo/src/a.ts", "critical_fn", 1, 12.0);
+        r.band = RiskBand::Critical;
+        let out = render_text_grouped(&[r], 10, true);
+        assert!(
+            out.contains("\x1b["),
+            "color=true should emit ANSI escape codes"
+        );
+    }
+
+    #[test]
+    fn test_render_text_grouped_no_color_plain() {
+        let mut r = make_report("/repo/src/a.ts", "critical_fn", 1, 12.0);
+        r.band = RiskBand::Critical;
+        let out = render_text_grouped(&[r], 10, false);
+        assert!(
+            !out.contains("\x1b["),
+            "color=false must not emit ANSI escape codes"
+        );
     }
 }

@@ -8,6 +8,7 @@ use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
 use hotspots_core::{delta, git};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 pub(crate) struct AnalyzeArgs {
@@ -300,7 +301,6 @@ fn handle_default_output(
 
     match format {
         OutputFormat::Text => {
-            use is_terminal::IsTerminal;
             let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
             print!(
                 "{}",
@@ -769,7 +769,6 @@ fn emit_text_output(
     } else if level == Some(OutputLevel::Module) {
         explain::print_module_output(&aggregates.modules, top)?;
     } else if explain {
-        use is_terminal::IsTerminal;
         let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
         explain::print_explain_output(snapshot, total_function_count, color)?;
     } else {
