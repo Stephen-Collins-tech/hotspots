@@ -1,16 +1,6 @@
 # Installation
 
-Install Hotspots on your system.
-
-## Quick Install
-
-### cargo (Rust toolchain)
-
-```bash
-cargo install hotspots-cli
-```
-
-Available on [crates.io/crates/hotspots-cli](https://crates.io/crates/hotspots-cli). Works on macOS, Linux, and Windows wherever Rust is installed.
+## Install options
 
 ### macOS (Homebrew)
 
@@ -24,34 +14,29 @@ brew install Stephen-Collins-tech/tap/hotspots
 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-This installs the binary to `~/.local/bin/hotspots` and prints a PATH reminder if needed.
+Installs to `~/.local/bin/hotspots`. The script checks your current version first — if you're already up to date, it exits immediately. If an update is available, it shows the versions and asks before installing.
 
-**Update check:** If `hotspots` is already installed, the script checks whether you're already on the latest version. If an update is available, it shows the current and target versions and prompts `[y/N]` before installing. Re-running the script on an up-to-date install exits immediately with no changes.
+Install a specific version:
 
-**Install a specific version:**
 ```bash
-HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
+HOTSPOTS_VERSION=v1.23.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-Setting `HOTSPOTS_VERSION` skips the version check and installs the pinned release directly.
+### Any platform (Rust required)
+
+```bash
+cargo install hotspots-cli
+```
+
+Available on [crates.io](https://crates.io/crates/hotspots-cli). Works on macOS, Linux, and Windows.
 
 ### Windows
 
-Download the latest binary from the [GitHub releases page](https://github.com/Stephen-Collins-tech/hotspots/releases/latest) and add it to your PATH.
+Download the latest binary from [GitHub Releases](https://github.com/Stephen-Collins-tech/hotspots/releases/latest) and add it to your PATH.
 
-### From Source (Rust Required)
+### GitHub Action
 
-```bash
-git clone https://github.com/Stephen-Collins-tech/hotspots.git
-cd hotspots
-cargo build --release
-mkdir -p ~/.local/bin
-cp target/release/hotspots ~/.local/bin/
-```
-
-## GitHub Action
-
-Use Hotspots in GitHub Actions without installing anything:
+Use Hotspots in CI without installing anything locally:
 
 ```yaml
 - uses: Stephen-Collins-tech/hotspots@v1
@@ -59,81 +44,63 @@ Use Hotspots in GitHub Actions without installing anything:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-See [CI/CD & GitHub Action Guide](../guide/ci-cd.md) for complete usage.
+See [CI/CD Guide](/guide/ci-cd) for full usage.
 
-## AI Integration
-
-Use Hotspots with Claude Code directly via CLI commands:
+### Build from source
 
 ```bash
-# Analyze changes in your project
-hotspots analyze . --mode delta --format json
-
-# Get agent-optimized output (quadrant buckets + action text)
-hotspots analyze . --mode delta --all-functions --format json
+git clone https://github.com/Stephen-Collins-tech/hotspots.git
+cd hotspots
+cargo build --release
+cp target/release/hotspots ~/.local/bin/
 ```
 
-See [AI Integration Guide](../integrations/ai-integration.md) for complete AI workflow documentation.
+Requires Rust 1.75+.
 
-## Verify Installation
+---
+
+## Verify
 
 ```bash
 hotspots --version
 hotspots analyze --help
 ```
 
-## Next Steps
+---
 
-- [Quick Start Guide](./quick-start.md) — 5-minute tutorial
-- [Usage Guide](../guide/usage.md) — Complete CLI reference
-- [Configuration](../guide/configuration.md) — Config file setup
+## Upgrade
 
-## Troubleshooting
-
-### Command not found
-
-Ensure `~/.local/bin` is in your PATH:
-
-```bash
-echo $PATH
-```
-
-If it's missing, add to `~/.zshrc` or `~/.bashrc`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-source ~/.zshrc  # or source ~/.bashrc
-```
-
-### Build from source fails
-
-Ensure you have Rust 1.75 or later:
-
-```bash
-rustc --version
-rustup update stable
-```
-
-## Upgrading
-
-**macOS (Homebrew):**
+**macOS:**
 ```bash
 brew upgrade Stephen-Collins-tech/tap/hotspots
 ```
 
-**Linux (curl install):**
+**Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-## Uninstall
+---
 
-**macOS (Homebrew):**
+## Troubleshoot
+
+**`command not found` after Linux install** — `~/.local/bin` may not be in your PATH:
+
 ```bash
-brew uninstall hotspots
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-**Linux (curl install):**
+Add that line to your `~/.zshrc` or `~/.bashrc` to make it permanent.
+
+**Build from source fails** — check your Rust version:
+
 ```bash
-rm ~/.local/bin/hotspots
+rustc --version   # need 1.75+
+rustup update stable
 ```
+
+---
+
+## Next
+
+[Quick Start →](/getting-started/quick-start) — analyze your first codebase in 5 minutes.

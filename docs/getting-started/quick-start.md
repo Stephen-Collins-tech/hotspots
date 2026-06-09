@@ -1,228 +1,94 @@
 # Quick Start
 
-**Find your first hotspot in 5 minutes.**
+Get your first results in under 5 minutes.
 
-## Prerequisites
-
-- Hotspots installed — [Install now](./installation.md)
-- A git repository with code (TypeScript, JavaScript, Go, Python, Rust, or Java)
-
----
-
-## Step 1: Find Your Hotspots
-
-Navigate to your project and run:
+## 1. Install
 
 ```bash
-cd your-project
+# macOS
+brew install Stephen-Collins-tech/tap/hotspots
+
+# Linux
+curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
+
+# Any platform with Rust
+cargo install hotspots-cli
+```
+
+Verify it worked:
+
+```bash
+hotspots --version
+```
+
+## 2. Analyze your codebase
+
+Navigate to any git repository and run:
+
+```bash
 hotspots analyze src/
 ```
 
-**Output example:**
+You'll see output like this:
 
 ```
-CRITICAL (LRS ≥ 9.0) - Refactor NOW
+CRITICAL (LRS ≥ 9.0)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-src/auth/validateUser.ts:142  validateUser
-  LRS: 12.4  CC: 15  ND: 4  FO: 8  NS: 3
+src/auth/validateUser.ts:142  validateUser        LRS: 12.4
+src/api/billing.ts:89         processPlanUpgrade  LRS: 10.1
 
-src/api/billing.ts:89  processPlanUpgrade
-  LRS: 10.1  CC: 12  ND: 3  FO: 6  NS: 4
-
-HIGH (6.0 ≤ LRS < 9.0) - Watch Closely
+HIGH (LRS 6.0–9.0)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-src/db/migrations.ts:203  applySchema
-  LRS: 8.1  CC: 10  ND: 2  FO: 5  NS: 2
+src/db/migrations.ts:203      applySchema         LRS: 8.1
 ```
 
-### Understanding the Output
+**Critical** means: refactor this now, or at minimum don't make it worse.
+**High** means: refactor the next time you touch it.
+**Moderate/Low** means: not worth the risk of disturbing it unless you have a specific reason.
 
-**LRS (Local Risk Score):** The overall complexity/risk score
-- **Critical (≥ 9.0):** Refactor now. These cause incidents.
-- **High (6.0–9.0):** Refactor when you touch them.
-- **Moderate (3.0–6.0):** Monitor. Block increases.
-- **Low (< 3.0):** Safe. Don't overthink these.
+## 3. Understand a result
 
-**Metrics:** CC = decision points, ND = nesting depth, FO = function calls, NS = early exits/throws.
+LRS is a single number that combines four dimensions of structural complexity:
+
+- **CC** — how many decision branches (if, switch, loops, try/catch)
+- **ND** — how deep the nesting goes
+- **FO** — how many other functions this one calls
+- **NS** — non-structured exits (early returns, throws)
+
+A function with LRS 12 isn't just "complex" — it's complex in ways that make it hard to test, hard to review, and likely to hide bugs. That's the starting point for a refactor conversation.
+
+See [Metrics Reference](/reference/metrics) for how LRS is calculated.
 
 ---
 
-## Step 2: Focus on Critical Functions
+## What next
 
-```bash
-hotspots analyze src/ --min-lrs 9.0
-```
+**Focus on Critical first.** Pick the top offender. One critical function refactored per sprint moves the number.
 
-Start with the worst offender. Refactor one critical function per sprint.
-
----
-
-## Step 3: Get Machine-Readable Output
-
-Export results as JSON for tooling or AI:
-
-```bash
-hotspots analyze src/ --format json > hotspots.json
-```
-
-```json
-{
-  "schema_version": 2,
-  "functions": [
-    {
-      "file": "src/auth/validateUser.ts",
-      "name": "validateUser",
-      "line": 142,
-      "lrs": 12.4,
-      "band": "critical",
-      "driver": "high_complexity",
-      "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
-    }
-  ]
-}
-```
-
----
-
-## Step 4: Track Changes Over Time (Snapshot Mode)
-
-```bash
-hotspots analyze src/ --mode snapshot
-```
-
-This saves current complexity to `.hotspots/snapshots/<commit-sha>.json`. You can now track complexity changes commit-to-commit.
-
----
-
-## Step 5: Compare With Baseline (Delta Mode)
-
-```bash
-git commit -am "refactor validateUser"
-hotspots analyze src/ --mode delta
-```
-
-**Output:**
-```
-IMPROVED Functions ✅
-src/auth/validateUser.ts:142  validateUser
-  LRS: 12.4 → 6.2 (-6.2, -50%)
-
-REGRESSED Functions ❌
-src/api/billing.ts:89  processPlanUpgrade
-  LRS: 10.1 → 11.3 (+1.2, +12%)
-```
-
----
-
-## Step 6: Enforce Quality in CI
+**Set up CI** to block new critical functions from merging:
 
 ```bash
 hotspots analyze src/ --mode delta --policy
 ```
 
-- Exit code 0 if no policy violations → CI passes
-- Exit code 1 if policies fail → CI fails, prevents merge
+Exit code 1 if a function crosses the critical threshold — CI fails, the author knows immediately. See [CI/CD Setup](/guide/ci-cd).
 
-**Built-in policies:**
+**Track progress over time** with snapshot mode:
 
-| Policy | Severity | Trigger |
-|--------|----------|---------|
-| **Critical Introduction** | Blocking | New function with LRS ≥ 9.0 |
-| **Excessive Regression** | Blocking | Function LRS increases by ≥ 1.0 |
-| **Watch Threshold** | Warning | Function approaching moderate (2.5–3.0) |
-| **Attention Threshold** | Warning | Function approaching high (5.5–6.0) |
-| **Rapid Growth** | Warning | Function complexity +50% or more |
+```bash
+hotspots analyze src/ --mode snapshot
+# ... make changes ...
+hotspots analyze src/ --mode delta
+# Shows exactly what improved and what got worse
+```
 
----
-
-## Step 7: Generate Shareable Reports
+**Generate an HTML report** to share with your team:
 
 ```bash
 hotspots analyze src/ --mode snapshot --format html
 open .hotspots/report.html
 ```
 
-The HTML report includes a sortable function table with driver badges, triage action recommendations, and trend charts (when ≥2 prior snapshots exist).
-
 ---
 
-## Common Workflows
-
-### Find Top 10 Hotspots
-
-```bash
-hotspots analyze src/ --top 10
-```
-
-### Analyze Single File
-
-```bash
-hotspots analyze src/auth/validateUser.ts
-```
-
-### Feed to AI for Refactoring
-
-```bash
-hotspots analyze src/ --format json --min-lrs 9.0 | pbcopy
-# Paste into Claude: "These are my critical functions. Suggest refactoring strategies."
-```
-
----
-
-## React / JSX Projects
-
-JSX and TSX are fully supported. `.tsx` and `.jsx` files are analyzed with the same accuracy as plain TypeScript/JavaScript.
-
-```bash
-# Analyze React component tree
-hotspots analyze src/components/ --format json
-```
-
-Hotspots treats JSX elements as structured output — simple markup doesn't inflate complexity. Control flow inside JSX expressions (ternaries, `&&` conditionals, `map` callbacks) is counted correctly.
-
----
-
-## Next Steps
-
-**For solo developers:**
-1. Add `hotspots analyze src/` to your workflow
-2. Refactor one hotspot per week
-3. Track your progress with delta mode
-
-**For teams:**
-1. [Set up CI/CD](../guide/ci-cd) — block risky code at merge time
-2. [Configure policies](../guide/usage#policy-engine) — customize thresholds for your team
-
-**For AI users:**
-1. [AI Integration Guide](../integrations/ai-integration) — Claude Code and AI workflow examples
-
----
-
-## Troubleshooting
-
-### "No functions found"
-
-Check file extensions and paths:
-```bash
-ls src/**/*.ts
-hotspots analyze src/components/Button.tsx
-```
-
-### "Git repository required"
-
-Delta mode needs git history. Initialize git or use snapshot mode:
-```bash
-git init
-# or
-hotspots analyze src/ --mode snapshot
-```
-
-### "Permission denied"
-
-```bash
-chmod +x /usr/local/bin/hotspots
-```
-
----
-
-**Need help?** [Open an issue](https://github.com/Stephen-Collins-tech/hotspots/issues) or [start a discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
+Stuck? [Open an issue](https://github.com/Stephen-Collins-tech/hotspots/issues) or check the [full CLI reference](/reference/cli).

@@ -636,7 +636,7 @@ Use GitHub Actions, GitLab CI, or pre-commit hooks.
 
 ## Related Documentation
 
-- [CI/CD Integration](../guide/ci-integration.md) - Automate in pipelines
+- [CI/CD Guide](../guide/ci-cd.md) - Automate in pipelines
 - [Output Formats](../guide/output-formats.md) - JSON schema for parsing
 - [CLI Reference](../reference/cli.md) - Command-line usage
 

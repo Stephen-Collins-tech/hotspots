@@ -688,7 +688,7 @@ The action automatically caches:
 ## Related Documentation
 
 - [CLI Reference](../reference/cli.md) - Command-line interface
-- [CI/CD Integration](./ci-integration.md) - Other CI systems
+- [CI/CD Guide](./ci-cd.md) - CI/CD setup for all systems
 - [Configuration](./configuration.md) - Config file options
 - [Output Formats](./output-formats.md) - JSON, HTML, Text formats
 - [Policy Engine](./usage.md#policy-engine) - Policy rules
