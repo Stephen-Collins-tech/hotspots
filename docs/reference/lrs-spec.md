@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Local Risk Score (LRS) is a composite metric that quantifies the complexity and maintenance risk of individual TypeScript functions. It combines four fundamental software metrics into a single weighted score.
+The Local Risk Score (LRS) is a composite metric that quantifies the complexity and maintenance risk of individual functions. It combines four fundamental software metrics into a single weighted score.
 
 ## Metrics
 
