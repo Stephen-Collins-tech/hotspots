@@ -1,62 +1,65 @@
 # Hotspots
 
-**Find and fix the code that's actually causing problems.**
+**Find where your engineering attention has the highest expected value.**
 
-Hotspots analyzes your codebase to find functions that are both complex and frequently changed — the 20% of code responsible for 80% of your bugs, incidents, and feature delays.
-
-![Hotspots Example Report](/hotspots-example-report.png)
-
-*Risk Landscape from a real 7,911-function codebase: 284 Critical (red), 491 High (orange). Each dot is a function — top-right are your hotspots.*
+Most of the pain in a codebase comes from a small fraction of it — the same files that generate the most incidents, the slowest reviews, and the hardest bugs to track down. Hotspots finds that fraction before it costs you.
 
 ```bash
 hotspots analyze src/
 
-# Results show your true priorities:
-LRS   File                  Line  Function
-12.4  src/api/billing.ts    142   processPlanUpgrade  # Critical — fix this first
-9.8   src/auth/session.ts    67   validateSession     # High — watch closely
-3.2   src/utils/format.ts    12   formatDate          # Low — safe to ignore
+LRS   File                      Line  Function
+12.4  src/api/billing.ts         142  processPlanUpgrade   critical
+ 9.8  src/auth/session.ts         67  validateSession      high
+ 3.2  src/utils/format.ts         12  formatDate           low
 ```
 
----
-
-## Why Hotspots?
-
-- **Objective priorities** — Stop arguing about what to refactor. The numbers tell you.
-- **CI protection** — Block new high-complexity functions before they merge.
-- **Progress tracking** — Show stakeholders: "Dropped from 31 critical functions to 23."
+Each result is ranked by **Local Risk Score (LRS)** — a weighted combination of cyclomatic complexity, nesting depth, fan-out, and exit paths. High LRS means the function is structurally hard to reason about, test, and safely change.
 
 ---
 
 ## Get Started
 
 <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.5rem 0;">
-  <a href="/getting-started/installation" style="padding: 0.75rem 1.5rem; background: var(--vp-c-brand-1); color: white; border-radius: 6px; text-decoration: none; font-weight: 600;">Install Hotspots →</a>
+  <a href="/getting-started/quick-start" style="padding: 0.75rem 1.5rem; background: var(--vp-c-brand-1); color: white; border-radius: 6px; text-decoration: none; font-weight: 600;">Quick Start →</a>
   <a href="/guide/ci-cd" style="padding: 0.75rem 1.5rem; background: var(--vp-c-bg-soft); border-radius: 6px; text-decoration: none; font-weight: 600;">Set Up CI →</a>
   <a href="/reference/cli" style="padding: 0.75rem 1.5rem; background: var(--vp-c-bg-soft); border-radius: 6px; text-decoration: none; font-weight: 600;">CLI Reference →</a>
 </div>
 
-## For Contributors
+---
 
-Maintaining or extending Hotspots? Start with the [Codebase Guide](/code-architecture/) for the current implementation map, then use the [Contributing Guide](/contributing/) for development workflow.
+## What it gives you
 
-Useful maintainer entry points:
+**An objective refactor list.** Stop debating what to clean up. The highest-LRS functions in your codebase are the ones most likely to slow your next feature and hide your next bug.
 
-- [Analysis Pipeline](/code-architecture/pipeline) — how files become reports, snapshots, and deltas.
-- [Contributor Change Guide](/code-architecture/change-guide) — where to make common changes.
-- [Architecture Notes](/architecture/) — design records, invariants, and historical deep dives.
+**CI enforcement.** Block new critical-complexity functions before they merge. Delta mode shows exactly which functions got worse in a PR — and by how much.
+
+**Progress you can show.** "We dropped from 31 critical functions to 18 this quarter" is a concrete metric. Hotspots makes that trackable without extra tooling.
+
+**Everything stays local.** Analysis runs on your machine. No source code leaves, no account required, no data sent anywhere.
 
 ---
 
 ## Supported Languages
 
-| Language | Extensions | Status |
-|----------|-----------|---------|
-| **TypeScript** | `.ts`, `.tsx`, `.mts`, `.cts` | Full support |
-| **JavaScript** | `.js`, `.jsx`, `.mjs`, `.cjs` | Full support |
-| **Go** | `.go` | Full support |
-| **Python** | `.py` | Full support |
-| **Rust** | `.rs` | Full support |
-| **Java** | `.java` | Full support |
+TypeScript · JavaScript · Go · Python · Rust · Java · C
 
-All languages get accurate CC, ND, FO, NS metrics, LRS calculation, policy enforcement, suppression comments, delta analysis, and git history integration.
+All languages produce the same metrics with consistent semantics. See [Language Support](/reference/language-support).
+
+---
+
+## Where this is going
+
+Risk hotspots — structurally complex, frequently changed code — are the first category. Several more are in active research:
+
+- **Review Hotspots** — changes that need senior eyes, not rubber stamps
+- **Test Hotspots** — coverage gaps where CI misses real failures
+- **Ownership Hotspots** — knowledge silos and review bottlenecks
+- **Impact Hotspots** — code with outsized blast radius (auth, billing, schema contracts)
+
+The goal is a continuous picture of where your engineering attention matters most — before something ships, not after it pages you.
+
+---
+
+## For Contributors
+
+Start with the [Codebase Guide](/code-architecture/) for the implementation map, then the [Contributing Guide](/contributing/) for dev workflow.

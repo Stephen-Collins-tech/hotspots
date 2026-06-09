@@ -1072,7 +1072,7 @@ hotspots analyze src/ --min-lrs 5.0 --format json | jq .
   run: hotspots analyze src/ --config .hotspots.ci.json --mode delta --policy
 ```
 
-See [CI Integration](../guide/ci-integration.md) for complete examples.
+See [CI Integration](../guide/ci-cd.md) for complete examples.
 
 ### Snapshot Management
 
@@ -1219,7 +1219,7 @@ hotspots analyze . --mode snapshot --force         # overwrite existing snapshot
 ## Related Documentation
 
 - [Configuration Guide](../guide/configuration.md) - Config file format
-- [CI Integration](../guide/ci-integration.md) - GitHub Actions, GitLab CI
+- [CI Integration](../guide/ci-cd.md) - GitHub Actions, GitLab CI
 - [Output Formats](../guide/output-formats.md) - JSON schema, HTML reports
 - [LRS Specification](./lrs-spec.md) - How LRS is calculated
 - [Policy Engine](../guide/usage.md#policy-engine) - Policy rules and enforcement

@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Hotspots',
-  description: 'Multi-language complexity analysis for high-leverage refactoring',
+  description: 'Find where your engineering attention has the highest expected value.',
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
@@ -53,12 +53,6 @@ export default defineConfig({
           { text: 'CLI Reference', link: '/reference/cli' },
           { text: 'Metrics & LRS', link: '/reference/metrics' },
           { text: 'Language Support', link: '/reference/language-support' },
-        ]
-      },
-      {
-        text: 'Security',
-        items: [
-          { text: 'Supply Chain Security', link: '/security/supply-chain' },
         ]
       },
       {
