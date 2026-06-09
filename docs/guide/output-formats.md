@@ -166,55 +166,6 @@ See the [JSON Schema Reference section](#json-schema-reference) below for comple
 | `fo` | number | Fan-Out (function calls) |
 | `ns` | number | Non-Structured exits |
 
-### TypeScript Integration
-
-```bash
-npm install @hotspots/types
-```
-
-```typescript
-import type { HotspotsOutput, FunctionReport } from '@hotspots/types';
-import { filterByRiskBand, getHighestRiskFunctions } from '@hotspots/types';
-
-// Parse output
-const output: HotspotsOutput = JSON.parse(jsonOutput);
-
-// Filter high-risk functions
-const highRisk = filterByRiskBand(output.functions, 'high');
-
-// Get top 10 most complex
-const top10 = getHighestRiskFunctions(output.functions, 10);
-
-// Type-safe access
-output.functions.forEach((fn: FunctionReport) => {
-  console.log(`${fn.function_id}: LRS ${fn.lrs} (${fn.band})`);
-});
-```
-
-### Python Integration
-
-```python
-import json
-
-# Parse output
-with open('hotspots-output.json') as f:
-    output = json.load(f)
-
-# Filter critical functions
-critical = [
-    fn for fn in output['functions']
-    if fn['band'] == 'critical'
-]
-
-# Calculate stats
-total_functions = len(output['functions'])
-avg_lrs = sum(fn['lrs'] for fn in output['functions']) / total_functions
-
-print(f"Total functions: {total_functions}")
-print(f"Average LRS: {avg_lrs:.2f}")
-print(f"Critical functions: {len(critical)}")
-```
-
 ### jq Examples
 
 ```bash
