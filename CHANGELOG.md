@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Revamp core pages for clarity and add C language support (#92)
 - Remove duplication, fix stale content, trim boilerplate (#93)
+- Update README for C/C# languages, GitHub Action, SARIF, init hooks (#94)
 
 ## [1.24.0] - 2026-06-07
 
