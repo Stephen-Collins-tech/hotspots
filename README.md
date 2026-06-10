@@ -81,7 +81,15 @@ hotspots analyze src/ --mode delta --policy
 
 Your CI fails if someone introduces high-risk code. No manual review needed.
 
-> **GitHub Action coming soon.** A native `hotspots-action` for GitHub Actions is not yet available. Use the CLI directly in your workflows in the meantime.
+**GitHub Actions** — use the native action for zero-config CI integration:
+
+```yaml
+- uses: Stephen-Collins-tech/hotspots/action@v1
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [docs/guide/github-action.md](docs/guide/github-action.md) for the full action reference.
 
 ### ✅ Fine-Tune Rankings with Repo-Specific ML
 
@@ -151,7 +159,13 @@ curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/
 
 Installs to `~/.local/bin/hotspots`. Verify with `hotspots --version`.
 
-**GitHub Action:** Coming soon. Use the CLI directly in your workflows for now.
+**GitHub Action:**
+```yaml
+- uses: Stephen-Collins-tech/hotspots/action@v1
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+See [docs/guide/github-action.md](docs/guide/github-action.md) for inputs, outputs, and examples.
 
 ### 2. Analyze Your Code
 
@@ -205,6 +219,8 @@ hotspots analyze . --mode snapshot --explain --no-per-function-touches
 - **Python** - `.py`
 - **Rust** - `.rs`
 - **Java** - `.java`
+- **C** - `.c`, `.h`
+- **C#** - `.cs`
 
 Full language parity across all metrics and features. See [docs/reference/language-support.md](docs/reference/language-support.md) for details.
 
@@ -372,6 +388,12 @@ One JSON object per line — ideal for large repos and shell pipeline processing
 - Shareable with stakeholders
 - Upload as CI artifacts
 
+**SARIF (Static Analysis Results Interchange Format):**
+```bash
+hotspots analyze src/ --format sarif
+```
+Compatible with GitHub Code Scanning and any SARIF-aware tool.
+
 ### 🔇 Suppression Comments
 
 Have complex code you can't refactor yet? Suppress warnings with a reason:
@@ -474,6 +496,15 @@ hotspots config show
 # Validate configuration file without running analysis
 hotspots config validate
 ```
+
+### 🪝 Hook Templates
+
+```bash
+# Print pre-commit and CI hook templates to stdout
+hotspots init --hooks
+```
+
+Outputs ready-to-use shell hooks and pre-commit framework config for enforcing policies locally.
 
 ---
 
