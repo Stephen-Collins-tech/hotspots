@@ -41,6 +41,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Usage & Workflows', link: '/guide/usage' },
+          { text: 'Training a Ranker', link: '/guide/training' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'CI/CD & GitHub Action', link: '/guide/ci-cd' },
           { text: 'Output Formats', link: '/guide/output-formats' },
