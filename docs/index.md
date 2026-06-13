@@ -47,9 +47,17 @@ All languages produce the same metrics with consistent semantics. See [Language 
 
 ---
 
+## How scoring works
+
+Each function receives a **Local Risk Score (LRS)** derived from four structural metrics (CC, ND, FO, NS), then optionally enriched with git-based activity signals to produce an **Activity Risk Score**. Functions are grouped into quadrants (fire / debt / watch / ok) and assigned a **driver label** naming the dominant risk dimension.
+
+See [Scoring Methodology](/reference/scoring) for the full pipeline — transforms, weights, pattern detection, quadrant logic, and ranking order.
+
+---
+
 ## Where this is going
 
-Risk hotspots — structurally complex, frequently changed code — are the first category. Several more are in active research:
+**Risk Hotspots** — structurally complex, frequently changed code — are shipped and stable. Several more categories are in active research:
 
 - **Review Hotspots** — changes that need senior eyes, not rubber stamps
 - **Test Hotspots** — coverage gaps where CI misses real failures

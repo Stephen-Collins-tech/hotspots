@@ -11,6 +11,11 @@ to confirm the finding is validated and see whether a cross-repo task is already
 
 When a CLI change completes a promotion, update the tracker row to `promoted` and link the commit or PR.
 
+If the promotion changes any formula, weight, threshold, or ranking rule, **add an entry to
+[`docs/reference/scoring-changelog.md`](docs/reference/scoring-changelog.md)** in the same PR.
+The entry must include the version, the before/after values, and a back-link to the finding.
+This is how `hotspots-research` knows what formula version the CLI is running.
+
 ### Reading a promotion brief
 
 Each finding that is ready to implement has a brief in
