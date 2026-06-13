@@ -88,7 +88,7 @@ LRS = 1.0 × R_cc  +  0.8 × R_nd  +  0.6 × R_fo  +  0.7 × R_ns
 - **NS (0.7)** — non-structured exits increase the number of implicit exit conditions and make postconditions harder to reason about.
 - **FO (0.6)** — fan-out represents external coupling rather than internal complexity; weighted lower because some degree of fan-out is expected in most functions.
 
-LRS is always ≥ 1.0. The theoretical maximum is **22.0** (all four components at their caps). The theoretical minimum for a trivial single-path function with no nesting, calls, or exits is 1.0.
+LRS is always ≥ 1.0. The theoretical maximum is **20.2** (all four components at their caps: 1.0×6 + 0.8×8 + 0.6×6 + 0.7×6). The theoretical minimum for a trivial single-path function with no nesting, calls, or exits is 1.0.
 
 **Risk bands:**
 
@@ -149,7 +149,7 @@ Activity Risk = LRS
              + min(touch_count_30d / 10, 5.0) × 0.3
              + max(0, 5.0 − days_since_change / 7) × 0.2
              + min(fan_in / 5, 10.0) × 0.4
-             + (scc_size − 1, if in cycle, else 0) × 0.3
+             + (scc_size, if in cycle, else 0) × 0.3
              + min(dependency_depth / 3, 5.0) × 0.1
              + neighbor_churn / 500 × 0.2
 ```
