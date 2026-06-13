@@ -57,7 +57,7 @@ See [Scoring Methodology](/reference/scoring) for the full pipeline — transfor
 
 ## Where this is going
 
-**Risk Hotspots** — structurally complex, frequently changed code — are shipped and stable. Several more categories are in active research:
+**Risk Hotspots** — structurally complex, frequently changed code — are shipped. Several more categories are in active research:
 
 - **Review Hotspots** — changes that need senior eyes, not rubber stamps
 - **Test Hotspots** — coverage gaps where CI misses real failures
