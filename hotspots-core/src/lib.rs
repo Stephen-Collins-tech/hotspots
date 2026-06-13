@@ -18,6 +18,7 @@ pub mod callgraph;
 pub mod cfg;
 pub mod compact;
 pub mod config;
+pub mod coordinate;
 pub mod coupling;
 pub mod db;
 pub mod delta;
