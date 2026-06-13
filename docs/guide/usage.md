@@ -238,6 +238,36 @@ hotspots analyze . --mode snapshot --per-function-touches
 
 ---
 
+## Coordination Pre-flight (`hotspots coordinate`)
+
+Before splitting a task across multiple agents or developers, run `hotspots coordinate` to discover hidden co-change dependencies and get a partition recommendation.
+
+```bash
+hotspots coordinate --files auth.rs,session.rs,middleware.rs
+```
+
+This reads co-change history and ownership signals already computed by Hotspots — no new data sources, no analysis pass required.
+
+**What it tells you:**
+
+- Which file pairs within your set co-change frequently (with raw `coupling_ratio`)
+- Which files *outside* your set are strong co-change partners (hidden dependencies you didn't plan for)
+- Which files are safe to modify in parallel vs which should be serialised
+
+**JSON output for scripts and orchestrators:**
+
+```bash
+hotspots coordinate --files auth.rs,session.rs --json
+```
+
+The JSON schema is stable — `pairs`, `hidden_dependencies`, `ownership`, `parallel_safe`, and `serialize` fields are consistent across versions.
+
+**No risk labels.** `coordinate` outputs raw signal values. The caller decides what a `coupling_ratio` of 0.7 means in their context — a human can read the table, a script can apply its own threshold.
+
+See [CLI reference](../reference/cli.md#hotspots-coordinate) for the full field reference and threshold documentation.
+
+---
+
 ## Common Workflows
 
 ### Daily Development

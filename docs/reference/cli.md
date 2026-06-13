@@ -435,6 +435,147 @@ hotspots analyze src/ --mode snapshot --format json --explain-patterns
 
 ---
 
+### `hotspots coordinate`
+
+Assess coordination risk for a set of files before multi-agent or multi-developer work begins.
+
+Reads co-change history, file ownership, and coupling signals that Hotspots already computes — no new data sources, no cloud dependency. Outputs raw signal values so the caller can decide what they mean; no risk tier label is applied.
+
+**Intended use:** run once before decomposing a task across agents or developers to discover hidden co-change dependencies and determine which files are safe to modify in parallel.
+
+#### Usage
+
+```bash
+hotspots coordinate --files <file1,file2,...> [--path <repo>] [--json]
+```
+
+#### Options
+
+##### `--files <list>`
+
+**Required.** Comma-separated list of files to assess, relative to the repo root.
+
+```bash
+hotspots coordinate --files auth.rs,session.rs,middleware.rs
+```
+
+##### `--path <dir>`
+
+Path to the repository root. Defaults to the current directory.
+
+```bash
+hotspots coordinate --files auth.rs --path /path/to/repo
+```
+
+##### `--json`
+
+Emit machine-readable JSON instead of human-readable text. The schema is stable and suitable for scripted or orchestrator consumption.
+
+#### Output (text)
+
+```
+Coordination Signal Report
+============================================================
+
+Input files (3)
+  auth.rs
+  session.rs
+  middleware.rs
+
+Co-change pairs (within set)
+  pair                                               count    ratio
+  -----------------------------------------------------------------
+  auth.rs ↔ session.rs                                   8     0.89
+
+Hidden dependencies (outside input set)
+  input file                partner                    count    ratio
+  -------------------------------------------------------------------
+  auth.rs                   token.rs                       5     0.71
+
+Ownership (last 90 days)
+  file                                      authors  top author %
+  -----------------------------------------------------------------
+  auth.rs                                         1          100%
+  session.rs                                      2           75%
+  middleware.rs                                   1          100%
+
+Partition recommendation
+  Parallel-safe:
+    middleware.rs
+  Serialize (coupling ratio ≥ 40%):
+    auth.rs
+    session.rs
+```
+
+#### Output (JSON, `--json`)
+
+```json
+{
+  "input_files": ["auth.rs", "session.rs", "middleware.rs"],
+  "pairs": [
+    {
+      "files": ["auth.rs", "session.rs"],
+      "co_change_count": 8,
+      "coupling_ratio": 0.89,
+      "has_static_dep": false
+    }
+  ],
+  "hidden_dependencies": [
+    {
+      "input_file": "auth.rs",
+      "partner": "token.rs",
+      "co_change_count": 5,
+      "coupling_ratio": 0.71
+    }
+  ],
+  "ownership": [
+    { "file": "auth.rs", "author_count": 1, "top_author_pct": 1.0 },
+    { "file": "session.rs", "author_count": 2, "top_author_pct": 0.75 },
+    { "file": "middleware.rs", "author_count": 1, "top_author_pct": 1.0 }
+  ],
+  "parallel_safe": ["middleware.rs"],
+  "serialize": ["auth.rs", "session.rs"]
+}
+```
+
+#### Field reference
+
+| Field | Description |
+|---|---|
+| `pairs` | Co-change pairs where **both** files are in the input set, sorted by `coupling_ratio` descending |
+| `pairs[].coupling_ratio` | `co_change_count / min(total_touches_a, total_touches_b)` — fraction of the less-active file's commits that include the partner |
+| `pairs[].has_static_dep` | `true` if a direct import exists between the two files (co-change is structurally expected) |
+| `hidden_dependencies` | Co-change partners that are **outside** the input set, sorted by `coupling_ratio` descending |
+| `ownership[].author_count` | Distinct commit-author emails for this file in the last 90 days |
+| `ownership[].top_author_pct` | Fraction of those commits owned by the single most active author |
+| `parallel_safe` | Input files with no within-set pair at or above the serialize threshold (40%) |
+| `serialize` | Input files that share a high-coupling within-set pair — coordinate these changes sequentially |
+
+#### Signals and thresholds
+
+| Signal | Source | Window |
+|---|---|---|
+| Co-change pairs | `git log --name-only` | 180 days |
+| Ownership | `git log --format=%ae` per file | 90 days |
+| Serialize threshold | `coupling_ratio ≥ 0.40` | — |
+
+The serialize threshold is a partition heuristic, not a risk score. A pair at 0.40 means 40% of the less-touched file's commits also touched the other — high enough that uncoordinated parallel edits carry meaningful collision risk.
+
+#### Examples
+
+```bash
+# Human-readable pre-flight check
+hotspots coordinate --files auth.rs,session.rs,middleware.rs
+
+# JSON output for an orchestrator script
+hotspots coordinate --files auth.rs,session.rs --json
+
+# Run against a different repo
+hotspots coordinate --files src/db.go,src/cache.go --path /repos/myservice --json
+```
+
+---
+
 ### `hotspots train`
 
 Fit a local RandomForest ranker from the repo's own fix-commit git history.
