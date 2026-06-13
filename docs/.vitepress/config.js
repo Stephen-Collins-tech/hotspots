@@ -51,6 +51,8 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'CLI Reference', link: '/reference/cli' },
+          { text: 'Scoring Methodology', link: '/reference/scoring' },
+          { text: 'Scoring Changelog', link: '/reference/scoring-changelog' },
           { text: 'Metrics & LRS', link: '/reference/metrics' },
           { text: 'Language Support', link: '/reference/language-support' },
         ]
