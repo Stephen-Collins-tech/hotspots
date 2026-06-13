@@ -1,5 +1,7 @@
 # Scoring Methodology
 
+🚧 **The scoring methodology is actively evolving.** Weights, thresholds, and formula details will change as research findings are validated and promoted. Check the [Scoring Changelog](/reference/scoring-changelog) for a versioned record of what has changed. 🚧
+
 This document describes every step of the pipeline from raw source code to the ranked output Hotspots produces. Each stage builds on the previous one.
 
 ---
