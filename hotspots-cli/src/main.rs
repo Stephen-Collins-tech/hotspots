@@ -217,6 +217,20 @@ enum Commands {
         #[arg(long)]
         auto_analyze: bool,
     },
+    /// Assess coordination risk for a set of files before multi-agent or multi-developer work
+    Coordinate {
+        /// Comma-separated list of files to assess (relative to repo root)
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        files: Vec<String>,
+
+        /// Path to repository root (default: current directory)
+        #[arg(long, default_value = ".")]
+        path: std::path::PathBuf,
+
+        /// Emit JSON output instead of human-readable text
+        #[arg(long)]
+        json: bool,
+    },
     /// Train a local RandomForest ranker from fix-commit history
     Train {
         /// Path to repository root
@@ -361,6 +375,13 @@ fn main() -> anyhow::Result<()> {
             config_path: config,
             auto_analyze,
         })?,
+        Commands::Coordinate { files, path, json } => {
+            cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs {
+                path,
+                files,
+                json,
+            })?
+        }
         Commands::Train {
             path,
             output,
