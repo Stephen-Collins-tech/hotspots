@@ -246,7 +246,7 @@ LRS has a theoretical maximum:
 - Maximum R_nd = 8
 - Maximum R_fo = 6
 - Maximum R_ns = 6
-- **Maximum LRS** = 1.0 * 6 + 0.8 * 8 + 0.6 * 6 + 0.7 * 6 = **22.0**
+- **Maximum LRS** = 1.0 * 6 + 0.8 * 8 + 0.6 * 6 + 0.7 * 6 = **20.2**
 
 In practice, functions rarely approach this maximum.
 

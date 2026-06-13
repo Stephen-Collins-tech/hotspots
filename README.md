@@ -512,6 +512,7 @@ Outputs ready-to-use shell hooks and pre-commit framework config for enforcing p
 
 - 🚀 [Quick Start](docs/getting-started/quick-start.md) - Get started in 5 minutes
 - 📖 [CLI Reference](docs/reference/cli.md) - All commands and options
+- 📊 [Scoring Methodology](docs/reference/scoring.md) - How scores are calculated and ranked
 - 🎯 [CI Integration](docs/guide/ci-integration.md) - GitHub Actions, GitLab CI
 - 🤖 [AI Integration](docs/integrations/ai-agents.md) - Claude, Cursor, Copilot
 - 🏗️ [Architecture](docs/architecture/overview.md) - How it works

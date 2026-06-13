@@ -41,6 +41,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Usage & Workflows', link: '/guide/usage' },
+          { text: 'Training a Ranker', link: '/guide/training' },
           { text: 'Configuration', link: '/guide/configuration' },
           { text: 'CI/CD & GitHub Action', link: '/guide/ci-cd' },
           { text: 'Output Formats', link: '/guide/output-formats' },
@@ -51,6 +52,8 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'CLI Reference', link: '/reference/cli' },
+          { text: 'Scoring Methodology', link: '/reference/scoring' },
+          { text: 'Scoring Changelog', link: '/reference/scoring-changelog' },
           { text: 'Metrics & LRS', link: '/reference/metrics' },
           { text: 'Language Support', link: '/reference/language-support' },
         ]
