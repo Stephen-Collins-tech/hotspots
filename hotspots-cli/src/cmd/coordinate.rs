@@ -92,85 +92,156 @@ fn to_json(r: &CoordinateReport) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(&out)?)
 }
 
+const HIDDEN_TEXT_CAP: usize = 15;
+const MAX_PATH_WIDTH: usize = 50;
+
+fn sep(width: usize) {
+    println!("{}", "─".repeat(width));
+}
+
 fn print_text(out: &CoordinateReport) {
     println!("Coordination Signal Report");
-    println!("{}", "=".repeat(60));
+    sep(60);
 
-    println!("\nInput files ({})", out.input_files.len());
-    for f in &out.input_files {
-        println!("  {}", f);
-    }
-
+    // ── co-change pairs (within set) ─────────────────────────────
+    println!();
     if out.pairs.is_empty() {
-        println!("\nCo-change pairs (within set): none");
+        println!("Co-change pairs     none");
     } else {
-        println!("\nCo-change pairs (within set)");
-        println!("  {:<45} {:>8}  {:>8}", "pair", "count", "ratio");
-        println!("  {}", "-".repeat(65));
+        let pair_w = out
+            .pairs
+            .iter()
+            .map(|p| {
+                crate::util::truncate_string(
+                    &format!("{} ↔ {}", p.file_a, p.file_b),
+                    MAX_PATH_WIDTH * 2 + 3,
+                )
+                .len()
+            })
+            .max()
+            .unwrap_or(4)
+            .max("pair".len());
+        let total_w = pair_w + 8 + 7 + 6; // pair + count + ratio + spacing
+        println!("Co-change pairs");
+        println!(
+            "  {:<pair_w$}  {:>5}  {:>5}  dep",
+            "pair",
+            "count",
+            "ratio",
+            pair_w = pair_w
+        );
+        sep(total_w + 2);
         for p in &out.pairs {
-            let pair_str = format!("{} ↔ {}", p.file_a, p.file_b);
-            let dep_note = if p.has_static_dep { " [import]" } else { "" };
+            let pair_str = crate::util::truncate_string(
+                &format!("{} ↔ {}", p.file_a, p.file_b),
+                MAX_PATH_WIDTH * 2 + 3,
+            );
+            let dep = if p.has_static_dep { "import" } else { "" };
             println!(
-                "  {:<45} {:>8}  {:>7.2}{}",
-                pair_str, p.co_change_count, p.coupling_ratio, dep_note
+                "  {:<pair_w$}  {:>5}  {:>5.2}  {}",
+                pair_str,
+                p.co_change_count,
+                p.coupling_ratio,
+                dep,
+                pair_w = pair_w
             );
         }
     }
 
-    const HIDDEN_TEXT_CAP: usize = 15;
+    // ── hidden dependencies ──────────────────────────────────────
+    println!();
+    let shown_deps = out.hidden_dependencies.len().min(HIDDEN_TEXT_CAP);
+    let overflow = out
+        .hidden_dependencies
+        .len()
+        .saturating_sub(HIDDEN_TEXT_CAP);
     if out.hidden_dependencies.is_empty() {
-        println!("\nHidden dependencies: none");
+        println!("Hidden dependencies  none");
     } else {
-        let shown = out.hidden_dependencies.len().min(HIDDEN_TEXT_CAP);
-        let overflow = out
-            .hidden_dependencies
-            .len()
-            .saturating_sub(HIDDEN_TEXT_CAP);
-        println!("\nHidden dependencies (outside input set)");
+        let visible = &out.hidden_dependencies[..shown_deps];
+        let input_w = visible
+            .iter()
+            .map(|h| crate::util::truncate_string(&h.input_file, MAX_PATH_WIDTH).len())
+            .max()
+            .unwrap_or(10)
+            .max("input file".len());
+        let partner_w = visible
+            .iter()
+            .map(|h| crate::util::truncate_string(&h.partner, MAX_PATH_WIDTH).len())
+            .max()
+            .unwrap_or(7)
+            .max("partner".len());
+        let total_w = input_w + partner_w + 8 + 7 + 6;
+        println!("Hidden dependencies  (co-change partners outside input set)");
         println!(
-            "  {:<25} {:<25} {:>8}  {:>8}",
-            "input file", "partner", "count", "ratio"
+            "  {:<input_w$}  {:<partner_w$}  {:>5}  {:>5}",
+            "input file",
+            "partner",
+            "count",
+            "ratio",
+            input_w = input_w,
+            partner_w = partner_w
         );
-        println!("  {}", "-".repeat(70));
-        for h in &out.hidden_dependencies[..shown] {
+        sep(total_w + 2);
+        for h in visible {
             println!(
-                "  {:<25} {:<25} {:>8}  {:>7.2}",
-                h.input_file, h.partner, h.co_change_count, h.coupling_ratio
+                "  {:<input_w$}  {:<partner_w$}  {:>5}  {:>5.2}",
+                crate::util::truncate_string(&h.input_file, MAX_PATH_WIDTH),
+                crate::util::truncate_string(&h.partner, MAX_PATH_WIDTH),
+                h.co_change_count,
+                h.coupling_ratio,
+                input_w = input_w,
+                partner_w = partner_w
             );
         }
         if overflow > 0 {
-            println!("  ... {} more — use --json for full list", overflow);
+            println!("  … {} more  (--json for full list)", overflow);
         }
     }
 
-    println!("\nOwnership (last 90 days)");
-    println!("  {:<40} {:>8}  {:>12}", "file", "authors", "top author %");
-    println!("  {}", "-".repeat(65));
+    // ── ownership ────────────────────────────────────────────────
+    println!();
+    let file_w = out
+        .ownership
+        .iter()
+        .map(|o| crate::util::truncate_string(&o.file, MAX_PATH_WIDTH).len())
+        .max()
+        .unwrap_or(4)
+        .max("file".len());
+    let total_w = file_w + 8 + 13 + 6;
+    println!("Ownership  (last 90 days)");
+    println!(
+        "  {:<file_w$}  {:>7}  {:>11}",
+        "file",
+        "authors",
+        "top author %",
+        file_w = file_w
+    );
+    sep(total_w + 2);
     for o in &out.ownership {
         println!(
-            "  {:<40} {:>8}  {:>11.0}%",
-            o.file,
+            "  {:<file_w$}  {:>7}  {:>10.0}%",
+            crate::util::truncate_string(&o.file, MAX_PATH_WIDTH),
             o.author_count,
-            o.top_author_pct * 100.0
+            o.top_author_pct * 100.0,
+            file_w = file_w
         );
     }
 
-    println!("\nPartition recommendation");
+    // ── partition recommendation ─────────────────────────────────
+    println!();
+    println!("Partition recommendation");
+    sep(60);
     if out.serialize.is_empty() {
-        println!("  All files appear safe to modify in parallel.");
+        println!("  All input files are safe to modify in parallel.");
     } else {
         if !out.parallel_safe.is_empty() {
-            println!("  Parallel-safe:");
-            for f in &out.parallel_safe {
-                println!("    {}", f);
-            }
+            println!("  parallel   {}", out.parallel_safe.join("  "));
         }
         println!(
-            "  Serialize (coupling ratio ≥ {:.0}%):",
+            "  serialize  {}  (coupling ≥ {:.0}%)",
+            out.serialize.join("  "),
             SERIALIZE_THRESHOLD * 100.0
         );
-        for f in &out.serialize {
-            println!("    {}", f);
-        }
     }
 }
