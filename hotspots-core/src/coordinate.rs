@@ -9,6 +9,8 @@ pub const CO_CHANGE_MIN_COUNT: usize = 2;
 /// coupling_ratio at or above this → serialize recommendation
 pub const SERIALIZE_THRESHOLD: f64 = 0.4;
 pub const OWNERSHIP_WINDOW_DAYS: u64 = 90;
+/// Hidden deps with fewer co-changes than this are likely mass-commit artifacts
+pub const HIDDEN_DEP_MIN_COUNT: usize = 3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PairSignal {
@@ -83,6 +85,10 @@ pub fn coordinate(repo_root: &Path, files: &[String]) -> Result<CoordinateReport
 }
 
 /// Split co-change pairs into within-set and hidden-dep sets.
+///
+/// Hidden deps are filtered to source-like files with at least HIDDEN_DEP_MIN_COUNT
+/// co-changes. Low-count pairs at ratio 1.0 are typically mass-commit artifacts
+/// (release bumps, reformats) that touch non-source files alongside everything else.
 pub fn partition_pairs(
     pairs: &[CoChangePair],
     input: &HashSet<&str>,
@@ -101,26 +107,66 @@ pub fn partition_pairs(
                 coupling_ratio: pair.coupling_ratio,
                 has_static_dep: pair.has_static_dep,
             }),
-            (true, false) => hidden.push(HiddenDep {
-                input_file: pair.file_a.clone(),
-                partner: pair.file_b.clone(),
-                co_change_count: pair.co_change_count,
-                coupling_ratio: pair.coupling_ratio,
-            }),
-            (false, true) => hidden.push(HiddenDep {
-                input_file: pair.file_b.clone(),
-                partner: pair.file_a.clone(),
-                co_change_count: pair.co_change_count,
-                coupling_ratio: pair.coupling_ratio,
-            }),
+            (true, false) => {
+                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT && is_source_file(&pair.file_b) {
+                    hidden.push(HiddenDep {
+                        input_file: pair.file_a.clone(),
+                        partner: pair.file_b.clone(),
+                        co_change_count: pair.co_change_count,
+                        coupling_ratio: pair.coupling_ratio,
+                    });
+                }
+            }
+            (false, true) => {
+                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT && is_source_file(&pair.file_a) {
+                    hidden.push(HiddenDep {
+                        input_file: pair.file_b.clone(),
+                        partner: pair.file_a.clone(),
+                        co_change_count: pair.co_change_count,
+                        coupling_ratio: pair.coupling_ratio,
+                    });
+                }
+            }
             (false, false) => {}
         }
     }
 
     within.sort_by(|a, b| b.coupling_ratio.partial_cmp(&a.coupling_ratio).unwrap());
-    hidden.sort_by(|a, b| b.coupling_ratio.partial_cmp(&a.coupling_ratio).unwrap());
+    // Secondary sort by count so ties are deterministic
+    hidden.sort_by(|a, b| {
+        b.coupling_ratio
+            .partial_cmp(&a.coupling_ratio)
+            .unwrap()
+            .then(b.co_change_count.cmp(&a.co_change_count))
+    });
 
     (within, hidden)
+}
+
+/// Returns false for file extensions that are never meaningful coupling partners:
+/// data files, docs, scripts, lock files, CI config, and generated assets.
+fn is_source_file(path: &str) -> bool {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    !matches!(
+        ext,
+        "json"
+            | "md"
+            | "toml"
+            | "lock"
+            | "yaml"
+            | "yml"
+            | "sh"
+            | "txt"
+            | "png"
+            | "svg"
+            | "html"
+            | "css"
+            | "map"
+            | "d.ts"
+    ) && !path.ends_with(".d.ts")
 }
 
 /// Compute per-file ownership signals from git log over OWNERSHIP_WINDOW_DAYS.

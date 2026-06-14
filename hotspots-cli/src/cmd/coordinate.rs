@@ -117,20 +117,29 @@ fn print_text(out: &CoordinateReport) {
         }
     }
 
+    const HIDDEN_TEXT_CAP: usize = 15;
     if out.hidden_dependencies.is_empty() {
         println!("\nHidden dependencies: none");
     } else {
+        let shown = out.hidden_dependencies.len().min(HIDDEN_TEXT_CAP);
+        let overflow = out
+            .hidden_dependencies
+            .len()
+            .saturating_sub(HIDDEN_TEXT_CAP);
         println!("\nHidden dependencies (outside input set)");
         println!(
             "  {:<25} {:<25} {:>8}  {:>8}",
             "input file", "partner", "count", "ratio"
         );
         println!("  {}", "-".repeat(70));
-        for h in &out.hidden_dependencies {
+        for h in &out.hidden_dependencies[..shown] {
             println!(
                 "  {:<25} {:<25} {:>8}  {:>7.2}",
                 h.input_file, h.partner, h.co_change_count, h.coupling_ratio
             );
+        }
+        if overflow > 0 {
+            println!("  ... {} more — use --json for full list", overflow);
         }
     }
 

@@ -130,7 +130,7 @@ fn within_pairs_sorted_by_coupling_ratio_descending() {
 #[test]
 fn hidden_deps_sorted_by_coupling_ratio_descending() {
     let pairs = vec![
-        make_pair("auth.rs", "x.rs", 2, 0.2),
+        make_pair("auth.rs", "x.rs", 3, 0.2),
         make_pair("auth.rs", "y.rs", 5, 0.8),
     ];
     let input: HashSet<&str> = ["auth.rs"].into();
