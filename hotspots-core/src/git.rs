@@ -1120,6 +1120,207 @@ pub fn extract_co_change_pairs(
     Ok(pairs)
 }
 
+/// Parse unified diff output into `(file, changed_line_ranges)` pairs.
+/// Only considers added/context lines (lines starting with '+' or ' ') to map
+/// to functions that were actually touched.
+fn parse_diff_hunks(diff: &str) -> Vec<(String, Vec<(u32, u32)>)> {
+    let mut result: Vec<(String, Vec<(u32, u32)>)> = Vec::new();
+    let mut current_file: Option<String> = None;
+    let mut current_ranges: Vec<(u32, u32)> = Vec::new();
+
+    for line in diff.lines() {
+        if let Some(stripped) = line.strip_prefix("+++ b/") {
+            if let Some(file) = current_file.take() {
+                result.push((file, std::mem::take(&mut current_ranges)));
+            }
+            current_file = Some(stripped.to_string());
+        } else if line.starts_with("@@ ") {
+            // @@ -old_start,old_count +new_start,new_count @@
+            if let Some(new_part) = line.split('+').nth(1) {
+                let nums: Vec<&str> = new_part.split(',').collect();
+                if let Ok(start) = nums[0].trim().parse::<u32>() {
+                    let count = nums
+                        .get(1)
+                        .and_then(|s| s.split_whitespace().next())
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(1);
+                    if count > 0 {
+                        current_ranges.push((start, start + count - 1));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(file) = current_file {
+        result.push((file, current_ranges));
+    }
+    result
+}
+
+/// Mine function-level co-change pairs from git history over `window_days`.
+///
+/// Returns pairs of FQNs (`file::function`) that co-changed at least `min_count`
+/// times. Uses the same `CoChangePair` type as `extract_co_change_pairs` — the
+/// `file_a` / `file_b` fields contain FQNs rather than file paths.
+///
+/// Parsing uses the current file state to map changed line ranges to function
+/// names. Functions renamed in history will be misattributed; this is a known
+/// v1 limitation shared by the rest of hotspots' function-level analysis.
+pub fn extract_function_co_change_pairs(
+    repo_root: &Path,
+    files: &[String],
+    window_days: u64,
+    min_count: usize,
+) -> Result<Vec<CoChangePair>> {
+    use crate::analysis::parser_for_path;
+
+    // Build function map for each supported input file: file -> Vec<(fqn, start_line, end_line)>
+    let mut file_functions: std::collections::HashMap<String, Vec<(String, u32, u32)>> =
+        std::collections::HashMap::new();
+
+    for file in files {
+        let abs_path = repo_root.join(file);
+        if !abs_path.exists() {
+            continue;
+        }
+        let Ok(parser) = parser_for_path(&abs_path) else {
+            continue; // unsupported language — skip silently
+        };
+        let Ok(source) = std::fs::read_to_string(&abs_path) else {
+            continue;
+        };
+        let Ok(module) = parser.parse(&source, file) else {
+            continue;
+        };
+        let fns: Vec<(String, u32, u32)> = module
+            .discover_functions(0, &source)
+            .into_iter()
+            .filter_map(|f| {
+                f.name.map(|name| {
+                    let fqn = format!("{}::{}", file, name);
+                    (fqn, f.span.start_line, f.span.end_line)
+                })
+            })
+            .collect();
+        if !fns.is_empty() {
+            file_functions.insert(file.clone(), fns);
+        }
+    }
+
+    if file_functions.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let input_files: std::collections::HashSet<&str> = files.iter().map(|s| s.as_str()).collect();
+
+    // Walk git log to get commits that touched any input file
+    let file_args: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+    let since_flag = format!("--since={} days ago", window_days);
+    let mut log_args2: Vec<&str> = vec![
+        "log",
+        "--format=COMMIT:%H",
+        &since_flag,
+        "--diff-filter=AM",
+        "--",
+    ];
+    log_args2.extend(file_args.iter().copied());
+
+    let log_output = git_at(repo_root, &log_args2).unwrap_or_default();
+    let commit_hashes: Vec<String> = log_output
+        .lines()
+        .filter(|l| l.starts_with("COMMIT:"))
+        .map(|l| l[7..].to_string())
+        .collect();
+
+    let mut fqn_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut pair_counts: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+
+    for sha in &commit_hashes {
+        // Get unified diff for this commit, restricted to input files
+        let mut diff_args = vec![
+            "diff-tree",
+            "--no-commit-id",
+            "-p",
+            "--unified=0",
+            sha,
+            "--",
+        ];
+        diff_args.extend(file_args.iter().copied());
+        let diff = git_at(repo_root, &diff_args).unwrap_or_default();
+
+        let hunks = parse_diff_hunks(&diff);
+
+        // Collect FQNs touched in this commit
+        let mut touched: Vec<String> = Vec::new();
+        for (diff_file, ranges) in &hunks {
+            if !input_files.contains(diff_file.as_str()) {
+                continue;
+            }
+            let Some(fns) = file_functions.get(diff_file) else {
+                continue;
+            };
+            for (fqn, fn_start, fn_end) in fns {
+                for (hunk_start, hunk_end) in ranges {
+                    // Overlap: hunk touches this function's line range
+                    if hunk_start <= fn_end && hunk_end >= fn_start {
+                        touched.push(fqn.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        touched.sort();
+        touched.dedup();
+
+        for fqn in &touched {
+            *fqn_counts.entry(fqn.clone()).or_insert(0) += 1;
+        }
+        for i in 0..touched.len() {
+            for j in (i + 1)..touched.len() {
+                let key = (touched[i].clone(), touched[j].clone());
+                *pair_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let mut pairs: Vec<CoChangePair> = pair_counts
+        .into_iter()
+        .filter(|(_, count)| *count >= min_count)
+        .map(|((fqn_a, fqn_b), co_change_count)| {
+            let count_a = fqn_counts.get(&fqn_a).copied().unwrap_or(1);
+            let count_b = fqn_counts.get(&fqn_b).copied().unwrap_or(1);
+            let coupling_ratio = co_change_count as f64 / count_a.min(count_b) as f64;
+            let risk = if coupling_ratio > 0.5 {
+                "high".to_string()
+            } else if coupling_ratio > 0.25 {
+                "moderate".to_string()
+            } else {
+                "low".to_string()
+            };
+            CoChangePair {
+                file_a: fqn_a,
+                file_b: fqn_b,
+                co_change_count,
+                coupling_ratio: (coupling_ratio * 1000.0).round() / 1000.0,
+                risk,
+                has_static_dep: false,
+            }
+        })
+        .collect();
+
+    pairs.sort_by(|a, b| {
+        b.coupling_ratio
+            .partial_cmp(&a.coupling_ratio)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file_a.cmp(&b.file_a))
+            .then(a.file_b.cmp(&b.file_b))
+    });
+
+    Ok(pairs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,4 +1,4 @@
-use crate::git::{extract_co_change_pairs, CoChangePair};
+use crate::git::{extract_co_change_pairs, extract_function_co_change_pairs, CoChangePair};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -82,6 +82,95 @@ pub fn coordinate(repo_root: &Path, files: &[String]) -> Result<CoordinateReport
         input_files: files.to_vec(),
         pairs,
         hidden_dependencies: hidden,
+        ownership,
+        parallel_safe,
+        serialize,
+    })
+}
+
+/// Function-level coordinate: partitions at FQN granularity (`file::function`).
+/// Two functions in the same file can appear in different partitions if they
+/// don't co-change. Hidden deps and ownership remain at file level.
+pub fn coordinate_functions(repo_root: &Path, files: &[String]) -> Result<CoordinateReport> {
+    let pairs = extract_function_co_change_pairs(
+        repo_root,
+        files,
+        CO_CHANGE_WINDOW_DAYS,
+        CO_CHANGE_MIN_COUNT,
+    )
+    .unwrap_or_default();
+
+    // Collect all FQNs that appear in any pair
+    let all_fqns: std::collections::HashSet<String> = pairs
+        .iter()
+        .flat_map(|p| [p.file_a.clone(), p.file_b.clone()])
+        .collect();
+
+    // Also include FQNs from files with no co-change pairs (parse them directly)
+    let mut input_fqns: Vec<String> = {
+        use crate::analysis::parser_for_path;
+        let mut fqns = Vec::new();
+        for file in files {
+            let abs_path = repo_root.join(file);
+            if !abs_path.exists() {
+                continue;
+            }
+            let Ok(parser) = parser_for_path(&abs_path) else {
+                continue;
+            };
+            let Ok(source) = std::fs::read_to_string(&abs_path) else {
+                continue;
+            };
+            let Ok(module) = parser.parse(&source, file) else {
+                continue;
+            };
+            for f in module.discover_functions(0, &source) {
+                if let Some(name) = f.name {
+                    fqns.push(format!("{}::{}", file, name));
+                }
+            }
+        }
+        fqns
+    };
+    // Add any FQNs from pairs not already in input_fqns (shouldn't happen but be safe)
+    for fqn in &all_fqns {
+        if !input_fqns.contains(fqn) {
+            input_fqns.push(fqn.clone());
+        }
+    }
+    input_fqns.sort();
+    input_fqns.dedup();
+
+    let input_set: std::collections::HashSet<&str> =
+        input_fqns.iter().map(|s| s.as_str()).collect();
+
+    let (within_pairs, _hidden) = partition_pairs(&pairs, &input_set);
+
+    let must_serialize: std::collections::HashSet<&str> = within_pairs
+        .iter()
+        .filter(|p| p.coupling_ratio >= SERIALIZE_THRESHOLD)
+        .flat_map(|p| [p.file_a.as_str(), p.file_b.as_str()])
+        .collect();
+
+    let mut parallel_safe: Vec<String> = input_fqns
+        .iter()
+        .filter(|f| !must_serialize.contains(f.as_str()))
+        .cloned()
+        .collect();
+    let mut serialize: Vec<String> = input_fqns
+        .iter()
+        .filter(|f| must_serialize.contains(f.as_str()))
+        .cloned()
+        .collect();
+    parallel_safe.sort();
+    serialize.sort();
+
+    let ownership = compute_ownership(repo_root, files)?;
+
+    Ok(CoordinateReport {
+        input_files: files.to_vec(),
+        pairs: within_pairs,
+        hidden_dependencies: Vec::new(), // hidden deps stay at file level
         ownership,
         parallel_safe,
         serialize,

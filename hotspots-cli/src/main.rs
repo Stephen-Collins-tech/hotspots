@@ -227,6 +227,10 @@ enum Commands {
         #[arg(long, default_value = ".")]
         path: std::path::PathBuf,
 
+        /// Partition granularity: file (default) or function
+        #[arg(long, default_value = "file")]
+        level: CoordinateLevel,
+
         /// Force JSON output (default when stdout is not a TTY)
         #[arg(long, conflicts_with = "text")]
         json: bool,
@@ -291,6 +295,12 @@ pub(crate) enum OutputMode {
 pub(crate) enum OutputLevel {
     File,
     Module,
+}
+
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+pub(crate) enum CoordinateLevel {
+    File,
+    Function,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -382,6 +392,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Coordinate {
             files,
             path,
+            level,
             json,
             text,
         } => {
@@ -389,6 +400,7 @@ fn main() -> anyhow::Result<()> {
             cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs {
                 path,
                 files,
+                level,
                 json: use_json,
             })?
         }

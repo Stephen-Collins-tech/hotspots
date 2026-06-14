@@ -1,3 +1,4 @@
+use crate::CoordinateLevel;
 use hotspots_core::coordinate::{CoordinateReport, HIDDEN_JSON_CAP, SERIALIZE_THRESHOLD};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -5,6 +6,7 @@ use std::path::PathBuf;
 pub(crate) struct CoordinateArgs {
     pub path: PathBuf,
     pub files: Vec<String>,
+    pub level: CoordinateLevel,
     pub json: bool,
 }
 
@@ -49,7 +51,12 @@ fn is_zero(n: &usize) -> bool {
 
 pub(crate) fn handle_coordinate(args: CoordinateArgs) -> anyhow::Result<()> {
     let repo_root = crate::util::find_repo_root(&args.path)?;
-    let report = hotspots_core::coordinate::coordinate(&repo_root, &args.files)?;
+    let report = match args.level {
+        CoordinateLevel::File => hotspots_core::coordinate::coordinate(&repo_root, &args.files)?,
+        CoordinateLevel::Function => {
+            hotspots_core::coordinate::coordinate_functions(&repo_root, &args.files)?
+        }
+    };
 
     if args.json {
         println!("{}", to_json(&report)?);

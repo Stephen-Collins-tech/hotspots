@@ -119,6 +119,15 @@ fn looks_vendored(path: &Path) -> bool {
     })
 }
 
+/// Instantiates a parser for a file path, constructing any required internal state.
+/// Used by callers that don't already have a SourceMap (e.g. coordinate).
+pub(crate) fn parser_for_path(path: &Path) -> Result<Box<dyn LanguageParser>> {
+    let language = Language::from_path(path)
+        .ok_or_else(|| anyhow::anyhow!("unsupported file type: {}", path.display()))?;
+    let source_map = Lrc::new(SourceMap::default());
+    create_parser(language, &source_map)
+}
+
 /// Instantiates the correct parser for the given language.
 fn create_parser(
     language: Language,
