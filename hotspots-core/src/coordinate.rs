@@ -11,6 +11,10 @@ pub const SERIALIZE_THRESHOLD: f64 = 0.4;
 pub const OWNERSHIP_WINDOW_DAYS: u64 = 90;
 /// Hidden deps with fewer co-changes than this are likely mass-commit artifacts
 pub const HIDDEN_DEP_MIN_COUNT: usize = 3;
+/// Hidden deps below this coupling ratio are noise — omit from output
+pub const HIDDEN_DEP_MIN_RATIO: f64 = 0.7;
+/// Max hidden deps emitted in JSON output; remainder reported as omitted_count
+pub const HIDDEN_JSON_CAP: usize = 10;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PairSignal {
@@ -108,7 +112,10 @@ pub fn partition_pairs(
                 has_static_dep: pair.has_static_dep,
             }),
             (true, false) => {
-                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT && is_source_file(&pair.file_b) {
+                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT
+                    && pair.coupling_ratio >= HIDDEN_DEP_MIN_RATIO
+                    && is_source_file(&pair.file_b)
+                {
                     hidden.push(HiddenDep {
                         input_file: pair.file_a.clone(),
                         partner: pair.file_b.clone(),
@@ -118,7 +125,10 @@ pub fn partition_pairs(
                 }
             }
             (false, true) => {
-                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT && is_source_file(&pair.file_a) {
+                if pair.co_change_count >= HIDDEN_DEP_MIN_COUNT
+                    && pair.coupling_ratio >= HIDDEN_DEP_MIN_RATIO
+                    && is_source_file(&pair.file_a)
+                {
                     hidden.push(HiddenDep {
                         input_file: pair.file_b.clone(),
                         partner: pair.file_a.clone(),

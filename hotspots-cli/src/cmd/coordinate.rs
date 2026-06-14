@@ -1,4 +1,4 @@
-use hotspots_core::coordinate::{CoordinateReport, SERIALIZE_THRESHOLD};
+use hotspots_core::coordinate::{CoordinateReport, HIDDEN_JSON_CAP, SERIALIZE_THRESHOLD};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -36,9 +36,15 @@ struct JsonOutput {
     input_files: Vec<String>,
     pairs: Vec<PairSignal>,
     hidden_dependencies: Vec<HiddenDep>,
+    #[serde(skip_serializing_if = "is_zero")]
+    hidden_dependencies_omitted: usize,
     ownership: Vec<OwnershipSignal>,
     parallel_safe: Vec<String>,
     serialize: Vec<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 pub(crate) fn handle_coordinate(args: CoordinateArgs) -> anyhow::Result<()> {
@@ -55,6 +61,8 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> anyhow::Result<()> {
 }
 
 fn to_json(r: &CoordinateReport) -> anyhow::Result<String> {
+    let hidden_cap = r.hidden_dependencies.len().min(HIDDEN_JSON_CAP);
+    let hidden_omitted = r.hidden_dependencies.len().saturating_sub(HIDDEN_JSON_CAP);
     let out = JsonOutput {
         input_files: r.input_files.clone(),
         pairs: r
@@ -67,8 +75,7 @@ fn to_json(r: &CoordinateReport) -> anyhow::Result<String> {
                 has_static_dep: p.has_static_dep,
             })
             .collect(),
-        hidden_dependencies: r
-            .hidden_dependencies
+        hidden_dependencies: r.hidden_dependencies[..hidden_cap]
             .iter()
             .map(|h| HiddenDep {
                 input_file: h.input_file.clone(),
@@ -77,6 +84,7 @@ fn to_json(r: &CoordinateReport) -> anyhow::Result<String> {
                 coupling_ratio: h.coupling_ratio,
             })
             .collect(),
+        hidden_dependencies_omitted: hidden_omitted,
         ownership: r
             .ownership
             .iter()

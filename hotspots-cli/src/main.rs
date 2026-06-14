@@ -227,9 +227,13 @@ enum Commands {
         #[arg(long, default_value = ".")]
         path: std::path::PathBuf,
 
-        /// Emit JSON output instead of human-readable text
-        #[arg(long)]
+        /// Force JSON output (default when stdout is not a TTY)
+        #[arg(long, conflicts_with = "text")]
         json: bool,
+
+        /// Force human-readable text output (default when stdout is a TTY)
+        #[arg(long, conflicts_with = "json")]
+        text: bool,
     },
     /// Train a local RandomForest ranker from fix-commit history
     Train {
@@ -375,11 +379,17 @@ fn main() -> anyhow::Result<()> {
             config_path: config,
             auto_analyze,
         })?,
-        Commands::Coordinate { files, path, json } => {
+        Commands::Coordinate {
+            files,
+            path,
+            json,
+            text,
+        } => {
+            let use_json = json || (!text && !std::io::IsTerminal::is_terminal(&std::io::stdout()));
             cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs {
                 path,
                 files,
-                json,
+                json: use_json,
             })?
         }
         Commands::Train {

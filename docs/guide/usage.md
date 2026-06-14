@@ -254,10 +254,15 @@ This reads co-change history and ownership signals already computed by Hotspots 
 - Which files *outside* your set are strong co-change partners (hidden dependencies you didn't plan for)
 - Which files are safe to modify in parallel vs which should be serialised
 
-**JSON output for scripts and orchestrators:**
+**Output format:** JSON is emitted automatically when stdout is not a TTY (piped to a script, LLM tool call, etc.). Force it explicitly with `--json`; force human-readable text with `--text`.
 
 ```bash
+# JSON — auto when piped; force explicitly with --json
+hotspots coordinate --files auth.rs,session.rs | jq .serialize
 hotspots coordinate --files auth.rs,session.rs --json
+
+# Human-readable text even when piped
+hotspots coordinate --files auth.rs,session.rs --text | tee report.txt
 ```
 
 The JSON schema is stable — `pairs`, `hidden_dependencies`, `ownership`, `parallel_safe`, and `serialize` fields are consistent across versions.

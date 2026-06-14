@@ -85,7 +85,7 @@ fn within_pair_both_in_set() {
 
 #[test]
 fn hidden_dep_when_one_file_outside_set() {
-    let pairs = vec![make_pair("auth.rs", "token.rs", 3, 0.6)];
+    let pairs = vec![make_pair("auth.rs", "token.rs", 3, 0.8)];
     let input: HashSet<&str> = ["auth.rs"].into();
     let (within, hidden) = partition_pairs(&pairs, &input);
     assert!(within.is_empty());
@@ -97,7 +97,7 @@ fn hidden_dep_when_one_file_outside_set() {
 #[test]
 fn hidden_dep_direction_normalised_when_b_is_input() {
     // file_b is in the input set — partner should still be file_a
-    let pairs = vec![make_pair("token.rs", "session.rs", 3, 0.6)];
+    let pairs = vec![make_pair("token.rs", "session.rs", 3, 0.8)];
     let input: HashSet<&str> = ["session.rs"].into();
     let (_, hidden) = partition_pairs(&pairs, &input);
     assert_eq!(hidden[0].input_file, "session.rs");
@@ -130,13 +130,13 @@ fn within_pairs_sorted_by_coupling_ratio_descending() {
 #[test]
 fn hidden_deps_sorted_by_coupling_ratio_descending() {
     let pairs = vec![
-        make_pair("auth.rs", "x.rs", 3, 0.2),
+        make_pair("auth.rs", "x.rs", 3, 0.7),
         make_pair("auth.rs", "y.rs", 5, 0.8),
     ];
     let input: HashSet<&str> = ["auth.rs"].into();
     let (_, hidden) = partition_pairs(&pairs, &input);
     assert_eq!(hidden[0].coupling_ratio, 0.8);
-    assert_eq!(hidden[1].coupling_ratio, 0.2);
+    assert_eq!(hidden[1].coupling_ratio, 0.7);
 }
 
 // ── serialize / parallel_safe split ──────────────────────────────────────────

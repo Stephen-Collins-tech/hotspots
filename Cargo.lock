@@ -435,6 +435,8 @@ dependencies = [
  "is-terminal",
  "owo-colors",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
