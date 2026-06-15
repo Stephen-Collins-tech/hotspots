@@ -54,32 +54,10 @@ fn extract_rust_imports(source: &str) -> Vec<String> {
 fn flatten_use_tree(tree: &syn::UseTree, prefix: &str) -> Vec<String> {
     match tree {
         syn::UseTree::Path(p) => {
-            let seg = p.ident.to_string();
-            let new_prefix = if prefix.is_empty() {
-                seg
-            } else {
-                format!("{}::{}", prefix, seg)
-            };
-            flatten_use_tree(&p.tree, &new_prefix)
+            flatten_use_tree(&p.tree, &join_path(prefix, &p.ident.to_string()))
         }
-        syn::UseTree::Name(n) => {
-            let seg = n.ident.to_string();
-            let full = if prefix.is_empty() {
-                seg
-            } else {
-                format!("{}::{}", prefix, seg)
-            };
-            vec![full]
-        }
-        syn::UseTree::Rename(r) => {
-            let seg = r.ident.to_string();
-            let full = if prefix.is_empty() {
-                seg
-            } else {
-                format!("{}::{}", prefix, seg)
-            };
-            vec![full]
-        }
+        syn::UseTree::Name(n) => vec![join_path(prefix, &n.ident.to_string())],
+        syn::UseTree::Rename(r) => vec![join_path(prefix, &r.ident.to_string())],
         syn::UseTree::Glob(_) => {
             // `use crate::foo::*;` — the prefix IS the module
             if prefix.is_empty() {
@@ -93,6 +71,14 @@ fn flatten_use_tree(tree: &syn::UseTree, prefix: &str) -> Vec<String> {
             .iter()
             .flat_map(|item| flatten_use_tree(item, prefix))
             .collect(),
+    }
+}
+
+fn join_path(prefix: &str, seg: &str) -> String {
+    if prefix.is_empty() {
+        seg.to_string()
+    } else {
+        format!("{}::{}", prefix, seg)
     }
 }
 
@@ -602,40 +588,45 @@ pub fn resolve_file_deps(source_files: &[&str], repo_root: &Path) -> Vec<(String
     let mut seen_edges: HashSet<(String, String)> = HashSet::new();
 
     for &file in source_files {
-        let lang = match Language::from_path(Path::new(file)) {
-            Some(l) => l,
-            None => continue,
-        };
-
-        let abs_path = if Path::new(file).is_absolute() {
-            PathBuf::from(file)
-        } else {
-            repo_root.join(file)
-        };
-
-        let source = match std::fs::read_to_string(&abs_path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        let raw_imports = extract_raw_imports(&source, lang);
-
-        for raw in raw_imports {
-            if let Some(to_file) =
-                resolve_import(&raw, file, &all_files_set, lang, repo_root, &crate_map)
-            {
-                if to_file == file {
-                    continue; // skip self-edges
-                }
-                let edge = (file.to_string(), to_file);
-                if seen_edges.insert(edge.clone()) {
-                    edges.push(edge);
-                }
+        for edge in extract_file_import_edges(file, &all_files_set, repo_root, &crate_map) {
+            if seen_edges.insert(edge.clone()) {
+                edges.push(edge);
             }
         }
     }
 
     edges
+}
+
+/// Collect all resolved import edges originating from a single source file.
+fn extract_file_import_edges(
+    file: &str,
+    all_files_set: &HashSet<String>,
+    repo_root: &Path,
+    crate_map: &HashMap<String, PathBuf>,
+) -> Vec<(String, String)> {
+    let lang = match Language::from_path(Path::new(file)) {
+        Some(l) => l,
+        None => return vec![],
+    };
+
+    let abs_path = if Path::new(file).is_absolute() {
+        PathBuf::from(file)
+    } else {
+        repo_root.join(file)
+    };
+
+    let source = match std::fs::read_to_string(&abs_path) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+
+    extract_raw_imports(&source, lang)
+        .into_iter()
+        .filter_map(|raw| resolve_import(&raw, file, all_files_set, lang, repo_root, crate_map))
+        .filter(|to_file| to_file.as_str() != file)
+        .map(|to_file| (file.to_string(), to_file))
+        .collect()
 }
 
 /// Extract workspace member names from a workspace `Cargo.toml` string.
@@ -713,37 +704,16 @@ pub fn resolve_cargo_workspace_edges(
         return Vec::new();
     }
 
-    // Build member_prefix (e.g. "hotspots-cli/") → [dep_lib_rs] map
-    let prefix_to_libs: Vec<(String, Vec<String>)> = members
-        .iter()
-        .filter_map(|member| {
-            let dep_libs = resolve_member_dep_libs(repo_root, member);
-            if dep_libs.is_empty() {
-                None
-            } else {
-                Some((format!("{}/", member), dep_libs))
-            }
-        })
-        .collect();
-
+    let prefix_to_libs = build_prefix_lib_map(&members, repo_root);
     if prefix_to_libs.is_empty() {
         return Vec::new();
     }
 
-    // For each source file, emit edges to dep lib.rs files for matching member prefixes
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut seen: HashSet<(String, String)> = HashSet::new();
 
     for &file in source_files {
-        let rel_file = if Path::new(file).is_absolute() {
-            match Path::new(file).strip_prefix(repo_root) {
-                Ok(r) => r.to_string_lossy().into_owned(),
-                Err(_) => file.to_string(),
-            }
-        } else {
-            file.to_string()
-        };
-
+        let rel_file = to_repo_relative(file, repo_root);
         for (prefix, dep_libs) in &prefix_to_libs {
             if rel_file.starts_with(prefix.as_str()) {
                 for dep_lib in dep_libs {
@@ -759,6 +729,33 @@ pub fn resolve_cargo_workspace_edges(
     }
 
     edges
+}
+
+/// Build a `"member/" → [dep_lib_rs_paths]` map for workspace edge resolution.
+fn build_prefix_lib_map(members: &[String], repo_root: &Path) -> Vec<(String, Vec<String>)> {
+    members
+        .iter()
+        .filter_map(|member| {
+            let dep_libs = resolve_member_dep_libs(repo_root, member);
+            if dep_libs.is_empty() {
+                None
+            } else {
+                Some((format!("{}/", member), dep_libs))
+            }
+        })
+        .collect()
+}
+
+/// Return the repo-relative form of `file`, stripping `repo_root` if absolute.
+fn to_repo_relative(file: &str, repo_root: &Path) -> String {
+    if Path::new(file).is_absolute() {
+        match Path::new(file).strip_prefix(repo_root) {
+            Ok(r) => r.to_string_lossy().into_owned(),
+            Err(_) => file.to_string(),
+        }
+    } else {
+        file.to_string()
+    }
 }
 
 #[cfg(test)]
