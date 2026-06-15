@@ -195,6 +195,16 @@ fn extract_ecmascript_imports(source: &str) -> Vec<String> {
 
 // --- Resolution helpers ---
 
+/// Return the absolute parent directory of a source file path.
+fn to_abs_dir(file: &str, repo_root: &Path) -> PathBuf {
+    let parent = Path::new(file).parent().unwrap_or(Path::new("."));
+    if parent.is_absolute() {
+        parent.to_path_buf()
+    } else {
+        repo_root.join(parent)
+    }
+}
+
 /// Find crate root (dir containing Cargo.toml) by walking up from a file.
 fn find_crate_root(file_path: &Path) -> Option<PathBuf> {
     let mut dir = file_path.parent()?;
@@ -293,37 +303,30 @@ fn resolve_ecmascript(
     if !raw.starts_with("./") && !raw.starts_with("../") {
         return None; // external package
     }
+    let base = normalize_path_lexically(&to_abs_dir(importing_file, repo_root).join(raw));
+    find_ecmascript_file(&base, all_files_set, repo_root)
+}
 
-    let importing_path = Path::new(importing_file);
-    let parent = importing_path.parent().unwrap_or(Path::new("."));
-    let abs_parent = if parent.is_absolute() {
-        parent.to_path_buf()
-    } else {
-        repo_root.join(parent)
-    };
-
-    let base = abs_parent.join(raw);
-    // Normalize without requiring the path to exist (canonicalize would fail)
-    let base = normalize_path_lexically(&base);
-
-    let exts = ["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"];
-
-    // Try with extensions
-    for ext in &exts {
-        let candidate = base.with_extension(ext);
-        if let Some(hit) = check_in_set(&candidate, all_files_set, repo_root) {
+/// Try all TypeScript/JavaScript extensions and index-file forms for `base`.
+fn find_ecmascript_file(
+    base: &Path,
+    all_files_set: &HashSet<String>,
+    repo_root: &Path,
+) -> Option<String> {
+    for ext in &["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"] {
+        if let Some(hit) = check_in_set(&base.with_extension(ext), all_files_set, repo_root) {
             return Some(hit);
         }
     }
-
-    // Try as directory/index.{ext}
     for ext in &["ts", "js", "tsx", "jsx"] {
-        let candidate = base.join(format!("index.{}", ext));
-        if let Some(hit) = check_in_set(&candidate, all_files_set, repo_root) {
+        if let Some(hit) = check_in_set(
+            &base.join(format!("index.{}", ext)),
+            all_files_set,
+            repo_root,
+        ) {
             return Some(hit);
         }
     }
-
     None
 }
 
@@ -377,29 +380,53 @@ fn try_resolve_rust_module(
     crate_map: &HashMap<String, PathBuf>,
 ) -> Option<String> {
     if let Some(sub) = module_path.strip_prefix("crate::") {
-        let rust_path = sub.replace("::", "/");
-        let crate_root = find_crate_root(importing_abs)?;
-        let src_dir = crate_root.join("src");
-        return try_rs_candidates(&src_dir, &rust_path, all_files_set, repo_root);
+        return resolve_crate_path(sub, importing_abs, all_files_set, repo_root);
     }
-
     if let Some(sub) = module_path.strip_prefix("super::") {
-        let rust_path = sub.replace("::", "/");
-        let parent_dir = importing_abs.parent()?.parent()?;
-        return try_rs_candidates(parent_dir, &rust_path, all_files_set, repo_root);
+        return resolve_super_path(sub, importing_abs, all_files_set, repo_root);
     }
+    resolve_cross_crate_path(module_path, all_files_set, repo_root, crate_map)
+}
 
-    // cross-crate: first segment is crate name
-    if let Some(sep) = module_path.find("::") {
-        let crate_name = &module_path[..sep];
-        let sub = &module_path[sep + 2..];
-        let rust_path = sub.replace("::", "/");
-        if let Some(src_dir) = crate_map.get(crate_name) {
-            return try_rs_candidates(src_dir, &rust_path, all_files_set, repo_root);
-        }
-    }
+fn resolve_crate_path(
+    sub: &str,
+    importing_abs: &Path,
+    all_files_set: &HashSet<String>,
+    repo_root: &Path,
+) -> Option<String> {
+    let src_dir = find_crate_root(importing_abs)?.join("src");
+    try_rs_candidates(&src_dir, &sub.replace("::", "/"), all_files_set, repo_root)
+}
 
-    None
+fn resolve_super_path(
+    sub: &str,
+    importing_abs: &Path,
+    all_files_set: &HashSet<String>,
+    repo_root: &Path,
+) -> Option<String> {
+    let parent_dir = importing_abs.parent()?.parent()?;
+    try_rs_candidates(
+        parent_dir,
+        &sub.replace("::", "/"),
+        all_files_set,
+        repo_root,
+    )
+}
+
+fn resolve_cross_crate_path(
+    module_path: &str,
+    all_files_set: &HashSet<String>,
+    repo_root: &Path,
+    crate_map: &HashMap<String, PathBuf>,
+) -> Option<String> {
+    let sep = module_path.find("::")?;
+    let src_dir = crate_map.get(&module_path[..sep])?;
+    try_rs_candidates(
+        src_dir,
+        &module_path[sep + 2..].replace("::", "/"),
+        all_files_set,
+        repo_root,
+    )
 }
 
 /// Try `{src_dir}/{path}.rs` and `{src_dir}/{path}/mod.rs`.
@@ -459,13 +486,7 @@ fn resolve_python(
     all_files_set: &HashSet<String>,
     repo_root: &Path,
 ) -> Option<String> {
-    let importing_path = Path::new(importing_file);
-    let parent = importing_path.parent().unwrap_or(Path::new("."));
-    let abs_parent = if parent.is_absolute() {
-        parent.to_path_buf()
-    } else {
-        repo_root.join(parent)
-    };
+    let abs_parent = to_abs_dir(importing_file, repo_root);
 
     // Count leading dots (relative imports)
     let dots = raw.chars().take_while(|c| *c == '.').count();
@@ -694,40 +715,60 @@ pub fn resolve_cargo_workspace_edges(
     repo_root: &Path,
     source_files: &[&str],
 ) -> Vec<(String, String)> {
-    let workspace_toml = match std::fs::read_to_string(repo_root.join("Cargo.toml")) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-
-    let members = parse_workspace_members(&workspace_toml);
+    let members = load_workspace_members(repo_root);
     if members.is_empty() {
         return Vec::new();
     }
-
     let prefix_to_libs = build_prefix_lib_map(&members, repo_root);
     if prefix_to_libs.is_empty() {
         return Vec::new();
     }
+    collect_workspace_edges(source_files, repo_root, &prefix_to_libs)
+}
 
+/// Read workspace Cargo.toml and return the list of member names (empty on any failure).
+fn load_workspace_members(repo_root: &Path) -> Vec<String> {
+    match std::fs::read_to_string(repo_root.join("Cargo.toml")) {
+        Ok(toml) => parse_workspace_members(&toml),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Iterate all source files, emit workspace dep edges, and deduplicate.
+fn collect_workspace_edges(
+    source_files: &[&str],
+    repo_root: &Path,
+    prefix_to_libs: &[(String, Vec<String>)],
+) -> Vec<(String, String)> {
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut seen: HashSet<(String, String)> = HashSet::new();
-
     for &file in source_files {
         let rel_file = to_repo_relative(file, repo_root);
-        for (prefix, dep_libs) in &prefix_to_libs {
-            if rel_file.starts_with(prefix.as_str()) {
-                for dep_lib in dep_libs {
-                    if rel_file != dep_lib.as_str() {
-                        let edge = (file.to_string(), dep_lib.clone());
-                        if seen.insert(edge.clone()) {
-                            edges.push(edge);
-                        }
-                    }
+        for edge in workspace_edges_for_file(file, &rel_file, prefix_to_libs) {
+            if seen.insert(edge.clone()) {
+                edges.push(edge);
+            }
+        }
+    }
+    edges
+}
+
+/// Emit workspace dependency edges for a single source file against a prefix map.
+fn workspace_edges_for_file(
+    file: &str,
+    rel_file: &str,
+    prefix_to_libs: &[(String, Vec<String>)],
+) -> Vec<(String, String)> {
+    let mut edges = Vec::new();
+    for (prefix, dep_libs) in prefix_to_libs {
+        if rel_file.starts_with(prefix.as_str()) {
+            for dep_lib in dep_libs {
+                if rel_file != dep_lib.as_str() {
+                    edges.push((file.to_string(), dep_lib.clone()));
                 }
             }
         }
     }
-
     edges
 }
 
