@@ -271,14 +271,20 @@ impl PythonCfgBuilderState {
         self.current_node = Some(join_node);
     }
 
-    fn build_try_block(&mut self, node: &Node, source: &str, from_node: NodeId) -> NodeId {
+    fn build_try_block(
+        &mut self,
+        node: &Node,
+        source: &str,
+        from_node: NodeId,
+    ) -> (NodeId, NodeId) {
         let try_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(from_node, try_start);
         if let Some(body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(try_start);
             self.build_from_block(&body, source);
         }
-        self.current_node.unwrap_or(try_start)
+        let try_end = self.current_node.unwrap_or(try_start);
+        (try_start, try_end)
     }
 
     fn process_except_clause(&mut self, child: Node, from_node: NodeId, source: &str) -> NodeId {
@@ -311,13 +317,23 @@ impl PythonCfgBuilderState {
         &mut self,
         child: Node,
         branch_ends: &[NodeId],
+        fallback: NodeId,
         source: &str,
     ) -> NodeId {
         let finally_node = self.cfg.add_node(NodeKind::Statement);
+        let exit = self.cfg.exit;
+        let mut connected = false;
         for &end in branch_ends {
-            if end != self.cfg.exit {
+            if end != exit {
                 self.cfg.add_edge(end, finally_node);
+                connected = true;
             }
+        }
+        // When all branches terminate (return/raise), finally_node would have no
+        // predecessors. Fall back to try_start so finally remains reachable,
+        // matching the JS builder's connect_finally fallback logic.
+        if !connected {
+            self.cfg.add_edge(fallback, finally_node);
         }
         if let Some(body) = find_child_by_kind(child, "block") {
             self.current_node = Some(finally_node);
@@ -328,7 +344,7 @@ impl PythonCfgBuilderState {
 
     fn visit_try(&mut self, node: &Node, source: &str) {
         let from_node = self.current_node.expect("Current node should exist");
-        let try_end = self.build_try_block(node, source, from_node);
+        let (try_start, try_end) = self.build_try_block(node, source, from_node);
         let mut branch_ends = vec![try_end];
 
         let mut cursor = node.walk();
@@ -343,7 +359,7 @@ impl PythonCfgBuilderState {
                     }
                 }
                 "finally_clause" => {
-                    let end = self.process_finally_clause(child, &branch_ends, source);
+                    let end = self.process_finally_clause(child, &branch_ends, try_start, source);
                     branch_ends = vec![end];
                 }
                 _ => {}
@@ -592,5 +608,31 @@ def test_func(items):
 
         // Should have loop structure
         assert!(cfg.node_count() >= 5);
+    }
+
+    #[test]
+    fn test_try_except_finally_all_return() {
+        // Regression: when both try and except terminate with return,
+        // the finally block must still be reachable (not produce "Nodes not
+        // reachable from entry" validation errors).
+        let source = r#"
+def request(self, method, timeout=60.0):
+    rid = self._next_id()
+    try:
+        return self.q.get(timeout=timeout)
+    except Exception:
+        return {"error": "timeout"}
+    finally:
+        self.cleanup(rid)
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+
+        // validate() would panic with "Nodes not reachable from entry" before the fix
+        assert!(
+            cfg.validate().is_ok(),
+            "CFG should be valid when try+except both return and finally is present"
+        );
     }
 }
