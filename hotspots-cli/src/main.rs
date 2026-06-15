@@ -184,6 +184,9 @@ enum Commands {
         /// Print pre-commit framework and raw shell hook templates to stdout
         #[arg(long)]
         hooks: bool,
+        /// Write a GitHub Actions workflow to .github/workflows/hotspots.yml
+        #[arg(long)]
+        ci: bool,
     },
     /// Compare analysis snapshots between two git refs
     Diff {
@@ -341,7 +344,7 @@ fn main() -> anyhow::Result<()> {
             window,
             top,
         } => cmd::trends::handle_trends(path, format, window, top)?,
-        Commands::Init { hooks } => cmd::init::handle_init(hooks)?,
+        Commands::Init { hooks, ci } => cmd::init::handle_init(hooks, ci)?,
         Commands::Diff {
             base,
             head,

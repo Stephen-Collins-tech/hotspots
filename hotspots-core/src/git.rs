@@ -305,13 +305,20 @@ pub fn resolve_merge_base(target_branch: &str) -> Result<Option<String>> {
 
 /// Resolve merge-base with common target branches
 ///
-/// Tries common branch names (main, master, develop) to find merge-base.
-/// Returns first successful merge-base, or None if all fail.
+/// Tries local and remote-tracking names (main, origin/main, master, …) so
+/// this works both locally (where `main` is checked out) and in CI shallow
+/// clones (where only `origin/main` exists as a remote-tracking ref).
 pub fn resolve_merge_base_auto() -> Option<String> {
-    let common_branches = ["main", "master", "develop", "trunk"];
+    let base_names = ["main", "master", "develop", "trunk"];
 
-    for branch in &common_branches {
-        if let Ok(Some(sha)) = resolve_merge_base(branch) {
+    for base in &base_names {
+        if let Ok(Some(sha)) = resolve_merge_base(base) {
+            return Some(sha);
+        }
+        // In CI (GitHub Actions), local branch refs don't exist; only
+        // remote-tracking refs like origin/main are available.
+        let remote = format!("origin/{base}");
+        if let Ok(Some(sha)) = resolve_merge_base(&remote) {
             return Some(sha);
         }
     }
