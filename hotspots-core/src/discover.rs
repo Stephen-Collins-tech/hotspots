@@ -36,6 +36,7 @@ pub fn discover_functions(
         functions: Vec::new(),
         local_index: 0,
         source_map,
+        pending_name: None,
     };
 
     module.visit_with(&mut collector);
@@ -67,9 +68,23 @@ struct FunctionCollector<'a> {
     functions: Vec<FunctionNode>,
     local_index: usize,
     source_map: &'a swc_common::SourceMap,
+    /// Name of the variable a function/arrow expression is being assigned to
+    /// (e.g. `const Foo = () => {...}`), set while visiting the declarator's
+    /// init expression so the function picks it up instead of `<anonymous>`.
+    pending_name: Option<String>,
 }
 
 impl<'a> Visit for FunctionCollector<'a> {
+    fn visit_var_declarator(&mut self, decl: &VarDeclarator) {
+        if let (Pat::Ident(ident), Some(init)) = (&decl.name, &decl.init) {
+            if matches!(&**init, Expr::Fn(_) | Expr::Arrow(_)) {
+                self.pending_name = Some(ident.id.sym.to_string());
+            }
+        }
+        decl.visit_children_with(self);
+        self.pending_name = None;
+    }
+
     fn visit_fn_decl(&mut self, decl: &FnDecl) {
         // Extract function name from declaration
         let name = Some(decl.ident.sym.to_string());
@@ -96,8 +111,13 @@ impl<'a> Visit for FunctionCollector<'a> {
     }
 
     fn visit_fn_expr(&mut self, expr: &FnExpr) {
-        // Extract function name (may be None for anonymous)
-        let name = expr.ident.as_ref().map(|id| id.sym.to_string());
+        // Extract function name; fall back to the variable it's assigned to
+        // (e.g. `const Foo = function() {...}`)
+        let name = expr
+            .ident
+            .as_ref()
+            .map(|id| id.sym.to_string())
+            .or_else(|| self.pending_name.take());
 
         // Extract body
         let body = expr.function.body.clone();
@@ -121,8 +141,9 @@ impl<'a> Visit for FunctionCollector<'a> {
     }
 
     fn visit_arrow_expr(&mut self, arrow: &ArrowExpr) {
-        // Generate synthetic name for anonymous arrow function
-        let name = None; // Will be set to <anonymous>@file:line in the name extraction
+        // Use the variable it's assigned to (e.g. `const Foo = () => {...}`),
+        // falling back to <anonymous>@file:line in the name extraction
+        let name = self.pending_name.take();
 
         match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(ref body) => {
