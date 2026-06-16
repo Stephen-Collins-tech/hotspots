@@ -106,7 +106,9 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             hotspots analyze . --mode delta --policy
           else
-            hotspots analyze . --mode snapshot
+            # --mode snapshot requires --format json (or --explain) when not
+            # printing text; the snapshot is persisted to .hotspots/ either way.
+            hotspots analyze . --mode snapshot --format json > /dev/null
           fi
 "#;
 
