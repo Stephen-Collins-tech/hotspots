@@ -32,12 +32,36 @@ mod discover_tests {
 
     #[test]
     fn test_discover_anonymous_arrow_function() {
-        let src = "const foo = () => { return 42; };";
+        let src = "setTimeout(() => { return 42; });";
         let functions = parse_and_discover(src, 0);
         assert_eq!(functions.len(), 1, "Should discover arrow function");
         assert_eq!(
             functions[0].name, None,
             "Arrow function should have no name"
+        );
+    }
+
+    #[test]
+    fn test_discover_arrow_function_named_from_variable() {
+        let src = "const foo = () => { return 42; };";
+        let functions = parse_and_discover(src, 0);
+        assert_eq!(functions.len(), 1, "Should discover arrow function");
+        assert_eq!(
+            functions[0].name,
+            Some("foo".to_string()),
+            "Arrow function should take its name from the assigned variable"
+        );
+    }
+
+    #[test]
+    fn test_discover_fn_expr_named_from_variable() {
+        let src = "const Foo = function() { return 42; };";
+        let functions = parse_and_discover(src, 0);
+        assert_eq!(functions.len(), 1, "Should discover function expression");
+        assert_eq!(
+            functions[0].name,
+            Some("Foo".to_string()),
+            "Function expression should take its name from the assigned variable"
         );
     }
 
