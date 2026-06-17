@@ -502,6 +502,18 @@ hotspots train . --blame --label-window 180
 **Optional.** Output path for the trained model JSON.
 **Default:** `.hotspots/ranker.json`
 
+##### `--screen`
+**Optional.** Run a pre-flight check before training to verify the repo has enough signal for a useful model.
+
+`--screen` inspects the repo's git history and snapshot without fitting any model. It checks three things: whether there are enough fix commits in the label window, whether the snapshot has enough labeled functions, and whether the positive/negative label ratio is workable. If any check fails it prints a clear reason and exits without training.
+
+Use it when you're not sure whether a repo is a good candidate for training, or to diagnose why a previous `hotspots train` produced a poor model.
+
+```bash
+hotspots train . --screen            # check only, no model written
+hotspots train . --blame --screen    # blame-mode label scan, then check
+```
+
 ##### `--eval`
 **Optional.** After training, evaluate the model using Precision@K and print a table.
 
