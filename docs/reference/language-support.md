@@ -22,6 +22,8 @@ Hotspots supports seven languages. All produce the same metrics (CC, ND, FO, NS,
 
 JSX and TSX are fully supported. Short-circuit operators (`&&`, `||`) and ternaries count toward CC. Arrow functions, class methods, and standalone functions are all analyzed.
 
+Arrow functions and function expressions assigned to a variable or property are named after their binding — `const validate = (x) => …` appears in output as `validate`, not as an anonymous function. This applies to `.ts`, `.tsx`, `.mts`, and `.cts` files.
+
 ### Go
 
 Goroutines, defer, select, and channel operations are supported. Each `case` in a `select` counts toward CC.
