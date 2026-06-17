@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Python try/except/finally CFG when all branches return (#99)
+- Name TS/TSX functions from their assigned variable (#102)
 
 
 ### Documentation
