@@ -305,13 +305,20 @@ pub fn resolve_merge_base(target_branch: &str) -> Result<Option<String>> {
 
 /// Resolve merge-base with common target branches
 ///
-/// Tries common branch names (main, master, develop) to find merge-base.
-/// Returns first successful merge-base, or None if all fail.
+/// Tries local and remote-tracking names (main, origin/main, master, …) so
+/// this works both locally (where `main` is checked out) and in CI shallow
+/// clones (where only `origin/main` exists as a remote-tracking ref).
 pub fn resolve_merge_base_auto() -> Option<String> {
-    let common_branches = ["main", "master", "develop", "trunk"];
+    let base_names = ["main", "master", "develop", "trunk"];
 
-    for branch in &common_branches {
-        if let Ok(Some(sha)) = resolve_merge_base(branch) {
+    for base in &base_names {
+        if let Ok(Some(sha)) = resolve_merge_base(base) {
+            return Some(sha);
+        }
+        // In CI (GitHub Actions), local branch refs don't exist; only
+        // remote-tracking refs like origin/main are available.
+        let remote = format!("origin/{base}");
+        if let Ok(Some(sha)) = resolve_merge_base(&remote) {
             return Some(sha);
         }
     }
@@ -1239,5 +1246,31 @@ mod tests {
 
         let result = resolve_ref_to_sha(&cwd, "refs/heads/this-branch-definitely-does-not-exist");
         assert!(result.is_err(), "invalid ref should return an error");
+    }
+
+    #[test]
+    fn resolve_merge_base_auto_does_not_panic() {
+        // This function returns None when no common branch exists — that is
+        // the expected outcome in environments where the repo has no main/master
+        // branch (e.g., a detached shallow clone with only origin/* refs).
+        // The important invariant: it must not panic regardless of git state.
+        let _result: Option<String> = resolve_merge_base_auto();
+        // No assertion on value — just verifying no panic and correct return type.
+    }
+
+    #[test]
+    fn resolve_merge_base_auto_returns_none_in_no_git_repo() {
+        // In a tempdir with no git repo every merge-base attempt fails → None.
+        let tmp = tempfile::tempdir().unwrap();
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = resolve_merge_base_auto();
+
+        std::env::set_current_dir(old_dir).unwrap();
+        assert!(
+            result.is_none(),
+            "should return None when not in a git repo"
+        );
     }
 }

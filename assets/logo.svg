@@ -1,7 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" fill="#000"/>
-  <!-- baseline -->
-  <rect x="15" y="62" width="70" height="4.5" fill="#f97316"/>
-  <!-- spike -->
-  <polygon points="50,26 45.5,62 54.5,62" fill="#f97316"/>
+  <rect width="100" height="100" fill="#09090b"/>
+
+  <!-- internal grid lines only -->
+  <line x1="12" y1="50" x2="88" y2="50" stroke="#3f3f46" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="50" y1="12" x2="50" y2="88" stroke="#3f3f46" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- low-risk dots (bottom-left) -->
+  <circle cx="24" cy="68" r="3.5" fill="#3f3f46"/>
+  <circle cx="33" cy="74" r="3.5" fill="#3f3f46"/>
+  <circle cx="40" cy="64" r="3.5" fill="#3f3f46"/>
+
+  <!-- medium dots (bottom-right) -->
+  <circle cx="62" cy="62" r="3.5" fill="#52525b"/>
+  <circle cx="72" cy="68" r="3.5" fill="#52525b"/>
+
+  <!-- high-risk outlier (top-right) — HOTSPOT -->
+  <circle cx="74" cy="26" r="7" fill="#f97316"/>
+  <!-- glow -->
+  <circle cx="74" cy="26" r="11" fill="#f97316" opacity="0.15"/>
 </svg>
