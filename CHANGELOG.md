@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Add hotspots init --ci with GitHub Actions workflow (#101)
+- Add hotspots train --screen pre-flight repo screener (F08) (#91)
 
 ## [1.24.0] - 2026-06-07
 
