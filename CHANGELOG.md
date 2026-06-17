@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update README for C/C# languages, GitHub Action, SARIF, init hooks (#94)
 - Add scoring methodology and changelog pages (#96)
 
+
+### Features
+- Add hotspots init --ci with GitHub Actions workflow (#101)
+
 ## [1.24.0] - 2026-06-07
 
 ### Documentation
