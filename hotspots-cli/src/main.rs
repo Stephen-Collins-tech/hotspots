@@ -253,6 +253,12 @@ enum Commands {
         /// the fix-label base rate so you can judge whether the ranker beats random.
         #[arg(long, default_value = "false")]
         eval: bool,
+
+        /// Run a pre-flight data-quality check before training. Aborts with SKIP_FT
+        /// when mean hotspots score is too flat; warns on AMBIGUOUS. Saves wasted
+        /// training runs on repos unlikely to produce a useful model.
+        #[arg(long, default_value = "false")]
+        screen: bool,
     },
 }
 
@@ -372,6 +378,7 @@ fn main() -> anyhow::Result<()> {
             max_depth,
             blame,
             eval,
+            screen,
         } => cmd::train::handle_train(cmd::train::TrainArgs {
             path,
             output,
@@ -380,6 +387,7 @@ fn main() -> anyhow::Result<()> {
             max_depth,
             blame_labels: blame,
             eval,
+            screen,
         })?,
     }
 

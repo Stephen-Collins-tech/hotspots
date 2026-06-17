@@ -3,8 +3,8 @@
 use anyhow::{bail, Context, Result};
 use hotspots_core::snapshot::{index_path, load_snapshot, Snapshot};
 use hotspots_core::trainer::{
-    collect_fix_files, precision_at_k, score, train, FunctionId, RankerModel, ScoredFunction,
-    TrainConfig,
+    collect_fix_files, precision_at_k, score, screen_repo, train, FunctionId, RankerModel,
+    ScoredFunction, ScreenerVerdict, TrainConfig,
 };
 use std::path::{Path, PathBuf};
 
@@ -16,6 +16,7 @@ pub(crate) struct TrainArgs {
     pub max_depth: usize,
     pub blame_labels: bool,
     pub eval: bool,
+    pub screen: bool,
 }
 
 pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
@@ -37,6 +38,23 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
         blame_labels: args.blame_labels,
         ..Default::default()
     };
+
+    if args.screen {
+        let (verdict, mean_hs) = screen_repo(&snapshot);
+        match verdict {
+            ScreenerVerdict::SkipFt => {
+                bail!(
+                    "Screener: SKIP_FT (mean_hotspots_score={mean_hs:.4}). Use tabular ranking instead."
+                );
+            }
+            ScreenerVerdict::Ambiguous => {
+                eprintln!(
+                    "Screener: AMBIGUOUS (mean_hotspots_score={mean_hs:.4}). Training may not beat tabular baseline."
+                );
+            }
+            ScreenerVerdict::RunFt => {}
+        }
+    }
 
     let n_funcs = snapshot.functions.len();
     let label_mode = if cfg.blame_labels {
