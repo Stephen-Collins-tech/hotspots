@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Python try/except/finally CFG when all branches return (#99)
+
+
 ### Documentation
 - Revamp core pages for clarity and add C language support (#92)
 - Remove duplication, fix stale content, trim boilerplate (#93)
