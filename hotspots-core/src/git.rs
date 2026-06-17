@@ -1247,4 +1247,30 @@ mod tests {
         let result = resolve_ref_to_sha(&cwd, "refs/heads/this-branch-definitely-does-not-exist");
         assert!(result.is_err(), "invalid ref should return an error");
     }
+
+    #[test]
+    fn resolve_merge_base_auto_does_not_panic() {
+        // This function returns None when no common branch exists — that is
+        // the expected outcome in environments where the repo has no main/master
+        // branch (e.g., a detached shallow clone with only origin/* refs).
+        // The important invariant: it must not panic regardless of git state.
+        let _result: Option<String> = resolve_merge_base_auto();
+        // No assertion on value — just verifying no panic and correct return type.
+    }
+
+    #[test]
+    fn resolve_merge_base_auto_returns_none_in_no_git_repo() {
+        // In a tempdir with no git repo every merge-base attempt fails → None.
+        let tmp = tempfile::tempdir().unwrap();
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+
+        let result = resolve_merge_base_auto();
+
+        std::env::set_current_dir(old_dir).unwrap();
+        assert!(
+            result.is_none(),
+            "should return None when not in a git repo"
+        );
+    }
 }

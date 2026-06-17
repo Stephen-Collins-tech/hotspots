@@ -113,10 +113,12 @@ jobs:
 "#;
 
 fn write_ci_workflow() -> anyhow::Result<()> {
-    // Resolve relative to cwd so the command works from any subdirectory.
     let cwd = std::env::current_dir()?;
     let repo_root = find_repo_root(&cwd).unwrap_or(cwd);
+    write_ci_workflow_at(&repo_root)
+}
 
+fn write_ci_workflow_at(repo_root: &Path) -> anyhow::Result<()> {
     let workflows_dir = repo_root.join(".github").join("workflows");
     let workflow_path = workflows_dir.join("hotspots.yml");
 
@@ -151,5 +153,60 @@ fn find_repo_root(start: &Path) -> Option<std::path::PathBuf> {
         if !dir.pop() {
             return None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn find_repo_root_finds_git_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        let nested = root.join("a").join("b");
+        fs::create_dir_all(&nested).unwrap();
+
+        let found = find_repo_root(&nested);
+        assert_eq!(found.as_deref(), Some(root));
+    }
+
+    #[test]
+    fn find_repo_root_returns_none_without_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        // no .git directory — must return None
+        assert!(find_repo_root(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn write_ci_workflow_creates_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_ci_workflow_at(tmp.path()).unwrap();
+
+        let workflow_path = tmp
+            .path()
+            .join(".github")
+            .join("workflows")
+            .join("hotspots.yml");
+        assert!(workflow_path.exists(), "workflow file should be created");
+
+        let content = fs::read_to_string(&workflow_path).unwrap();
+        assert!(content.contains("name: Hotspots"));
+        assert!(content.contains("--mode snapshot"));
+        assert!(content.contains("--mode delta --policy"));
+    }
+
+    #[test]
+    fn write_ci_workflow_fails_if_already_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_ci_workflow_at(tmp.path()).unwrap();
+
+        let err = write_ci_workflow_at(tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("already exists"),
+            "expected 'already exists' error, got: {err}"
+        );
     }
 }

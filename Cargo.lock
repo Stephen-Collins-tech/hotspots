@@ -435,6 +435,7 @@ dependencies = [
  "is-terminal",
  "owo-colors",
  "rayon",
+ "tempfile",
 ]
 
 [[package]]
