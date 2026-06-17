@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove duplication, fix stale content, trim boilerplate (#93)
 - Update README for C/C# languages, GitHub Action, SARIF, init hooks (#94)
 - Add scoring methodology and changelog pages (#96)
+- Document --screen flag and TS/TSX function naming (#103)
 
 
 ### Features
