@@ -3,7 +3,7 @@ requires = ["maturin>=1.5,<2"]
 build-backend = "maturin"
 
 [project]
-name = "hotspots"
+name = "hotspots-cli"
 description = "Static analysis CLI for TypeScript, JavaScript, Go, Python, Rust, and Java that computes Local Risk Score (LRS)"
 readme = "README.md"
 license = { text = "MIT" }
