@@ -271,14 +271,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          cd packages/hotspots-linux-x64 && npm publish --access public && cd ../..
-          cd packages/hotspots-darwin-arm64 && npm publish --access public && cd ../..
-          cd packages/hotspots-win32-x64 && npm publish --access public && cd ../..
+          (cd packages/hotspots-linux-x64 && npm publish --access public)
+          (cd packages/hotspots-darwin-arm64 && npm publish --access public)
+          (cd packages/hotspots-win32-x64 && npm publish --access public)
 
       - name: Publish wrapper package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: cd packages/hotspots && npm publish --access public
+        run: (cd packages/hotspots && npm publish --access public)
 
   publish-pypi:
     name: Publish to PyPI (${{ matrix.target }})
