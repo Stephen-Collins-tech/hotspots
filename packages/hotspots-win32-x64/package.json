@@ -1,0 +1,15 @@
+{
+  "name": "@stephencollinstech/hotspots-win32-x64",
+  "version": "0.0.0",
+  "description": "Windows x64 binary for hotspots",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/hotspots.exe"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stephen-Collins-tech/hotspots.git",
+    "directory": "packages/hotspots-win32-x64"
+  },
+  "homepage": "https://hotspots.dev"
+}

@@ -1,0 +1,36 @@
+{
+  "name": "hotspots",
+  "version": "0.0.0",
+  "description": "Static analysis CLI for TypeScript that computes Local Risk Score (LRS)",
+  "bin": {
+    "hotspots": "./bin/hotspots.js"
+  },
+  "files": ["bin/hotspots.js"],
+  "scripts": {
+    "postinstall": "node bin/hotspots.js --version > /dev/null 2>&1 || true"
+  },
+  "optionalDependencies": {
+    "@stephencollinstech/hotspots-linux-x64": "0.0.0",
+    "@stephencollinstech/hotspots-darwin-arm64": "0.0.0",
+    "@stephencollinstech/hotspots-win32-x64": "0.0.0"
+  },
+  "keywords": [
+    "hotspots",
+    "complexity",
+    "static-analysis",
+    "typescript",
+    "code-quality",
+    "lrs",
+    "cyclomatic-complexity"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stephen-Collins-tech/hotspots.git",
+    "directory": "packages/hotspots"
+  },
+  "bugs": {
+    "url": "https://github.com/Stephen-Collins-tech/hotspots/issues"
+  },
+  "homepage": "https://hotspots.dev"
+}

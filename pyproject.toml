@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "hotspots-cli"
+description = "Static analysis CLI for TypeScript, JavaScript, Go, Python, Rust, and Java that computes Local Risk Score (LRS)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+keywords = [
+  "hotspots",
+  "complexity",
+  "static-analysis",
+  "typescript",
+  "code-quality",
+  "lrs",
+  "cyclomatic-complexity",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://hotspots.dev"
+Repository = "https://github.com/Stephen-Collins-tech/hotspots"
+Issues = "https://github.com/Stephen-Collins-tech/hotspots/issues"
+
+[tool.maturin]
+manifest-path = "hotspots-cli/Cargo.toml"
+strip = true
