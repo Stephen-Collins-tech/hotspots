@@ -211,6 +211,75 @@ jobs:
           echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
           ls -lh artifacts/ >> $GITHUB_STEP_SUMMARY
 
+  publish-npm:
+    name: Publish to npm
+    needs: [bump-and-tag, build-binaries]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.bump-and-tag.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Unpack binaries into platform packages
+        run: |
+          mkdir -p packages/hotspots-linux-x64/bin
+          mkdir -p packages/hotspots-darwin-arm64/bin
+          mkdir -p packages/hotspots-win32-x64/bin
+
+          tar -xzf artifacts/hotspots-linux-x86_64.tar.gz -C packages/hotspots-linux-x64/bin/
+          tar -xzf artifacts/hotspots-darwin-aarch64.tar.gz -C packages/hotspots-darwin-arm64/bin/
+          unzip -o artifacts/hotspots-windows-x86_64.zip -d packages/hotspots-win32-x64/bin/
+
+          chmod +x packages/hotspots-linux-x64/bin/hotspots
+          chmod +x packages/hotspots-darwin-arm64/bin/hotspots
+
+      - name: Set versions
+        run: |
+          TAG="${{ needs.bump-and-tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          for pkg in packages/hotspots-linux-x64 packages/hotspots-darwin-arm64 packages/hotspots-win32-x64 packages/hotspots; do
+            node -e "
+              const fs = require('fs');
+              const p = fs.readFileSync('$pkg/package.json', 'utf8');
+              const j = JSON.parse(p);
+              j.version = '$VERSION';
+              if (j.optionalDependencies) {
+                for (const k of Object.keys(j.optionalDependencies)) {
+                  j.optionalDependencies[k] = '$VERSION';
+                }
+              }
+              fs.writeFileSync('$pkg/package.json', JSON.stringify(j, null, 2) + '\n');
+            "
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm publish packages/hotspots-linux-x64 --access public
+          npm publish packages/hotspots-darwin-arm64 --access public
+          npm publish packages/hotspots-win32-x64 --access public
+
+      - name: Publish wrapper package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish packages/hotspots --access public
+
   publish-crates:
     name: Publish to crates.io
     needs: bump-and-tag
