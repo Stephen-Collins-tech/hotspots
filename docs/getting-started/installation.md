@@ -8,6 +8,22 @@
 brew install Stephen-Collins-tech/tap/hotspots
 ```
 
+### npm
+
+```bash
+npm install -g @stephencollinstech/hotspots
+```
+
+Works on macOS, Linux, and Windows. No Rust toolchain required.
+
+### pip
+
+```bash
+pip install hotspots-cli
+```
+
+Available on [PyPI](https://pypi.org/project/hotspots-cli/). Works on macOS, Linux, and Windows.
+
 ### Linux
 
 ```bash
@@ -73,6 +89,16 @@ hotspots analyze --help
 **macOS:**
 ```bash
 brew upgrade Stephen-Collins-tech/tap/hotspots
+```
+
+**npm:**
+```bash
+npm update -g @stephencollinstech/hotspots
+```
+
+**pip:**
+```bash
+pip install --upgrade hotspots-cli
 ```
 
 **Linux:**
