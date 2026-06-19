@@ -9,7 +9,7 @@
 
 **Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Crates.io:** [![crates.io](https://img.shields.io/crates/v/hotspots-cli.svg)](https://crates.io/crates/hotspots-cli)
 
-**Install:** `cargo install hotspots-cli` &nbsp;|&nbsp; `curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh`
+**Install:** `brew install Stephen-Collins-tech/tap/hotspots` &nbsp;|&nbsp; `npm install -g @stephencollinstech/hotspots` &nbsp;|&nbsp; `pip install hotspots-cli` &nbsp;|&nbsp; `cargo install hotspots-cli`
 
 **Find the code that's actually causing problems.**
 
@@ -147,17 +147,32 @@ hotspots analyze . --mode delta --all-functions --format json
 
 ### 1. Install
 
+**macOS (Homebrew):**
+```bash
+brew install Stephen-Collins-tech/tap/hotspots
+```
+
+**npm:**
+```bash
+npm install -g @stephencollinstech/hotspots
+```
+
+**pip:**
+```bash
+pip install hotspots-cli
+```
+
 **cargo (Rust toolchain):**
 ```bash
 cargo install hotspots-cli
 ```
 
-**macOS / Linux:**
+**macOS / Linux (shell script):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-Installs to `~/.local/bin/hotspots`. Verify with `hotspots --version`.
+Verify with `hotspots --version`.
 
 **GitHub Action:**
 ```yaml
@@ -566,17 +581,32 @@ Outputs ready-to-use shell hooks and pre-commit framework config for enforcing p
 
 ### Quick Install
 
+**macOS (Homebrew):**
+```bash
+brew install Stephen-Collins-tech/tap/hotspots
+```
+
+**npm:**
+```bash
+npm install -g @stephencollinstech/hotspots
+```
+
+**pip:**
+```bash
+pip install hotspots-cli
+```
+
 **cargo (Rust toolchain):**
 ```bash
 cargo install hotspots-cli
 ```
 
-**macOS / Linux:**
+**macOS / Linux (shell script):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
 ```
 
-Installs to `~/.local/bin/hotspots`. Verify with `hotspots --version`.
+Verify with `hotspots --version`.
 
 **Install a specific version:**
 ```bash
