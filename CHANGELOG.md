@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Use subshells for npm publish to isolate working dirs
+- Scope wrapper npm package to @stephencollinstech/hotspots (#106)
 
 ## [1.25.2] - 2026-06-19
 
