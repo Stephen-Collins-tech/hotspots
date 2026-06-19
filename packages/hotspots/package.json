@@ -1,5 +1,5 @@
 {
-  "name": "hotspots",
+  "name": "@stephencollinstech/hotspots",
   "version": "0.0.0",
   "description": "Static analysis CLI for TypeScript that computes Local Risk Score (LRS)",
   "bin": {
