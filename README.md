@@ -13,166 +13,23 @@
 
 **Find the code that's actually causing problems.**
 
-Your codebase has thousands of functions. Some are messy but never break. Others are complex AND change constantly—those are your **hotspots**, the 20% of code causing 80% of your bugs, incidents, and slowdowns.
-
-Stop refactoring code that doesn't matter. Focus on what's hurting you right now.
+Your codebase has thousands of functions. Some are messy but never break. Others are complex AND change constantly — those are your **hotspots**, the 20% of code causing 80% of your bugs, incidents, and slowdowns.
 
 ---
 
-## The Problem
-
-You know your codebase has tech debt. But which code should you actually refactor?
-
-❌ **Refactor by gut feeling** → Waste weeks on code that rarely causes issues
-❌ **Refactor everything** → Impossible, and you'll rewrite stable code that doesn't need touching
-❌ **Refactor nothing** → Tech debt compounds until "fix this bug" becomes "rewrite everything"
-
-**The real question:** Which functions are both complex AND frequently changed?
-
-Those are the functions causing production incidents, slowing down features, and burning out your team.
-
----
-
-## The Solution
-
-Hotspots analyzes your codebase and git history to find functions that are:
-
-1. **Complex** - High cyclomatic complexity, deep nesting, lots of branching
-2. **Volatile** - Changed frequently in recent commits
-3. **Risky** - The dangerous combination of both
-
-Instead of guessing what to refactor, you get a prioritized list:
-
-![Hotspots Example Report](https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/assets/hotspots-example-report.png)
-
-*Risk Landscape from a real 7,911-function codebase: 284 Critical (red), 491 High (orange). Each dot is a function — top-right are your hotspots.*
+## Install
 
 ```bash
-hotspots analyze src/
-
-# Output:
-Critical (LRS ≥ 9.0):
-processPlanUpgrade    src/api/billing.ts:142    LRS 12.4  CC 15  ND 4  FO 8  NS 3
-
-High (6.0 ≤ LRS < 9.0):
-validateSession       src/auth/session.ts:67    LRS 9.8   CC 11  ND 3  FO 7  NS 2
-applySchema           src/db/migrations.ts:203  LRS 8.1   CC 10  ND 2  FO 5  NS 2
+brew install Stephen-Collins-tech/tap/hotspots   # macOS
+npm install -g @stephencollinstech/hotspots       # any platform
+pip install hotspots-cli                          # any platform
+cargo install hotspots-cli                        # Rust toolchain
+curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh  # Linux
 ```
 
-Now you know exactly where to focus.
+Windows: download the binary from [GitHub Releases](https://github.com/Stephen-Collins-tech/hotspots/releases/latest).
 
----
-
-## What You Get
-
-### ✅ Refactor What Actually Matters
-
-Stop wasting time on code that "looks messy" but never causes problems. Focus on the 20% of functions responsible for 80% of your incidents.
-
-### ✅ Block Complexity Regressions in CI
-
-Catch risky changes before they merge:
-
-```bash
-# Run in CI with policy checks
-hotspots analyze src/ --mode delta --policy
-# Exit code 1 if policies fail → CI fails
-```
-
-Your CI fails if someone introduces high-risk code. No manual review needed.
-
-**GitHub Actions** — use the native action for zero-config CI integration:
-
-```yaml
-- uses: Stephen-Collins-tech/hotspots/action@v1
-  with:
-    github-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-See [docs/guide/github-action.md](docs/guide/github-action.md) for the full action reference.
-
-### ✅ Fine-Tune Rankings with Repo-Specific ML
-
-The default heuristic ranker works out of the box, but every codebase is different. Train a local RandomForest ranker from your own fix-commit history to score functions based on patterns that actually predict bugs in your repo:
-
-```bash
-# Fit a ranker from the last year of fix commits (precise blame-based labels)
-hotspots train . --blame
-
-# Next analyze picks up the trained ranker automatically
-hotspots analyze .
-```
-
-The trained model learns which structural features (complexity, churn, call graph) correlate with real bug fixes in your history — not a generic heuristic. Scores are saved to `.hotspots/ranker.json` and reused on every subsequent `analyze`.
-
-**Not sure if training actually helped?** Use `--eval` to check:
-
-```bash
-hotspots train . --eval
-```
-
-This prints a Precision@K table after training — how many of the top-K ranked functions were genuinely in fix commits:
-
-```
-P@K evaluation (365-day fix-label window):
-  K      P@K      base_rate
-  10     0.400    0.084
-  20     0.300    0.084
-  50     0.200    0.084
-  100    0.150    0.084
-  200    0.110    0.084
-```
-
-**How to read it:** `base_rate` is the fraction of all functions that appeared in a bug-fix commit. If `P@10` is much higher than `base_rate`, the ranker is genuinely surfacing risky functions at the top. If `P@10` ≈ `base_rate`, the model is no better than random — skip applying it and rely on the default LRS ranking instead.
-
-### ✅ Ship with Confidence, Not Crossed Fingers
-
-Know which files are landmines before you touch them. See complexity trends over time. Make informed decisions about refactoring vs rewriting vs leaving it alone.
-
-### ✅ Get AI-Assisted Refactoring
-
-Hotspots integrates with Claude Code, Cursor, and GitHub Copilot. Point your AI at the hottest functions and get refactoring suggestions that actually improve your codebase.
-
-```bash
-# Analyze changes in your project
-hotspots analyze . --mode delta --format json
-
-# Get agent-optimized output (quadrant buckets + action text)
-hotspots analyze . --mode delta --all-functions --format json
-```
-
----
-
-## Quick Start
-
-### 1. Install
-
-**macOS (Homebrew):**
-```bash
-brew install Stephen-Collins-tech/tap/hotspots
-```
-
-**npm:**
-```bash
-npm install -g @stephencollinstech/hotspots
-```
-
-**pip:**
-```bash
-pip install hotspots-cli
-```
-
-**cargo (Rust toolchain):**
-```bash
-cargo install hotspots-cli
-```
-
-**macOS / Linux (shell script):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
-```
-
-Verify with `hotspots --version`.
+Verify: `hotspots --version`
 
 **GitHub Action:**
 ```yaml
@@ -180,486 +37,184 @@ Verify with `hotspots --version`.
   with:
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
-See [docs/guide/github-action.md](docs/guide/github-action.md) for inputs, outputs, and examples.
 
-### 2. Analyze Your Code
+---
+
+## Quick Start
 
 ```bash
 # Find your hotspots
 hotspots analyze src/
 
-# Filter to critical functions only
-hotspots analyze src/ --min-lrs 9.0
-
-# Get per-function explanations with driver labels
-hotspots analyze . --mode snapshot --format text --explain --top 10
-
-# Get JSON for tooling/AI
-hotspots analyze src/ --format json
-
-# Stream JSONL for pipeline processing
-hotspots analyze src/ --format jsonl
-
-# Compare with previous commit (delta mode)
-hotspots analyze src/ --mode delta --policy
+# Critical (LRS ≥ 9.0):
+# processPlanUpgrade    src/api/billing.ts:142    LRS 12.4  CC 15  ND 4  FO 8  NS 3
+#
+# High (6.0 ≤ LRS < 9.0):
+# validateSession       src/auth/session.ts:67    LRS 9.8   CC 11  ND 3  FO 7  NS 2
 ```
 
-**Large repos:** By default, hotspots uses hybrid touch mode — file-level git activity for all functions, with per-function precision only for actively-changed files (≥5 commits in 30 days). This keeps memory usage low and completes reliably on repos of any size.
+**Critical** = refactor now. **High** = refactor next time you touch it. **Moderate** = block increases. **Low** = leave it alone.
+
+### Common commands
 
 ```bash
-# Default: hybrid touch (fast, completes on any repo)
-hotspots analyze . --mode snapshot --explain
+# Per-function explanations with refactoring advice
+hotspots analyze . --mode snapshot --format text --explain --top 10
 
-# Full precision (slower cold start, more accurate activity scores)
-hotspots analyze . --mode snapshot --explain --per-function-touches
+# Block complexity regressions in CI
+hotspots analyze src/ --mode delta --policy
 
-# Fastest possible (file-level only, no per-function git log)
-hotspots analyze . --mode snapshot --explain --no-per-function-touches
+# Compare any two git refs
+hotspots diff main HEAD --top 10 --policy
+
+# Interactive HTML report
+hotspots analyze src/ --mode snapshot --format html
+
+# JSON for tooling/AI
+hotspots analyze src/ --format json
+
+# Track trends over time
+hotspots trends .
+
+# Train a repo-specific ranker from your bug history
+hotspots train . --blame --eval
 ```
-
-### 3. Act on Results
-
-**Critical functions (LRS ≥ 9.0):** Refactor now. These are your top priority.
-**High functions (LRS 6.0-9.0):** Watch closely. Refactor before they become critical.
-**Moderate functions (LRS 3.0-6.0):** Keep an eye on them. Block complexity increases.
-**Low functions (LRS < 3.0):** You're good. Don't overthink these.
-
----
-
-## Supported Languages
-
-- **TypeScript** - `.ts`, `.tsx`, `.mts`, `.cts`
-- **JavaScript** - `.js`, `.jsx`, `.mjs`, `.cjs`
-- **Go** - `.go`
-- **Python** - `.py`
-- **Rust** - `.rs`
-- **Java** - `.java`
-- **C** - `.c`, `.h`
-- **C#** - `.cs`
-
-Full language parity across all metrics and features. See [docs/reference/language-support.md](docs/reference/language-support.md) for details.
 
 ---
 
 ## How It Works
 
-Hotspots computes a **Local Risk Score (LRS)** for each function based on:
+Hotspots computes a **Local Risk Score (LRS)** per function from four structural metrics:
 
-1. **Cyclomatic Complexity (CC)** - How many paths through the code?
-2. **Nesting Depth (ND)** - How deeply nested are your if/for/while statements?
-3. **Fan-Out (FO)** - How many other functions does this call?
-4. **Non-Structured Exits (NS)** - How many early returns, breaks, throws?
+| Metric | What it measures |
+|---|---|
+| **CC** — Cyclomatic Complexity | Independent decision paths (if/loop/catch/&&/\|\|) |
+| **ND** — Nesting Depth | Maximum depth of nested control structures |
+| **FO** — Fan-Out | Distinct functions called |
+| **NS** — Non-Structured Exits | Early returns, throws, breaks |
 
-These metrics combine into a single **Local Risk Score (LRS)**. Higher LRS = higher risk of bugs, incidents, and developer confusion.
-
-LRS is then combined with **Activity Risk** signals from git history and the call graph:
-
-- **Churn** — lines changed in the last 30 days (volatile code)
-- **Touch frequency** — commit count touching this function
-- **Recency** — days since last change (branch-aware)
-- **Fan-in** — how many other functions call this one (call graph)
-- **Cyclic dependency** — SCC membership (tightly coupled code)
-- **Neighbor churn** — lines changed in direct dependencies
-
-The call graph engine resolves imports to detect fan-in, PageRank, betweenness centrality, and SCC membership. Functions that are both complex AND heavily depended upon by other changing code rise to the top.
-
-### Understanding Quadrants
-
-Every function is placed in one of four quadrants based on its structural complexity and recent activity:
-
-| Quadrant | Complexity | Recent Activity | What it means |
-|---|---|---|---|
-| **fire** | High | High | Live regression risk — complex AND actively changing right now |
-| **debt** | High | Low | Structural debt — complex but not recently touched; high blast radius when next changed |
-| **simple-active** | Low | High | Active but manageable — monitor, low structural risk |
-| **simple-stable** | Low | Low | Lowest priority |
-
-**Important:** The activity-weighted risk score (and `lrs`) is a decay function computed over git history — it never reaches zero even if a function hasn't been touched in months. A high risk score alone does **not** mean a function is actively changing. Always check `quadrant` and `touches_30d` to determine whether a function is a live regression risk (fire) or structural debt (debt).
-
-- **fire**: Refactor now — every commit is landing on a complex function
-- **debt**: Schedule proactively — refactor before the next development push into that area, not urgently
-- **simple-active**: Watch closely but don't over-invest in refactoring
-- **simple-stable**: Leave it alone unless metrics change
-
-**Example:**
-
-```typescript
-// LRS: 12.4 (Critical) - Complex AND frequently changed
-function processPlanUpgrade(user, newPlan, paymentMethod) {
-  if (!user.isActive) return false;
-  if (user.plan === newPlan) return true;
-
-  if (paymentMethod.type === "card") {
-    if (paymentMethod.isExpired) {
-      try {
-        paymentMethod = renewPaymentMethod(user);
-      } catch (error) {
-        logError(error);
-        notifyUser(user, "payment_failed");
-        return false;
-      }
-    }
-
-    if (newPlan.price > user.plan.price) {
-      const prorated = calculateProration(user, newPlan);
-      if (!chargeCard(paymentMethod, prorated)) {
-        return false;
-      }
-    }
-  } else if (paymentMethod.type === "invoice") {
-    // Different logic for invoice customers...
-  }
-
-  updateDatabase(user, newPlan);
-  sendConfirmation(user);
-  return true;
-}
+```
+LRS = 1.0×R_cc + 0.8×R_nd + 0.6×R_fo + 0.7×R_ns
 ```
 
-**This function:**
-- CC: 15 (lots of branching)
-- ND: 4 (deeply nested)
-- FO: 8 (calls many functions)
-- NS: 3 (multiple early returns)
-- **LRS: 12.4** ← This is a hotspot
+where each component is log-scaled and capped to prevent outliers from dominating.
 
-Refactor this before it causes a production incident.
+In **snapshot mode**, LRS is combined with git history (churn, touch frequency, recency) and call graph metrics (fan-in, PageRank, SCC membership) to compute an **Activity Risk Score** and place each function in a triage quadrant:
+
+| Quadrant | Complexity | Activity | Action |
+|---|---|---|---|
+| `fire` | High | High | Refactor now |
+| `debt` | High | Low | Schedule before next push |
+| `watch` | Low | High | Monitor |
+| `ok` | Low | Low | Leave it alone |
+
+**Risk bands:** Low (< 3) · Moderate (3–6) · High (6–9) · Critical (≥ 9)
 
 ---
 
-## Features
+## Supported Languages
 
-### 🚦 Policy Enforcement (CI/CD)
+TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · Vue
 
-Block risky code before it merges:
+All 12 file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.vue`) work out of the box.
 
-- **Critical Introduction** - Fail CI if new functions exceed LRS 9.0
-- **Excessive Regression** - Fail CI if LRS increases by ≥1.0
-- **Watch/Attention Warnings** - Warn about functions approaching thresholds
-- **Rapid Growth Detection** - Catch functions growing >50% in complexity
+---
+
+## CI/CD Integration
+
+### GitHub Action (zero config)
+
+```yaml
+name: Hotspots
+on: [pull_request, push]
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: Stephen-Collins-tech/hotspots-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Posts PR comments, generates HTML reports, fails builds on policy violations.
+
+### Manual CI
 
 ```bash
-# Run in CI with policy checks
+# Fail CI if new critical functions introduced or LRS increases ≥ 1.0
 hotspots analyze src/ --mode delta --policy
-# Exit code 1 if policies fail → CI fails
 ```
 
-### 🔍 Driver Labels & Explain Mode
+Exit code 1 on blocking violations, 0 on warnings only.
 
-Understand *why* a function is flagged and get concrete refactoring advice:
+---
 
-```bash
-hotspots analyze . --mode snapshot --format text --explain --top 10
-```
+## Key Features
 
-Each function shows its primary **driver** (`high_complexity`, `deep_nesting`,
-`high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`,
-`composite`) plus an **Action** line with dimension-specific guidance:
+**Policy engine** — blocks: new critical-risk functions, LRS regressions ≥ 1.0, net repo regression ≥ 5.0. Warns: approaching thresholds, rapid growth > 50%.
 
-```
-processPayment             /src/billing.ts:89
-   LRS: 14.52 | Band: critical | Driver: high_complexity
-   CC: 15, ND: 4, FO: 8, NS: 3
-   Action: Reduce branching; extract sub-functions
-```
+**Driver labels** — each function gets a primary diagnosis: `high_complexity`, `deep_nesting`, `exit_heavy`, `high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, or `composite`.
 
-Use `--level file` or `--level module` for higher-level aggregated views.
+**Pattern detection** — 13 named patterns in two tiers: structural (always, e.g. `complex_branching`, `god_function`) and enriched (snapshot mode, e.g. `churn_magnet`, `cyclic_hub`, `volatile_god`).
 
-### 📊 Multiple Output Formats
-
-**Terminal (human-readable):**
-```
-Critical (LRS ≥ 9.0):
-processPlanUpgrade    src/api/billing.ts:142    LRS 12.4  CC 15  ND 4  FO 8  NS 3
-```
-
-**JSON (machine-readable):**
-```json
-{
-  "schema_version": 2,
-  "functions": [
-    {
-      "function_id": "src/api/billing.ts::processPlanUpgrade",
-      "file": "src/api/billing.ts",
-      "line": 142,
-      "lrs": 12.4,
-      "band": "critical",
-      "driver": "high_complexity",
-      "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 }
-    }
-  ]
-}
-```
-
-**JSONL (streaming per-function):**
-```bash
-hotspots analyze src/ --mode snapshot --format jsonl | grep '"band":"critical"'
-```
-One JSON object per line — ideal for large repos and shell pipeline processing.
-
-**HTML (interactive reports):**
-- Sortable, filterable tables
-- Risk band visualization
-- Shareable with stakeholders
-- Upload as CI artifacts
-
-**SARIF (Static Analysis Results Interchange Format):**
-```bash
-hotspots analyze src/ --format sarif
-```
-Compatible with GitHub Code Scanning and any SARIF-aware tool.
-
-### 🔇 Suppression Comments
-
-Have complex code you can't refactor yet? Suppress warnings with a reason:
-
+**Suppression comments** — exclude functions from CI failures while keeping them visible:
 ```typescript
 // hotspots-ignore: legacy payment processor, rewrite scheduled Q2 2026
-function legacyBillingLogic() {
-  // Complex but can't touch it yet
-}
+function legacyBillingLogic() { ... }
 ```
 
-Functions with suppressions:
-- ✅ Still appear in reports (visibility)
-- ❌ Don't fail CI policies (pragmatism)
-- 📝 Require a reason (accountability)
+**Trained ranker** — fit a RandomForest from your repo's bug-fix history:
+```bash
+hotspots train . --blame --eval   # train + check P@K vs base rate
+```
 
-### ⚙️ Configuration
+**Output formats** — `text` (terminal), `json` (machine), `jsonl` (streaming), `html` (interactive), `sarif` (GitHub Code Scanning).
 
-Customize thresholds, weights, and file patterns:
-
+**Configuration** — `.hotspotsrc.json` in project root (auto-discovered):
 ```json
 {
-  "thresholds": {
-    "moderate": 3.0,
-    "high": 6.0,
-    "critical": 9.0
-  },
   "include": ["src/**/*.ts"],
-  "exclude": ["**/*.test.ts", "**/__mocks__/**"]
+  "exclude": ["**/*.test.ts"],
+  "thresholds": { "moderate": 3.0, "high": 6.0, "critical": 9.0 },
+  "weights": { "cc": 1.0, "nd": 0.8, "fo": 0.6, "ns": 0.7 }
 }
 ```
-
-See [docs/guide/configuration.md](docs/guide/configuration.md) for all options.
-
-### 🤖 AI Integration
-
-**Claude Code:**
-```bash
-# Analyze changes and feed to Claude Code
-hotspots analyze . --mode delta --format json
-
-# Get agent-optimized output
-hotspots analyze . --mode delta --all-functions --format json
-```
-
-See [docs/integrations/ai-agents.md](docs/integrations/ai-agents.md) for complete guide.
-
-**Cursor/GitHub Copilot:**
-```bash
-hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
-# Feed results to your AI coding assistant
-```
-
-### 📈 Git History Analysis
-
-Track complexity over time:
-
-```bash
-# Create baseline snapshot
-hotspots analyze src/ --mode snapshot
-
-# Compare current code vs baseline
-hotspots analyze src/ --mode delta
-
-# Compare any two git refs (branches, tags, SHAs)
-hotspots diff main HEAD
-hotspots diff v1.0.0 v2.0.0 --format json
-hotspots diff main HEAD --top 10 --policy
-
-# See complexity trends
-hotspots trends .
-
-# Train a repo-specific ranker from fix-commit history
-hotspots train . --blame
-
-# Check whether the trained model is actually useful (P@K evaluation)
-hotspots train . --eval
-
-# Prune unreachable snapshots (after force-push or branch deletion)
-hotspots prune --unreachable --older-than 30
-
-# Compact snapshot history
-hotspots compact --level 0
-```
-
-Delta mode and `hotspots diff` show:
-- Functions that got more complex
-- Functions that were simplified
-- New high-complexity functions introduced
-- Overall repository complexity trend
-
-`hotspots diff` requires snapshots to exist for both refs (run `hotspots analyze --mode snapshot` at each ref first). Use `--auto-analyze` to generate missing snapshots automatically via git worktrees.
-
-### ⚙️ Configuration Commands
-
-```bash
-# Show resolved configuration (weights, thresholds, filters)
-hotspots config show
-
-# Validate configuration file without running analysis
-hotspots config validate
-```
-
-### 🪝 Hook Templates
-
-```bash
-# Print pre-commit and CI hook templates to stdout
-hotspots init --hooks
-```
-
-Outputs ready-to-use shell hooks and pre-commit framework config for enforcing policies locally.
 
 ---
 
 ## Documentation
 
-- 🚀 [Quick Start](docs/getting-started/quick-start.md) - Get started in 5 minutes
-- 📖 [CLI Reference](docs/reference/cli.md) - All commands and options
-- 📊 [Scoring Methodology](docs/reference/scoring.md) - How scores are calculated and ranked
-- 🎯 [CI Integration](docs/guide/ci-integration.md) - GitHub Actions, GitLab CI
-- 🤖 [AI Integration](docs/integrations/ai-agents.md) - Claude, Cursor, Copilot
-- 🏗️ [Architecture](docs/architecture/overview.md) - How it works
-- 🤝 [Contributing](docs/contributing/index.md) - Add languages, fix bugs, improve docs
-
-**Full documentation:** [docs/index.md](docs/index.md)
+- [docs/USAGE.md](docs/USAGE.md) — workflows, CI setup, output formats, policy engine, suppression, training, snapshot management
+- [docs/REFERENCE.md](docs/REFERENCE.md) — complete CLI reference, all flags, config options, JSON schema, metrics formula
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, analysis pipeline, invariants, design decisions
+- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — dev setup, adding languages, release process
 
 ---
 
 ## Why Hotspots?
 
-### vs ESLint Complexity Rules
+**vs ESLint complexity rules** — ESLint checks one metric in isolation with no git context. Hotspots combines four metrics, git history, and call graph topology into a single prioritized list.
 
-**ESLint:** Checks individual metrics (CC > 10). No context about change frequency or real-world risk.
-**Hotspots:** Combines multiple metrics into LRS. Integrates git history. Prioritizes based on actual risk.
+**vs SonarQube / CodeClimate** — Enterprise platforms requiring server infrastructure. Hotspots is a single binary, zero config, works offline, results in seconds.
 
-### vs SonarQube / CodeClimate
-
-**SonarQube:** Enterprise platform, complex setup, slow scans, requires server infrastructure.
-**Hotspots:** Single binary, instant analysis, zero config, works offline, git history built-in.
-
-### vs Code Reviews
-
-**Reviews:** Catch complexity subjectively. Miss gradual regressions. Don't track trends.
-**Hotspots:** Objective metrics. Catches every change. Shows trends over time. Enforces policies automatically.
-
-**Use both:** Hotspots + code reviews = comprehensive quality control.
-
----
-
-## Real-World Use Cases
-
-### 🔥 Incident Prevention
-"We had 3 production incidents in Q1. All originated from the same 5 functions. Hotspots flagged all 5 as critical. We refactored them in Q2. Zero incidents since."
-
-### 🚀 Faster Onboarding
-"New engineers use Hotspots to identify risky code before touching it. 'This function is LRS 11.2, be careful' = instant context."
-
-### 🎯 Refactoring Sprints
-"We allocate 1 sprint per quarter to reduce our top 10 hotspots. Dropped average LRS from 6.2 to 4.1 over 6 months."
-
-### 🤖 AI-Guided Refactoring
-"Feed hotspots JSON to Claude. It suggests refactorings for critical functions. Accept, commit, verify LRS dropped. Repeat."
-
-### ⚖️ Technical Debt Metrics
-"Execs ask 'How's our tech debt?' I show them: 23 critical functions (down from 31), average LRS 4.8 (down from 5.3). Clear progress."
-
----
-
-## Installation
-
-### Quick Install
-
-**macOS (Homebrew):**
-```bash
-brew install Stephen-Collins-tech/tap/hotspots
-```
-
-**npm:**
-```bash
-npm install -g @stephencollinstech/hotspots
-```
-
-**pip:**
-```bash
-pip install hotspots-cli
-```
-
-**cargo (Rust toolchain):**
-```bash
-cargo install hotspots-cli
-```
-
-**macOS / Linux (shell script):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
-```
-
-Verify with `hotspots --version`.
-
-**Install a specific version:**
-```bash
-HOTSPOTS_VERSION=v1.0.0 curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
-```
-
-### Build from Source
-
-```bash
-git clone https://github.com/Stephen-Collins-tech/hotspots.git
-cd hotspots
-cargo build --release
-mkdir -p ~/.local/bin
-cp target/release/hotspots ~/.local/bin/
-```
-
-**Requirements:** Rust 1.75 or later
+**vs code reviews** — Reviews catch complexity subjectively and miss gradual drift. Hotspots enforces objective thresholds automatically on every commit.
 
 ---
 
 ## Contributing
 
-We welcome contributions!
-
-- 🐛 [Report bugs](https://github.com/Stephen-Collins-tech/hotspots/issues)
-- 💡 [Request features](https://github.com/Stephen-Collins-tech/hotspots/discussions)
-- 🔧 [Submit PRs](docs/contributing/index.md)
-- 📖 [Improve docs](docs/contributing/index.md)
-
-**Want to add a language?** See [docs/contributing/adding-languages.md](docs/contributing/adding-languages.md) - we have a proven pattern for adding TypeScript, JavaScript, Go, Python, Rust, and Java.
+- Bug reports: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues)
+- Feature requests: [GitHub Discussions](https://github.com/Stephen-Collins-tech/hotspots/discussions)
+- PRs: see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ---
 
 ## License
 
-MIT License - see [LICENSE-MIT](LICENSE-MIT) for details.
-
----
-
-## Next Steps
-
-1. ⚡ [Install Hotspots](#installation) (2 minutes)
-2. 🔍 Run your first analysis: `hotspots analyze src/`
-3. 🎯 Identify your top 10 hotspots
-4. 🛠️ Refactor the worst offender
-5. 📊 Add to CI/CD: `hotspots analyze src/ --mode delta --policy`
-6. 🧠 Train a repo-specific ranker: `hotspots train . --blame`
-6. 🤖 Integrate with AI: [AI Integration Guide](docs/integrations/ai-agents.md)
-
-**Questions?** Open a [GitHub Discussion](https://github.com/Stephen-Collins-tech/hotspots/discussions).
-
-**Found a bug?** Open an [issue](https://github.com/Stephen-Collins-tech/hotspots/issues).
-
----
-
-**Stop refactoring guesswork. Start with Hotspots.**
+MIT — see [LICENSE-MIT](LICENSE-MIT).
