@@ -22,67 +22,22 @@ export default defineConfig({
     logo: '/logo.svg',
 
     nav: [
-      { text: 'Guide', link: '/guide/usage' },
-      { text: 'Reference', link: '/reference/cli' },
-      { text: 'Codebase Guide', link: '/code-architecture/' },
+      { text: 'Usage', link: '/USAGE' },
+      { text: 'Reference', link: '/REFERENCE' },
+      { text: 'Architecture', link: '/ARCHITECTURE' },
+      { text: 'Contributing', link: '/CONTRIBUTING' },
       { text: 'hotspots.dev', link: 'https://hotspots.dev' },
       { text: 'GitHub', link: 'https://github.com/Stephen-Collins-tech/hotspots' }
     ],
 
     sidebar: [
       {
-        text: 'Getting Started',
+        text: 'Docs',
         items: [
-          { text: 'Installation', link: '/getting-started/installation' },
-          { text: 'Quick Start', link: '/getting-started/quick-start' },
-        ]
-      },
-      {
-        text: 'Guide',
-        items: [
-          { text: 'Usage & Workflows', link: '/guide/usage' },
-          { text: 'Training a Ranker', link: '/guide/training' },
-          { text: 'Configuration', link: '/guide/configuration' },
-          { text: 'CI/CD & GitHub Action', link: '/guide/ci-cd' },
-          { text: 'Output Formats', link: '/guide/output-formats' },
-          { text: 'AI Integration', link: '/integrations/ai-integration' },
-        ]
-      },
-      {
-        text: 'Reference',
-        items: [
-          { text: 'CLI Reference', link: '/reference/cli' },
-          { text: 'Scoring Methodology', link: '/reference/scoring' },
-          { text: 'Scoring Changelog', link: '/reference/scoring-changelog' },
-          { text: 'Metrics & LRS', link: '/reference/metrics' },
-          { text: 'Language Support', link: '/reference/language-support' },
-        ]
-      },
-      {
-        text: 'Codebase Guide',
-        items: [
-          { text: 'Overview', link: '/code-architecture/' },
-          { text: 'Analysis Pipeline', link: '/code-architecture/pipeline' },
-          { text: 'Core Crate Modules', link: '/code-architecture/core-modules' },
-          { text: 'CLI and GitHub Action', link: '/code-architecture/cli-and-action' },
-          { text: 'Data Model and Persistence', link: '/code-architecture/data-model' },
-          { text: 'Contributor Change Guide', link: '/code-architecture/change-guide' },
-        ]
-      },
-      {
-        text: 'Architecture Notes',
-        items: [
-          { text: 'Overview', link: '/architecture/' },
-          { text: 'Design Decisions', link: '/architecture/design-decisions' },
-          { text: 'Invariants', link: '/architecture/invariants' },
-          { text: 'Multi-language Design', link: '/architecture/multi-language' },
-          { text: 'Testing Strategy', link: '/architecture/testing' },
-        ]
-      },
-      {
-        text: 'Contributing',
-        items: [
-          { text: 'Contributing Guide', link: '/contributing/' },
+          { text: 'Usage & Workflows', link: '/USAGE' },
+          { text: 'CLI & Config Reference', link: '/REFERENCE' },
+          { text: 'Architecture', link: '/ARCHITECTURE' },
+          { text: 'Contributing', link: '/CONTRIBUTING' },
         ]
       },
     ],
