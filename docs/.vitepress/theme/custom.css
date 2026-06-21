@@ -1,0 +1,39 @@
+:root {
+    /* Brand */
+    --vp-c-brand-1: #f97316;
+    --vp-c-brand-2: #ea6a0a;
+    --vp-c-brand-3: #c2550a;
+    --vp-c-brand-soft: rgba(249, 115, 22, 0.14);
+
+    /* Home hero name gradient */
+    --vp-home-hero-name-color: transparent;
+    --vp-home-hero-name-background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+
+    /* Home hero image glow */
+    --vp-home-hero-image-background-image: radial-gradient(ellipse at center, rgba(249, 115, 22, 0.35) 0%, transparent 70%);
+    --vp-home-hero-image-filter: blur(44px);
+
+    /* Buttons */
+    --vp-button-brand-border: transparent;
+    --vp-button-brand-text: #ffffff;
+    --vp-button-brand-bg: #f97316;
+    --vp-button-brand-hover-border: transparent;
+    --vp-button-brand-hover-text: #ffffff;
+    --vp-button-brand-hover-bg: #ea6a0a;
+    --vp-button-brand-active-border: transparent;
+    --vp-button-brand-active-text: #ffffff;
+    --vp-button-brand-active-bg: #c2550a;
+
+    /* Badge */
+    --vp-badge-tip-border: transparent;
+    --vp-badge-tip-text: #ffffff;
+    --vp-badge-tip-bg: #f97316;
+}
+
+/* Dark mode adjustments */
+.dark {
+    --vp-c-brand-1: #fb923c;
+    --vp-c-brand-2: #f97316;
+    --vp-c-brand-3: #ea6a0a;
+    --vp-c-brand-soft: rgba(249, 115, 22, 0.16);
+}
