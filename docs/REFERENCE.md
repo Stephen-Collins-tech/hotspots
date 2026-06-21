@@ -59,7 +59,7 @@ Accepts: branch names, tags, full/short SHAs, `HEAD~N` relative refs.
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
 
-Exit codes: 0 = success, 1 = policy failure, 3 = snapshot missing.
+Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
 
@@ -150,6 +150,7 @@ hotspots --version
 |---|---|
 | 0 | Success (or warnings only) |
 | 1 | Error or blocking policy failure |
+| 2 | Auto-analysis failed (`hotspots diff --auto-analyze` only) |
 | 3 | Snapshot missing (`hotspots diff` only) |
 
 ---

@@ -3,7 +3,6 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Hotspots',
   description: 'Find where your engineering attention has the highest expected value.',
-
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
 
@@ -22,6 +21,7 @@ export default defineConfig({
     logo: '/logo.svg',
 
     nav: [
+      { text: 'Quick Start', link: '/quickstart' },
       { text: 'Usage', link: '/USAGE' },
       { text: 'Reference', link: '/REFERENCE' },
       { text: 'Architecture', link: '/ARCHITECTURE' },
@@ -34,6 +34,7 @@ export default defineConfig({
       {
         text: 'Docs',
         items: [
+          { text: 'Quick Start', link: '/quickstart' },
           { text: 'Usage & Workflows', link: '/USAGE' },
           { text: 'CLI & Config Reference', link: '/REFERENCE' },
           { text: 'Architecture', link: '/ARCHITECTURE' },
@@ -58,7 +59,7 @@ export default defineConfig({
     editLink: {
       pattern: 'https://github.com/Stephen-Collins-tech/hotspots/edit/main/docs/:path',
       text: 'Edit this page on GitHub'
-    }
+    },
   },
 
   // Ignore internal docs from site
