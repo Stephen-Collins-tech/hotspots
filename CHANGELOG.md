@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - Add npm and pip install channels to README (#107)
+- Compress 55 docs into 5 pages (#108)
 
 ## [1.25.3] - 2026-06-19
 
