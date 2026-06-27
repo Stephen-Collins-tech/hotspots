@@ -1,23 +1,24 @@
 //! `hotspots train` — fit a local RandomForest ranker from git history.
 //!
-//! # Feature set (9 features, index-stable — model_version = 4)
+//! # Feature set (10 features, index-stable — model_version = 5)
 //!
-//! 0  lrs                composite complexity score
-//! 1  cc                 cyclomatic complexity
-//! 2  nd                 nesting depth
-//! 3  loc                lines of code
-//! 4  fo                 fan-out
-//! 5  fan_in             call-graph fan-in
-//! 6  total_churn        lifetime lines added + deleted (non-windowed structural signal)
-//! 7  authors_90d        distinct commit authors in last 90 days (ownership diversity)
-//! 8  directed_coupling  co-change weighted by partner defect score (F37/F38/F39)
+//! 0  lrs                        composite complexity score
+//! 1  cc                         cyclomatic complexity
+//! 2  nd                         nesting depth
+//! 3  loc                        lines of code
+//! 4  fo                         fan-out
+//! 5  fan_in                     call-graph fan-in
+//! 6  total_churn                lifetime lines added + deleted (non-windowed structural signal)
+//! 7  authors_90d                distinct commit authors in last 90 days (ownership diversity)
+//! 8  directed_coupling          co-change weighted by partner defect score (F37/F38/F39)
+//! 9  convention_bug_fix_count   full-history count of fix-keyword commits per file (F54)
 //!
 //! Deliberately excluded:
 //! - `touch_count_30d`, `days_since_last_change` — windowed activity signals that
 //!   correlate tautologically with labels when the training window overlaps the label
 //!   scan window (temporal leakage; see research Finding 15 and Finding 31).
-//! - `bug_commits`, `convention_bug_fix_count` — derived from the same fix-keyword
-//!   scan used to construct labels (direct data leakage).
+//! - `convention_bug_fix_rate` — fix count divided by total commits; circular with the
+//!   label scan (F48). Only the raw count survives temporal holdout (F54).
 //! - `activity_risk` — a composite of `touch_count_30d` and `days_since_last_change`;
 //!   including it is indirect temporal leakage of the same windowed signals. It also
 //!   causes the trained ranker to reproduce the heuristic score rather than learning
@@ -81,7 +82,7 @@ pub fn repo_prefixes(repo_root: &Path) -> (String, String) {
 
 // ── Feature extraction ────────────────────────────────────────────────────────
 
-pub const FEATURE_NAMES: [&str; 9] = [
+pub const FEATURE_NAMES: [&str; 10] = [
     "lrs",
     "cc",
     "nd",
@@ -91,9 +92,10 @@ pub const FEATURE_NAMES: [&str; 9] = [
     "total_churn",
     "authors_90d",
     "directed_coupling",
+    "convention_bug_fix_count",
 ];
 
-pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
+pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
     let cg = func.callgraph.as_ref();
     let total_churn = func
         .churn
@@ -110,6 +112,7 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
         total_churn,
         func.authors_90d.unwrap_or(0) as f64,
         func.directed_coupling.unwrap_or(0.0),
+        func.convention_bug_fix_count.unwrap_or(0) as f64,
     ]
 }
 
@@ -379,9 +382,10 @@ pub fn train(
         };
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }
+    snapshot.populate_convention_bug_fix_count(repo_root);
 
     // Build (features, label) pairs from snapshot functions
-    let mut rows: Vec<([f64; 9], bool)> = Vec::new();
+    let mut rows: Vec<([f64; 10], bool)> = Vec::new();
 
     if cfg.blame_labels {
         let fix_funcs = collect_fix_functions(&snapshot, repo_root, cfg.label_window_days)?;
@@ -409,7 +413,7 @@ pub fn train(
     }
 
     let n = rows.len();
-    let mut x_data = Vec::with_capacity(n * 9);
+    let mut x_data = Vec::with_capacity(n * FEATURE_NAMES.len());
     let mut y_data: Vec<bool> = Vec::with_capacity(n);
 
     for (feats, label) in &rows {
@@ -418,7 +422,7 @@ pub fn train(
     }
 
     let x: Array2<f64> =
-        Array2::from_shape_vec((n, 9), x_data).context("feature matrix shape error")?;
+        Array2::from_shape_vec((n, FEATURE_NAMES.len()), x_data).context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
     let dataset = Dataset::new(x, y).with_feature_names(
@@ -457,7 +461,7 @@ pub fn train(
     };
 
     Ok(Some(RankerModel {
-        model_version: 4,
+        model_version: 5,
         trees,
         meta,
     }))
@@ -642,7 +646,7 @@ pub fn score(model: &RankerModel, func: &FunctionSnapshot) -> f64 {
     votes as f64 / n as f64
 }
 
-fn vote(tree: &SerializedTree, feats: &[f64; 9]) -> bool {
+fn vote(tree: &SerializedTree, feats: &[f64; 10]) -> bool {
     let nodes = &tree.nodes;
     if nodes.is_empty() {
         return false;
@@ -710,7 +714,7 @@ impl RankerModel {
     pub fn load(path: &Path) -> Result<Self> {
         let json = std::fs::read_to_string(path).context("read model file")?;
         let model: Self = serde_json::from_str(&json).context("deserialize model")?;
-        if model.model_version < 3 {
+        if model.model_version < 5 {
             bail!(
                 "{} was trained with an older feature set (model_version={}). \
                  Run `hotspots train` to retrain with the current feature set.",
@@ -805,7 +809,8 @@ mod tests {
 
     #[test]
     fn feature_names_count_matches_array() {
-        assert_eq!(FEATURE_NAMES.len(), 9);
+        assert_eq!(FEATURE_NAMES.len(), 10);
+        assert!(FEATURE_NAMES.contains(&"convention_bug_fix_count"));
     }
 
     #[test]
@@ -959,6 +964,7 @@ mod tests {
                 authors_90d: None,
                 directed_coupling: None,
                 jaccard_label_stability: None,
+                convention_bug_fix_count: None,
             })
             .collect();
 
@@ -1017,7 +1023,7 @@ mod tests {
     }
 
     #[test]
-    fn load_v3_model_succeeds() {
+    fn load_v3_model_returns_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("ranker.json");
         std::fs::write(
@@ -1025,7 +1031,39 @@ mod tests {
             r#"{"model_version":3,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
         )
         .unwrap();
+        let err = RankerModel::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("retrain") || err.contains("model_version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_v4_model_returns_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ranker.json");
+        std::fs::write(
+            &path,
+            r#"{"model_version":4,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
+        )
+        .unwrap();
+        let err = RankerModel::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("retrain") || err.contains("model_version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_v5_model_succeeds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ranker.json");
+        std::fs::write(
+            &path,
+            r#"{"model_version":5,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
+        )
+        .unwrap();
         let model = RankerModel::load(&path).expect("should load");
-        assert_eq!(model.model_version, 3);
+        assert_eq!(model.model_version, 5);
     }
 }
