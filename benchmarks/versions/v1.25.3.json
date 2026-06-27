@@ -1,0 +1,65 @@
+{
+  "hotspots_version": "1.25.3",
+  "run_date": "2026-06-27",
+  "corpus_version": 1,
+  "features_active": ["lrs", "cc", "nd", "loc", "fo", "fan_in", "total_churn", "authors_90d", "directed_coupling"],
+  "ranker": false,
+  "results": [
+    {
+      "repo": "facebook/react",
+      "language": "JavaScript",
+      "rho": 0.352,
+      "p_at_10": 0.50,
+      "n_files": 862,
+      "n_bug_files": 45
+    },
+    {
+      "repo": "golang/go",
+      "language": "Go",
+      "rho": 0.265,
+      "p_at_10": 0.00,
+      "n_files": 6116,
+      "n_bug_files": 276
+    },
+    {
+      "repo": "git/git",
+      "language": "C",
+      "rho": 0.340,
+      "p_at_10": 0.50,
+      "n_files": 633,
+      "n_bug_files": 244
+    },
+    {
+      "repo": "redis/redis",
+      "language": "C",
+      "rho": 0.476,
+      "p_at_10": 0.70,
+      "n_files": 162,
+      "n_bug_files": 46
+    },
+    {
+      "repo": "curl/curl",
+      "language": "C",
+      "rho": 0.476,
+      "p_at_10": 1.00,
+      "n_files": 632,
+      "n_bug_files": 216
+    },
+    {
+      "repo": "microsoft/vscode",
+      "language": "TypeScript",
+      "rho": 0.251,
+      "p_at_10": 0.40,
+      "n_files": 2245,
+      "n_bug_files": 642
+    },
+    {
+      "repo": "django/django",
+      "language": "Python",
+      "rho": 0.293,
+      "p_at_10": 0.70,
+      "n_files": 756,
+      "n_bug_files": 233
+    }
+  ]
+}
