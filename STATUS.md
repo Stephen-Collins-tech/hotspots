@@ -44,9 +44,9 @@ REQ-002's feature names being stable first.
 
 ### REQ-002 — convention_bug_fix_count as 10th ranker feature
 **Spec:** [`docs/requirements/REQ-002-convention-bug-fix-feature.md`](docs/requirements/REQ-002-convention-bug-fix-feature.md)  
-**What it does:** Adds `convention_bug_fix_count` to `FEATURE_NAMES` in `trainer.rs`, making it a 10th input to the trained ranker. Field already exists on `FunctionSnapshot`. Model version bumped.  
-**Files to change:** `trainer.rs` only.  
-**Effort:** Minimal — two array literals, one `as f64` cast, one version bump, one test update.  
+**What it does:** Adds `convention_bug_fix_count` to `FEATURE_NAMES` in `trainer.rs`, making it a 10th input to the trained ranker. Field must be added to `FunctionSnapshot` and populated from git history. Model version bumped.  
+**Files to change:** `snapshot.rs`, `trainer.rs`.  
+**Effort:** Small — new field + populate method in `snapshot.rs`, two array literals + one version bump in `trainer.rs`.  
 **Benchmark trigger:** Yes — re-run after this ships and append v1.26.x results.
 
 ### REQ-003 — Ranker explanation layer (✦ phrases)

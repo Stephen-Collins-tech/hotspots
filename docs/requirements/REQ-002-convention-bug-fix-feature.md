@@ -17,9 +17,10 @@ historical defect concentration at the function level.
 ## What to build
 
 Add `convention_bug_fix_count` as a 10th feature to the `FEATURE_NAMES` array and
-`extract_features` function in `trainer.rs`. The field is already present in
-`FunctionSnapshot` from git enrichment. No new data collection. No new CLI flags.
-No user-visible change except the model version bump.
+`extract_features` function in `trainer.rs`. The field does not yet exist on
+`FunctionSnapshot` — it must be added to `snapshot.rs` along with a
+`populate_convention_bug_fix_count` method that counts fix-keyword commits per file
+from git history. No new CLI flags. No user-visible change except the model version bump.
 
 ## Evidence
 
@@ -45,7 +46,7 @@ Clone-only signal — no GitHub API required. Available in all deployment contex
 
 ## Files to change
 
-Only `hotspots-core/src/trainer.rs`:
+`hotspots-core/src/snapshot.rs` and `hotspots-core/src/trainer.rs`:
 
 ```rust
 // Before:
