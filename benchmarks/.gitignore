@@ -1,1 +1,5 @@
-.venv/
+# Intermediate run artifacts — reproducible, not committed.
+# Only benchmarks/versions/vX.Y.Z.json and benchmarks/RESULTS.md are tracked.
+results/
+clones/
+worktrees/
