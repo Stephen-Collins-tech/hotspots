@@ -111,7 +111,7 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
             } else {
                 // Use the last WINDOW_SIZE intervals to estimate per-tree time
                 let n = points.len();
-                let window_start = if n > WINDOW_SIZE { n - WINDOW_SIZE } else { 0 };
+                let window_start = n.saturating_sub(WINDOW_SIZE);
                 let (d0, t0) = points[window_start];
                 let (d1, t1) = points[n - 1];
                 let trees_in_window = (d1 - d0) as f64;

@@ -438,7 +438,7 @@ pub fn train(
     let n_tree_feats = ((n_all_feats as f64).sqrt().ceil() as usize).max(1);
     let bootstrap_n = (n as f64 * 0.8).round() as usize;
 
-    let mut trees: Vec<SerializedTree> = Vec::with_capacity(cfg.n_estimators as usize);
+    let mut trees: Vec<SerializedTree> = Vec::with_capacity(cfg.n_estimators);
     for i in 0..cfg.n_estimators {
         // Random feature subset for this tree
         let feat_indices: Vec<usize> = index_sample(&mut rng, n_all_feats, n_tree_feats).into_vec();
