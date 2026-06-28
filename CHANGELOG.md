@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compress 55 docs into 5 pages (#108)
 - Add requirements specs for next release (REQ-001 through REQ-004)
 - Correct REQ-002 — convention_bug_fix_count field does not yet exist on FunctionSnapshot
+- Update train UX, v5 model features, and setup instructions
 
 
 ### Features
