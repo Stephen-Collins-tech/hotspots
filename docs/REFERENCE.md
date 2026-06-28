@@ -67,6 +67,17 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 
 Fit a RandomForest ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
 
+Before training, the command prints an estimate and (for repos with > 1,000 functions) prompts for confirmation:
+
+```
+hotspots train: 12914 functions · 200 trees · 365 days of git history (file-level labels) · estimated ~4m 30s
+Proceed? [y/N]
+  [10/200]  ~4m 5s remaining
+  [100/200]  ~2m 1s remaining
+  [200/200]
+Trained: 200 trees × depth 6 | 12914 samples | elapsed 4m 25s
+```
+
 | Flag | Default | Description |
 |---|---|---|
 | `--blame` | off | Blame-based function-level labels (slower, more precise) |
@@ -75,9 +86,13 @@ Fit a RandomForest ranker from fix-commit history. Model saved to `.hotspots/ran
 | `--max-depth N` | `6` | Maximum tree depth |
 | `--output PATH` | `.hotspots/ranker.json` | Model output path |
 | `--eval` | off | Print Precision@K table after training |
-| `--screen` | off | Pre-flight check only; don't fit model |
+| `--screen` | off | Pre-flight check; aborts when mean hotspots score is too flat |
+| `--yes` / `-y` | off | Skip confirmation prompt (CI / non-interactive) |
+| `--quiet` / `-q` | off | Suppress per-tree progress lines; estimate and completion still shown |
 
 Requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
+
+The trained model (`model_version 5`) uses 10 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`, `convention_bug_fix_count`. Models trained with an older version are rejected on load with a retrain message.
 
 ### `hotspots prune`
 
@@ -489,4 +504,4 @@ All languages have full parity across all metrics and features.
 
 ## Scoring Changelog
 
-All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature (v3 model, 8 features) was introduced in a later release. Check `CHANGELOG.md` for version-specific details.
+All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature was introduced in a later release; the current model is `model_version 5` (10 features). Check `CHANGELOG.md` for version-specific details.
