@@ -187,6 +187,45 @@ what it contributed.
 
 ---
 
+## Release checklist
+
+Steps to run after tagging a release that changes scoring or ranking:
+
+```bash
+# 1. Build the release binary
+cargo build --release
+
+# 2. Re-analyze each worktree (force overwrites existing snapshot)
+for repo in react go git redis curl vscode django; do
+  ./target/release/hotspots analyze /tmp/hotspots-bench/$repo \
+    --mode snapshot --format json --all-functions --force \
+    > /tmp/hotspots-bench/${repo}-scores.json &
+done
+wait
+
+# 3. Regenerate labels (only needed if label window changes)
+CLONES=<path-to-bare-clones>
+python3 benchmarks/label.py $CLONES/facebook__react.git \
+  --after 2024-01-01 --before 2025-01-01 \
+  --feature-sha bf859705b55a8ccaedbed8546cd4d9c6c003bf62 \
+  --out /tmp/hotspots-bench/react-labels.json
+# ... repeat for each repo (see corpus.json for SHAs)
+
+# 4. Score each repo
+for repo in react go git redis curl vscode django; do
+  python3 benchmarks/score.py \
+    /tmp/hotspots-bench/${repo}-scores.json \
+    /tmp/hotspots-bench/${repo}-labels.json
+done
+
+# 5. Write results
+# - Create benchmarks/versions/vX.Y.Z.json
+# - Prepend a block to benchmarks/RESULTS.md
+# - Commit both on the release branch
+```
+
+---
+
 ## Corpus design and label protocol
 
 Full specification: [`corpus.json`](corpus.json) and [REQ-004](../docs/requirements/REQ-004-public-benchmarks.md).

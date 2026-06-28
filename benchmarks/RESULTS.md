@@ -5,16 +5,15 @@ P@10 is precision at the top 10 ranked files. `—` means fewer than 20 bug-link
 the label window — too sparse to report reliably.
 
 See [README.md](README.md) for corpus design, label protocol, and how to reproduce these numbers.
-
-Each block is written once when a release ships and never edited. The versioned raw JSON lives
-in [`versions/`](versions/).
+Full per-repo detail for every release lives in [`versions/`](versions/).
 
 ---
 
-## v1.25.3 — 2026-06-27
+## Latest — v1.26.0 (2026-06-28)
 
 **Features:** ARS baseline (no trained ranker)  
-**Feature set:** lrs, cc, nd, loc, fo, fan_in, total_churn, authors_90d, directed_coupling
+**Feature set:** lrs, cc, nd, loc, fo, fan_in, total_churn, authors_90d, directed_coupling, convention_bug_fix_count  
+**Note:** `convention_bug_fix_count` is collected but only activates through the trained ranker; ARS scores are unchanged from v1.25.3.
 
 | Repo | Language | ρ | P@10 | n\_files | n\_bug\_files |
 |---|---|---|---|---|---|
@@ -28,4 +27,13 @@ in [`versions/`](versions/).
 | **mean** | | **+0.350** | **0.54** | | |
 
 **Corpus:** 7 repos · label window 2024-01-01 to 2025-01-01 · features from pinned pre-2024 SHAs  
-**Raw data:** [versions/v1.25.3.json](versions/v1.25.3.json)
+**Raw data:** [versions/v1.26.0.json](versions/v1.26.0.json)
+
+---
+
+## History
+
+| Version | Date | mean ρ | mean P@10 | Ranker | Notes |
+|---|---|---|---|---|---|
+| [v1.26.0](versions/v1.26.0.json) | 2026-06-28 | +0.350 | 0.54 | off | +`convention_bug_fix_count` (collected; ARS unchanged) |
+| [v1.25.3](versions/v1.25.3.json) | 2026-06-27 | +0.350 | 0.54 | off | Baseline: 9-feature ARS |
