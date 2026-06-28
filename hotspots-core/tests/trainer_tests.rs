@@ -367,7 +367,7 @@ fn trained_model_ranks_buggy_functions_above_clean() {
         n_estimators: 50,
         ..Default::default()
     };
-    let model = train(&snapshot, p, &cfg)
+    let model = train(&snapshot, p, &cfg, None)
         .expect("train")
         .expect("model should be returned — enough training signal");
 
@@ -418,6 +418,6 @@ fn train_returns_none_below_threshold() {
         make_func("a.py", "baz", 9),
     ]);
 
-    let result = train(&snapshot, p, &TrainConfig::default()).expect("train");
+    let result = train(&snapshot, p, &TrainConfig::default(), None).expect("train");
     assert!(result.is_none(), "too few functions → None");
 }

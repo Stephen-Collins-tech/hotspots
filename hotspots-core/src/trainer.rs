@@ -28,11 +28,12 @@ use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{bail, Context, Result};
 use linfa::prelude::Fit;
 use linfa::Dataset;
-use linfa_ensemble::RandomForestParams;
 use linfa_trees::DecisionTreeParams;
 use ndarray::{Array1, Array2};
 use rand::rngs::SmallRng;
+use rand::seq::index::sample as index_sample;
 use rand::SeedableRng;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -358,10 +359,14 @@ impl Default for TrainConfig {
 ///
 /// Returns `None` when the snapshot has fewer than 50 functions or the fix
 /// scan yields fewer than 5 positive / 10 negative labels.
+///
+/// `on_tree` is called after each tree is fitted with `(completed, total)`.
+/// Pass `None` to suppress progress callbacks.
 pub fn train(
     snapshot: &Snapshot,
     repo_root: &Path,
     cfg: &TrainConfig,
+    on_tree: Option<&dyn Fn(u32, u32)>,
 ) -> Result<Option<RankerModel>> {
     // Populate directed coupling on a mutable clone so the caller's snapshot
     // is unchanged.  Partner scores are the hotspots_score proxy: use
@@ -425,30 +430,46 @@ pub fn train(
         Array2::from_shape_vec((n, FEATURE_NAMES.len()), x_data).context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
-    let dataset = Dataset::new(x, y).with_feature_names(
-        FEATURE_NAMES
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>(),
-    );
-
-    let rng = SmallRng::seed_from_u64(cfg.seed);
+    let mut rng = SmallRng::seed_from_u64(cfg.seed);
     let tree_params = DecisionTreeParams::new().max_depth(Some(cfg.max_depth));
 
-    let rf = RandomForestParams::new_fixed_rng(tree_params, rng.clone())
-        .ensemble_size(cfg.n_estimators)
-        .bootstrap_proportion(0.8)
-        .fit(&dataset)
-        .context("RandomForest fit failed")?;
+    // Number of features per tree: sqrt(total), matching sklearn/linfa_ensemble default.
+    let n_all_feats = FEATURE_NAMES.len();
+    let n_tree_feats = ((n_all_feats as f64).sqrt().ceil() as usize).max(1);
+    let bootstrap_n = (n as f64 * 0.8).round() as usize;
 
-    // Serialize each tree as a compact node list
-    let mut trees: Vec<SerializedTree> = Vec::with_capacity(rf.models.len());
-    for (tree, feat_indices) in rf.models.iter().zip(rf.model_features.iter()) {
-        let nodes = serialize_tree(tree);
+    let mut trees: Vec<SerializedTree> = Vec::with_capacity(cfg.n_estimators as usize);
+    for i in 0..cfg.n_estimators {
+        // Random feature subset for this tree
+        let feat_indices: Vec<usize> =
+            index_sample(&mut rng, n_all_feats, n_tree_feats).into_vec();
+
+        // Bootstrap sample (with replacement)
+        let boot_rows: Vec<usize> = (0..bootstrap_n)
+            .map(|_| rng.gen_range(0..n))
+            .collect();
+
+        // Build (bootstrap × tree-features) matrix and label vector
+        let x_boot = Array2::from_shape_fn((bootstrap_n, n_tree_feats), |(r, c)| {
+            x[[boot_rows[r], feat_indices[c]]]
+        });
+        let y_boot: Array1<bool> =
+            Array1::from_shape_fn(bootstrap_n, |r| y[boot_rows[r]]);
+
+        let boot_dataset = Dataset::new(x_boot, y_boot);
+        let tree = tree_params
+            .fit(&boot_dataset)
+            .context("decision tree fit failed")?;
+
+        let nodes = serialize_tree(&tree);
         trees.push(SerializedTree {
             nodes,
-            feature_indices: feat_indices.clone(),
+            feature_indices: feat_indices,
         });
+
+        if let Some(cb) = on_tree {
+            cb((i + 1) as u32, cfg.n_estimators as u32);
+        }
     }
 
     let meta = TrainMeta {
@@ -657,17 +678,13 @@ fn vote(tree: &SerializedTree, feats: &[f64; 10]) -> bool {
         if node.feature_idx == usize::MAX {
             return node.leaf_value;
         }
-        // Map tree-local feature index (which may be a sub-sampled global index)
+        // Map tree-local feature index through the per-tree feature subset
         let global_idx = tree
             .feature_indices
             .get(node.feature_idx)
             .copied()
             .unwrap_or(node.feature_idx);
-        let val = if global_idx < 8 {
-            feats[global_idx]
-        } else {
-            0.0
-        };
+        let val = feats.get(global_idx).copied().unwrap_or(0.0);
         if val <= node.threshold {
             cur = node.left;
         } else {

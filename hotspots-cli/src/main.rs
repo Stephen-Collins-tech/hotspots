@@ -259,6 +259,14 @@ enum Commands {
         /// training runs on repos unlikely to produce a useful model.
         #[arg(long, default_value = "false")]
         screen: bool,
+
+        /// Skip the confirmation prompt before training (non-interactive / CI use).
+        #[arg(long, short = 'y', default_value = "false")]
+        yes: bool,
+
+        /// Suppress per-tree progress lines. Estimate and completion line are still shown.
+        #[arg(long, short = 'q', default_value = "false")]
+        quiet: bool,
     },
 }
 
@@ -379,6 +387,8 @@ fn main() -> anyhow::Result<()> {
             blame,
             eval,
             screen,
+            yes,
+            quiet,
         } => cmd::train::handle_train(cmd::train::TrainArgs {
             path,
             output,
@@ -388,6 +398,8 @@ fn main() -> anyhow::Result<()> {
             blame_labels: blame,
             eval,
             screen,
+            yes,
+            quiet,
         })?,
     }
 

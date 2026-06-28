@@ -7,6 +7,8 @@ use hotspots_core::trainer::{
     ScoredFunction, ScreenerVerdict, TrainConfig,
 };
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub(crate) struct TrainArgs {
     pub path: PathBuf,
@@ -17,13 +19,14 @@ pub(crate) struct TrainArgs {
     pub blame_labels: bool,
     pub eval: bool,
     pub screen: bool,
+    pub yes: bool,
+    pub quiet: bool,
 }
 
 pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     let repo_root = args.path.canonicalize().context("resolve repo path")?;
     let snapshot = load_latest_snapshot(&repo_root)?;
 
-    // Resolve relative --output against repo_root, not CWD.
     let output = if args.output.is_relative() {
         repo_root.join(&args.output)
     } else {
@@ -62,12 +65,64 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     } else {
         "file-level labels"
     };
+
+    let est = estimate_duration(n_funcs, cfg.n_estimators);
     eprintln!(
-        "hotspots train: {} functions in snapshot, scanning {} days of git history ({})…",
-        n_funcs, cfg.label_window_days, label_mode
+        "hotspots train: {} functions · {} trees · {} days of git history ({}) · estimated {}",
+        n_funcs, cfg.n_estimators, cfg.label_window_days, label_mode, est,
     );
 
-    match train(&snapshot, &repo_root, &cfg)? {
+    if n_funcs > 1_000 && !args.yes {
+        eprint!("Proceed? [y/N] ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        match input.trim().to_lowercase().as_str() {
+            "y" | "yes" => {}
+            _ => bail!("Aborted. Pass --yes to skip this prompt."),
+        }
+    }
+
+    let quiet = args.quiet;
+    let start = Instant::now();
+
+    // Rolling ETA state shared with the callback
+    let tree_times: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(Vec::new()));
+    let last_report = Arc::new(Mutex::new(0u32));
+    let cb_start = start;
+    let cb_times = Arc::clone(&tree_times);
+    let cb_last = Arc::clone(&last_report);
+
+    let on_tree = move |done: u32, total: u32| {
+        let elapsed = cb_start.elapsed().as_secs_f64();
+        {
+            let mut times = cb_times.lock().unwrap();
+            times.push(elapsed / done as f64);
+        }
+        if quiet {
+            return;
+        }
+        // Report every 10 trees, and on the last one
+        let mut last = cb_last.lock().unwrap();
+        if done == total || done - *last >= 10 {
+            *last = done;
+            let avg_per_tree = {
+                let times = cb_times.lock().unwrap();
+                times.iter().sum::<f64>() / times.len() as f64
+            };
+            let remaining_secs = avg_per_tree * (total - done) as f64;
+            let eta_str = if done == total {
+                String::new()
+            } else {
+                format!("  ~{} remaining", fmt_duration(remaining_secs as u64))
+            };
+            eprintln!(
+                "  [{}/{}]{} ",
+                done, total, eta_str,
+            );
+        }
+    };
+
+    match train(&snapshot, &repo_root, &cfg, Some(&on_tree))? {
         None => {
             bail!(
                 "Not enough training signal: need ≥50 labelled functions, ≥5 positive and ≥10 negative. \
@@ -75,7 +130,8 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
             );
         }
         Some(model) => {
-            report_model(&model, n_funcs);
+            let elapsed = start.elapsed();
+            report_model(&model, n_funcs, elapsed.as_secs());
             model.save(&args.output)?;
             eprintln!("Model saved → {}", args.output.display());
             if args.eval {
@@ -85,6 +141,34 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn estimate_duration(n_funcs: usize, n_estimators: usize) -> String {
+    // Empirical: ~4.5 min for 12,914 funcs × 200 trees. Scale linearly.
+    let base_secs = 270.0_f64;
+    let base_funcs = 12_914.0_f64;
+    let base_trees = 200.0_f64;
+    let est_secs =
+        base_secs * (n_funcs as f64 / base_funcs) * (n_estimators as f64 / base_trees);
+    if est_secs < 30.0 {
+        "< 30s".to_string()
+    } else {
+        format!("~{}", fmt_duration(est_secs as u64))
+    }
+}
+
+fn fmt_duration(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else {
+        let m = secs / 60;
+        let s = secs % 60;
+        if s == 0 {
+            format!("{m}m")
+        } else {
+            format!("{m}m {s}s")
+        }
+    }
 }
 
 fn run_eval(
@@ -161,14 +245,15 @@ fn load_latest_snapshot(repo_root: &Path) -> Result<Snapshot> {
     Ok(snapshot)
 }
 
-fn report_model(model: &RankerModel, n_funcs: usize) {
+fn report_model(model: &RankerModel, n_funcs: usize, elapsed_secs: u64) {
     let m = &model.meta;
     let base_rate = m.n_pos as f64 / m.n_samples as f64;
     eprintln!(
-        "Trained: {} trees × depth {} | {} samples ({} pos, {} neg) | base rate {:.1}% | {} functions in repo",
+        "Trained: {} trees × depth {} | {} samples ({} pos, {} neg) | base rate {:.1}% | {} functions in repo | elapsed {}",
         m.n_estimators, m.max_depth,
         m.n_samples, m.n_pos, m.n_neg,
         base_rate * 100.0,
         n_funcs,
+        fmt_duration(elapsed_secs),
     );
 }
