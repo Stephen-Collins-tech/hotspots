@@ -9,7 +9,7 @@ git clone https://github.com/Stephen-Collins-tech/hotspots.git
 cd hotspots
 cargo build --release
 cargo test
-make install-hooks   # install pre-commit git hooks (fmt + clippy + tests)
+make setup           # activate tracked git hooks (fmt + clippy + tests) — run once per clone
 ```
 
 Binaries: `target/debug/hotspots` (fast compile) and `target/release/hotspots` (optimized).
