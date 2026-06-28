@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Sliding-window ETA replaces cumulative average in train progress
+- Clippy — remove unnecessary cast, use saturating_sub
+
+
 ### Documentation
 - Add npm and pip install channels to README (#107)
 - Compress 55 docs into 5 pages (#108)
 - Add requirements specs for next release (REQ-001 through REQ-004)
+- Correct REQ-002 — convention_bug_fix_count field does not yet exist on FunctionSnapshot
+
+
+### Features
+- REQ-002 — add convention_bug_fix_count as 10th ranker feature (model_version 5)
+- Train progress — per-tree ETA, estimate+prompt, --yes/-y, --quiet/-q, elapsed
 
 ## [1.25.3] - 2026-06-19
 
