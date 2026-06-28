@@ -210,6 +210,13 @@ pub struct FunctionSnapshot {
     /// Repo-level: same value for all functions. None when DC was not computed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jaccard_label_stability: Option<f64>,
+    /// Count of commits touching this file whose message matches fix-keyword conventions.
+    /// Full-history count (no time window) — avoids temporal leakage when used as a
+    /// training feature with a post-cutoff label window (F54).
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_convention_bug_fix_count()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub convention_bug_fix_count: Option<u32>,
 }
 
 /// Risk distribution by band
@@ -448,6 +455,7 @@ impl Snapshot {
                     authors_90d: None,
                     directed_coupling: None,
                     jaccard_label_stability: None,
+                    convention_bug_fix_count: None,
                 }
             })
             .collect();
@@ -539,6 +547,51 @@ impl Snapshot {
 
             for &i in indices {
                 self.functions[i].authors_90d = Some(count);
+            }
+        }
+    }
+
+    /// Populate `convention_bug_fix_count` for every function.
+    ///
+    /// Counts full-history commits per file whose message matches fix-keyword conventions
+    /// (same regex as `detect_fix_commit`). File-level: all functions in the same file
+    /// receive the same value. Functions in files with no history receive `Some(0)`.
+    ///
+    /// Errors are soft: a failed git call leaves the affected file's functions with
+    /// `convention_bug_fix_count = None`.
+    pub fn populate_convention_bug_fix_count(&mut self, repo_root: &Path) {
+        use std::collections::HashMap;
+        use std::process::Command;
+
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            file_indices.entry(func.file.clone()).or_default().push(i);
+        }
+
+        for (abs_path, indices) in &file_indices {
+            let rel = if let Ok(r) = std::path::Path::new(abs_path).strip_prefix(repo_root) {
+                r.to_string_lossy().to_string()
+            } else {
+                abs_path.clone()
+            };
+
+            let out = Command::new("git")
+                .args(["log", "--format=%s", "--", &rel])
+                .current_dir(repo_root)
+                .output();
+
+            let count = match out {
+                Ok(o) if o.status.success() => {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    text.lines()
+                        .filter(|l| crate::git::detect_fix_commit(l))
+                        .count() as u32
+                }
+                _ => continue,
+            };
+
+            for &i in indices {
+                self.functions[i].convention_bug_fix_count = Some(count);
             }
         }
     }

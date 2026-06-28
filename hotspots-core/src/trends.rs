@@ -503,6 +503,7 @@ mod tests {
                     authors_90d: None,
                     directed_coupling: None,
                     jaccard_label_stability: None,
+                    convention_bug_fix_count: None,
                 }],
             ),
             create_test_snapshot(
@@ -539,6 +540,7 @@ mod tests {
                     authors_90d: None,
                     directed_coupling: None,
                     jaccard_label_stability: None,
+                    convention_bug_fix_count: None,
                 }],
             ),
         ];
@@ -587,6 +589,7 @@ mod tests {
                     authors_90d: None,
                     directed_coupling: None,
                     jaccard_label_stability: None,
+                    convention_bug_fix_count: None,
                 }],
             ),
             create_test_snapshot(
@@ -623,6 +626,7 @@ mod tests {
                     authors_90d: None,
                     directed_coupling: None,
                     jaccard_label_stability: None,
+                    convention_bug_fix_count: None,
                 }],
             ),
         ];
@@ -670,6 +674,7 @@ mod tests {
                         authors_90d: None,
                         directed_coupling: None,
                         jaccard_label_stability: None,
+                        convention_bug_fix_count: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -702,6 +707,7 @@ mod tests {
                         authors_90d: None,
                         directed_coupling: None,
                         jaccard_label_stability: None,
+                        convention_bug_fix_count: None,
                     },
                 ],
             ),
@@ -740,6 +746,7 @@ mod tests {
                         authors_90d: None,
                         directed_coupling: None,
                         jaccard_label_stability: None,
+                        convention_bug_fix_count: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -772,6 +779,7 @@ mod tests {
                         authors_90d: None,
                         directed_coupling: None,
                         jaccard_label_stability: None,
+                        convention_bug_fix_count: None,
                     },
                 ],
             ),

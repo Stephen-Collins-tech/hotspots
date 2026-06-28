@@ -83,6 +83,7 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         authors_90d: None,
         directed_coupling: None,
         jaccard_label_stability: None,
+        convention_bug_fix_count: None,
     }
 }
 
@@ -116,14 +117,16 @@ fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
 fn extract_features_baseline() {
     let func = make_func("src/foo.py", "foo", 1);
     let feats = extract_features(&func);
-    assert_eq!(feats.len(), 9);
-    assert_eq!(FEATURE_NAMES.len(), 9);
+    assert_eq!(feats.len(), 10);
+    assert_eq!(FEATURE_NAMES.len(), 10);
     // total_churn = 0 when no ChurnMetrics
     assert_eq!(feats[6], 0.0);
     // authors_90d = 0 by default
     assert_eq!(feats[7], 0.0);
     // directed_coupling = 0 by default
     assert_eq!(feats[8], 0.0);
+    // convention_bug_fix_count = 0 by default
+    assert_eq!(feats[9], 0.0);
 }
 
 #[test]
@@ -364,11 +367,11 @@ fn trained_model_ranks_buggy_functions_above_clean() {
         n_estimators: 50,
         ..Default::default()
     };
-    let model = train(&snapshot, p, &cfg)
+    let model = train(&snapshot, p, &cfg, None)
         .expect("train")
         .expect("model should be returned — enough training signal");
 
-    assert_eq!(model.model_version, 4);
+    assert_eq!(model.model_version, 5);
 
     // Score all functions
     let scores: Vec<(String, f64)> = snapshot
@@ -415,6 +418,6 @@ fn train_returns_none_below_threshold() {
         make_func("a.py", "baz", 9),
     ]);
 
-    let result = train(&snapshot, p, &TrainConfig::default()).expect("train");
+    let result = train(&snapshot, p, &TrainConfig::default(), None).expect("train");
     assert!(result.is_none(), "too few functions → None");
 }
