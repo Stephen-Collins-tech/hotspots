@@ -88,7 +88,7 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     // Sliding-window ETA: track (done, elapsed_secs) at each report point,
     // compute per-tree rate from the last WINDOW_SIZE intervals only.
     const WINDOW_SIZE: usize = 5; // intervals of 10 trees each = last 50 trees
-    // Seed with (0, 0.0) so the first interval has a prior point to diff against.
+                                  // Seed with (0, 0.0) so the first interval has a prior point to diff against.
     let report_points: Arc<Mutex<Vec<(u32, f64)>>> = Arc::new(Mutex::new(vec![(0, 0.0)]));
     let last_report = Arc::new(Mutex::new(0u32));
     let cb_start = start;
@@ -156,8 +156,7 @@ fn estimate_duration(n_funcs: usize, n_estimators: usize) -> String {
     let base_secs = 270.0_f64;
     let base_funcs = 12_914.0_f64;
     let base_trees = 200.0_f64;
-    let est_secs =
-        base_secs * (n_funcs as f64 / base_funcs) * (n_estimators as f64 / base_trees);
+    let est_secs = base_secs * (n_funcs as f64 / base_funcs) * (n_estimators as f64 / base_trees);
     if est_secs < 30.0 {
         "< 30s".to_string()
     } else {

@@ -32,8 +32,8 @@ use linfa_trees::DecisionTreeParams;
 use ndarray::{Array1, Array2};
 use rand::rngs::SmallRng;
 use rand::seq::index::sample as index_sample;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -426,8 +426,8 @@ pub fn train(
         y_data.push(*label);
     }
 
-    let x: Array2<f64> =
-        Array2::from_shape_vec((n, FEATURE_NAMES.len()), x_data).context("feature matrix shape error")?;
+    let x: Array2<f64> = Array2::from_shape_vec((n, FEATURE_NAMES.len()), x_data)
+        .context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
     let mut rng = SmallRng::seed_from_u64(cfg.seed);
@@ -441,20 +441,16 @@ pub fn train(
     let mut trees: Vec<SerializedTree> = Vec::with_capacity(cfg.n_estimators as usize);
     for i in 0..cfg.n_estimators {
         // Random feature subset for this tree
-        let feat_indices: Vec<usize> =
-            index_sample(&mut rng, n_all_feats, n_tree_feats).into_vec();
+        let feat_indices: Vec<usize> = index_sample(&mut rng, n_all_feats, n_tree_feats).into_vec();
 
         // Bootstrap sample (with replacement)
-        let boot_rows: Vec<usize> = (0..bootstrap_n)
-            .map(|_| rng.gen_range(0..n))
-            .collect();
+        let boot_rows: Vec<usize> = (0..bootstrap_n).map(|_| rng.gen_range(0..n)).collect();
 
         // Build (bootstrap × tree-features) matrix and label vector
         let x_boot = Array2::from_shape_fn((bootstrap_n, n_tree_feats), |(r, c)| {
             x[[boot_rows[r], feat_indices[c]]]
         });
-        let y_boot: Array1<bool> =
-            Array1::from_shape_fn(bootstrap_n, |r| y[boot_rows[r]]);
+        let y_boot: Array1<bool> = Array1::from_shape_fn(bootstrap_n, |r| y[boot_rows[r]]);
 
         let boot_dataset = Dataset::new(x_boot, y_boot);
         let tree = tree_params

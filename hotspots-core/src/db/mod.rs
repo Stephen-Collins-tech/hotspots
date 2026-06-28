@@ -434,7 +434,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             authors_90d: None,
             directed_coupling: None,
             jaccard_label_stability: None,
-                convention_bug_fix_count: None,
+            convention_bug_fix_count: None,
         });
     }
 
