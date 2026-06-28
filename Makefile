@@ -1,4 +1,7 @@
-.PHONY: test test-comprehensive test-integration test-all build install install-hooks clean fmt lint help
+.PHONY: test test-comprehensive test-integration test-all build install install-hooks setup clean fmt lint help
+
+# First-time contributor setup: activate tracked git hooks
+setup: install-hooks
 
 # Build the release binary
 build:
@@ -8,9 +11,10 @@ build:
 install: build
 	./install-dev.sh
 
-# Install git hooks
+# Activate tracked git hooks in .githooks/ (run once per clone)
 install-hooks:
 	git config core.hooksPath .githooks
+	@echo "Git hooks activated (.githooks/pre-commit)"
 
 # Run unit tests
 test:
@@ -46,9 +50,10 @@ lint:
 # Help target
 help:
 	@echo "Available targets:"
+	@echo "  setup              - First-time setup: activate git hooks"
 	@echo "  build              - Build release binary"
 	@echo "  install            - Build and install to ~/.local/bin"
-	@echo "  install-hooks      - Install git hooks (pre-commit)"
+	@echo "  install-hooks      - Activate git hooks from .githooks/ (run once per clone)"
 	@echo "  test               - Run unit tests"
 	@echo "  test-comprehensive - Run comprehensive integration tests"
 	@echo "  test-all           - Run all tests"
