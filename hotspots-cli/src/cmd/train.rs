@@ -85,40 +85,48 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     let quiet = args.quiet;
     let start = Instant::now();
 
-    // Rolling ETA state shared with the callback
-    let tree_times: Arc<Mutex<Vec<f64>>> = Arc::new(Mutex::new(Vec::new()));
+    // Sliding-window ETA: track (done, elapsed_secs) at each report point,
+    // compute per-tree rate from the last WINDOW_SIZE intervals only.
+    const WINDOW_SIZE: usize = 5; // intervals of 10 trees each = last 50 trees
+    // Seed with (0, 0.0) so the first interval has a prior point to diff against.
+    let report_points: Arc<Mutex<Vec<(u32, f64)>>> = Arc::new(Mutex::new(vec![(0, 0.0)]));
     let last_report = Arc::new(Mutex::new(0u32));
     let cb_start = start;
-    let cb_times = Arc::clone(&tree_times);
+    let cb_points = Arc::clone(&report_points);
     let cb_last = Arc::clone(&last_report);
 
     let on_tree = move |done: u32, total: u32| {
-        let elapsed = cb_start.elapsed().as_secs_f64();
-        {
-            let mut times = cb_times.lock().unwrap();
-            times.push(elapsed / done as f64);
-        }
         if quiet {
             return;
         }
         // Report every 10 trees, and on the last one
         let mut last = cb_last.lock().unwrap();
         if done == total || done - *last >= 10 {
-            *last = done;
-            let avg_per_tree = {
-                let times = cb_times.lock().unwrap();
-                times.iter().sum::<f64>() / times.len() as f64
-            };
-            let remaining_secs = avg_per_tree * (total - done) as f64;
+            let elapsed = cb_start.elapsed().as_secs_f64();
+            let mut points = cb_points.lock().unwrap();
+            points.push((done, elapsed));
+
             let eta_str = if done == total {
                 String::new()
             } else {
+                // Use the last WINDOW_SIZE intervals to estimate per-tree time
+                let n = points.len();
+                let window_start = if n > WINDOW_SIZE { n - WINDOW_SIZE } else { 0 };
+                let (d0, t0) = points[window_start];
+                let (d1, t1) = points[n - 1];
+                let trees_in_window = (d1 - d0) as f64;
+                let secs_in_window = t1 - t0;
+                let per_tree = if trees_in_window > 0.0 {
+                    secs_in_window / trees_in_window
+                } else {
+                    elapsed / done as f64
+                };
+                let remaining_secs = per_tree * (total - done) as f64;
                 format!("  ~{} remaining", fmt_duration(remaining_secs as u64))
             };
-            eprintln!(
-                "  [{}/{}]{} ",
-                done, total, eta_str,
-            );
+
+            *last = done;
+            eprintln!("  [{}/{}]{} ", done, total, eta_str);
         }
     };
 
