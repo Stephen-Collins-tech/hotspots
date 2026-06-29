@@ -163,7 +163,7 @@ fn extract_features_with_churn_and_callgraph() {
 fn collect_fix_files_no_fix_commits() {
     let dir = init_repo();
     commit_file(dir.path(), "readme.txt", "hello", "initial commit");
-    let files = collect_fix_files(dir.path(), 365).expect("collect_fix_files");
+    let files = collect_fix_files(dir.path(), 365, None).expect("collect_fix_files");
     assert!(files.is_empty());
 }
 
@@ -185,7 +185,7 @@ fn collect_fix_files_detects_fix_keyword() {
     );
     commit_file(p, "baz.rs", "fn baz() { 1 }", "chore: cleanup baz");
 
-    let files = collect_fix_files(p, 365).expect("collect_fix_files");
+    let files = collect_fix_files(p, 365, None).expect("collect_fix_files");
     assert!(
         files.contains("bar.rs"),
         "fix commit file should be labelled"
@@ -221,7 +221,7 @@ fn collect_fix_files_all_keywords() {
     ] {
         commit_file(p, file, "updated content", msg);
     }
-    let files = collect_fix_files(p, 365).expect("collect_fix_files");
+    let files = collect_fix_files(p, 365, None).expect("collect_fix_files");
     for f in &["a.rs", "b.rs", "c.rs", "d.rs", "e.rs"] {
         assert!(files.contains(*f), "{} should be labelled", f);
     }
@@ -255,7 +255,7 @@ fn collect_fix_functions_labels_correct_function() {
         make_func("mod.py", "beta", 4),
     ]);
 
-    let labelled = collect_fix_functions(&snapshot, p, 365).expect("collect_fix_functions");
+    let labelled = collect_fix_functions(&snapshot, p, 365, None).expect("collect_fix_functions");
 
     assert!(
         labelled.contains(&("mod.py".to_string(), 4)),
@@ -281,7 +281,7 @@ fn collect_fix_functions_ignores_non_fix_commits() {
     );
 
     let snapshot = make_snapshot(vec![make_func("mod.py", "foo", 1)]);
-    let labelled = collect_fix_functions(&snapshot, p, 365).expect("collect_fix_functions");
+    let labelled = collect_fix_functions(&snapshot, p, 365, None).expect("collect_fix_functions");
     assert!(labelled.is_empty());
 }
 

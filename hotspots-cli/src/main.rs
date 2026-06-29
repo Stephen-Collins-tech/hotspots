@@ -234,6 +234,12 @@ enum Commands {
         #[arg(long, default_value = "365")]
         label_window: u32,
 
+        /// Upper bound for the label window (ISO date, e.g. "2025-01-01").
+        /// When set, only fix commits before this date are used as training labels.
+        /// Useful for matching a specific benchmark label window exactly.
+        #[arg(long)]
+        label_before: Option<String>,
+
         /// Number of trees in the RandomForest
         #[arg(long, default_value = "200")]
         n_estimators: usize,
@@ -382,6 +388,7 @@ fn main() -> anyhow::Result<()> {
             path,
             output,
             label_window,
+            label_before,
             n_estimators,
             max_depth,
             blame,
@@ -393,6 +400,7 @@ fn main() -> anyhow::Result<()> {
             path,
             output,
             label_window_days: label_window,
+            label_before,
             n_estimators,
             max_depth,
             blame_labels: blame,

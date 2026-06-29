@@ -14,6 +14,7 @@ pub(crate) struct TrainArgs {
     pub path: PathBuf,
     pub output: PathBuf,
     pub label_window_days: u32,
+    pub label_before: Option<String>,
     pub n_estimators: usize,
     pub max_depth: usize,
     pub blame_labels: bool,
@@ -36,6 +37,7 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
 
     let cfg = TrainConfig {
         label_window_days: args.label_window_days,
+        label_before: args.label_before.clone(),
         n_estimators: args.n_estimators,
         max_depth: args.max_depth,
         blame_labels: args.blame_labels,
@@ -143,7 +145,13 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
             model.save(&args.output)?;
             eprintln!("Model saved → {}", args.output.display());
             if args.eval {
-                run_eval(&model, &snapshot, &repo_root, args.label_window_days)?;
+                run_eval(
+                    &model,
+                    &snapshot,
+                    &repo_root,
+                    args.label_window_days,
+                    args.label_before.as_deref(),
+                )?;
             }
         }
     }
@@ -183,8 +191,9 @@ fn run_eval(
     snapshot: &Snapshot,
     repo_root: &Path,
     label_window_days: u32,
+    label_before: Option<&str>,
 ) -> Result<()> {
-    let fix_files = collect_fix_files(repo_root, label_window_days)?;
+    let fix_files = collect_fix_files(repo_root, label_window_days, label_before)?;
     let base_rate = snapshot.functions.len() as f64;
 
     let labels: std::collections::HashMap<FunctionId, bool> = snapshot
