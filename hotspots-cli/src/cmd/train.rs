@@ -3,8 +3,8 @@
 use anyhow::{bail, Context, Result};
 use hotspots_core::snapshot::{index_path, load_snapshot, Snapshot};
 use hotspots_core::trainer::{
-    collect_fix_files, precision_at_k, score, screen_repo, train, FunctionId, RankerModel,
-    ScoredFunction, ScreenerVerdict, TrainConfig,
+    collect_fix_files, precision_at_k, score, screen_repo, train, FunctionId, ModelClass,
+    Q3Verdict, RankerModel, ScoredFunction, ScreenerVerdict, TrainConfig,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -264,6 +264,22 @@ fn load_latest_snapshot(repo_root: &Path) -> Result<Snapshot> {
 fn report_model(model: &RankerModel, n_funcs: usize, elapsed_secs: u64) {
     let m = &model.meta;
     let base_rate = m.n_pos as f64 / m.n_samples as f64;
+    let verdict_str = m.q3_verdict.as_ref().map_or("N/A", |v| match v {
+        Q3Verdict::Linear => "LINEAR",
+        Q3Verdict::Weak => "WEAK",
+        Q3Verdict::Strong => "STRONG",
+        Q3Verdict::Unreliable => "UNRELIABLE",
+    });
+    match model.model_class {
+        ModelClass::Ridge => eprintln!(
+            "Model class: Ridge (Q3={}, Δρ={:+.2}) — RandomForest training skipped",
+            verdict_str, m.q3_delta,
+        ),
+        ModelClass::RandomForest => eprintln!(
+            "Model class: RandomForest (Q3={}, Δρ={:+.2})",
+            verdict_str, m.q3_delta,
+        ),
+    }
     eprintln!(
         "Trained: {} trees × depth {} | {} samples ({} pos, {} neg) | base rate {:.1}% | {} functions in repo | elapsed {}",
         m.n_estimators, m.max_depth,
