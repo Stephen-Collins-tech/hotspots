@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Add --label-before to hotspots train to bound the label window
+
+
 ### Documentation
 - Add benchmark release checklist; fix flaky pre-commit test skip
 - Restructure RESULTS.md — latest block + history summary table
