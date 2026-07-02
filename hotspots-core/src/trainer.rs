@@ -121,19 +121,28 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
 
 /// Returns the set of file paths touched by fix-keyword commits in the last
 /// `window_days` days.  Uses `git log` via subprocess; tolerates missing git.
-pub fn collect_fix_files(repo_root: &Path, window_days: u32) -> Result<HashSet<String>> {
+pub fn collect_fix_files(
+    repo_root: &Path,
+    window_days: u32,
+    before: Option<&str>,
+) -> Result<HashSet<String>> {
     use std::process::Command;
 
     let after = format!("{}.days.ago", window_days);
+    let mut git_args = vec![
+        "log",
+        "--after",
+        &after,
+        "--name-only",
+        "--pretty=format:%s",
+        "--diff-filter=M",
+    ];
+    if let Some(b) = before {
+        git_args.push("--before");
+        git_args.push(b);
+    }
     let out = Command::new("git")
-        .args([
-            "log",
-            "--after",
-            &after,
-            "--name-only",
-            "--pretty=format:%s",
-            "--diff-filter=M",
-        ])
+        .args(&git_args)
         .current_dir(repo_root)
         .output()
         .context("git log failed")?;
@@ -192,6 +201,7 @@ pub fn collect_fix_functions(
     snapshot: &Snapshot,
     repo_root: &Path,
     window_days: u32,
+    before: Option<&str>,
 ) -> Result<HashSet<(String, u32)>> {
     use std::process::Command;
 
@@ -218,15 +228,20 @@ pub fn collect_fix_functions(
     // Collect fix commit SHAs and their touched files in one git log pass.
     // Format: "<sha>|<subject>" followed by filenames, separated by blank lines.
     let after = format!("{}.days.ago", window_days);
+    let mut git_args = vec![
+        "log",
+        "--after",
+        &after,
+        "--name-only",
+        "--pretty=format:%H|%s",
+        "--diff-filter=M",
+    ];
+    if let Some(b) = before {
+        git_args.push("--before");
+        git_args.push(b);
+    }
     let out = Command::new("git")
-        .args([
-            "log",
-            "--after",
-            &after,
-            "--name-only",
-            "--pretty=format:%H|%s",
-            "--diff-filter=M",
-        ])
+        .args(&git_args)
         .current_dir(repo_root)
         .output()
         .context("git log failed")?;
@@ -341,6 +356,10 @@ pub struct TrainConfig {
     /// Use blame-based function-level labelling instead of file-level labelling.
     /// More precise labels but slower (one git diff-tree subprocess per fix commit).
     pub blame_labels: bool,
+    /// Optional upper bound for the label window (ISO date string, e.g. "2025-01-01").
+    /// When set, only commits before this date are used as training labels.
+    /// Useful for matching a specific benchmark label window.
+    pub label_before: Option<String>,
 }
 
 impl Default for TrainConfig {
@@ -351,6 +370,7 @@ impl Default for TrainConfig {
             max_depth: 6,
             seed: 42,
             blame_labels: false,
+            label_before: None,
         }
     }
 }
@@ -393,7 +413,12 @@ pub fn train(
     let mut rows: Vec<([f64; 10], bool)> = Vec::new();
 
     if cfg.blame_labels {
-        let fix_funcs = collect_fix_functions(&snapshot, repo_root, cfg.label_window_days)?;
+        let fix_funcs = collect_fix_functions(
+            &snapshot,
+            repo_root,
+            cfg.label_window_days,
+            cfg.label_before.as_deref(),
+        )?;
         let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
         for func in &snapshot.functions {
             let rel = make_rel(&func.file, &prefix_can, &prefix_raw);
@@ -401,7 +426,11 @@ pub fn train(
             rows.push((extract_features(func), label));
         }
     } else {
-        let fix_files = collect_fix_files(repo_root, cfg.label_window_days)?;
+        let fix_files = collect_fix_files(
+            repo_root,
+            cfg.label_window_days,
+            cfg.label_before.as_deref(),
+        )?;
         for func in &snapshot.functions {
             let file_norm = func.file.replace('\\', "/");
             let label = fix_files.contains(&file_norm)
