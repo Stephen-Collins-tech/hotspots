@@ -31,6 +31,7 @@ pub mod metrics;
 pub mod models;
 pub mod parser;
 pub mod patterns;
+pub mod phrases;
 pub mod policy;
 pub mod prune;
 pub mod report;

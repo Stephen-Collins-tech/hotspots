@@ -84,6 +84,7 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         directed_coupling: None,
         jaccard_label_stability: None,
         convention_bug_fix_count: None,
+        explanation: None,
     }
 }
 

@@ -164,6 +164,8 @@ pub struct AgentFunctionView {
     pub fan_in: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub patterns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
 }
 
 /// A triage quadrant with count and top-N functions
@@ -280,6 +282,7 @@ fn to_agent_view(
                 days_since_changed: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
                 patterns: func.patterns.clone(),
+                explanation: func.explanation.clone(),
             }
         })
         .collect()
@@ -1104,6 +1107,7 @@ mod tests {
             directed_coupling: None,
             jaccard_label_stability: None,
             convention_bug_fix_count: None,
+            explanation: None,
         }
     }
 

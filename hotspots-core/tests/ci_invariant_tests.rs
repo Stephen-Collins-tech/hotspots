@@ -48,6 +48,7 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         patterns: vec![],
         pattern_details: None,
         callees: vec![],
+        explanation: None,
     };
 
     snapshot::Snapshot::new(git_context, vec![report])
@@ -182,6 +183,7 @@ fn test_delta_single_parent_only() {
         patterns: vec![],
         pattern_details: None,
         callees: vec![],
+        explanation: None,
     };
 
     let merge_snapshot = snapshot::Snapshot::new(git_context, vec![report]);
@@ -264,6 +266,7 @@ fn test_delta_negative_deltas_allowed() {
         patterns: vec![],
         pattern_details: None,
         callees: vec![],
+        explanation: None,
     };
 
     let current = snapshot::Snapshot::new(git_context, vec![report]);

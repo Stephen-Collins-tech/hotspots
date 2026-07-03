@@ -55,6 +55,7 @@ fn make_report(file: &str, func: &str, cc: u32, lrs: f64, band: &str) -> Functio
         patterns: vec![],
         pattern_details: None,
         callees: vec![],
+        explanation: None,
     }
 }
 

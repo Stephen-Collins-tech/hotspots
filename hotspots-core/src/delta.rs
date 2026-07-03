@@ -552,6 +552,7 @@ mod tests {
             patterns: vec![],
             pattern_details: None,
             callees: vec![],
+            explanation: None,
         };
 
         Snapshot::new(git_context, vec![report])

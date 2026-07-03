@@ -31,6 +31,8 @@ pub struct FunctionRiskReport {
     pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
     #[serde(skip, default)]
     pub callees: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
 }
 
 /// Metrics in report format
@@ -114,6 +116,7 @@ impl FunctionRiskReport {
             patterns: analysis.patterns,
             pattern_details: None,
             callees: analysis.metrics.callee_names,
+            explanation: None,
         }
     }
 }
@@ -269,6 +272,17 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: 
                 col_w = col_w
             ));
             s.push('\n');
+            if let Some(exp) = &r.explanation {
+                let suffix = if r.band == RiskBand::Critical {
+                    "Multiple independent signals agree."
+                } else {
+                    "Worth prioritising before next release."
+                };
+                s.push_str(&format!(
+                    "         \u{2726} {}\n           {}\n",
+                    exp, suffix
+                ));
+            }
         }
         s.push('\n');
         s
@@ -375,6 +389,7 @@ mod tests {
             patterns: vec![],
             pattern_details: None,
             callees: vec![],
+            explanation: None,
         }
     }
 

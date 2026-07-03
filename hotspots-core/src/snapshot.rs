@@ -217,6 +217,11 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_convention_bug_fix_count()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub convention_bug_fix_count: Option<u32>,
+    /// Human-readable explanation phrase derived from feature percentiles within this repo.
+    /// Populated by the `--explain` path after the trained ranker is applied.
+    /// None unless `--explain` was passed and a trained ranker is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
 }
 
 /// Risk distribution by band
@@ -456,6 +461,7 @@ impl Snapshot {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    explanation: None,
                 }
             })
             .collect();
@@ -2374,6 +2380,7 @@ mod tests {
             patterns: vec![],
             pattern_details: None,
             callees: vec![],
+            explanation: None,
         };
 
         Snapshot::new(git_context, vec![report])
