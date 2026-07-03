@@ -193,14 +193,7 @@ pub(crate) fn print_explain_output(
                 col_w = col_w
             );
             if let Some(exp) = &f.explanation {
-                use hotspots_core::risk::RiskBand;
-                let suffix = if f.band == RiskBand::Critical {
-                    "Multiple independent signals agree."
-                } else {
-                    "Worth prioritising before next release."
-                };
                 println!("         \u{2726} {}", exp);
-                println!("           {}", suffix);
             }
         }
         println!();

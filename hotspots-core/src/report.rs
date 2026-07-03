@@ -273,15 +273,7 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: 
             ));
             s.push('\n');
             if let Some(exp) = &r.explanation {
-                let suffix = if r.band == RiskBand::Critical {
-                    "Multiple independent signals agree."
-                } else {
-                    "Worth prioritising before next release."
-                };
-                s.push_str(&format!(
-                    "         \u{2726} {}\n           {}\n",
-                    exp, suffix
-                ));
+                s.push_str(&format!("         \u{2726} {}\n", exp));
             }
         }
         s.push('\n');

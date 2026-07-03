@@ -962,7 +962,10 @@ fn populate_explanations(snapshot: &mut Snapshot) {
             nd: pct(2, fv[2]),
             loc: pct(3, fv[3]),
             fo: pct(4, fv[4]),
-            fan_in: pct(5, fv[5]),
+            // Require fan_in >= 3 before "depended on by many callers" fires;
+            // fan_in=1 can clear the 90th percentile on sparse repos, producing
+            // a misleading phrase.
+            fan_in: if fv[5] >= 3.0 { pct(5, fv[5]) } else { 0.0 },
             total_churn: pct(6, fv[6]),
             authors_90d: pct(7, fv[7]),
             directed_coupling: pct(8, fv[8]),

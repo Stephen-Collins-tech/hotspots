@@ -4,7 +4,7 @@
 //! human-readable phrases. No model internals, no LLM, no network.
 
 /// Feature is considered elevated when it is at or above this percentile within the repo.
-pub const ELEVATED: f32 = 0.80;
+pub const ELEVATED: f32 = 0.90;
 
 /// Per-feature percentile rank (0.0–1.0) within the repo being analyzed.
 #[derive(Debug, Clone)]
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn test_single_phrase_authors() {
         let fp = FeaturePercentiles {
-            authors_90d: 0.85,
+            authors_90d: 0.92,
             ..all_low()
         };
         let result = top_phrases(&fp, 3);
@@ -161,8 +161,8 @@ mod tests {
     fn test_three_features_joined() {
         let fp = FeaturePercentiles {
             total_churn: 0.95,
-            lrs: 0.90,
-            fan_in: 0.85,
+            lrs: 0.92,
+            fan_in: 0.91,
             ..all_low()
         };
         let result = top_phrases(&fp, 3);
@@ -173,8 +173,8 @@ mod tests {
     #[test]
     fn test_fallback_when_no_pair() {
         let fp = FeaturePercentiles {
-            cc: 0.90,
-            nd: 0.85,
+            cc: 0.95,
+            nd: 0.92,
             ..all_low()
         };
         let result = top_phrases(&fp, 2);

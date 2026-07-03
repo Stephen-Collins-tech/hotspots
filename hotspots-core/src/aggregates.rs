@@ -166,6 +166,11 @@ pub struct AgentFunctionView {
     pub patterns: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explanation: Option<String>,
+    /// Per-prediction feature contributions from the trained ranker.
+    /// Each entry is `[feature_name, contribution]`, sorted by |contribution| desc.
+    /// Null until TreeSHAP is implemented (see research brief F55-shap).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shap: Option<Vec<(String, f64)>>,
 }
 
 /// A triage quadrant with count and top-N functions
@@ -283,6 +288,7 @@ fn to_agent_view(
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
                 patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
+                shap: None,
             }
         })
         .collect()
