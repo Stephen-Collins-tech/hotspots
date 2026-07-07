@@ -352,7 +352,7 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
   "per_function_touches": true,
   "policy": {
     "critical_introduction": "warn",
-    "critical_introduction_reason": "research repo — new one-shot eval scripts routinely score Critical on introduction; see docs/REFERENCE.md#policy",
+    "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @teamlead 2026-07-06",
     "excessive_risk_regression": "block"
   }
 }
