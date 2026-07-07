@@ -8,7 +8,7 @@
 //! - Policy evaluation order is deterministic
 //! - Baseline deltas skip all policy evaluation
 
-use crate::config::ResolvedConfig;
+use crate::config::{PolicyMode, ResolvedConfig};
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use crate::risk::RiskBand;
 use crate::snapshot::Snapshot;
@@ -179,8 +179,8 @@ pub fn evaluate_policies(
 
     // Evaluation order: Blocking policies first, then warning policies, then repo-level
     // 1. Blocking function-level policies
-    evaluate_critical_introduction(&delta.deltas, &mut results);
-    evaluate_excessive_risk_regression(&delta.deltas, &mut results);
+    evaluate_critical_introduction(&delta.deltas, config, &mut results);
+    evaluate_excessive_risk_regression(&delta.deltas, config, &mut results);
 
     // 2. Warning function-level policies
     evaluate_watch_threshold(&delta.deltas, config, &mut results);
@@ -201,7 +201,27 @@ pub fn evaluate_policies(
 ///
 /// Triggers when `after.band == Critical AND (before.band != Critical OR before is None)`
 /// `before is None` means no matching `function_id` in the parent snapshot (delta status `new`)
-fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
+///
+/// A brand-new function that scores Critical on its first commit and an existing function
+/// that regresses into Critical are treated identically here — a Critical function needs
+/// review either way, regardless of whether the code is new or old. `config.critical_introduction_mode`
+/// controls the severity of that review requirement repo-wide (block/warn/off); it does not
+/// distinguish new from regressed.
+fn evaluate_critical_introduction(
+    deltas: &[FunctionDeltaEntry],
+    config: &ResolvedConfig,
+    results: &mut PolicyResults,
+) {
+    if config.critical_introduction_mode == PolicyMode::Off {
+        return;
+    }
+
+    let severity = match config.critical_introduction_mode {
+        PolicyMode::Block => PolicySeverity::Blocking,
+        PolicyMode::Warn => PolicySeverity::Warning,
+        PolicyMode::Off => unreachable!("handled above"),
+    };
+
     for entry in active_deltas(deltas) {
         // Check if function becomes Critical
         let becomes_critical = if let Some(after) = &entry.after {
@@ -226,13 +246,18 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
         if !was_critical_before {
             let message = format!("Function {} introduced as Critical", entry.function_id);
 
-            results.failed.push(PolicyResult {
+            let result = PolicyResult {
                 id: PolicyId::CriticalIntroduction,
-                severity: PolicySeverity::Blocking,
+                severity,
                 function_id: Some(entry.function_id.clone()),
                 message,
                 metadata: None,
-            });
+            };
+
+            match severity {
+                PolicySeverity::Blocking => results.failed.push(result),
+                PolicySeverity::Warning => results.warnings.push(result),
+            }
         }
     }
 }
@@ -240,8 +265,23 @@ fn evaluate_critical_introduction(deltas: &[FunctionDeltaEntry], results: &mut P
 /// Evaluate Excessive Risk Regression policy
 ///
 /// Triggers when `status == Modified && delta.lrs >= 1.0`
-/// Threshold is fixed at 1.0 LRS (absolute, not relative)
-fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
+/// Threshold is fixed at 1.0 LRS (absolute, not relative).
+/// `config.excessive_risk_regression_mode` controls the severity (block/warn/off).
+fn evaluate_excessive_risk_regression(
+    deltas: &[FunctionDeltaEntry],
+    config: &ResolvedConfig,
+    results: &mut PolicyResults,
+) {
+    if config.excessive_risk_regression_mode == PolicyMode::Off {
+        return;
+    }
+
+    let severity = match config.excessive_risk_regression_mode {
+        PolicyMode::Block => PolicySeverity::Blocking,
+        PolicyMode::Warn => PolicySeverity::Warning,
+        PolicyMode::Off => unreachable!("handled above"),
+    };
+
     const REGRESSION_THRESHOLD: f64 = 1.0;
 
     for entry in active_deltas(deltas) {
@@ -258,9 +298,9 @@ fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &m
                     entry.function_id, delta.lrs
                 );
 
-                results.failed.push(PolicyResult {
+                let result = PolicyResult {
                     id: PolicyId::ExcessiveRiskRegression,
-                    severity: PolicySeverity::Blocking,
+                    severity,
                     function_id: Some(entry.function_id.clone()),
                     message,
                     metadata: Some(PolicyMetadata {
@@ -268,7 +308,12 @@ fn evaluate_excessive_risk_regression(deltas: &[FunctionDeltaEntry], results: &m
                         total_delta: None,
                         growth_percent: None,
                     }),
-                });
+                };
+
+                match severity {
+                    PolicySeverity::Blocking => results.failed.push(result),
+                    PolicySeverity::Warning => results.warnings.push(result),
+                }
             }
         }
     }
@@ -576,6 +621,7 @@ mod tests {
     #[test]
     fn test_critical_introduction_new_function() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![create_test_delta_entry(
             "src/foo.ts::handler",
             FunctionStatus::New,
@@ -584,7 +630,7 @@ mod tests {
             None,
         )];
 
-        evaluate_critical_introduction(&deltas, &mut results);
+        evaluate_critical_introduction(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 1);
         assert_eq!(results.failed[0].id, PolicyId::CriticalIntroduction);
@@ -598,6 +644,7 @@ mod tests {
     #[test]
     fn test_critical_introduction_modified_function() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![create_test_delta_entry(
             "src/foo.ts::handler",
             FunctionStatus::Modified,
@@ -606,7 +653,7 @@ mod tests {
             Some(2.3),
         )];
 
-        evaluate_critical_introduction(&deltas, &mut results);
+        evaluate_critical_introduction(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 1);
         assert_eq!(results.failed[0].id, PolicyId::CriticalIntroduction);
@@ -615,6 +662,7 @@ mod tests {
     #[test]
     fn test_critical_introduction_no_violation() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![
             // Already Critical, stays Critical
             create_test_delta_entry(
@@ -634,7 +682,7 @@ mod tests {
             ),
         ];
 
-        evaluate_critical_introduction(&deltas, &mut results);
+        evaluate_critical_introduction(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 0);
     }
@@ -642,6 +690,7 @@ mod tests {
     #[test]
     fn test_excessive_risk_regression_triggered() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![create_test_delta_entry(
             "src/foo.ts::handler",
             FunctionStatus::Modified,
@@ -650,7 +699,7 @@ mod tests {
             Some(1.5), // >= 1.0 threshold
         )];
 
-        evaluate_excessive_risk_regression(&deltas, &mut results);
+        evaluate_excessive_risk_regression(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 1);
         assert_eq!(results.failed[0].id, PolicyId::ExcessiveRiskRegression);
@@ -666,6 +715,7 @@ mod tests {
     #[test]
     fn test_excessive_risk_regression_below_threshold() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![create_test_delta_entry(
             "src/foo.ts::handler",
             FunctionStatus::Modified,
@@ -674,7 +724,7 @@ mod tests {
             Some(0.9), // < 1.0 threshold
         )];
 
-        evaluate_excessive_risk_regression(&deltas, &mut results);
+        evaluate_excessive_risk_regression(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 0);
     }
@@ -682,6 +732,7 @@ mod tests {
     #[test]
     fn test_excessive_risk_regression_new_function() {
         let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
         let deltas = vec![create_test_delta_entry(
             "src/foo.ts::handler",
             FunctionStatus::New,
@@ -690,10 +741,163 @@ mod tests {
             None,
         )];
 
-        evaluate_excessive_risk_regression(&deltas, &mut results);
+        evaluate_excessive_risk_regression(&deltas, &config, &mut results);
 
         // New functions don't trigger Excessive Risk Regression (only Modified)
         assert_eq!(results.failed.len(), 0);
+    }
+
+    #[test]
+    fn test_critical_introduction_warn_mode_downgrades_severity() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("warn".to_string()),
+                critical_introduction_reason: Some(
+                    "research repo, dense one-shot scripts".to_string(),
+                ),
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        let config = raw.resolve().unwrap();
+
+        let mut results = PolicyResults::new();
+        let deltas = vec![create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::New,
+            None,
+            Some("critical"),
+            None,
+        )];
+
+        evaluate_critical_introduction(&deltas, &config, &mut results);
+
+        // Same trigger condition, but downgraded to a warning, not a blocking failure.
+        assert_eq!(results.failed.len(), 0);
+        assert_eq!(results.warnings.len(), 1);
+        assert_eq!(results.warnings[0].id, PolicyId::CriticalIntroduction);
+        assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
+    }
+
+    #[test]
+    fn test_critical_introduction_off_mode_skips_entirely() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("off".to_string()),
+                critical_introduction_reason: Some(
+                    "research repo, dense one-shot scripts".to_string(),
+                ),
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        let config = raw.resolve().unwrap();
+
+        let mut results = PolicyResults::new();
+        let deltas = vec![create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::New,
+            None,
+            Some("critical"),
+            None,
+        )];
+
+        evaluate_critical_introduction(&deltas, &config, &mut results);
+
+        assert_eq!(results.failed.len(), 0);
+        assert_eq!(results.warnings.len(), 0);
+    }
+
+    #[test]
+    fn test_critical_introduction_new_vs_regressed_same_severity() {
+        // A brand-new function scored Critical and an existing function that regressed
+        // to Critical must produce identical severity under the same config — this
+        // policy does not distinguish "new" from "regressed", only overall strictness.
+        let config = ResolvedConfig::defaults().unwrap();
+
+        let mut new_results = PolicyResults::new();
+        let new_deltas = vec![create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::New,
+            None,
+            Some("critical"),
+            None,
+        )];
+        evaluate_critical_introduction(&new_deltas, &config, &mut new_results);
+
+        let mut regressed_results = PolicyResults::new();
+        let regressed_deltas = vec![create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::Modified,
+            Some("high"),
+            Some("critical"),
+            Some(2.3),
+        )];
+        evaluate_critical_introduction(&regressed_deltas, &config, &mut regressed_results);
+
+        assert_eq!(
+            new_results.failed[0].severity,
+            regressed_results.failed[0].severity
+        );
+    }
+
+    #[test]
+    fn test_policy_config_invalid_mode_rejected() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("blocc".to_string()),
+                critical_introduction_reason: None,
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        assert!(raw.resolve().is_err());
+    }
+
+    #[test]
+    fn test_policy_config_warn_without_reason_rejected() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("warn".to_string()),
+                critical_introduction_reason: None,
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        let err = raw.resolve().unwrap_err();
+        assert!(err.to_string().contains("critical_introduction_reason"));
+    }
+
+    #[test]
+    fn test_policy_config_warn_with_blank_reason_rejected() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("off".to_string()),
+                critical_introduction_reason: Some("   ".to_string()),
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        assert!(raw.resolve().is_err());
+    }
+
+    #[test]
+    fn test_policy_config_block_mode_does_not_require_reason() {
+        let raw = crate::config::HotspotsConfig {
+            policy: Some(crate::config::PolicyConfig {
+                critical_introduction: Some("block".to_string()),
+                critical_introduction_reason: None,
+                excessive_risk_regression: None,
+                excessive_risk_regression_reason: None,
+            }),
+            ..Default::default()
+        };
+        assert!(raw.resolve().is_ok());
     }
 
     #[test]

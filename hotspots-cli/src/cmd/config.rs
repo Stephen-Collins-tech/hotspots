@@ -1,5 +1,21 @@
 use anyhow::Context;
 use hotspots_core::config;
+use hotspots_core::config::PolicyMode;
+
+fn policy_mode_str(mode: PolicyMode) -> &'static str {
+    match mode {
+        PolicyMode::Block => "block",
+        PolicyMode::Warn => "warn",
+        PolicyMode::Off => "off",
+    }
+}
+
+fn reason_suffix(reason: Option<&str>) -> String {
+    match reason {
+        Some(r) => format!(" ({r})"),
+        None => String::new(),
+    }
+}
 
 #[derive(clap::Subcommand)]
 pub(crate) enum ConfigAction {
@@ -89,6 +105,18 @@ pub(crate) fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
                 } else {
                     "default"
                 }
+            );
+            println!();
+            println!("Policy:");
+            println!(
+                "  critical-introduction: {}{}",
+                policy_mode_str(resolved.critical_introduction_mode),
+                reason_suffix(resolved.critical_introduction_reason.as_deref())
+            );
+            println!(
+                "  excessive-risk-regression: {}{}",
+                policy_mode_str(resolved.excessive_risk_regression_mode),
+                reason_suffix(resolved.excessive_risk_regression_reason.as_deref())
             );
         }
     }

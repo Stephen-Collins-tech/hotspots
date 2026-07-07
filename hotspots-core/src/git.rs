@@ -61,12 +61,23 @@ pub struct BatchedTouchMetrics {
     pub days_since_last_change: std::collections::HashMap<String, u32>,
 }
 
+/// Environment variables git uses to locate a repository, bypassing normal
+/// cwd-based discovery entirely when set. If the calling process inherits
+/// these (e.g. hotspots-core is invoked from within a git hook, where git
+/// sets `GIT_DIR` for the hook subprocess), a bare `git` invocation silently
+/// operates on whatever repo `GIT_DIR` points at instead of the caller's
+/// intended cwd/path -- `current_dir()`/`-C` are ignored once `GIT_DIR` is
+/// present. Every git invocation below clears these first so behavior is
+/// determined solely by the explicit cwd/path this module was given.
+const GIT_DISCOVERY_ENV_VARS: [&str; 3] = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"];
+
 /// Execute a git command and return the trimmed stdout
 fn git(args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
-        .args(args)
-        .output()
-        .context("failed to invoke git")?;
+    let mut cmd = Command::new("git");
+    for var in GIT_DISCOVERY_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    let output = cmd.args(args).output().context("failed to invoke git")?;
 
     if !output.status.success() {
         anyhow::bail!(
@@ -81,7 +92,11 @@ fn git(args: &[&str]) -> Result<String> {
 
 /// Execute a git command in a specific directory and return the trimmed stdout
 fn git_at(repo_path: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let mut cmd = Command::new("git");
+    for var in GIT_DISCOVERY_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    let output = cmd
         .current_dir(repo_path)
         .args(args)
         .output()
@@ -1131,8 +1146,25 @@ pub fn extract_co_change_pairs(
 mod tests {
     use super::*;
 
+    /// Serializes tests that depend on (or mutate) the process' ambient working
+    /// directory. `git()` (as opposed to `git_at()`) always runs relative to
+    /// `std::env::current_dir()`, and `cargo test` runs tests in parallel
+    /// threads within one process — CWD is shared, global, mutable state.
+    /// `resolve_merge_base_auto_returns_none_in_no_git_repo` below temporarily
+    /// points CWD at a git-free tempdir; without this lock, any other test in
+    /// this module that shells out to `git()` expecting to be in the repo can
+    /// race against that window and fail nondeterministically.
+    static CWD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_cwd() -> std::sync::MutexGuard<'static, ()> {
+        CWD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn test_extract_git_context() {
+        let _guard = lock_cwd();
         // This test requires a git repository
         // Skip if not in a git repo (e.g., in CI without git context)
         if git(&["rev-parse", "--git-dir"]).is_err() {
@@ -1165,6 +1197,7 @@ mod tests {
 
     #[test]
     fn test_extract_commit_churn() {
+        let _guard = lock_cwd();
         // Skip if not in a git repo
         if git(&["rev-parse", "--git-dir"]).is_err() {
             eprintln!("Skipping test: not in a git repository");
@@ -1201,6 +1234,7 @@ mod tests {
 
     #[test]
     fn test_resolve_ref_to_sha_head() {
+        let _guard = lock_cwd();
         let cwd = std::env::current_dir().expect("failed to get cwd");
         if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
             eprintln!("Skipping test: not in a git repository");
@@ -1219,6 +1253,7 @@ mod tests {
 
     #[test]
     fn test_resolve_ref_to_sha_abbreviated() {
+        let _guard = lock_cwd();
         let cwd = std::env::current_dir().expect("failed to get cwd");
         if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
             eprintln!("Skipping test: not in a git repository");
@@ -1238,6 +1273,7 @@ mod tests {
 
     #[test]
     fn test_resolve_ref_to_sha_invalid_ref() {
+        let _guard = lock_cwd();
         let cwd = std::env::current_dir().expect("failed to get cwd");
         if git_at(&cwd, &["rev-parse", "--git-dir"]).is_err() {
             eprintln!("Skipping test: not in a git repository");
@@ -1250,6 +1286,7 @@ mod tests {
 
     #[test]
     fn resolve_merge_base_auto_does_not_panic() {
+        let _guard = lock_cwd();
         // This function returns None when no common branch exists — that is
         // the expected outcome in environments where the repo has no main/master
         // branch (e.g., a detached shallow clone with only origin/* refs).
@@ -1260,6 +1297,7 @@ mod tests {
 
     #[test]
     fn resolve_merge_base_auto_returns_none_in_no_git_repo() {
+        let _guard = lock_cwd();
         // In a tempdir with no git repo every merge-base attempt fails → None.
         let tmp = tempfile::tempdir().unwrap();
         let old_dir = std::env::current_dir().unwrap();

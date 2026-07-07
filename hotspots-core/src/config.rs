@@ -159,6 +159,64 @@ pub struct HotspotsConfig {
     /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
     #[serde(default)]
     pub patterns: Option<PatternThresholdsConfig>,
+
+    /// Per-repo severity overrides for blocking policies.
+    #[serde(default)]
+    pub policy: Option<PolicyConfig>,
+}
+
+/// Severity for a blocking policy, as configured per-repo.
+///
+/// A repo whose baseline LRS naturally runs high (e.g. a research repo with
+/// dense, one-shot scripts) can downgrade a policy from `block` to `warn`, or
+/// disable it with `off`, without changing what counts as Critical (see
+/// `thresholds.critical`) or which findings are reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyMode {
+    Block,
+    Warn,
+    Off,
+}
+
+impl PolicyMode {
+    fn parse(field: &str, s: &str) -> Result<Self> {
+        match s {
+            "block" => Ok(PolicyMode::Block),
+            "warn" => Ok(PolicyMode::Warn),
+            "off" => Ok(PolicyMode::Off),
+            other => anyhow::bail!(
+                "policy.{} must be one of \"block\", \"warn\", \"off\" (got \"{}\")",
+                field,
+                other
+            ),
+        }
+    }
+}
+
+/// Per-repo severity overrides for blocking policies.
+///
+/// Both `critical-introduction` (a function becomes Critical) and
+/// `excessive-risk-regression` (an existing function jumps by >= 1.0 LRS)
+/// default to `block`. Note: `critical-introduction` fires identically
+/// whether the function is brand-new or an existing function regressed —
+/// a Critical function needs review either way, so there is deliberately
+/// no separate "new vs. regressed" knob here, only an overall severity.
+///
+/// Downgrading either policy below `block` requires a `_reason` string
+/// (mirroring the `// hotspots-ignore: <reason>` convention for per-function
+/// suppression), so a reviewer of the `.hotspotsrc.json` diff sees *why* a
+/// blocking gate was weakened, not just that it was.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyConfig {
+    /// Severity for `critical-introduction`: "block" | "warn" | "off" (default: "block")
+    pub critical_introduction: Option<String>,
+    /// Required when `critical_introduction` is not "block"
+    pub critical_introduction_reason: Option<String>,
+    /// Severity for `excessive-risk-regression`: "block" | "warn" | "off" (default: "block")
+    pub excessive_risk_regression: Option<String>,
+    /// Required when `excessive_risk_regression` is not "block"
+    pub excessive_risk_regression_reason: Option<String>,
 }
 
 /// Custom risk band thresholds
@@ -296,6 +354,14 @@ pub struct ResolvedConfig {
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Pattern detection thresholds
     pub pattern_thresholds: crate::patterns::Thresholds,
+    /// Severity for the `critical-introduction` policy (default: Block)
+    pub critical_introduction_mode: PolicyMode,
+    /// Reason given for downgrading `critical_introduction_mode` below Block (None if Block)
+    pub critical_introduction_reason: Option<String>,
+    /// Severity for the `excessive-risk-regression` policy (default: Block)
+    pub excessive_risk_regression_mode: PolicyMode,
+    /// Reason given for downgrading `excessive_risk_regression_mode` below Block (None if Block)
+    pub excessive_risk_regression_reason: Option<String>,
     /// Path the config was loaded from (None if defaults)
     pub config_path: Option<PathBuf>,
 }
@@ -317,6 +383,9 @@ impl HotspotsConfig {
         }
         if let Some(ref p) = self.patterns {
             validate_pattern_thresholds(p)?;
+        }
+        if let Some(ref p) = self.policy {
+            validate_policy_config(p)?;
         }
         validate_scalar_fields(self)?;
         validate_glob_patterns(&self.include, &self.exclude)
@@ -393,6 +462,42 @@ fn validate_thresholds(t: &ThresholdConfig) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn validate_policy_config(p: &PolicyConfig) -> Result<()> {
+    if let Some(ref s) = p.critical_introduction {
+        let mode = PolicyMode::parse("critical_introduction", s)?;
+        require_reason_if_downgraded(
+            "critical_introduction",
+            mode,
+            p.critical_introduction_reason.as_deref(),
+        )?;
+    }
+    if let Some(ref s) = p.excessive_risk_regression {
+        let mode = PolicyMode::parse("excessive_risk_regression", s)?;
+        require_reason_if_downgraded(
+            "excessive_risk_regression",
+            mode,
+            p.excessive_risk_regression_reason.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// A policy downgraded below `block` must carry a non-empty `<field>_reason`,
+/// mirroring the `// hotspots-ignore: <reason>` convention — so a reviewer of
+/// the config diff sees why a blocking gate was weakened.
+fn require_reason_if_downgraded(field: &str, mode: PolicyMode, reason: Option<&str>) -> Result<()> {
+    if mode == PolicyMode::Block {
+        return Ok(());
+    }
+    match reason {
+        Some(r) if !r.trim().is_empty() => Ok(()),
+        _ => anyhow::bail!(
+            "policy.{field}_reason is required when policy.{field} is not \"block\" (explain why this gate is downgraded)",
+            field = field
+        ),
+    }
 }
 
 fn validate_weights(w: &WeightConfig) -> Result<()> {
@@ -634,6 +739,27 @@ impl HotspotsConfig {
             None => crate::patterns::Thresholds::default(),
         };
 
+        let (
+            critical_introduction_mode,
+            critical_introduction_reason,
+            excessive_risk_regression_mode,
+            excessive_risk_regression_reason,
+        ) = match &self.policy {
+            Some(p) => (
+                match &p.critical_introduction {
+                    Some(s) => PolicyMode::parse("critical_introduction", s)?,
+                    None => PolicyMode::Block,
+                },
+                p.critical_introduction_reason.clone(),
+                match &p.excessive_risk_regression {
+                    Some(s) => PolicyMode::parse("excessive_risk_regression", s)?,
+                    None => PolicyMode::Block,
+                },
+                p.excessive_risk_regression_reason.clone(),
+            ),
+            None => (PolicyMode::Block, None, PolicyMode::Block, None),
+        };
+
         Ok(ResolvedConfig {
             include,
             exclude,
@@ -653,6 +779,10 @@ impl HotspotsConfig {
             top_n: self.top,
             scoring_weights,
             pattern_thresholds,
+            critical_introduction_mode,
+            critical_introduction_reason,
+            excessive_risk_regression_mode,
+            excessive_risk_regression_reason,
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(false),

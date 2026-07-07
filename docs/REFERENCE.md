@@ -349,7 +349,12 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
   "co_change_window_days": 90,
   "co_change_min_count": 3,
   "driver_threshold_percentile": 75,
-  "per_function_touches": true
+  "per_function_touches": true,
+  "policy": {
+    "critical_introduction": "warn",
+    "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @stephenc222 2026-07-06",
+    "excessive_risk_regression": "block"
+  }
 }
 ```
 
@@ -357,7 +362,27 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 - `moderate < high < critical` (all positive)
 - `watch_min < watch_max ≤ moderate < attention_min < attention_max ≤ high`
 - All weights non-negative; at least one positive; none > 10.0
+- `policy.*` values must be one of `"block"`, `"warn"`, `"off"`
+- `policy.<name>_reason` is **required** (non-empty) whenever `policy.<name>` is not `"block"`
 - Unknown fields are rejected (to catch typos)
+
+**`policy`:** severity overrides for the two blocking CI policies. Both default to
+`"block"`. `critical-introduction` fires identically whether a function is brand-new or
+an existing function that regressed to Critical — a Critical function needs review
+either way, so there is no separate new-vs-regressed knob, only overall severity.
+Set to `"warn"` to report without failing CI (e.g. a research repo where new
+one-shot scripts are expected to score high on introduction), or `"off"` to disable
+the policy entirely. Raising `thresholds.critical` instead changes what counts as
+Critical repo-wide (affecting reporting too); `policy` only changes what happens
+once something *is* Critical.
+
+Downgrading a policy below `"block"` requires a `<name>_reason` string — mirroring the
+`// hotspots-ignore: <reason>` convention for per-function suppression — so that anyone
+reviewing a `.hotspotsrc.json` diff sees *why* a blocking gate was weakened, not just
+that it was. `hotspots config validate` rejects a downgrade with a missing or
+whitespace-only reason. This does not make the override unbypassable — anyone with
+commit access to the config can still weaken it, the same as anyone with access to a CI
+workflow file can remove a required check — but it does mean the change can't be silent.
 
 **`driver_threshold_percentile`:** default 75 means a function must be in the top 25% of its metric to receive a specific driver label. Lower (50–60) for small/uniform repos; higher (85–90) for large repos with high median complexity.
 
