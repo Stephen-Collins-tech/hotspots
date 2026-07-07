@@ -84,7 +84,7 @@ hotspots diff main HEAD
 
 The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff ... --policy`).
 
-**Blocking (exit code 1):**
+**Blocking by default (exit code 1) — severity configurable, see below:**
 - `critical-introduction` — new or existing function crosses LRS ≥ 9.0
 - `excessive-risk-regression` — LRS increases by ≥ 1.0 on a modified function
 
@@ -107,6 +107,41 @@ Configure thresholds in `.hotspotsrc.json`:
   }
 }
 ```
+
+### Downgrading a blocking policy for your repo
+
+`critical-introduction` fires the same way whether a function is brand-new or an
+existing function that regressed — a Critical function needs review either way. But
+some repos have a legitimately different baseline: a research repo shipping dense,
+one-shot experiment scripts will routinely introduce Critical-scoring functions on
+day one, and blocking CI on every one of them is noise, not signal.
+
+If that's your repo, downgrade the policy in `.hotspotsrc.json` instead of annotating
+every function with `// hotspots-ignore` or excluding files forever (which also loses
+future regression detection on them):
+
+```json
+{
+  "policy": {
+    "critical_introduction": "warn",
+    "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @yourhandle 2026-07-06"
+  }
+}
+```
+
+Each policy accepts `"block"` (default), `"warn"` (report, exit 0), or `"off"`
+(skip entirely). Downgrading below `"block"` **requires** a `<name>_reason` string —
+`hotspots config validate` rejects a missing or blank one. This mirrors the
+`// hotspots-ignore: <reason>` convention: the point isn't to make the gate
+unbypassable (anyone with commit access to `.hotspotsrc.json` can weaken it, same as
+anyone with access to a CI workflow file can remove a required check) — it's to make
+sure the change can't be silent. A reviewer of the config diff sees *why* the gate was
+weakened, in the same place they see *that* it was.
+
+The same `"block"`/`"warn"`/`"off"` + `_reason` pattern applies to
+`excessive_risk_regression` via `policy.excessive_risk_regression` /
+`policy.excessive_risk_regression_reason`. Full field reference:
+[Configuration → `policy`](/REFERENCE#configuration).
 
 ## CI/CD Setup
 
