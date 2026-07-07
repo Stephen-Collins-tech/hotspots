@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Bug Fixes
+- Bump crossbeam-epoch 0.9.18 -> 0.9.20 (RUSTSEC-2026-0204)
+
+
+### Documentation
+- Fix circular example reason string in REFERENCE.md
+- Attribute example reason to @stephenc222
+- Policy severity downgrade workflow in USAGE.md
+
+
+### Features
+- Per-repo policy severity config + fix git() ignoring GIT_DIR-inherited cwd
+
 ## [1.27.0] - 2026-07-02
 
 ### Bug Fixes
