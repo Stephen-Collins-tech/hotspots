@@ -4,7 +4,7 @@
 //! human-readable phrases. No model internals, no LLM, no network.
 
 /// Feature is considered elevated when it is at or above this percentile within the repo.
-pub const ELEVATED: f32 = 0.90;
+pub const ELEVATED: f32 = 0.80;
 
 /// Per-feature percentile rank (0.0–1.0) within the repo being analyzed.
 #[derive(Debug, Clone)]

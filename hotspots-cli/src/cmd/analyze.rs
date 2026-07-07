@@ -63,8 +63,8 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if *policy && *mode != Some(OutputMode::Delta) {
         anyhow::bail!("--policy flag is only valid with --mode delta");
     }
-    if *explain && *mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--explain flag is only valid with --mode snapshot");
+    if *explain && mode.is_some() && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--explain is not compatible with --mode delta or --mode models");
     }
     if *per_function_touches && mode.is_none() {
         anyhow::bail!(
