@@ -351,7 +351,7 @@ hotspots trends . --window 20 --top 10 --format text
 
 ## Training a Repo-Specific Ranker
 
-By default, hotspots ranks by LRS. Training fits a RandomForest from your repo's bug-fix history to re-rank based on which structural features actually predict bugs in *your* codebase.
+By default, hotspots ranks by LRS. Training fits a model from your repo's bug-fix history to re-rank based on which structural features actually predict bugs in *your* codebase.
 
 ```bash
 # File-level labels (fast)
@@ -374,7 +374,11 @@ P@K evaluation (365-day fix-label window):
 
 If `P@K` is well above `base_rate`, apply the model. If `P@K ≈ base_rate`, skip it — the default LRS ranking is just as good.
 
-Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically and re-scores triage quadrants.
+Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically, re-scores triage quadrants, and prints which model class is in effect:
+
+```
+hotspots: using trained ranker (model class: Ridge)
+```
 
 Training requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels from fix commits. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
@@ -383,6 +387,44 @@ Training is most valuable on repos with 1+ year of history, recognizable fix-com
 ```bash
 hotspots train . --screen   # check only, no model written
 ```
+
+### Ridge vs. RandomForest: automatic model class selection
+
+`hotspots train` doesn't always fit a RandomForest. Before training, it runs a quick
+pre-flight comparison — the **Q3 regime screener** — to check whether a plain linear
+model (Ridge regression) already explains the fix-history signal as well as a forest
+does. If so, it fits Ridge instead and skips RandomForest training entirely.
+
+Why this matters: on repos where the relationship between features (churn, coupling,
+LRS, etc.) and bug-proneness is essentially linear, a RandomForest adds complexity
+(harder to reason about, slower to train, more prone to overfitting on ties) without
+improving ranking quality. The screener catches this automatically so you don't have to
+guess.
+
+You'll see the verdict printed during training:
+
+```
+Model class: Ridge (Q3=LINEAR, Δρ=+0.03) — RandomForest training skipped
+```
+
+or, when trees add real lift:
+
+```
+Model class: RandomForest (Q3=STRONG, Δρ=+0.14)
+```
+
+Verdicts:
+
+| Verdict | Meaning | Model used |
+|---|---|---|
+| `LINEAR` | Δρ < 0.03 — Ridge matches RandomForest | Ridge |
+| `WEAK` | 0.03 ≤ Δρ ≤ 0.10 — modest tree advantage | RandomForest |
+| `STRONG` | Δρ > 0.10 — trees clearly help | RandomForest |
+| `UNRELIABLE` | Too few positive labels to trust the comparison | RandomForest (safe default) |
+
+This selection is fully automatic — there's no flag to control it. The chosen model
+class is saved in `ranker.json` and reused every time `hotspots analyze` scores your
+repo, so you always know which kind of model produced your rankings.
 
 ## AI Integration
 
