@@ -460,6 +460,7 @@ mod tests {
                 patterns: vec![],
                 pattern_details: None,
                 callees: vec![],
+                explanation: None,
             })
             .collect();
 
@@ -504,6 +505,7 @@ mod tests {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    explanation: None,
                 }],
             ),
             create_test_snapshot(
@@ -541,6 +543,7 @@ mod tests {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    explanation: None,
                 }],
             ),
         ];
@@ -590,6 +593,7 @@ mod tests {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    explanation: None,
                 }],
             ),
             create_test_snapshot(
@@ -627,6 +631,7 @@ mod tests {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    explanation: None,
                 }],
             ),
         ];
@@ -675,6 +680,7 @@ mod tests {
                         directed_coupling: None,
                         jaccard_label_stability: None,
                         convention_bug_fix_count: None,
+                        explanation: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -708,6 +714,7 @@ mod tests {
                         directed_coupling: None,
                         jaccard_label_stability: None,
                         convention_bug_fix_count: None,
+                        explanation: None,
                     },
                 ],
             ),
@@ -747,6 +754,7 @@ mod tests {
                         directed_coupling: None,
                         jaccard_label_stability: None,
                         convention_bug_fix_count: None,
+                        explanation: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -780,6 +788,7 @@ mod tests {
                         directed_coupling: None,
                         jaccard_label_stability: None,
                         convention_bug_fix_count: None,
+                        explanation: None,
                     },
                 ],
             ),

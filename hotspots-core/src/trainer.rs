@@ -1330,6 +1330,7 @@ mod tests {
                 directed_coupling: None,
                 jaccard_label_stability: None,
                 convention_bug_fix_count: None,
+                explanation: None,
             })
             .collect();
 

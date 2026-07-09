@@ -435,6 +435,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             directed_coupling: None,
             jaccard_label_stability: None,
             convention_bug_fix_count: None,
+            explanation: None,
         });
     }
 
@@ -928,6 +929,7 @@ mod tests {
             suppression_reason: None,
             patterns: vec![],
             pattern_details: None,
+            explanation: None,
         }];
         Snapshot::new(ctx, reports)
     }
@@ -1061,6 +1063,7 @@ mod tests {
             suppression_reason: None,
             patterns: vec!["complex_branching".to_string()],
             pattern_details: None,
+            explanation: None,
         };
         let mut snapshot = Snapshot::new(ctx, vec![report]);
 
@@ -1196,6 +1199,7 @@ mod tests {
                 suppression_reason: None,
                 patterns: vec![],
                 pattern_details: None,
+                explanation: None,
             })
             .collect();
 

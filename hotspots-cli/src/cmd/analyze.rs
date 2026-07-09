@@ -63,8 +63,8 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if *policy && *mode != Some(OutputMode::Delta) {
         anyhow::bail!("--policy flag is only valid with --mode delta");
     }
-    if *explain && *mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--explain flag is only valid with --mode snapshot");
+    if *explain && mode.is_some() && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--explain is not compatible with --mode delta or --mode models");
     }
     if *per_function_touches && mode.is_none() {
         anyhow::bail!(
@@ -480,6 +480,13 @@ fn handle_snapshot_mode(
     // even if they haven't been touched in the last 30 days.
     if ranker_applied {
         snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
+    }
+
+    // Populate explanation phrases for CRITICAL/HIGH functions when --explain is set
+    // and a trained ranker was applied. Percentiles are computed over all functions
+    // before top-N truncation so the reference distribution is repo-wide.
+    if ranker_applied && explain {
+        populate_explanations(&mut snapshot);
     }
 
     let total_function_count = snapshot.functions.len();
@@ -909,6 +916,65 @@ fn apply_trained_ranker(
         func.activity_risk = Some(hotspots_core::trainer::score(&model, func));
     }
     Some(model.model_class.clone())
+}
+
+/// Compute per-feature repo-wide percentile ranks and populate `explanation` on
+/// every CRITICAL/HIGH function. Called only when `--explain` and a ranker are active.
+fn populate_explanations(snapshot: &mut Snapshot) {
+    use hotspots_core::phrases::{top_phrases, FeaturePercentiles};
+    use hotspots_core::risk::RiskBand;
+    use hotspots_core::trainer::extract_features;
+
+    let n = snapshot.functions.len();
+    if n == 0 {
+        return;
+    }
+
+    // Extract feature vectors for all functions up front.
+    let feature_vecs: Vec<[f64; 10]> = snapshot.functions.iter().map(extract_features).collect();
+
+    // For each feature column, build a sorted copy for percentile lookups.
+    // Feature indices: 0=lrs, 1=cc, 2=nd, 3=loc, 4=fo, 5=fan_in,
+    //                  6=total_churn, 7=authors_90d, 8=directed_coupling
+    let mut sorted: Vec<Vec<f64>> = (0..10usize).map(|_| Vec::with_capacity(n)).collect();
+    for fv in &feature_vecs {
+        for (j, &v) in fv.iter().enumerate() {
+            sorted[j].push(v);
+        }
+    }
+    for col in sorted.iter_mut() {
+        col.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
+    let pct = |col: usize, val: f64| -> f32 {
+        let pos = sorted[col].partition_point(|&x| x < val);
+        pos as f32 / n as f32
+    };
+
+    for (i, func) in snapshot.functions.iter_mut().enumerate() {
+        if !matches!(func.band, RiskBand::Critical | RiskBand::High) {
+            continue;
+        }
+        let fv = &feature_vecs[i];
+        let fp = FeaturePercentiles {
+            lrs: pct(0, fv[0]),
+            cc: pct(1, fv[1]),
+            nd: pct(2, fv[2]),
+            loc: pct(3, fv[3]),
+            fo: pct(4, fv[4]),
+            // Require fan_in >= 3 before "depended on by many callers" fires;
+            // fan_in=1 can clear the 90th percentile on sparse repos, producing
+            // a misleading phrase.
+            fan_in: if fv[5] >= 3.0 { pct(5, fv[5]) } else { 0.0 },
+            total_churn: pct(6, fv[6]),
+            authors_90d: pct(7, fv[7]),
+            directed_coupling: pct(8, fv[8]),
+        };
+        let phrase = top_phrases(&fp, 3);
+        if !phrase.is_empty() {
+            func.explanation = Some(phrase);
+        }
+    }
 }
 
 fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>

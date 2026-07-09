@@ -192,6 +192,9 @@ pub(crate) fn print_explain_output(
                 patterns_str,
                 col_w = col_w
             );
+            if let Some(exp) = &f.explanation {
+                println!("         \u{2726} {}", exp);
+            }
         }
         println!();
     };

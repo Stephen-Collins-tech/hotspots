@@ -18,7 +18,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
-| `--explain` | off | Per-function risk breakdown (snapshot+text only) |
+| `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
 | `--explain-patterns` | off | Show pattern trigger conditions |
 | `--level` | — | `file` or `module` aggregate view (snapshot+text only) |
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
@@ -115,6 +115,8 @@ The trained model (`model_version 5`) uses 10 features: `lrs`, `cc`, `nd`, `loc`
 ```
 hotspots: using trained ranker (model class: Ridge)
 ```
+
+Once a model is trained, `hotspots analyze . --mode snapshot --explain` adds a `✦` phrase line below each CRITICAL/HIGH function — e.g. `✦ Churns heavily and is load-bearing.` — derived from which features rank in the top 20th percentile for that repo. No `✦` lines appear without a trained ranker.
 
 ### `hotspots prune`
 

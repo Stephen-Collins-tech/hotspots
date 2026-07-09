@@ -260,7 +260,15 @@ hotspots analyze . --mode snapshot --format text --level file
 
 Color-coded by risk band (critical=red, high=yellow, moderate=blue, low=green). Disable: `NO_COLOR=1 hotspots analyze ...`.
 
-The `--explain` view adds driver label, recommended action, and near-miss dimensions for `composite`-labeled functions. A co-change coupling section at the bottom shows file pairs that frequently change together in the same commit.
+The `--explain` view adds per-function risk breakdown. When a trained ranker is active (run `hotspots train` first), it also emits a `✦` phrase line for each CRITICAL/HIGH function derived from which signals are in the top 20th percentile for the repo — e.g.:
+
+```
+  0.56  hotspots-core/src/aggregates.rs:694  compute_module_instability_from_edges
+         ✦ Tightly coupled to other hotspots, depended on by many callers, and high cyclomatic complexity.
+           Worth prioritising before next release.
+```
+
+No `✦` lines appear without a trained ranker.
 
 ### JSON
 
