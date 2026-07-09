@@ -42,6 +42,7 @@ tree-sitter-c-sharp = "0.23"
 linfa = "0.8.1"
 linfa-trees = "0.8.1"
 linfa-ensemble = "0.8.1"
+linfa-linear = "0.8.1"
 rand = { version = "0.8", features = ["small_rng"] }
 ndarray = "0.16"
 tree-sitter-c = "0.24.2"

@@ -464,7 +464,16 @@ fn handle_snapshot_mode(
         snapshot::append_to_index(repo_root, &snapshot).context("failed to update index")?;
     }
 
-    let ranker_applied = apply_trained_ranker(repo_root, &mut snapshot);
+    let applied_model_class = apply_trained_ranker(repo_root, &mut snapshot);
+    let ranker_applied = applied_model_class.is_some();
+
+    if let Some(model_class) = &applied_model_class {
+        let label = match model_class {
+            hotspots_core::trainer::ModelClass::Ridge => "Ridge",
+            hotspots_core::trainer::ModelClass::RandomForest => "RandomForest",
+        };
+        eprintln!("hotspots: using trained ranker (model class: {label})");
+    }
 
     // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
     // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
@@ -879,24 +888,27 @@ fn apply_top_n(
 }
 
 /// If `.hotspots/ranker.json` exists, overwrite each function's `activity_risk`
-/// with the trained model's vote score.  Returns true if the ranker was applied.
-/// Silent no-op (returns false) if the model is absent or fails to load.
-fn apply_trained_ranker(repo_root: &Path, snapshot: &mut Snapshot) -> bool {
+/// with the trained model's score. Returns the model class that was applied.
+/// Silent no-op (returns `None`) if the model is absent or fails to load.
+fn apply_trained_ranker(
+    repo_root: &Path,
+    snapshot: &mut Snapshot,
+) -> Option<hotspots_core::trainer::ModelClass> {
     let model_path = snapshot::hotspots_dir(repo_root).join("ranker.json");
     if !model_path.exists() {
-        return false;
+        return None;
     }
     let model = match hotspots_core::trainer::RankerModel::load(&model_path) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("hotspots: warning: failed to load ranker.json: {e}");
-            return false;
+            return None;
         }
     };
     for func in &mut snapshot.functions {
         func.activity_risk = Some(hotspots_core::trainer::score(&model, func));
     }
-    true
+    Some(model.model_class.clone())
 }
 
 fn write_snapshot_json_file<F>(output_path: &Path, write: F) -> anyhow::Result<()>

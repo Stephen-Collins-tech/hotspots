@@ -28,6 +28,7 @@ use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{bail, Context, Result};
 use linfa::prelude::Fit;
 use linfa::Dataset;
+use linfa_linear::TweedieRegressor;
 use linfa_trees::DecisionTreeParams;
 use ndarray::{Array1, Array2};
 use rand::rngs::SmallRng;
@@ -459,6 +460,30 @@ pub fn train(
         .context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
+    let (regime_verdict, regime_delta) = regime_screen(&x, &y);
+
+    // Linear regime: Ridge does as well as RandomForest — use it instead.
+    if regime_verdict == RegimeVerdict::Linear {
+        let ridge = train_ridge(&x, &y)?;
+        let meta = TrainMeta {
+            n_samples: n,
+            n_pos,
+            n_neg,
+            label_window_days: cfg.label_window_days,
+            n_estimators: 0,
+            max_depth: 0,
+            regime_verdict: Some(regime_verdict),
+            regime_delta,
+        };
+        return Ok(Some(RankerModel {
+            model_version: 5,
+            trees: vec![],
+            meta,
+            model_class: ModelClass::Ridge,
+            ridge: Some(ridge),
+        }));
+    }
+
     let mut rng = SmallRng::seed_from_u64(cfg.seed);
     let tree_params = DecisionTreeParams::new().max_depth(Some(cfg.max_depth));
 
@@ -504,12 +529,16 @@ pub fn train(
         label_window_days: cfg.label_window_days,
         n_estimators: cfg.n_estimators,
         max_depth: cfg.max_depth,
+        regime_verdict: Some(regime_verdict),
+        regime_delta,
     };
 
     Ok(Some(RankerModel {
         model_version: 5,
         trees,
         meta,
+        model_class: ModelClass::RandomForest,
+        ridge: None,
     }))
 }
 
@@ -674,22 +703,304 @@ pub fn screen_repo(snapshot: &Snapshot) -> (ScreenerVerdict, f64) {
     (verdict, mean_hs)
 }
 
+// ── Regime screener ────────────────────────────────────────────────────────
+
+/// Verdict from the pre-training regime screener (F61): compares a depth-2
+/// RandomForest against Ridge regression to decide whether the fix-history
+/// signal is linear (Ridge suffices) or has interaction effects (use RandomForest).
+/// Thresholds mirror `scripts/eval/stats_pass.py`'s Q3 check exactly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RegimeVerdict {
+    /// Δρ < 0.03 — linear model matches RandomForest; use Ridge.
+    Linear,
+    /// 0.03 ≤ Δρ ≤ 0.10 — modest tree advantage; use RandomForest.
+    Weak,
+    /// Δρ > 0.10 — strong tree advantage; use RandomForest.
+    Strong,
+    /// pos_rate < 0.05 — too few positives to trust the comparison; use RandomForest.
+    Unreliable,
+}
+
+/// Which model class was selected for this `RankerModel`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ModelClass {
+    Ridge,
+    RandomForest,
+}
+
+/// Serializable Ridge regression ranker (stores standardization params).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RidgeRanker {
+    pub coefficients: Vec<f64>,
+    pub intercept: f64,
+    pub mean: Vec<f64>,
+    pub std: Vec<f64>,
+}
+
+fn spearman_rho(pred: &[f64], truth: &[f64]) -> f64 {
+    let n = pred.len();
+    if n < 2 {
+        return 0.0;
+    }
+    let rank_p = compute_ranks(pred);
+    let rank_t = compute_ranks(truth);
+    pearson_corr(&rank_p, &rank_t)
+}
+
+fn compute_ranks(v: &[f64]) -> Vec<f64> {
+    let n = v.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal));
+    let mut r = vec![0.0f64; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j < n && v[idx[j]] == v[idx[i]] {
+            j += 1;
+        }
+        let avg_rank = (i + j - 1) as f64 / 2.0 + 1.0;
+        for k in i..j {
+            r[idx[k]] = avg_rank;
+        }
+        i = j;
+    }
+    r
+}
+
+fn pearson_corr(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len() as f64;
+    let ma = a.iter().sum::<f64>() / n;
+    let mb = b.iter().sum::<f64>() / n;
+    let num: f64 = a.iter().zip(b).map(|(x, y)| (x - ma) * (y - mb)).sum();
+    let da: f64 = a.iter().map(|x| (x - ma).powi(2)).sum::<f64>().sqrt();
+    let db: f64 = b.iter().map(|y| (y - mb).powi(2)).sum::<f64>().sqrt();
+    if da == 0.0 || db == 0.0 {
+        return 0.0;
+    }
+    num / (da * db)
+}
+
+/// 3-fold CV comparison of Ridge vs. depth-2 RandomForest.
+/// Returns the regime verdict and Δρ = tree_ρ − ridge_ρ.
+pub fn regime_screen(x: &Array2<f64>, y: &Array1<bool>) -> (RegimeVerdict, f64) {
+    let n = x.nrows();
+    let n_feats = x.ncols();
+    let n_pos = y.iter().filter(|&&b| b).count();
+    let pos_rate = n_pos as f64 / n as f64;
+
+    if pos_rate < 0.05 {
+        return (RegimeVerdict::Unreliable, 0.0);
+    }
+
+    const CV_FOLDS: usize = 3;
+    let fold_size = n / CV_FOLDS;
+
+    let mut ridge_rhos: Vec<f64> = Vec::with_capacity(CV_FOLDS);
+    let mut tree_rhos: Vec<f64> = Vec::with_capacity(CV_FOLDS);
+
+    for fold in 0..CV_FOLDS {
+        let test_start = fold * fold_size;
+        let test_end = if fold == CV_FOLDS - 1 {
+            n
+        } else {
+            test_start + fold_size
+        };
+
+        let train_idx: Vec<usize> = (0..n)
+            .filter(|&i| i < test_start || i >= test_end)
+            .collect();
+        let test_idx: Vec<usize> = (test_start..test_end).collect();
+
+        let n_train = train_idx.len();
+        let n_test = test_idx.len();
+        if n_test == 0 || n_train < 5 {
+            continue;
+        }
+
+        let x_train = Array2::from_shape_fn((n_train, n_feats), |(r, c)| x[[train_idx[r], c]]);
+        let y_train_bool: Array1<bool> = Array1::from_shape_fn(n_train, |r| y[train_idx[r]]);
+        let y_train_f: Array1<f64> = y_train_bool.mapv(|b| if b { 1.0 } else { 0.0 });
+        let x_test = Array2::from_shape_fn((n_test, n_feats), |(r, c)| x[[test_idx[r], c]]);
+        let y_test_f: Vec<f64> = test_idx
+            .iter()
+            .map(|&i| if y[i] { 1.0 } else { 0.0 })
+            .collect();
+
+        // Standardize on train statistics
+        let col_mean: Vec<f64> = (0..n_feats)
+            .map(|c| x_train.column(c).mean().unwrap_or(0.0))
+            .collect();
+        let col_std: Vec<f64> = (0..n_feats)
+            .map(|c| {
+                let col = x_train.column(c);
+                let m = col_mean[c];
+                let var = col.iter().map(|&v| (v - m).powi(2)).sum::<f64>() / n_train as f64;
+                var.sqrt().max(1e-8)
+            })
+            .collect();
+        let x_train_std = Array2::from_shape_fn((n_train, n_feats), |(r, c)| {
+            (x_train[[r, c]] - col_mean[c]) / col_std[c]
+        });
+        let x_test_std = Array2::from_shape_fn((n_test, n_feats), |(r, c)| {
+            (x_test[[r, c]] - col_mean[c]) / col_std[c]
+        });
+
+        // Ridge
+        let ridge_dataset = Dataset::new(x_train_std, y_train_f);
+        if let Ok(ridge_model) = TweedieRegressor::params()
+            .alpha(1.0_f64)
+            .power(0.0_f64)
+            .fit(&ridge_dataset)
+        {
+            let coeffs: &Array1<f64> = &ridge_model.coef;
+            let intercept: f64 = ridge_model.intercept;
+            let ridge_preds: Vec<f64> = (0..n_test)
+                .map(|r| {
+                    let row = x_test_std.row(r);
+                    coeffs
+                        .iter()
+                        .zip(row.iter())
+                        .map(|(c, x)| c * x)
+                        .sum::<f64>()
+                        + intercept
+                })
+                .collect();
+            ridge_rhos.push(spearman_rho(&ridge_preds, &y_test_f));
+        }
+
+        // Depth-2 RandomForest (50 estimators)
+        let mut rng = SmallRng::seed_from_u64(42 + fold as u64);
+        let tree_params = DecisionTreeParams::new().max_depth(Some(2));
+        let n_tree_feats = ((n_feats as f64).sqrt().ceil() as usize).max(1);
+        let bootstrap_n = ((n_train as f64) * 0.8).round() as usize;
+
+        let mut cv_trees: Vec<SerializedTree> = Vec::with_capacity(50);
+        for _ in 0..50usize {
+            let feat_indices: Vec<usize> = index_sample(&mut rng, n_feats, n_tree_feats).into_vec();
+            let boot_rows: Vec<usize> = (0..bootstrap_n)
+                .map(|_| rng.gen_range(0..n_train))
+                .collect();
+            let x_boot = Array2::from_shape_fn((bootstrap_n, n_tree_feats), |(r, c)| {
+                x_train[[boot_rows[r], feat_indices[c]]]
+            });
+            let y_boot: Array1<bool> =
+                Array1::from_shape_fn(bootstrap_n, |r| y_train_bool[boot_rows[r]]);
+            let boot_ds = Dataset::new(x_boot, y_boot);
+            if let Ok(tree) = tree_params.fit(&boot_ds) {
+                cv_trees.push(SerializedTree {
+                    nodes: serialize_tree(&tree),
+                    feature_indices: feat_indices,
+                });
+            }
+        }
+
+        if !cv_trees.is_empty() {
+            let tree_preds: Vec<f64> = (0..n_test)
+                .map(|r| {
+                    let mut feats_arr = [0.0f64; 10];
+                    for c in 0..n_feats.min(10) {
+                        feats_arr[c] = x_test[[r, c]];
+                    }
+                    let votes: usize = cv_trees.iter().map(|t| vote(t, &feats_arr) as usize).sum();
+                    votes as f64 / cv_trees.len() as f64
+                })
+                .collect();
+            tree_rhos.push(spearman_rho(&tree_preds, &y_test_f));
+        }
+    }
+
+    if ridge_rhos.is_empty() || tree_rhos.is_empty() {
+        return (RegimeVerdict::Unreliable, 0.0);
+    }
+
+    let avg_ridge = ridge_rhos.iter().sum::<f64>() / ridge_rhos.len() as f64;
+    let avg_tree = tree_rhos.iter().sum::<f64>() / tree_rhos.len() as f64;
+    let delta = avg_tree - avg_ridge;
+
+    let verdict = if delta < 0.03 {
+        RegimeVerdict::Linear
+    } else if delta <= 0.10 {
+        RegimeVerdict::Weak
+    } else {
+        RegimeVerdict::Strong
+    };
+
+    (verdict, delta)
+}
+
+/// Fit a Ridge regression ranker on standardized features.
+/// Returns a `RidgeRanker` storing coefficients and standardization params.
+pub fn train_ridge(x: &Array2<f64>, y: &Array1<bool>) -> Result<RidgeRanker> {
+    let n = x.nrows();
+    let n_feats = x.ncols();
+
+    let mean: Vec<f64> = (0..n_feats)
+        .map(|c| x.column(c).mean().unwrap_or(0.0))
+        .collect();
+    let std_dev: Vec<f64> = (0..n_feats)
+        .map(|c| {
+            let col = x.column(c);
+            let m = mean[c];
+            let var = col.iter().map(|&v| (v - m).powi(2)).sum::<f64>() / n as f64;
+            var.sqrt().max(1e-8)
+        })
+        .collect();
+
+    let x_std = Array2::from_shape_fn((n, n_feats), |(r, c)| (x[[r, c]] - mean[c]) / std_dev[c]);
+    let y_f: Array1<f64> = y.mapv(|b| if b { 1.0 } else { 0.0 });
+
+    let dataset = Dataset::new(x_std, y_f);
+    let model = TweedieRegressor::params()
+        .alpha(1.0_f64)
+        .power(0.0_f64)
+        .fit(&dataset)
+        .context("ridge fit failed")?;
+
+    Ok(RidgeRanker {
+        coefficients: model.coef.to_vec(),
+        intercept: model.intercept,
+        mean,
+        std: std_dev,
+    })
+}
+
 // ── Inference ─────────────────────────────────────────────────────────────────
 
 /// Score a function using the trained ranker.
-/// Returns a value in [0, 1]: fraction of trees voting positive.
+/// Dispatches to Ridge or RandomForest based on `model.model_class`.
 pub fn score(model: &RankerModel, func: &FunctionSnapshot) -> f64 {
     let feats = extract_features(func);
-    let n = model.trees.len();
-    if n == 0 {
-        return 0.0;
+    match model.model_class {
+        ModelClass::Ridge => {
+            if let Some(ridge) = &model.ridge {
+                let n_feats = ridge.coefficients.len().min(feats.len());
+                let raw: f64 = (0..n_feats)
+                    .map(|i| {
+                        let std = ridge.std.get(i).copied().unwrap_or(1.0).max(1e-8);
+                        let mean = ridge.mean.get(i).copied().unwrap_or(0.0);
+                        let x_std = (feats[i] - mean) / std;
+                        ridge.coefficients[i] * x_std
+                    })
+                    .sum::<f64>()
+                    + ridge.intercept;
+                raw.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        }
+        ModelClass::RandomForest => {
+            let n = model.trees.len();
+            if n == 0 {
+                return 0.0;
+            }
+            let votes: usize = model
+                .trees
+                .iter()
+                .map(|tree| vote(tree, &feats) as usize)
+                .sum();
+            votes as f64 / n as f64
+        }
     }
-    let votes: usize = model
-        .trees
-        .iter()
-        .map(|tree| vote(tree, &feats) as usize)
-        .sum();
-    votes as f64 / n as f64
 }
 
 fn vote(tree: &SerializedTree, feats: &[f64; 10]) -> bool {
@@ -732,10 +1043,18 @@ pub struct TrainMeta {
     pub label_window_days: u32,
     pub n_estimators: usize,
     pub max_depth: usize,
+    #[serde(default)]
+    pub regime_verdict: Option<RegimeVerdict>,
+    #[serde(default)]
+    pub regime_delta: f64,
 }
 
 fn default_model_version() -> u32 {
     1
+}
+
+fn default_model_class() -> ModelClass {
+    ModelClass::RandomForest
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -744,6 +1063,10 @@ pub struct RankerModel {
     pub model_version: u32,
     pub trees: Vec<SerializedTree>,
     pub meta: TrainMeta,
+    #[serde(default = "default_model_class")]
+    pub model_class: ModelClass,
+    #[serde(default)]
+    pub ridge: Option<RidgeRanker>,
 }
 
 impl RankerModel {

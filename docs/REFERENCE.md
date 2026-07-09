@@ -65,7 +65,15 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 
 ### `hotspots train [PATH]`
 
-Fit a RandomForest ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
+Fit a ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
+
+Before fitting a RandomForest, `hotspots train` runs a pre-flight comparison (the **regime
+screener**) between Ridge regression and a depth-2 RandomForest. If Ridge already
+matches the forest's ranking quality (`Δρ < 0.03`), it fits Ridge instead and skips
+RandomForest training — faster, and no less accurate on repos where the signal is
+linear. See [`docs/USAGE.md`](USAGE.md#ridge-vs-randomforest-automatic-model-class-selection)
+for the full verdict table. This selection is automatic; there is no flag to force one
+model class over the other.
 
 Before training, the command prints an estimate and (for repos with > 1,000 functions) prompts for confirmation:
 
@@ -75,15 +83,23 @@ Proceed? [y/N]
   [10/200]  ~4m 5s remaining
   [100/200]  ~2m 1s remaining
   [200/200]
+Model class: RandomForest (regime=STRONG, Δρ=+0.14)
 Trained: 200 trees × depth 6 | 12914 samples | elapsed 4m 25s
+```
+
+When the screener selects Ridge, RandomForest training is skipped:
+
+```
+Model class: Ridge (regime=LINEAR, Δρ=+0.03) — RandomForest training skipped
+Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--blame` | off | Blame-based function-level labels (slower, more precise) |
 | `--label-window DAYS` | `365` | Days of history to scan |
-| `--n-estimators N` | `200` | Trees in RandomForest |
-| `--max-depth N` | `6` | Maximum tree depth |
+| `--n-estimators N` | `200` | Trees in RandomForest (ignored if the screener selects Ridge) |
+| `--max-depth N` | `6` | Maximum tree depth (ignored if the screener selects Ridge) |
 | `--output PATH` | `.hotspots/ranker.json` | Model output path |
 | `--eval` | off | Print Precision@K table after training |
 | `--screen` | off | Pre-flight check; aborts when mean hotspots score is too flat |
@@ -93,6 +109,12 @@ Trained: 200 trees × depth 6 | 12914 samples | elapsed 4m 25s
 Requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
 The trained model (`model_version 5`) uses 10 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`, `convention_bug_fix_count`. Models trained with an older version are rejected on load with a retrain message.
+
+`hotspots analyze` prints which model class the loaded ranker uses:
+
+```
+hotspots: using trained ranker (model class: Ridge)
+```
 
 ### `hotspots prune`
 
