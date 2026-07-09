@@ -392,8 +392,9 @@ hotspots train . --screen   # check only, no model written
 
 `hotspots train` doesn't always fit a RandomForest. Before training, it runs a quick
 pre-flight comparison — the **regime screener** — to check whether a plain linear
-model (Ridge regression) already explains the fix-history signal as well as a forest
-does. If so, it fits Ridge instead and skips RandomForest training entirely.
+model (Ridge regression) already predicts which functions were touched by fix commits
+(the same fix-commit labels described above) as well as a forest does. If so, it fits
+Ridge instead and skips RandomForest training entirely.
 
 Why this matters: on repos where the relationship between features (churn, coupling,
 LRS, etc.) and bug-proneness is essentially linear, a RandomForest adds complexity
