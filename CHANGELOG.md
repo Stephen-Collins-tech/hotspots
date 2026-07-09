@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.30.0] - 2026-07-09
 
 ### Features
 - F55 --explain flag with deterministic phrase-table explanation layer (#115)
@@ -360,6 +360,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[1.30.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.30.0
 [1.29.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.29.0
 [1.28.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.28.0
 [1.27.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.27.0
