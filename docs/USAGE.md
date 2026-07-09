@@ -391,7 +391,7 @@ hotspots train . --screen   # check only, no model written
 ### Ridge vs. RandomForest: automatic model class selection
 
 `hotspots train` doesn't always fit a RandomForest. Before training, it runs a quick
-pre-flight comparison — the **Q3 regime screener** — to check whether a plain linear
+pre-flight comparison — the **regime screener** — to check whether a plain linear
 model (Ridge regression) already explains the fix-history signal as well as a forest
 does. If so, it fits Ridge instead and skips RandomForest training entirely.
 
@@ -404,13 +404,13 @@ guess.
 You'll see the verdict printed during training:
 
 ```
-Model class: Ridge (Q3=LINEAR, Δρ=+0.03) — RandomForest training skipped
+Model class: Ridge (regime=LINEAR, Δρ=+0.03) — RandomForest training skipped
 ```
 
 or, when trees add real lift:
 
 ```
-Model class: RandomForest (Q3=STRONG, Δρ=+0.14)
+Model class: RandomForest (regime=STRONG, Δρ=+0.14)
 ```
 
 Verdicts:

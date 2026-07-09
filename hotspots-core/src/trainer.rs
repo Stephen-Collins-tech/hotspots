@@ -460,10 +460,10 @@ pub fn train(
         .context("feature matrix shape error")?;
     let y: Array1<bool> = Array1::from_vec(y_data);
 
-    let (q3_verdict, q3_delta) = q3_screen(&x, &y);
+    let (regime_verdict, regime_delta) = regime_screen(&x, &y);
 
     // Linear regime: Ridge does as well as RandomForest — use it instead.
-    if q3_verdict == Q3Verdict::Linear {
+    if regime_verdict == RegimeVerdict::Linear {
         let ridge = train_ridge(&x, &y)?;
         let meta = TrainMeta {
             n_samples: n,
@@ -472,8 +472,8 @@ pub fn train(
             label_window_days: cfg.label_window_days,
             n_estimators: 0,
             max_depth: 0,
-            q3_verdict: Some(q3_verdict),
-            q3_delta,
+            regime_verdict: Some(regime_verdict),
+            regime_delta,
         };
         return Ok(Some(RankerModel {
             model_version: 5,
@@ -529,8 +529,8 @@ pub fn train(
         label_window_days: cfg.label_window_days,
         n_estimators: cfg.n_estimators,
         max_depth: cfg.max_depth,
-        q3_verdict: Some(q3_verdict),
-        q3_delta,
+        regime_verdict: Some(regime_verdict),
+        regime_delta,
     };
 
     Ok(Some(RankerModel {
@@ -703,12 +703,14 @@ pub fn screen_repo(snapshot: &Snapshot) -> (ScreenerVerdict, f64) {
     (verdict, mean_hs)
 }
 
-// ── Q3 regime screener ────────────────────────────────────────────────────────
+// ── Regime screener ────────────────────────────────────────────────────────
 
-/// Verdict from the Q3 pre-training screener (F61).
-/// Thresholds mirror `scripts/eval/stats_pass.py` exactly.
+/// Verdict from the pre-training regime screener (F61): compares a depth-2
+/// RandomForest against Ridge regression to decide whether the fix-history
+/// signal is linear (Ridge suffices) or has interaction effects (use RandomForest).
+/// Thresholds mirror `scripts/eval/stats_pass.py`'s Q3 check exactly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Q3Verdict {
+pub enum RegimeVerdict {
     /// Δρ < 0.03 — linear model matches RandomForest; use Ridge.
     Linear,
     /// 0.03 ≤ Δρ ≤ 0.10 — modest tree advantage; use RandomForest.
@@ -779,15 +781,15 @@ fn pearson_corr(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// 3-fold CV comparison of Ridge vs. depth-2 RandomForest.
-/// Returns the Q3 verdict and Δρ = tree_ρ − ridge_ρ.
-pub fn q3_screen(x: &Array2<f64>, y: &Array1<bool>) -> (Q3Verdict, f64) {
+/// Returns the regime verdict and Δρ = tree_ρ − ridge_ρ.
+pub fn regime_screen(x: &Array2<f64>, y: &Array1<bool>) -> (RegimeVerdict, f64) {
     let n = x.nrows();
     let n_feats = x.ncols();
     let n_pos = y.iter().filter(|&&b| b).count();
     let pos_rate = n_pos as f64 / n as f64;
 
     if pos_rate < 0.05 {
-        return (Q3Verdict::Unreliable, 0.0);
+        return (RegimeVerdict::Unreliable, 0.0);
     }
 
     const CV_FOLDS: usize = 3;
@@ -908,7 +910,7 @@ pub fn q3_screen(x: &Array2<f64>, y: &Array1<bool>) -> (Q3Verdict, f64) {
     }
 
     if ridge_rhos.is_empty() || tree_rhos.is_empty() {
-        return (Q3Verdict::Unreliable, 0.0);
+        return (RegimeVerdict::Unreliable, 0.0);
     }
 
     let avg_ridge = ridge_rhos.iter().sum::<f64>() / ridge_rhos.len() as f64;
@@ -916,11 +918,11 @@ pub fn q3_screen(x: &Array2<f64>, y: &Array1<bool>) -> (Q3Verdict, f64) {
     let delta = avg_tree - avg_ridge;
 
     let verdict = if delta < 0.03 {
-        Q3Verdict::Linear
+        RegimeVerdict::Linear
     } else if delta <= 0.10 {
-        Q3Verdict::Weak
+        RegimeVerdict::Weak
     } else {
-        Q3Verdict::Strong
+        RegimeVerdict::Strong
     };
 
     (verdict, delta)
@@ -1042,9 +1044,9 @@ pub struct TrainMeta {
     pub n_estimators: usize,
     pub max_depth: usize,
     #[serde(default)]
-    pub q3_verdict: Option<Q3Verdict>,
+    pub regime_verdict: Option<RegimeVerdict>,
     #[serde(default)]
-    pub q3_delta: f64,
+    pub regime_delta: f64,
 }
 
 fn default_model_version() -> u32 {

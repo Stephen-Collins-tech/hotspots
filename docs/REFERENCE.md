@@ -67,8 +67,8 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 
 Fit a ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
 
-Before fitting a RandomForest, `hotspots train` runs a pre-flight comparison (the **Q3
-regime screener**) between Ridge regression and a depth-2 RandomForest. If Ridge already
+Before fitting a RandomForest, `hotspots train` runs a pre-flight comparison (the **regime
+screener**) between Ridge regression and a depth-2 RandomForest. If Ridge already
 matches the forest's ranking quality (`Δρ < 0.03`), it fits Ridge instead and skips
 RandomForest training — faster, and no less accurate on repos where the signal is
 linear. See [`docs/USAGE.md`](USAGE.md#ridge-vs-randomforest-automatic-model-class-selection)
@@ -83,14 +83,14 @@ Proceed? [y/N]
   [10/200]  ~4m 5s remaining
   [100/200]  ~2m 1s remaining
   [200/200]
-Model class: RandomForest (Q3=STRONG, Δρ=+0.14)
+Model class: RandomForest (regime=STRONG, Δρ=+0.14)
 Trained: 200 trees × depth 6 | 12914 samples | elapsed 4m 25s
 ```
 
 When the screener selects Ridge, RandomForest training is skipped:
 
 ```
-Model class: Ridge (Q3=LINEAR, Δρ=+0.03) — RandomForest training skipped
+Model class: Ridge (regime=LINEAR, Δρ=+0.03) — RandomForest training skipped
 Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 ```
 
