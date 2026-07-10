@@ -9,7 +9,29 @@ Full per-repo detail for every release lives in [`versions/`](versions/).
 
 ---
 
-## Latest — v1.26.0 (2026-06-28)
+## Latest — v1.30.0 (2026-07-10)
+
+**Features:** ARS baseline (no trained ranker)  
+**Feature set:** lrs, cc, nd, loc, fo, fan_in, total_churn, authors_90d, directed_coupling, convention_bug_fix_count, burst_score  
+**Note:** adds `burst_score` (F93 sliding 30-day max/mean commit-timing ratio) with weight 0.3; no trained-ranker feature set change.
+
+| Repo | Language | ρ | P@10 | n\_files | n\_bug\_files |
+|---|---|---|---|---|---|
+| facebook/react | JavaScript | +0.365 | 0.50 | 862 | 45 |
+| golang/go | Go | +0.277 | 0.00 | 6,116 | 276 |
+| git/git | C | +0.374 | 0.50 | 633 | 244 |
+| redis/redis | C | +0.525 | 0.80 | 162 | 46 |
+| curl/curl | C | +0.425 | 1.00 | 632 | 216 |
+| microsoft/vscode | TypeScript | +0.312 | 0.30 | 2,245 | 642 |
+| django/django | Python | +0.424 | 0.70 | 756 | 233 |
+| **mean** | | **+0.386** | **0.54** | | |
+
+**Corpus:** 7 repos · label window 2024-01-01 to 2025-01-01 · features from pinned pre-2024-01-01 SHAs  
+**Raw data:** [versions/v1.30.0.json](versions/v1.30.0.json)
+
+---
+
+## v1.26.0 (2026-06-28)
 
 **Features:** ARS baseline (no trained ranker)  
 **Feature set:** lrs, cc, nd, loc, fo, fan_in, total_churn, authors_90d, directed_coupling, convention_bug_fix_count  
@@ -35,5 +57,6 @@ Full per-repo detail for every release lives in [`versions/`](versions/).
 
 | Version | Date | mean ρ | mean P@10 | Ranker | Notes |
 |---|---|---|---|---|---|
+| [v1.30.0](versions/v1.30.0.json) | 2026-07-10 | +0.386 | 0.54 | off | +`burst_score` (F93 commit-timing burstiness term) |
 | [v1.26.0](versions/v1.26.0.json) | 2026-06-28 | +0.350 | 0.54 | off | +`convention_bug_fix_count` (collected; ARS unchanged) |
 | [v1.25.3](versions/v1.25.3.json) | 2026-06-27 | +0.350 | 0.54 | off | Baseline: 9-feature ARS |
