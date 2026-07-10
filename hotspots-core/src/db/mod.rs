@@ -435,6 +435,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             directed_coupling: None,
             jaccard_label_stability: None,
             convention_bug_fix_count: None,
+            burst_score: None,
             explanation: None,
         });
     }
@@ -1097,6 +1098,7 @@ mod tests {
             cyclic_dependency: 0.0,
             depth: 0.1,
             neighbor_churn: 0.4,
+            burst: 0.0,
         });
         f.percentile = Some(PercentileFlags {
             is_top_10_pct: true,

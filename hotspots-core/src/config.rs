@@ -263,6 +263,8 @@ pub struct ScoringWeightsConfig {
     pub depth: Option<f64>,
     /// Weight for neighbor churn factor (default: 0.2)
     pub neighbor_churn: Option<f64>,
+    /// Weight for commit-timing burstiness factor (default: 0.3)
+    pub burst: Option<f64>,
 }
 
 /// Pattern detection thresholds — override defaults from `docs/patterns.md`
@@ -576,6 +578,7 @@ fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
         ("scc", s.scc),
         ("depth", s.depth),
         ("neighbor_churn", s.neighbor_churn),
+        ("burst", s.burst),
     ] {
         if let Some(v) = val {
             if v < 0.0 {
@@ -700,6 +703,7 @@ impl HotspotsConfig {
                     scc: s.scc.unwrap_or(defaults.scc),
                     depth: s.depth.unwrap_or(defaults.depth),
                     neighbor_churn: s.neighbor_churn.unwrap_or(defaults.neighbor_churn),
+                    burst: s.burst.unwrap_or(defaults.burst),
                 }
             }
             None => crate::scoring::ScoringWeights::default(),

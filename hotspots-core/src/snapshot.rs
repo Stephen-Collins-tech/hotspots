@@ -217,6 +217,12 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_convention_bug_fix_count()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub convention_bug_fix_count: Option<u32>,
+    /// Sliding 30-day-window max/mean commit ratio for this file (F93).
+    /// Always at least 1.0; higher values indicate a burst of frantic commit activity.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_burst_score()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub burst_score: Option<f64>,
     /// Human-readable explanation phrase derived from feature percentiles within this repo.
     /// Populated by the `--explain` path after the trained ranker is applied.
     /// None unless `--explain` was passed and a trained ranker is present.
@@ -403,6 +409,40 @@ fn subsystem_for_file(
     best.map(|s| s.to_string())
 }
 
+/// Sliding 30-day-window max/mean commit ratio (F93).
+///
+/// For each commit, counts how many commits (including itself) fall within the
+/// following 30-day window, then divides the maximum such count by the mean.
+/// Mirrors `cheap_signals.py::_burst_score` in `hotspots-research`. Returns
+/// `1.0` (no burst signal) when fewer than 2 timestamps are given.
+fn burst_score(timestamps: &[i64]) -> f64 {
+    const BURST_WINDOW_DAYS: i64 = 30;
+    const BURST_WINDOW_SECS: i64 = BURST_WINDOW_DAYS * 86400;
+
+    if timestamps.len() < 2 {
+        return 1.0;
+    }
+
+    let mut sorted = timestamps.to_vec();
+    sorted.sort_unstable();
+
+    let mut counts = Vec::with_capacity(sorted.len());
+    let mut j = 0usize;
+    for (i, &t) in sorted.iter().enumerate() {
+        while j < sorted.len() && sorted[j] < t + BURST_WINDOW_SECS {
+            j += 1;
+        }
+        counts.push((j - i) as f64);
+    }
+
+    let mean_c = counts.iter().sum::<f64>() / counts.len() as f64;
+    if mean_c == 0.0 {
+        return 1.0;
+    }
+
+    counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
+}
+
 impl Snapshot {
     /// Create a new snapshot from git context and function reports
     ///
@@ -461,6 +501,7 @@ impl Snapshot {
                     directed_coupling: None,
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
+                    burst_score: None,
                     explanation: None,
                 }
             })
@@ -598,6 +639,52 @@ impl Snapshot {
 
             for &i in indices {
                 self.functions[i].convention_bug_fix_count = Some(count);
+            }
+        }
+    }
+
+    /// Populate `burst_score` for every function (F93).
+    ///
+    /// Runs one `git log` subprocess per unique file in the snapshot to collect
+    /// commit timestamps, then computes a sliding 30-day-window max/mean commit
+    /// ratio. File-level: all functions in the same file receive the same value.
+    /// Files with fewer than 2 commits receive `Some(1.0)` (no burst signal).
+    ///
+    /// Errors are soft: a failed git call leaves the affected file's functions
+    /// with `burst_score = None`.
+    pub fn populate_burst_score(&mut self, repo_root: &Path) {
+        use std::collections::HashMap;
+        use std::process::Command;
+
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            file_indices.entry(func.file.clone()).or_default().push(i);
+        }
+
+        for (abs_path, indices) in &file_indices {
+            let rel = if let Ok(r) = std::path::Path::new(abs_path).strip_prefix(repo_root) {
+                r.to_string_lossy().to_string()
+            } else {
+                abs_path.clone()
+            };
+
+            let out = Command::new("git")
+                .args(["log", "--format=%at", "--", &rel])
+                .current_dir(repo_root)
+                .output();
+
+            let score = match out {
+                Ok(o) if o.status.success() => {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    let timestamps: Vec<i64> =
+                        text.lines().filter_map(|l| l.trim().parse().ok()).collect();
+                    burst_score(&timestamps)
+                }
+                _ => continue,
+            };
+
+            for &i in indices {
+                self.functions[i].burst_score = Some(score);
             }
         }
     }
@@ -1083,6 +1170,7 @@ impl Snapshot {
                     scc_size,
                     dependency_depth,
                     neighbor_churn,
+                    burst_score: function.burst_score,
                 },
                 weights,
             );
@@ -1751,6 +1839,15 @@ impl SnapshotEnricher {
     pub fn with_subsystems(mut self, repo_root: &Path) -> Self {
         if repo_root.exists() {
             self.snapshot.populate_subsystems(repo_root);
+        }
+        self
+    }
+
+    /// Populate `burst_score` for every function (F93).
+    /// No-op if `repo_root` does not exist.
+    pub fn with_burst_score(mut self, repo_root: &Path) -> Self {
+        if repo_root.exists() {
+            self.snapshot.populate_burst_score(repo_root);
         }
         self
     }
