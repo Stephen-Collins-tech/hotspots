@@ -188,24 +188,42 @@ def main() -> None:
     results_md = Path(args.results_md)
     text = results_md.read_text()
 
-    # Demote the previous "## Latest —" section to a plain version heading and
-    # splice the new one in above it (full per-repo detail for every version
-    # still lives under versions/, so history rows link out rather than repeat).
-    text = text.replace("## Latest — ", "## ", 1)
-    marker = "---\n\n## "
-    idx = text.find(marker)
-    if idx == -1:
-        raise RuntimeError("could not find insertion point in RESULTS.md")
-    insert_at = idx + len("---\n\n")
-    text = text[:insert_at] + new_latest_block + "\n" + text[insert_at:]
+    latest_heading_re = re.compile(r"## Latest — v([0-9.]+) \(")
+    m = latest_heading_re.search(text)
+    same_version_rerun = bool(m and m.group(1) == args.hotspots_version)
 
-    # Add the new row under "## History" (row directly below the header separator).
-    history_marker = "|---|---|---|---|---|---|\n"
-    hidx = text.rfind(history_marker)
-    if hidx == -1:
-        raise RuntimeError("could not find History table in RESULTS.md")
-    insert_row_at = hidx + len(history_marker)
-    text = text[:insert_row_at] + history_row + "\n" + text[insert_row_at:]
+    if same_version_rerun:
+        # Re-running the same version (e.g. after an implementation-only change):
+        # replace the existing "## Latest — vX.Y.Z" section in place rather than
+        # appending a duplicate.
+        start = text.index(f"## Latest — v{args.hotspots_version} (")
+        end = text.index("\n---\n\n## ", start) + len("\n---\n\n")
+        text = text[:start] + new_latest_block + "\n" + text[end:]
+    else:
+        # Demote the previous "## Latest —" section to a plain version heading and
+        # splice the new one in above it (full per-repo detail for every version
+        # still lives under versions/, so history rows link out rather than repeat).
+        text = text.replace("## Latest — ", "## ", 1)
+        marker = "---\n\n## "
+        idx = text.find(marker)
+        if idx == -1:
+            raise RuntimeError("could not find insertion point in RESULTS.md")
+        insert_at = idx + len("---\n\n")
+        text = text[:insert_at] + new_latest_block + "\n" + text[insert_at:]
+
+    # Add/replace the row for this version under "## History".
+    history_row_re = re.compile(
+        rf"\| \[v{re.escape(args.hotspots_version)}\]\(versions/v{re.escape(args.hotspots_version)}\.json\).*\|\n"
+    )
+    if history_row_re.search(text):
+        text = history_row_re.sub(history_row + "\n", text, count=1)
+    else:
+        history_marker = "|---|---|---|---|---|---|\n"
+        hidx = text.rfind(history_marker)
+        if hidx == -1:
+            raise RuntimeError("could not find History table in RESULTS.md")
+        insert_row_at = hidx + len(history_marker)
+        text = text[:insert_row_at] + history_row + "\n" + text[insert_row_at:]
 
     results_md.write_text(text)
     log(f"updated {results_md}")

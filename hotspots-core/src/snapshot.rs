@@ -645,44 +645,57 @@ impl Snapshot {
 
     /// Populate `burst_score` for every function (F93).
     ///
-    /// Runs one `git log` subprocess per unique file in the snapshot to collect
-    /// commit timestamps, then computes a sliding 30-day-window max/mean commit
-    /// ratio. File-level: all functions in the same file receive the same value.
+    /// Runs a single `git log --name-only` pass over the whole repository to
+    /// collect per-file commit timestamps, then computes a sliding 30-day-window
+    /// max/mean commit ratio per file. File-level: all functions in the same
+    /// file receive the same value. Mirrors the batching approach used by
+    /// `git::batch_touch_metrics_at` — one subprocess instead of one per file.
     /// Files with fewer than 2 commits receive `Some(1.0)` (no burst signal).
     ///
-    /// Errors are soft: a failed git call leaves the affected file's functions
-    /// with `burst_score = None`.
+    /// Errors are soft: if the git call fails, all functions keep `burst_score = None`.
     pub fn populate_burst_score(&mut self, repo_root: &Path) {
         use std::collections::HashMap;
         use std::process::Command;
 
-        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
-        for (i, func) in self.functions.iter().enumerate() {
-            file_indices.entry(func.file.clone()).or_default().push(i);
+        let out = Command::new("git")
+            .args(["log", "--format=COMMIT %at", "--name-only"])
+            .current_dir(repo_root)
+            .output();
+
+        let Ok(out) = out else { return };
+        if !out.status.success() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+
+        let mut timestamps_by_file: HashMap<String, Vec<i64>> = HashMap::new();
+        let mut current_ts: i64 = 0;
+        for line in text.lines() {
+            if let Some(ts_str) = line.strip_prefix("COMMIT ") {
+                current_ts = ts_str.trim().parse().unwrap_or(0);
+            } else if !line.trim().is_empty() {
+                timestamps_by_file
+                    .entry(line.trim().to_string())
+                    .or_default()
+                    .push(current_ts);
+            }
         }
 
-        for (abs_path, indices) in &file_indices {
-            let rel = if let Ok(r) = std::path::Path::new(abs_path).strip_prefix(repo_root) {
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            let rel = if let Ok(r) = std::path::Path::new(&func.file).strip_prefix(repo_root) {
                 r.to_string_lossy().to_string()
             } else {
-                abs_path.clone()
+                func.file.clone()
             };
+            file_indices.entry(rel).or_default().push(i);
+        }
 
-            let out = Command::new("git")
-                .args(["log", "--format=%at", "--", &rel])
-                .current_dir(repo_root)
-                .output();
-
-            let score = match out {
-                Ok(o) if o.status.success() => {
-                    let text = String::from_utf8_lossy(&o.stdout);
-                    let timestamps: Vec<i64> =
-                        text.lines().filter_map(|l| l.trim().parse().ok()).collect();
-                    burst_score(&timestamps)
-                }
-                _ => continue,
+        for (rel, indices) in &file_indices {
+            let score = match timestamps_by_file.get(rel) {
+                Some(timestamps) => burst_score(timestamps),
+                None => continue,
             };
-
             for &i in indices {
                 self.functions[i].burst_score = Some(score);
             }

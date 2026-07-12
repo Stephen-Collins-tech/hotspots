@@ -1,6 +1,6 @@
 {
   "hotspots_version": "1.30.0",
-  "run_date": "2026-07-10",
+  "run_date": "2026-07-12",
   "corpus_version": 1,
   "features_active": [
     "lrs",
@@ -36,7 +36,7 @@
     {
       "repo": "git/git",
       "language": "C",
-      "rho": 0.374,
+      "rho": 0.379,
       "p_at_10": 0.5,
       "n_files": 633,
       "n_bug_files": 244
@@ -52,7 +52,7 @@
     {
       "repo": "curl/curl",
       "language": "C",
-      "rho": 0.425,
+      "rho": 0.426,
       "p_at_10": 1.0,
       "n_files": 632,
       "n_bug_files": 216
@@ -60,7 +60,7 @@
     {
       "repo": "microsoft/vscode",
       "language": "TypeScript",
-      "rho": 0.312,
+      "rho": 0.31,
       "p_at_10": 0.3,
       "n_files": 2245,
       "n_bug_files": 642
