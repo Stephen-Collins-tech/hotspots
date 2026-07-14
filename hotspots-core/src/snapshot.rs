@@ -670,9 +670,19 @@ impl Snapshot {
 
         let mut timestamps_by_file: HashMap<String, Vec<i64>> = HashMap::new();
         let mut current_ts: i64 = 0;
+        let mut commit_count: usize = 0;
         for line in text.lines() {
             if let Some(ts_str) = line.strip_prefix("COMMIT ") {
                 current_ts = ts_str.trim().parse().unwrap_or(0);
+                commit_count += 1;
+                // On large repos the full-history git log traversal can take several
+                // seconds and hold a non-trivial amount of memory. Surface this so
+                // users aren't surprised (mirrors coupling::compute_directed_coupling_for_repo).
+                if commit_count == 50_001 {
+                    eprintln!(
+                        "hotspots: burst_score loading full commit history (large repo — may be slow)"
+                    );
+                }
             } else if !line.trim().is_empty() {
                 timestamps_by_file
                     .entry(line.trim().to_string())
