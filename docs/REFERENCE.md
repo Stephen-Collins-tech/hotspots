@@ -254,9 +254,32 @@ Activity Risk = LRS
   + (scc_size if in cycle else 0) × 0.3           # cyclic dependency
   + min(dependency_depth / 3, 5.0) × 0.1         # depth from entrypoints
   + neighbor_churn / 500 × 0.2                    # churn in callees
+  + max(0, burst_score − 1.0) × 0.3               # commit-timing burstiness
 ```
 
+`burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
+higher means commits cluster into frantic bursts rather than steady, spread-out
+changes). Computed from a single full-history `git log` pass per `hotspots analyze`
+run (mirrors the batching used for touch metrics — one subprocess, not one per file).
+On repos with more than 50,000 commits, this prints a one-line stderr warning since
+the full-history scan can take a few seconds.
+
 Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
+
+All eight activity-risk weights above (`churn`, `touch`, `recency`, `fan_in`, `scc`,
+`depth`, `neighbor_churn`, `burst`) are overridable via the `scoring` key in
+`.hotspotsrc.json`:
+
+```json
+{
+  "scoring": {
+    "burst": 0.5
+  }
+}
+```
+
+Unset weights fall back to the defaults shown in the formula above. Same validation
+as the LRS `weights` block: non-negative, at most 10.0.
 
 ### Call graph metrics (snapshot mode)
 
