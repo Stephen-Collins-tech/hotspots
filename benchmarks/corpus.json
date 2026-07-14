@@ -1,0 +1,48 @@
+{
+  "label_after": "2024-01-01",
+  "label_before": "2025-01-01",
+  "repos": [
+    {
+      "slug": "facebook/react",
+      "url": "https://github.com/facebook/react.git",
+      "language": "JavaScript",
+      "feature_sha": "bf859705b55a8ccaedbed8546cd4d9c6c003bf62"
+    },
+    {
+      "slug": "golang/go",
+      "url": "https://github.com/golang/go.git",
+      "language": "Go",
+      "feature_sha": "b25f5558c69140deb652337afaab5c1186cd0ff1"
+    },
+    {
+      "slug": "git/git",
+      "url": "https://github.com/git/git.git",
+      "language": "C",
+      "feature_sha": "2232a88ab6bfbe41faf73f85912937e20bf8b4ee"
+    },
+    {
+      "slug": "redis/redis",
+      "url": "https://github.com/redis/redis.git",
+      "language": "C",
+      "feature_sha": "9d0158bf89265daa96e1711478102147117f6b14"
+    },
+    {
+      "slug": "curl/curl",
+      "url": "https://github.com/curl/curl.git",
+      "language": "C",
+      "feature_sha": "373d34494c7fc1fd0928e846d32c5d970a985d09"
+    },
+    {
+      "slug": "microsoft/vscode",
+      "url": "https://github.com/microsoft/vscode.git",
+      "language": "TypeScript",
+      "feature_sha": "df8db3a75a49b85c9636530a3557cdbc639f7bdc"
+    },
+    {
+      "slug": "django/django",
+      "url": "https://github.com/django/django.git",
+      "language": "Python",
+      "feature_sha": "8fcd7b01eec85a509762dd8dbb3a27b7ab521e94"
+    }
+  ]
+}

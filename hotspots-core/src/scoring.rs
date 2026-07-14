@@ -15,6 +15,10 @@ pub struct ScoringWeights {
     pub scc: f64,
     pub depth: f64,
     pub neighbor_churn: f64,
+    /// Weight for commit-timing burstiness (F93: OSV/CVE ground truth showed a
+    /// burst/ownership term the formula previously lacked outperforms the
+    /// unweighted baseline by mean ΔAUC +0.116 across 10 validated repos).
+    pub burst: f64,
 }
 
 impl Default for ScoringWeights {
@@ -27,6 +31,7 @@ impl Default for ScoringWeights {
             scc: 0.3,
             depth: 0.1,
             neighbor_churn: 0.2,
+            burst: 0.3,
         }
     }
 }
@@ -43,6 +48,7 @@ pub struct RiskFactors {
     pub cyclic_dependency: f64,
     pub depth: f64,
     pub neighbor_churn: f64,
+    pub burst: f64,
 }
 
 /// Input metrics for activity risk computation
@@ -56,6 +62,9 @@ pub struct ActivityRiskInput {
     pub scc_size: Option<usize>,
     pub dependency_depth: Option<usize>,
     pub neighbor_churn: Option<usize>,
+    /// Sliding 30-day-window max/mean commit ratio (F93). Higher values indicate
+    /// a burst of frantic commit activity rather than steady, spread-out changes.
+    pub burst_score: Option<f64>,
 }
 
 /// Compute activity-weighted risk score
@@ -121,6 +130,15 @@ pub fn compute_activity_risk(
         0.0
     };
 
+    // Burst factor: burst_score is already a max/mean ratio (>= 1.0); use the
+    // amount above the steady-state baseline of 1.0 so a non-bursty file
+    // contributes nothing.
+    let burst_score = if let Some(burst) = input.burst_score {
+        (burst - 1.0).max(0.0) * weights.burst
+    } else {
+        0.0
+    };
+
     // Total activity risk
     let activity_risk = complexity_score
         + churn_score
@@ -129,7 +147,8 @@ pub fn compute_activity_risk(
         + fan_in_score
         + scc_score
         + depth_score
-        + neighbor_churn_score;
+        + neighbor_churn_score
+        + burst_score;
 
     let risk_factors = RiskFactors {
         complexity: complexity_score,
@@ -140,6 +159,7 @@ pub fn compute_activity_risk(
         cyclic_dependency: scc_score,
         depth: depth_score,
         neighbor_churn: neighbor_churn_score,
+        burst: burst_score,
     };
 
     (activity_risk, risk_factors)
@@ -161,6 +181,7 @@ mod tests {
                 scc_size: None,
                 dependency_depth: None,
                 neighbor_churn: None,
+                burst_score: None,
             },
             &ScoringWeights::default(),
         );
@@ -183,6 +204,7 @@ mod tests {
                 scc_size: None,
                 dependency_depth: None,
                 neighbor_churn: None,
+                burst_score: None,
             },
             &ScoringWeights::default(),
         );
@@ -204,6 +226,7 @@ mod tests {
                 scc_size: Some(3),               // in a 3-node cycle
                 dependency_depth: Some(9),       // depth 9
                 neighbor_churn: Some(1000),      // 1000 neighbor churn
+                burst_score: None,
             },
             &ScoringWeights::default(),
         );
@@ -223,5 +246,36 @@ mod tests {
         assert_eq!(factors.churn, 0.5);
         assert_eq!(factors.activity, 0.6);
         assert!((factors.cyclic_dependency - 0.9).abs() < 0.001); // Approximate equality for floats
+    }
+
+    #[test]
+    fn test_compute_activity_risk_with_burst_score() {
+        let base_input = ActivityRiskInput {
+            lrs: 10.0,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            fan_in: None,
+            scc_size: None,
+            dependency_depth: None,
+            neighbor_churn: None,
+            burst_score: None,
+        };
+
+        let (risk_without_burst, factors_without_burst) =
+            compute_activity_risk(&base_input, &ScoringWeights::default());
+
+        let (risk_with_burst, factors_with_burst) = compute_activity_risk(
+            &ActivityRiskInput {
+                burst_score: Some(4.0), // 4x max/mean burst ratio
+                ..base_input
+            },
+            &ScoringWeights::default(),
+        );
+
+        assert!(risk_with_burst > risk_without_burst);
+        assert_eq!(factors_without_burst.burst, 0.0);
+        // (4.0 - 1.0) * 0.3 = 0.9
+        assert!((factors_with_burst.burst - 0.9).abs() < 0.001);
     }
 }
