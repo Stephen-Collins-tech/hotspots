@@ -436,6 +436,12 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             jaccard_label_stability: None,
             convention_bug_fix_count: None,
             burst_score: None,
+            commit_count: None,
+            author_count: None,
+            author_entropy: None,
+            isolation_rate: None,
+            age_days: None,
+            last_touch_days: None,
             explanation: None,
         });
     }

@@ -223,6 +223,36 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_burst_score()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub burst_score: Option<f64>,
+    /// Total commits touching this file across full history (F62/F63 cold-start signal).
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_count: Option<u32>,
+    /// Distinct commit-author emails touching this file across full history.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_count: Option<u32>,
+    /// Shannon entropy of the commit-author distribution for this file.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author_entropy: Option<f64>,
+    /// Fraction of this file's commits where it was the only file touched.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolation_rate: Option<f64>,
+    /// Days between this file's first and last commit.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub age_days: Option<f64>,
+    /// Days since this file's most recent commit.
+    /// File-level (shared by all functions in the same file).
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_touch_days: Option<f64>,
     /// Human-readable explanation phrase derived from feature percentiles within this repo.
     /// Populated by the `--explain` path after the trained ranker is applied.
     /// None unless `--explain` was passed and a trained ranker is present.
@@ -502,6 +532,12 @@ impl Snapshot {
                     jaccard_label_stability: None,
                     convention_bug_fix_count: None,
                     burst_score: None,
+                    commit_count: None,
+                    author_count: None,
+                    author_entropy: None,
+                    isolation_rate: None,
+                    age_days: None,
+                    last_touch_days: None,
                     explanation: None,
                 }
             })
@@ -708,6 +744,51 @@ impl Snapshot {
             };
             for &i in indices {
                 self.functions[i].burst_score = Some(score);
+            }
+        }
+    }
+
+    /// Populate `commit_count`, `author_count`, `author_entropy`, `isolation_rate`,
+    /// `age_days`, and `last_touch_days` for every function (F63 signal-porting
+    /// prerequisite). `burst_score` is not touched here — it is populated separately
+    /// by `populate_burst_score` (F93) and reused as-is for cold-start features.
+    ///
+    /// Runs a single `git log --name-only` pass over the whole repository via
+    /// `history_signals::load_commits_with_author`, then computes all six signals
+    /// per file in one aggregation pass. File-level: all functions in the same file
+    /// receive the same values. Files with no matching commit history keep all six
+    /// fields as `None`.
+    ///
+    /// Errors are soft: if the git call fails, all functions keep these fields as `None`.
+    pub fn populate_history_signals(&mut self, repo_root: &Path) {
+        let git_dir = crate::coupling::git_dir(repo_root);
+        let commits = crate::history_signals::load_commits_with_author(&git_dir);
+        if commits.is_empty() {
+            return;
+        }
+        let signals = crate::history_signals::compute_history_signals(&commits);
+
+        let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, func) in self.functions.iter().enumerate() {
+            let rel = if let Ok(r) = std::path::Path::new(&func.file).strip_prefix(repo_root) {
+                r.to_string_lossy().to_string()
+            } else {
+                func.file.clone()
+            };
+            file_indices.entry(rel).or_default().push(i);
+        }
+
+        for (rel, indices) in &file_indices {
+            let Some(s) = signals.get(rel) else {
+                continue;
+            };
+            for &i in indices {
+                self.functions[i].commit_count = Some(s.commit_count);
+                self.functions[i].author_count = Some(s.author_count);
+                self.functions[i].author_entropy = Some(s.author_entropy);
+                self.functions[i].isolation_rate = Some(s.isolation_rate);
+                self.functions[i].age_days = Some(s.age_days);
+                self.functions[i].last_touch_days = Some(s.last_touch_days);
             }
         }
     }

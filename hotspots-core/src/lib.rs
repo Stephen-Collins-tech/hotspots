@@ -24,6 +24,7 @@ pub mod delta;
 pub mod discover;
 pub mod gate;
 pub mod git;
+pub mod history_signals;
 pub mod html;
 pub mod imports;
 pub mod language;

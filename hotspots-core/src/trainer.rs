@@ -118,6 +118,23 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
     ]
 }
 
+/// Cold-start feature vector (F62/F63) — distinct from `extract_features()`'s 10
+/// structural/activity features. Order: commit_count, author_count, author_entropy,
+/// burst_score, isolation_rate, age_days, last_touch_days, authors_90d. All fields
+/// default to `0.0` via `.unwrap_or(0.0)` — never panics on `None`.
+pub fn cold_start_features(func: &FunctionSnapshot) -> [f64; 8] {
+    [
+        func.commit_count.unwrap_or(0) as f64,
+        func.author_count.unwrap_or(0) as f64,
+        func.author_entropy.unwrap_or(0.0),
+        func.burst_score.unwrap_or(0.0),
+        func.isolation_rate.unwrap_or(0.0),
+        func.age_days.unwrap_or(0.0),
+        func.last_touch_days.unwrap_or(0.0),
+        func.authors_90d.unwrap_or(0) as f64,
+    ]
+}
+
 // ── Label extraction from git ─────────────────────────────────────────────────
 
 /// Returns the set of file paths touched by fix-keyword commits in the last
@@ -409,6 +426,9 @@ pub fn train(
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }
     snapshot.populate_convention_bug_fix_count(repo_root);
+    // Cold-start signals (F62/F63 prerequisite) — not part of FEATURE_NAMES/extract_features;
+    // consumed via cold_start_features() by the downstream Gini-gated routing (F62/F63).
+    snapshot.populate_history_signals(repo_root);
 
     // Build (features, label) pairs from snapshot functions
     let mut rows: Vec<([f64; 10], bool)> = Vec::new();
@@ -1331,6 +1351,12 @@ mod tests {
                 jaccard_label_stability: None,
                 convention_bug_fix_count: None,
                 burst_score: None,
+                commit_count: None,
+                author_count: None,
+                author_entropy: None,
+                isolation_rate: None,
+                age_days: None,
+                last_touch_days: None,
                 explanation: None,
             })
             .collect();
