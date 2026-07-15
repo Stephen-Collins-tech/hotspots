@@ -131,6 +131,13 @@ enum Commands {
         /// large repos. Conflicts with --per-function-touches and --no-per-function-touches.
         #[arg(long, value_name = "N", conflicts_with_all = ["per_function_touches", "no_per_function_touches"])]
         hybrid_touches: Option<usize>,
+
+        /// Rank using a Gini-gated cold-start strategy (formula / IsolationForest
+        /// anomaly / uniform prior) instead of a trained ranker. For repos with no
+        /// fix-commit label history yet. Reads no label data. Explicit opt-in only —
+        /// not an automatic fallback when `hotspots train` fails its label threshold.
+        #[arg(long)]
+        cold_start: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -326,6 +333,7 @@ fn main() -> anyhow::Result<()> {
             callgraph_skip_above,
             hybrid_touches,
             skip_gate,
+            cold_start,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -350,6 +358,7 @@ fn main() -> anyhow::Result<()> {
             callgraph_skip_above,
             hybrid_touches,
             skip_gate,
+            cold_start,
         })?,
         Commands::Prune {
             unreachable,

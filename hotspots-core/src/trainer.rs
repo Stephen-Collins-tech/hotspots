@@ -24,6 +24,7 @@
 //!   causes the trained ranker to reproduce the heuristic score rather than learning
 //!   from structural features, making `hotspots train` a no-op in practice.
 
+use crate::isolation_forest::IsolationForest;
 use crate::snapshot::{FunctionSnapshot, Snapshot};
 use anyhow::{bail, Context, Result};
 use linfa::prelude::Fit;
@@ -721,6 +722,149 @@ pub fn screen_repo(snapshot: &Snapshot) -> (ScreenerVerdict, f64) {
     };
 
     (verdict, mean_hs)
+}
+
+// ── Cold-start routing (F62/F63) ─────────────────────────────────────────────
+
+/// Gini ≥ this on `commit_count` → the existing formula score is a sufficient
+/// day-one ranking. Matches F62's validated threshold exactly.
+pub const HIGH_GINI: f64 = 0.60;
+
+/// Gini < this on `commit_count` → route to the label-free IsolationForest anomaly
+/// score (F63). Between `LOW_GINI` and `HIGH_GINI` is an ungated middle zone that
+/// defaults to the formula path — F62 does not define a third bucket.
+pub const LOW_GINI: f64 = 0.55;
+
+/// Uniform-prior guard: if the top 10% of files by `commit_count` account for less
+/// than this share of total commits, no file stands out even by raw count — return
+/// a uniform prior instead of a manufactured ranking. Adapted from F63's `pos_rate`
+/// guard, which does not apply at true cold-start (no labels exist yet).
+const UNIFORM_PRIOR_TOP_DECILE_SHARE: f64 = 0.20;
+
+const COLD_START_N_TREES: usize = 100;
+const COLD_START_SUBSAMPLE_SIZE: usize = 256;
+const COLD_START_SEED: u64 = 42;
+
+/// Which cold-start ranking strategy was used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColdStartRoute {
+    /// Gini ≥ `HIGH_GINI` (or the ungated middle zone) — existing formula score.
+    Formula,
+    /// Gini < `LOW_GINI` — label-free IsolationForest anomaly score.
+    Anomaly,
+    /// No file stands out by commit-count concentration — uniform prior.
+    UniformPrior,
+}
+
+/// Result of `cold_start_rank()`: the routing decision plus the ranked functions.
+pub struct ColdStartResult {
+    pub route: ColdStartRoute,
+    pub ranked: Vec<ScoredFunction>,
+}
+
+/// Standard Gini coefficient: `sum((2*i - n - 1) * v_i) / (n * sum(v))` over
+/// ascending-sorted `values`, `i` 1-indexed. Matches F62's formula exactly. Returns
+/// `0.0` for empty input or when all values are zero (no concentration to measure).
+pub fn gini_coefficient(values: &[f64]) -> f64 {
+    let n = values.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let total: f64 = sorted.iter().sum();
+    if total == 0.0 {
+        return 0.0;
+    }
+    let numerator: f64 = sorted
+        .iter()
+        .enumerate()
+        .map(|(idx, &v)| {
+            let i = (idx + 1) as f64;
+            (2.0 * i - n as f64 - 1.0) * v
+        })
+        .sum();
+    numerator / (n as f64 * total)
+}
+
+/// Rank a snapshot for a repo with zero (or unreliable) label history.
+///
+/// Routes via the Gini coefficient of `commit_count` across all functions (F62):
+/// - `Gini >= HIGH_GINI` (or the 0.55-0.60 middle zone) → `Formula`: rank by the
+///   existing `activity_risk`/`lrs` score, no new model needed.
+/// - `Gini < LOW_GINI` → `Anomaly`: fit a label-free `IsolationForest` on the 8-feature
+///   cold-start vector (`cold_start_features`) and rank by anomaly score.
+/// - Uniform-prior guard (checked first): if the top 10% of files by `commit_count`
+///   account for less than 20% of total commits, no file stands out even by raw count
+///   — return a uniform prior rather than a manufactured ranking.
+///
+/// Two streaming passes over `snapshot.functions` on the `Anomaly` route (fit, then
+/// score) — no intermediate full-matrix structure is built at any point.
+pub fn cold_start_rank(snapshot: &Snapshot) -> ColdStartResult {
+    let commit_counts: Vec<f64> = snapshot
+        .functions
+        .iter()
+        .map(|f| f.commit_count.unwrap_or(0) as f64)
+        .collect();
+
+    if commit_counts.is_empty() {
+        return ColdStartResult {
+            route: ColdStartRoute::UniformPrior,
+            ranked: vec![],
+        };
+    }
+
+    let total_commits: f64 = commit_counts.iter().sum();
+    if total_commits > 0.0 {
+        let mut sorted_desc = commit_counts.clone();
+        sorted_desc.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        let top_decile_n = ((sorted_desc.len() as f64 * 0.10).ceil() as usize).max(1);
+        let top_decile_share: f64 = sorted_desc[..top_decile_n].iter().sum::<f64>() / total_commits;
+        if top_decile_share < UNIFORM_PRIOR_TOP_DECILE_SHARE {
+            return ColdStartResult {
+                route: ColdStartRoute::UniformPrior,
+                ranked: vec![],
+            };
+        }
+    }
+
+    let gini = gini_coefficient(&commit_counts);
+
+    if gini < LOW_GINI {
+        let forest = IsolationForest::fit(
+            snapshot.functions.iter().map(cold_start_features),
+            COLD_START_N_TREES,
+            COLD_START_SUBSAMPLE_SIZE,
+            COLD_START_SEED,
+        );
+        let mut ranked: Vec<ScoredFunction> = snapshot
+            .functions
+            .iter()
+            .map(|f| ScoredFunction {
+                function_id: f.function_id.clone(),
+                score: forest.anomaly_score(&cold_start_features(f)),
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        return ColdStartResult {
+            route: ColdStartRoute::Anomaly,
+            ranked,
+        };
+    }
+
+    let mut ranked: Vec<ScoredFunction> = snapshot
+        .functions
+        .iter()
+        .map(|f| ScoredFunction {
+            function_id: f.function_id.clone(),
+            score: f.activity_risk.unwrap_or(f.lrs),
+        })
+        .collect();
+    ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    ColdStartResult {
+        route: ColdStartRoute::Formula,
+        ranked,
+    }
 }
 
 // ── Regime screener ────────────────────────────────────────────────────────
@@ -1458,5 +1602,207 @@ mod tests {
         .unwrap();
         let model = RankerModel::load(&path).expect("should load");
         assert_eq!(model.model_version, 5);
+    }
+
+    // ── cold-start routing (F62/F63) ────────────────────────────────────────────
+
+    #[test]
+    fn gini_uniform_distribution_is_zero() {
+        assert_eq!(gini_coefficient(&[1.0, 1.0, 1.0, 1.0]), 0.0);
+    }
+
+    #[test]
+    fn gini_single_dominant_value_matches_hand_computation() {
+        let g = gini_coefficient(&[0.0, 0.0, 0.0, 10.0]);
+        assert!((g - 0.75).abs() < 1e-9, "got {g}");
+    }
+
+    #[test]
+    fn gini_ascending_series_matches_hand_computation() {
+        let g = gini_coefficient(&[1.0, 2.0, 3.0, 4.0]);
+        assert!((g - 0.25).abs() < 1e-9, "got {g}");
+    }
+
+    #[test]
+    fn gini_empty_is_zero() {
+        assert_eq!(gini_coefficient(&[]), 0.0);
+    }
+
+    fn make_snapshot_with_commit_counts(counts: &[u32]) -> Snapshot {
+        use crate::language::Language;
+        use crate::report::MetricsReport;
+        use crate::risk::RiskBand;
+        use crate::snapshot::{AnalysisInfo, CommitInfo, FunctionSnapshot};
+
+        let functions = counts
+            .iter()
+            .enumerate()
+            .map(|(i, &cc)| FunctionSnapshot {
+                function_id: format!("f{i}"),
+                file: format!("src/f{i}.rs"),
+                line: 1,
+                language: Language::Rust,
+                metrics: MetricsReport {
+                    cc: 1,
+                    nd: 0,
+                    fo: 0,
+                    ns: 0,
+                    loc: 10,
+                },
+                lrs: (i as f64) / (counts.len() as f64),
+                band: RiskBand::Low,
+                suppression_reason: None,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                callgraph: None,
+                activity_risk: Some((i as f64) / (counts.len() as f64)),
+                risk_factors: None,
+                percentile: None,
+                driver: None,
+                driver_detail: None,
+                quadrant: None,
+                patterns: vec![],
+                pattern_details: None,
+                subsystem: None,
+                authors_90d: Some(1),
+                directed_coupling: None,
+                jaccard_label_stability: None,
+                convention_bug_fix_count: None,
+                burst_score: Some(1.0),
+                commit_count: Some(cc),
+                author_count: Some(1),
+                author_entropy: Some(0.0),
+                isolation_rate: Some(0.5),
+                age_days: Some(30.0),
+                last_touch_days: Some(1.0),
+                explanation: None,
+            })
+            .collect();
+
+        Snapshot {
+            schema_version: 1,
+            commit: CommitInfo {
+                sha: "test".into(),
+                parents: vec![],
+                timestamp: 0,
+                branch: None,
+                message: None,
+                author: None,
+                is_fix_commit: None,
+                is_revert_commit: None,
+                ticket_ids: vec![],
+            },
+            analysis: AnalysisInfo {
+                scope: "test".into(),
+                tool_version: "0.0.0".into(),
+            },
+            functions,
+            summary: None,
+            aggregates: None,
+        }
+    }
+
+    #[test]
+    fn cold_start_uniform_prior_when_no_file_stands_out() {
+        // Flat distribution: top-decile share = 0.10 < 0.20 guard.
+        let counts = vec![1u32; 20];
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let result = cold_start_rank(&snap);
+        assert_eq!(result.route, ColdStartRoute::UniformPrior);
+        assert!(result.ranked.is_empty());
+    }
+
+    #[test]
+    fn cold_start_formula_route_ranks_by_activity_risk() {
+        // One dominant file: gini ≈ 0.56 (>= HIGH_GINI's neighborhood), top-decile
+        // share ≈ 0.63 (passes the guard).
+        let mut counts = vec![1u32; 20];
+        counts[0] = 30;
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let result = cold_start_rank(&snap);
+        assert_eq!(result.route, ColdStartRoute::Formula);
+        assert_eq!(result.ranked.len(), 20);
+        // Ranked descending by activity_risk (lrs proxy: i/20, so f19 has the highest).
+        assert_eq!(result.ranked[0].function_id, "f19");
+        for w in result.ranked.windows(2) {
+            assert!(w[0].score >= w[1].score);
+        }
+    }
+
+    #[test]
+    fn cold_start_anomaly_route_when_gini_below_low_threshold() {
+        // Low-concentration distribution (gini ≈ 0.31 < LOW_GINI) with top-decile
+        // share ≈ 0.41 (passes the guard) — routes to Anomaly.
+        let mut counts = vec![2u32; 30];
+        counts[0] = 15;
+        counts[1] = 12;
+        counts[2] = 10;
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let result = cold_start_rank(&snap);
+        assert_eq!(result.route, ColdStartRoute::Anomaly);
+        assert_eq!(result.ranked.len(), 30);
+        for w in result.ranked.windows(2) {
+            assert!(w[0].score >= w[1].score);
+        }
+    }
+
+    #[test]
+    fn cold_start_empty_snapshot_is_uniform_prior_and_does_not_panic() {
+        let snap = make_snapshot_with_commit_counts(&[]);
+        let result = cold_start_rank(&snap);
+        assert_eq!(result.route, ColdStartRoute::UniformPrior);
+        assert!(result.ranked.is_empty());
+    }
+
+    #[test]
+    fn cold_start_features_never_panics_on_none_fields() {
+        use crate::language::Language;
+        use crate::report::MetricsReport;
+        use crate::risk::RiskBand;
+        use crate::snapshot::FunctionSnapshot;
+
+        let func = FunctionSnapshot {
+            function_id: "f0".into(),
+            file: "src/f0.rs".into(),
+            line: 1,
+            language: Language::Rust,
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 0,
+                fo: 0,
+                ns: 0,
+                loc: 10,
+            },
+            lrs: 0.0,
+            band: RiskBand::Low,
+            suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
+            activity_risk: None,
+            risk_factors: None,
+            percentile: None,
+            driver: None,
+            driver_detail: None,
+            quadrant: None,
+            patterns: vec![],
+            pattern_details: None,
+            subsystem: None,
+            authors_90d: None,
+            directed_coupling: None,
+            jaccard_label_stability: None,
+            convention_bug_fix_count: None,
+            burst_score: None,
+            commit_count: None,
+            author_count: None,
+            author_entropy: None,
+            isolation_rate: None,
+            age_days: None,
+            last_touch_days: None,
+            explanation: None,
+        };
+        assert_eq!(cold_start_features(&func), [0.0; 8]);
     }
 }
