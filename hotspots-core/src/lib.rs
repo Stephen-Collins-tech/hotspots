@@ -27,6 +27,7 @@ pub mod git;
 pub mod history_signals;
 pub mod html;
 pub mod imports;
+pub mod isolation_forest;
 pub mod language;
 pub mod metrics;
 pub mod models;

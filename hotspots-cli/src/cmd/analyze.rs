@@ -42,6 +42,9 @@ pub(crate) struct AnalyzeArgs {
     pub hybrid_touches: Option<usize>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
+    /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
+    /// Explicit opt-in only; reads no fix-commit label data.
+    pub cold_start: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -58,8 +61,12 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         all_functions,
         include_models,
         explain_patterns,
+        cold_start,
         ..
     } = args;
+    if *cold_start && mode.is_some() {
+        anyhow::bail!("--cold-start is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
+    }
     if *policy && *mode != Some(OutputMode::Delta) {
         anyhow::bail!("--policy flag is only valid with --mode delta");
     }
@@ -145,6 +152,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         jobs,
         callgraph_skip_above,
         skip_gate,
+        cold_start,
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
@@ -189,6 +197,15 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         touch_args.hybrid.or(resolved_config.hybrid_touch_threshold),
         resolved_config.per_function_touches,
     );
+
+    if cold_start {
+        return handle_cold_start(
+            &normalized_path,
+            &resolved_config,
+            effective_touch_mode,
+            effective_top,
+        );
+    }
 
     if let Some(output_mode) = mode {
         let result = handle_mode_output(
@@ -268,6 +285,69 @@ struct TouchArgs {
     per_function: bool,
     hybrid: Option<usize>,
     skip: bool,
+}
+
+/// `hotspots analyze --cold-start`: Gini-gated cold-start routing (F62/F63).
+///
+/// Skips the trained-ranker lookup entirely. Builds a snapshot with the cold-start
+/// history signals populated (but no touch/churn/call-graph work — not needed for the
+/// 8-feature cold-start vector), runs `cold_start_rank()`, and prints the routing
+/// decision (Formula / Anomaly / UniformPrior) before the ranked list. Reads no
+/// fix-commit label data.
+fn handle_cold_start(
+    path: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    touch_mode: TouchMode,
+    top: Option<usize>,
+) -> anyhow::Result<()> {
+    let repo_root = find_repo_root(path)?;
+    let analysis_progress = make_analysis_progress();
+    let reports = analyze_with_progress(
+        path,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+        Some(resolved_config),
+        Some(analysis_progress.as_ref()),
+    )?;
+
+    let mut snapshot = build_enriched_snapshot(
+        &repo_root,
+        resolved_config,
+        reports,
+        touch_mode,
+        None,
+        true, // skip touch metrics — not part of the cold-start feature set
+    )
+    .context("failed to build snapshot for cold-start ranking")?;
+    snapshot.populate_history_signals(&repo_root);
+    snapshot.populate_authors_90d(&repo_root);
+
+    let result = hotspots_core::trainer::cold_start_rank(&snapshot);
+
+    let route_label = match result.route {
+        hotspots_core::trainer::ColdStartRoute::Formula => "formula",
+        hotspots_core::trainer::ColdStartRoute::Anomaly => "anomaly",
+        hotspots_core::trainer::ColdStartRoute::UniformPrior => "uniform-prior",
+    };
+    println!("cold-start route: {route_label}");
+
+    if result.ranked.is_empty() {
+        println!("(uniform prior — no ranking to show; all files equally likely)");
+        return Ok(());
+    }
+
+    let limit = match top {
+        Some(0) => result.ranked.len(),
+        Some(n) => n,
+        None => 20,
+    };
+    for scored in result.ranked.iter().take(limit) {
+        println!("{:.4}  {}", scored.score, scored.function_id);
+    }
+
+    Ok(())
 }
 
 fn handle_default_output(
