@@ -156,6 +156,14 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub callgraph_skip_above: Option<usize>,
 
+    /// Skip burst_score computation when the repo has more than this many commits
+    /// (default: no limit). burst_score requires a full, uncached `git log --name-only`
+    /// history traversal on every analyze/snapshot/delta run; on very large repos this
+    /// traversal can dominate pipeline time. When skipped, `burst_score` is omitted
+    /// (left `null`) from output.
+    #[serde(default)]
+    pub burst_score_skip_above: Option<usize>,
+
     /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
     #[serde(default)]
     pub patterns: Option<PatternThresholdsConfig>,
@@ -352,6 +360,8 @@ pub struct ResolvedConfig {
     pub betweenness_approx_k: usize,
     /// Skip all call graph computation above this function count (usize::MAX = never skip)
     pub callgraph_skip_above: usize,
+    /// Skip burst_score computation above this commit count (usize::MAX = never skip)
+    pub burst_score_skip_above: usize,
     /// Activity risk scoring weights
     pub scoring_weights: crate::scoring::ScoringWeights,
     /// Pattern detection thresholds
@@ -795,6 +805,7 @@ impl HotspotsConfig {
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
             callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
+            burst_score_skip_above: self.burst_score_skip_above.unwrap_or(usize::MAX),
             config_path: None,
         })
     }
@@ -933,6 +944,16 @@ mod tests {
         assert_eq!(resolved.moderate_threshold, 3.0);
         assert_eq!(resolved.high_threshold, 6.0);
         assert_eq!(resolved.critical_threshold, 9.0);
+        assert_eq!(resolved.callgraph_skip_above, usize::MAX);
+        assert_eq!(resolved.burst_score_skip_above, usize::MAX);
+    }
+
+    #[test]
+    fn test_burst_score_skip_above_resolves_from_config() {
+        let json = r#"{"burst_score_skip_above": 100000}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        let resolved = config.resolve().unwrap();
+        assert_eq!(resolved.burst_score_skip_above, 100_000);
     }
 
     #[test]

@@ -473,6 +473,22 @@ fn burst_score(timestamps: &[i64]) -> f64 {
     counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
 }
 
+/// Cheap total commit count via `git rev-list --count HEAD` (no file listing).
+/// Used to gate the expensive `--name-only` traversal in `populate_burst_score`
+/// behind `burst_score_skip_above` without paying for it first. Returns `None`
+/// on any error, in which case the caller proceeds as if unbounded.
+fn commit_count(repo_root: &Path) -> Option<usize> {
+    let out = std::process::Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
 impl Snapshot {
     /// Create a new snapshot from git context and function reports
     ///
@@ -688,10 +704,26 @@ impl Snapshot {
     /// `git::batch_touch_metrics_at` — one subprocess instead of one per file.
     /// Files with fewer than 2 commits receive `Some(1.0)` (no burst signal).
     ///
+    /// When `skip_above` is not `usize::MAX`, a cheap `git rev-list --count HEAD`
+    /// pre-check skips the expensive `--name-only` traversal entirely on repos
+    /// with more commits than the threshold; `burst_score` is left `None` for
+    /// every function in that case.
+    ///
     /// Errors are soft: if the git call fails, all functions keep `burst_score = None`.
-    pub fn populate_burst_score(&mut self, repo_root: &Path) {
+    pub fn populate_burst_score(&mut self, repo_root: &Path, skip_above: usize) {
         use std::collections::HashMap;
         use std::process::Command;
+
+        if skip_above != usize::MAX {
+            if let Some(count) = commit_count(repo_root) {
+                if count > skip_above {
+                    eprintln!(
+                        "info: burst_score skipped ({count} commits > --burst-score-skip-above {skip_above})"
+                    );
+                    return;
+                }
+            }
+        }
 
         let out = Command::new("git")
             .args(["log", "--format=COMMIT %at", "--name-only"])
@@ -1948,10 +1980,11 @@ impl SnapshotEnricher {
     }
 
     /// Populate `burst_score` for every function (F93).
-    /// No-op if `repo_root` does not exist.
-    pub fn with_burst_score(mut self, repo_root: &Path) -> Self {
+    /// No-op if `repo_root` does not exist. `skip_above` is a commit-count
+    /// threshold above which the traversal is skipped entirely (`usize::MAX` = never skip).
+    pub fn with_burst_score(mut self, repo_root: &Path, skip_above: usize) -> Self {
         if repo_root.exists() {
-            self.snapshot.populate_burst_score(repo_root);
+            self.snapshot.populate_burst_score(repo_root, skip_above);
         }
         self
     }

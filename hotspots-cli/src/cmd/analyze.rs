@@ -1304,7 +1304,7 @@ pub(crate) fn build_snapshot_via_db(
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
     let mut enricher = snapshot::SnapshotEnricher::new(snapshot)
         .with_subsystems(repo_root)
-        .with_burst_score(repo_root);
+        .with_burst_score(repo_root, resolved_config.burst_score_skip_above);
     if !skip_touch_metrics {
         let needs_progress = matches!(
             touch_mode,
@@ -1365,7 +1365,7 @@ pub(crate) fn build_enriched_snapshot(
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports))
         .with_subsystems(repo_root)
-        .with_burst_score(repo_root);
+        .with_burst_score(repo_root, resolved_config.burst_score_skip_above);
 
     if !git_context.parent_shas.is_empty() {
         match git::extract_commit_churn_at(repo_root, &git_context.head_sha) {

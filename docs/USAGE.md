@@ -375,6 +375,22 @@ Configure in `.hotspotsrc.json`:
 }
 ```
 
+### Burst score on very large repos
+
+`burst_score` (commit-timing burstiness) requires a full, uncached `git log --name-only`
+history traversal on every `--mode snapshot`/`--mode delta`/`--mode models` run. On repos
+with a very large commit history this can dominate pipeline time. Skip it above a commit
+count via `.hotspotsrc.json`:
+
+```json
+{
+  "burst_score_skip_above": 100000
+}
+```
+
+When skipped, `burst_score` is left `null` for every function (the `burst` scoring weight
+then contributes nothing to activity risk for that run).
+
 ## Snapshot Management
 
 ```bash
