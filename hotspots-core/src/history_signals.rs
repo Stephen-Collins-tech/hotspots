@@ -1,11 +1,12 @@
 //! Cold-start history signals — F63 signal-porting prerequisite.
 //!
-//! Six file-level signals ported from `cheap_signals.py` in `hotspots-research`,
-//! computed from a single `git log` pass over the whole repo (not one subprocess
-//! per file, unlike `populate_authors_90d`/`populate_convention_bug_fix_count`).
-//! `burst_score` is not duplicated here — it already exists on `FunctionSnapshot`
-//! via `Snapshot::populate_burst_score` (F93) and is reused as-is by
-//! `trainer::cold_start_features`.
+//! Seven file-level signals (six F62/F63 cold-start signals plus `burst_score`,
+//! F93), computed from a single `git log` pass over the whole repo (not one
+//! subprocess per file, unlike `populate_authors_90d`/`populate_convention_bug_fix_count`).
+//! `burst_score`'s formula lives here too (moved from `snapshot.rs`) so
+//! `Snapshot::populate_burst_score` can reuse this module's loader instead of
+//! spawning its own redundant full-history `git log` walk — see
+//! `hotspots-research/docs/promotion-briefs/burst-score-history-signals-shared-walk.md`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -21,7 +22,7 @@ pub struct CommitRecord {
     pub files: Vec<String>,
 }
 
-/// Per-file cold-start signals (F62/F63 feature set, minus `burst_score`).
+/// Per-file cold-start signals (F62/F63 feature set) plus `burst_score` (F93).
 pub struct HistorySignals {
     pub commit_count: u32,
     pub author_count: u32,
@@ -29,6 +30,7 @@ pub struct HistorySignals {
     pub isolation_rate: f64,
     pub age_days: f64,
     pub last_touch_days: f64,
+    pub burst_score: f64,
 }
 
 /// Load full commit history as `(timestamp, author_email, files)` via a single
@@ -110,8 +112,44 @@ fn author_entropy(authors: &[&str]) -> f64 {
         .sum::<f64>()
 }
 
-/// Single pass over `commits`, aggregating per-file cold-start signals.
-/// Mirrors `cheap_signals.py::compute_file_signals` (minus `burst_score`,
+/// Sliding 30-day-window max/mean commit ratio (F93). Moved from `snapshot.rs`
+/// so it shares this module's single-pass commit load with the other six
+/// cold-start signals instead of triggering its own `git log` walk.
+///
+/// For each commit, counts how many commits (including itself) fall within the
+/// following 30-day window, then divides the maximum such count by the mean.
+/// Mirrors `cheap_signals.py::_burst_score` in `hotspots-research`. Returns
+/// `1.0` (no burst signal) when fewer than 2 timestamps are given.
+fn burst_score(timestamps: &[i64]) -> f64 {
+    const BURST_WINDOW_DAYS: i64 = 30;
+    const BURST_WINDOW_SECS: i64 = BURST_WINDOW_DAYS * 86400;
+
+    if timestamps.len() < 2 {
+        return 1.0;
+    }
+
+    let mut sorted = timestamps.to_vec();
+    sorted.sort_unstable();
+
+    let mut counts = Vec::with_capacity(sorted.len());
+    let mut j = 0usize;
+    for (i, &t) in sorted.iter().enumerate() {
+        while j < sorted.len() && sorted[j] < t + BURST_WINDOW_SECS {
+            j += 1;
+        }
+        counts.push((j - i) as f64);
+    }
+
+    let mean_c = counts.iter().sum::<f64>() / counts.len() as f64;
+    if mean_c == 0.0 {
+        return 1.0;
+    }
+
+    counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
+}
+
+/// Single pass over `commits`, aggregating per-file cold-start signals plus
+/// `burst_score`. Mirrors `cheap_signals.py::compute_file_signals` (minus
 /// `co_change_partners`, `mean_co_change_size` — out of scope, see brief).
 pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, HistorySignals> {
     let now_ts = std::time::SystemTime::now()
@@ -152,6 +190,7 @@ pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, Hist
                 isolation_rate,
                 age_days: (last_ts - first_ts) as f64 / 86400.0,
                 last_touch_days: (now_ts - last_ts) as f64 / 86400.0,
+                burst_score: burst_score(&timestamps),
             },
         );
     }
@@ -253,5 +292,42 @@ mod tests {
         let bad = Path::new("/nonexistent/path/that/does/not/exist/.git");
         let commits = load_commits_with_author(bad);
         assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn burst_score_single_commit_is_baseline() {
+        assert_eq!(burst_score(&[0]), 1.0);
+    }
+
+    #[test]
+    fn burst_score_evenly_spaced_commits_is_baseline() {
+        // Commits 60 days apart never share a 30-day window with another commit,
+        // so max == mean == 1.0 for every commit.
+        const DAY: i64 = 86400;
+        let timestamps = vec![0, 60 * DAY, 120 * DAY, 180 * DAY];
+        assert_eq!(burst_score(&timestamps), 1.0);
+    }
+
+    #[test]
+    fn burst_score_detects_a_burst() {
+        // 5 commits clustered on day 0, then 1 commit alone on day 60: the
+        // clustered commits' windows each see all 5, giving max=5, mean=(5*5+1)/6.
+        const DAY: i64 = 86400;
+        let timestamps = vec![0, 0, 0, 0, 0, 60 * DAY];
+        let score = burst_score(&timestamps);
+        assert!(score > 1.0, "expected a burst signal, got {score}");
+    }
+
+    #[test]
+    fn compute_history_signals_matches_burst_score_fixture() {
+        let commits = fixture_commits();
+        let signals = compute_history_signals(&commits);
+        // a.rs: commits at d0, d1, d5 — all within 30 days of each other, so
+        // the forward-window counts are [3, 2, 1] (max=3, mean=2, ratio=1.5).
+        let a = signals.get("a.rs").expect("a.rs present");
+        assert!((a.burst_score - 1.5).abs() < 1e-9, "got {}", a.burst_score);
+        // c.rs: single commit -> baseline 1.0.
+        let c = signals.get("c.rs").expect("c.rs present");
+        assert_eq!(c.burst_score, 1.0);
     }
 }
