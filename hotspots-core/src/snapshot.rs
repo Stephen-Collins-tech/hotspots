@@ -439,40 +439,6 @@ fn subsystem_for_file(
     best.map(|s| s.to_string())
 }
 
-/// Sliding 30-day-window max/mean commit ratio (F93).
-///
-/// For each commit, counts how many commits (including itself) fall within the
-/// following 30-day window, then divides the maximum such count by the mean.
-/// Mirrors `cheap_signals.py::_burst_score` in `hotspots-research`. Returns
-/// `1.0` (no burst signal) when fewer than 2 timestamps are given.
-fn burst_score(timestamps: &[i64]) -> f64 {
-    const BURST_WINDOW_DAYS: i64 = 30;
-    const BURST_WINDOW_SECS: i64 = BURST_WINDOW_DAYS * 86400;
-
-    if timestamps.len() < 2 {
-        return 1.0;
-    }
-
-    let mut sorted = timestamps.to_vec();
-    sorted.sort_unstable();
-
-    let mut counts = Vec::with_capacity(sorted.len());
-    let mut j = 0usize;
-    for (i, &t) in sorted.iter().enumerate() {
-        while j < sorted.len() && sorted[j] < t + BURST_WINDOW_SECS {
-            j += 1;
-        }
-        counts.push((j - i) as f64);
-    }
-
-    let mean_c = counts.iter().sum::<f64>() / counts.len() as f64;
-    if mean_c == 0.0 {
-        return 1.0;
-    }
-
-    counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
-}
-
 impl Snapshot {
     /// Create a new snapshot from git context and function reports
     ///
@@ -681,51 +647,23 @@ impl Snapshot {
 
     /// Populate `burst_score` for every function (F93).
     ///
-    /// Runs a single `git log --name-only` pass over the whole repository to
-    /// collect per-file commit timestamps, then computes a sliding 30-day-window
-    /// max/mean commit ratio per file. File-level: all functions in the same
-    /// file receive the same value. Mirrors the batching approach used by
-    /// `git::batch_touch_metrics_at` — one subprocess instead of one per file.
+    /// Runs a single `git log --name-only` pass over the whole repository via
+    /// `history_signals::load_commits_with_author` (the same loader
+    /// `populate_history_signals` uses) and reads `burst_score` off the
+    /// resulting per-file `HistorySignals` — no separate `git log` subprocess.
+    /// File-level: all functions in the same file receive the same value.
     /// Files with fewer than 2 commits receive `Some(1.0)` (no burst signal).
     ///
     /// Errors are soft: if the git call fails, all functions keep `burst_score = None`.
     pub fn populate_burst_score(&mut self, repo_root: &Path) {
         use std::collections::HashMap;
-        use std::process::Command;
 
-        let out = Command::new("git")
-            .args(["log", "--format=COMMIT %at", "--name-only"])
-            .current_dir(repo_root)
-            .output();
-
-        let Ok(out) = out else { return };
-        if !out.status.success() {
+        let git_dir = crate::coupling::git_dir(repo_root);
+        let commits = crate::history_signals::load_commits_with_author(&git_dir);
+        if commits.is_empty() {
             return;
         }
-        let text = String::from_utf8_lossy(&out.stdout);
-
-        let mut timestamps_by_file: HashMap<String, Vec<i64>> = HashMap::new();
-        let mut current_ts: i64 = 0;
-        let mut commit_count: usize = 0;
-        for line in text.lines() {
-            if let Some(ts_str) = line.strip_prefix("COMMIT ") {
-                current_ts = ts_str.trim().parse().unwrap_or(0);
-                commit_count += 1;
-                // On large repos the full-history git log traversal can take several
-                // seconds and hold a non-trivial amount of memory. Surface this so
-                // users aren't surprised (mirrors coupling::compute_directed_coupling_for_repo).
-                if commit_count == 50_001 {
-                    eprintln!(
-                        "hotspots: burst_score loading full commit history (large repo — may be slow)"
-                    );
-                }
-            } else if !line.trim().is_empty() {
-                timestamps_by_file
-                    .entry(line.trim().to_string())
-                    .or_default()
-                    .push(current_ts);
-            }
-        }
+        let signals = crate::history_signals::compute_history_signals(&commits);
 
         let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, func) in self.functions.iter().enumerate() {
@@ -738,12 +676,11 @@ impl Snapshot {
         }
 
         for (rel, indices) in &file_indices {
-            let score = match timestamps_by_file.get(rel) {
-                Some(timestamps) => burst_score(timestamps),
-                None => continue,
+            let Some(s) = signals.get(rel) else {
+                continue;
             };
             for &i in indices {
-                self.functions[i].burst_score = Some(score);
+                self.functions[i].burst_score = Some(s.burst_score);
             }
         }
     }

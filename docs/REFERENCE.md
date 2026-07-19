@@ -259,10 +259,22 @@ Activity Risk = LRS
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
-changes). Computed from a single full-history `git log` pass per `hotspots analyze`
-run (mirrors the batching used for touch metrics — one subprocess, not one per file).
-On repos with more than 50,000 commits, this prints a one-line stderr warning since
-the full-history scan can take a few seconds.
+changes). For each commit touching a file, it counts how many of that file's commits
+fall within the following 30 days, then divides the largest such count by the mean —
+a file with 5 commits crammed into one week scores higher than one with 5 commits
+spread evenly across a year, even though both have `commit_count = 5`.
+
+Computed as part of the same single full-history `git log --name-only` pass used for
+the other cold-start signals (`commit_count`, `author_count`, `author_entropy`,
+`isolation_rate`, `age_days`, `last_touch_days`) — one subprocess per `hotspots
+analyze` run, not one per file and not a separate walk from those other six signals.
+Files with fewer than 2 commits get the baseline `1.0` (no burst signal); files with
+no matching commit history keep `burst_score = None`.
+
+Validated against real-world defect data: it's one of the strongest signals in a
+CVE/OSV-linked-file logistic regression (largest standardized coefficient of 5
+candidate signals, positive across all leave-one-repo-out folds tested) — see
+`hotspots-research` findings F67 and F93 for the full cross-repo evaluation.
 
 Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
 
