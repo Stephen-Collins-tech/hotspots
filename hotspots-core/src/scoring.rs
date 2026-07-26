@@ -130,14 +130,16 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Burst factor: burst_score is already a max/mean ratio (>= 1.0); use the
-    // amount above the steady-state baseline of 1.0 so a non-bursty file
-    // contributes nothing.
-    let burst_score = if let Some(burst) = input.burst_score {
-        (burst - 1.0).max(0.0) * weights.burst
-    } else {
-        0.0
-    };
+    // Burst factor: removed from the live composite score. burst_score is
+    // computed over a file's entire commit history and is monotonic
+    // non-decreasing, so including it here made activity_risk a one-way
+    // ratchet — a single historical burst could permanently keep a file at
+    // CRITICAL regardless of current state. See
+    // hotspots-research/docs/burst-score-non-decaying-issue.md and
+    // docs/promotion-briefs/burst-score-remove-from-live-score.md. The
+    // `burst_score` value itself is still computed and stored (see
+    // `history_signals.rs`/`snapshot.rs`) for other consumers such as
+    // `trainer::cold_start_features`.
 
     // Total activity risk
     let activity_risk = complexity_score
@@ -147,8 +149,7 @@ pub fn compute_activity_risk(
         + fan_in_score
         + scc_score
         + depth_score
-        + neighbor_churn_score
-        + burst_score;
+        + neighbor_churn_score;
 
     let risk_factors = RiskFactors {
         complexity: complexity_score,
@@ -159,7 +160,7 @@ pub fn compute_activity_risk(
         cyclic_dependency: scc_score,
         depth: depth_score,
         neighbor_churn: neighbor_churn_score,
-        burst: burst_score,
+        burst: 0.0,
     };
 
     (activity_risk, risk_factors)
@@ -273,9 +274,11 @@ mod tests {
             &ScoringWeights::default(),
         );
 
-        assert!(risk_with_burst > risk_without_burst);
+        // burst_score no longer contributes to activity_risk: a file with a
+        // historical burst (burst_score: Some(4.0)) scores identically to
+        // one without, and RiskFactors.burst is always 0.0.
+        assert_eq!(risk_with_burst, risk_without_burst);
         assert_eq!(factors_without_burst.burst, 0.0);
-        // (4.0 - 1.0) * 0.3 = 0.9
-        assert!((factors_with_burst.burst - 0.9).abs() < 0.001);
+        assert_eq!(factors_with_burst.burst, 0.0);
     }
 }

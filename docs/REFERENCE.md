@@ -254,8 +254,21 @@ Activity Risk = LRS
   + (scc_size if in cycle else 0) × 0.3           # cyclic dependency
   + min(dependency_depth / 3, 5.0) × 0.1         # depth from entrypoints
   + neighbor_churn / 500 × 0.2                    # churn in callees
-  + max(0, burst_score − 1.0) × 0.3               # commit-timing burstiness
 ```
+
+`burst_score` no longer contributes to the live Activity Risk / composite score. It is
+computed and stored on the snapshot (and still used by `trainer::cold_start_features`
+for offline model training), but `compute_activity_risk` in `scoring.rs` does not read
+it: `burst_score` is a full-history value that is effectively monotonic non-decreasing,
+so folding it into the live score made Activity Risk a one-way ratchet — a file with
+any historical burst, however old, could never leave the CRITICAL tier on this term
+alone even after the code had long since stabilized. See
+`hotspots-research/docs/burst-score-non-decaying-issue.md` for the full diagnosis and
+`hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md` for this
+change; a trailing-window or decayed replacement for the live score is tracked as
+follow-on research. The `burst` weight (`ScoringWeights.burst`, default `0.3`) and the
+`RiskFactors.burst` field are both kept in place, unused (`RiskFactors.burst` is always
+`0.0`), so a future replacement can reuse them without a renaming exercise.
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
@@ -278,9 +291,11 @@ candidate signals, positive across all leave-one-repo-out folds tested) — see
 
 Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
 
-All eight activity-risk weights above (`churn`, `touch`, `recency`, `fan_in`, `scc`,
-`depth`, `neighbor_churn`, `burst`) are overridable via the `scoring` key in
-`.hotspotsrc.json`:
+All seven activity-risk weights in the formula above (`churn`, `touch`, `recency`,
+`fan_in`, `scc`, `depth`, `neighbor_churn`) are overridable via the `scoring` key in
+`.hotspotsrc.json`. `burst` is also accepted for forward compatibility with a future
+replacement, but currently has no effect since `burst_score` is not read by the live
+formula:
 
 ```json
 {
