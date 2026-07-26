@@ -79,3 +79,22 @@ passing. Also rebuilt missing `benchmarks/run.sh` + `benchmarks/corpus.json` (re
 by README but absent from the repo) and re-ran the 7-repo benchmark: mean ρ +0.350 →
 +0.386, all 7 repos improved (`benchmarks/versions/v1.30.0.json`,
 `benchmarks/RESULTS.md`). Tracker row updated to `promoted`.
+
+---
+
+## Task: Remove `burst_score` from live activity-risk score
+
+**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md`
+
+`burst_score` is computed over a file's entire commit history and is effectively
+monotonic non-decreasing, so including it in `compute_activity_risk` made
+`activity_risk` a one-way ratchet — a single historical burst could permanently
+keep a file at CRITICAL regardless of current state. Removes the burst term from
+`compute_activity_risk`'s sum; `RiskFactors.burst` is now always `0.0`.
+`ScoringWeights.burst`, `ActivityRiskInput.burst_score`, and the `burst_score`
+computation in `history_signals.rs`/`snapshot.rs` are untouched — kept in place for
+a future trailing-window replacement, per the brief's "Do not" section.
+
+**Status:** done — branch `fix/burst-score-remove-from-live-score`, PR #126,
+`cargo test` passing (452 tests). Tracker row `burst-score-remove-from-live` still
+needs to flip from `pending` to `promoted` once merged.
