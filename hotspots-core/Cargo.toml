@@ -9,7 +9,7 @@ repository = { workspace = true }
 homepage = { workspace = true }
 keywords = { workspace = true }
 categories = { workspace = true }
-description = "Core library for static analysis and Local Risk Score (LRS) computation across TypeScript, JavaScript, Go, Python, Rust, Java, C#, and C"
+description = "Core library for finding the riskiest code by combining complexity with git change history (Local Risk Score) across TypeScript, JavaScript, Go, Python, Rust, Java, C#, and C"
 readme = "../README.md"
 
 [lib]

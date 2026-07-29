@@ -1,7 +1,7 @@
 {
   "name": "@stephencollinstech/hotspots",
   "version": "0.0.0",
-  "description": "Static analysis CLI for TypeScript that computes Local Risk Score (LRS)",
+  "description": "CLI that finds the riskiest code in your codebase by combining complexity with git change history (Local Risk Score) across TypeScript, JavaScript, Go, Python, Rust, and Java",
   "bin": {
     "hotspots": "./bin/hotspots.js"
   },
