@@ -324,7 +324,8 @@ fn handle_cold_start(
     snapshot.populate_history_signals(&repo_root);
     snapshot.populate_authors_90d(&repo_root);
 
-    let result = hotspots_core::trainer::cold_start_rank(&snapshot);
+    let train_cfg = hotspots_core::trainer::TrainConfig::default();
+    let result = hotspots_core::trainer::cold_start_rank(&snapshot, &repo_root, &train_cfg);
 
     let route_label = match result.route {
         hotspots_core::trainer::ColdStartRoute::Formula => "formula",

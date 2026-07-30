@@ -12,7 +12,8 @@ use hotspots_core::snapshot::{
     AnalysisInfo, CallGraphMetrics, ChurnMetrics, CommitInfo, FunctionSnapshot, Snapshot,
 };
 use hotspots_core::trainer::{
-    collect_fix_files, collect_fix_functions, extract_features, train, TrainConfig, FEATURE_NAMES,
+    cold_start_rank, collect_fix_files, collect_fix_functions, extract_features, train,
+    ColdStartRoute, TrainConfig, FEATURE_NAMES,
 };
 use std::path::Path;
 use std::process::Command;
@@ -428,4 +429,152 @@ fn train_returns_none_below_threshold() {
 
     let result = train(&snapshot, p, &TrainConfig::default(), None).expect("train");
     assert!(result.is_none(), "too few functions → None");
+}
+
+// ── F98: low-label-density cold-start gate ─────────────────────────────────────
+
+/// One function block per index: `def func_{i}():\n    x = {i}\n    return x\n`,
+/// blocks joined with a blank-line separator. Function `i`'s start line is
+/// `1 + i * 4` (3 body lines + 1 blank separator line per preceding block).
+fn make_blocks(n: usize) -> Vec<String> {
+    (0..n)
+        .map(|i| format!("def func_{i}():\n    x = {i}\n    return x\n"))
+        .collect()
+}
+
+fn render_blocks(blocks: &[String]) -> String {
+    blocks.join("\n")
+}
+
+/// A snapshot of `n` functions in `file`, each with `commit_count` set from
+/// `counts` (must be length `n`) — used to control the Gini branch independently
+/// of git-derived fix-commit labels.
+fn make_snapshot_with_file_and_counts(file: &str, n: usize, counts: &[u32]) -> Snapshot {
+    assert_eq!(counts.len(), n);
+    let functions = (0..n)
+        .map(|i| {
+            let mut f = make_func(file, &format!("func_{i}"), (1 + i * 4) as u32);
+            f.commit_count = Some(counts[i]);
+            f
+        })
+        .collect();
+    make_snapshot(functions)
+}
+
+#[test]
+fn cold_start_lowlabel_gate_overrides_gini_formula_route() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    let mut blocks = make_blocks(20);
+    commit_file(p, "big.py", &render_blocks(&blocks), "feat: add big module");
+
+    // Three separate fix commits, each touching exactly one distinct function —
+    // function-level pos_rate = 3/20 = 0.15, in [0.05, 0.30).
+    for target in [2usize, 7, 13] {
+        blocks[target] = format!("def func_{target}():\n    x = {target}  # fixed\n    return x\n");
+        commit_file(
+            p,
+            "big.py",
+            &render_blocks(&blocks),
+            &format!("fix: correct func_{target}"),
+        );
+    }
+
+    // Skewed commit_count (one dominant function) — would route Formula via the
+    // Gini branch (gini ≈ 0.56, same shape as cold_start_formula_route_ranks_by_activity_risk)
+    // if the low-label-density gate did not fire first.
+    let mut counts = vec![1u32; 20];
+    counts[0] = 30;
+    let snap = make_snapshot_with_file_and_counts("big.py", 20, &counts);
+
+    let result = cold_start_rank(&snap, p, &TrainConfig::default());
+    assert_eq!(
+        result.route,
+        ColdStartRoute::Anomaly,
+        "pos_rate=0.15 in-band should override the Gini branch"
+    );
+}
+
+#[test]
+fn cold_start_lowlabel_gate_does_not_fire_below_pos_rate_floor() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    let mut blocks = make_blocks(30);
+    commit_file(p, "big.py", &render_blocks(&blocks), "feat: add big module");
+
+    // Single fix commit touching one function — pos_rate = 1/30 ≈ 0.033, below
+    // LOWLABEL_POS_RATE_MIN (0.05).
+    blocks[0] = "def func_0():\n    x = 0  # fixed\n    return x\n".to_string();
+    commit_file(p, "big.py", &render_blocks(&blocks), "fix: correct func_0");
+
+    let mut counts = vec![1u32; 30];
+    counts[0] = 45;
+    let snap = make_snapshot_with_file_and_counts("big.py", 30, &counts);
+
+    let result = cold_start_rank(&snap, p, &TrainConfig::default());
+    assert_eq!(
+        result.route,
+        ColdStartRoute::Formula,
+        "pos_rate below the floor must not trigger the low-label-density gate"
+    );
+}
+
+#[test]
+fn cold_start_lowlabel_gate_falls_through_with_no_fix_history() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    let blocks = make_blocks(20);
+    commit_file(p, "big.py", &render_blocks(&blocks), "feat: add big module");
+    commit_file(
+        p,
+        "big.py",
+        &format!("{}\n# reformatted\n", render_blocks(&blocks)),
+        "chore: reformat big module",
+    );
+
+    let mut counts = vec![1u32; 20];
+    counts[0] = 30;
+    let snap = make_snapshot_with_file_and_counts("big.py", 20, &counts);
+
+    // No panic, and falls through cleanly to the existing Gini-based Formula route.
+    let result = cold_start_rank(&snap, p, &TrainConfig::default());
+    assert_eq!(result.route, ColdStartRoute::Formula);
+}
+
+#[test]
+fn cold_start_lowlabel_gate_uses_function_level_not_file_level_labels() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    let mut blocks = make_blocks(20);
+    commit_file(p, "big.py", &render_blocks(&blocks), "feat: add big module");
+
+    // Three fix commits, all touching the same single file "big.py" but each
+    // modifying only one distinct function. Function-level pos_rate = 3/20 = 0.15
+    // (in-band). If this gate mistakenly used file-level labelling (any fix commit
+    // touching the file marks every function in it positive), pos_rate would read
+    // as 20/20 = 1.0 (out of band) and the gate would never fire.
+    for target in [1usize, 9, 18] {
+        blocks[target] = format!("def func_{target}():\n    x = {target}  # fixed\n    return x\n");
+        commit_file(
+            p,
+            "big.py",
+            &render_blocks(&blocks),
+            &format!("fix: correct func_{target}"),
+        );
+    }
+
+    let mut counts = vec![1u32; 20];
+    counts[0] = 30;
+    let snap = make_snapshot_with_file_and_counts("big.py", 20, &counts);
+
+    let result = cold_start_rank(&snap, p, &TrainConfig::default());
+    assert_eq!(
+        result.route,
+        ColdStartRoute::Anomaly,
+        "function-level pos_rate (0.15) should drive the gate, not file-level (1.0)"
+    );
 }

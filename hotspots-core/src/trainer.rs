@@ -745,6 +745,27 @@ const COLD_START_N_TREES: usize = 100;
 const COLD_START_SUBSAMPLE_SIZE: usize = 256;
 const COLD_START_SEED: u64 = 42;
 
+/// Low-label-density gate (F98): function-level positive rate lower bound.
+/// Repos with `pos_rate` in `[LOWLABEL_POS_RATE_MIN, LOWLABEL_POS_RATE_MAX)` have fix
+/// history but too few confirmed fixes relative to total files for a supervised model
+/// to be trustworthy — route to the same label-free anomaly score as the Gini-low branch.
+pub const LOWLABEL_POS_RATE_MIN: f64 = 0.05;
+/// Low-label-density gate (F98): function-level positive rate upper bound (exclusive).
+pub const LOWLABEL_POS_RATE_MAX: f64 = 0.30;
+/// Low-label-density gate (F98): binary label-entropy floor. Separates F98's 4
+/// confirmed-good repos (entropy 0.391-0.932) from the rejected `dotnet__aspnetcore`
+/// case (entropy 0.198).
+pub const LOWLABEL_ENTROPY_MIN: f64 = 0.3;
+
+/// Standard binary Shannon entropy of a positive rate `p`. Returns `0.0` at the
+/// degenerate extremes (`p == 0.0` or `p == 1.0`) rather than `NaN`.
+fn binary_entropy(p: f64) -> f64 {
+    if p <= 0.0 || p >= 1.0 {
+        return 0.0;
+    }
+    -p * p.log2() - (1.0 - p) * (1.0 - p).log2()
+}
+
 /// Which cold-start ranking strategy was used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColdStartRoute {
@@ -800,7 +821,11 @@ pub fn gini_coefficient(values: &[f64]) -> f64 {
 ///
 /// Two streaming passes over `snapshot.functions` on the `Anomaly` route (fit, then
 /// score) — no intermediate full-matrix structure is built at any point.
-pub fn cold_start_rank(snapshot: &Snapshot) -> ColdStartResult {
+pub fn cold_start_rank(
+    snapshot: &Snapshot,
+    repo_root: &Path,
+    cfg: &TrainConfig,
+) -> ColdStartResult {
     let commit_counts: Vec<f64> = snapshot
         .functions
         .iter()
@@ -828,9 +853,7 @@ pub fn cold_start_rank(snapshot: &Snapshot) -> ColdStartResult {
         }
     }
 
-    let gini = gini_coefficient(&commit_counts);
-
-    if gini < LOW_GINI {
+    let anomaly_route = || -> ColdStartResult {
         let forest = IsolationForest::fit(
             snapshot.functions.iter().map(cold_start_features),
             COLD_START_N_TREES,
@@ -846,10 +869,40 @@ pub fn cold_start_rank(snapshot: &Snapshot) -> ColdStartResult {
             })
             .collect();
         ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-        return ColdStartResult {
+        ColdStartResult {
             route: ColdStartRoute::Anomaly,
             ranked,
-        };
+        }
+    };
+
+    // F98: low-label-density gate, evaluated before the Gini branch. Always uses
+    // function-level (blame-based) labels regardless of `cfg.blame_labels` — the
+    // file-level path inflates pos_rate on repos where one fix commit touches a
+    // file with many functions (e.g. measured 0.751 vs true 0.133 on
+    // apache__spark in the research corpus), which would prevent this gate from
+    // ever firing on the exact repos it was built for.
+    if let Ok(fix_funcs) = collect_fix_functions(
+        snapshot,
+        repo_root,
+        cfg.label_window_days,
+        cfg.label_before.as_deref(),
+    ) {
+        let n_pos = fix_funcs.len();
+        if n_pos > 0 {
+            let pos_rate = n_pos as f64 / snapshot.functions.len() as f64;
+            let label_entropy = binary_entropy(pos_rate);
+            if (LOWLABEL_POS_RATE_MIN..LOWLABEL_POS_RATE_MAX).contains(&pos_rate)
+                && label_entropy > LOWLABEL_ENTROPY_MIN
+            {
+                return anomaly_route();
+            }
+        }
+    }
+
+    let gini = gini_coefficient(&commit_counts);
+
+    if gini < LOW_GINI {
+        return anomaly_route();
     }
 
     let mut ranked: Vec<ScoredFunction> = snapshot
@@ -1708,7 +1761,8 @@ mod tests {
         // Flat distribution: top-decile share = 0.10 < 0.20 guard.
         let counts = vec![1u32; 20];
         let snap = make_snapshot_with_commit_counts(&counts);
-        let result = cold_start_rank(&snap);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = cold_start_rank(&snap, dir.path(), &TrainConfig::default());
         assert_eq!(result.route, ColdStartRoute::UniformPrior);
         assert!(result.ranked.is_empty());
     }
@@ -1720,7 +1774,8 @@ mod tests {
         let mut counts = vec![1u32; 20];
         counts[0] = 30;
         let snap = make_snapshot_with_commit_counts(&counts);
-        let result = cold_start_rank(&snap);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = cold_start_rank(&snap, dir.path(), &TrainConfig::default());
         assert_eq!(result.route, ColdStartRoute::Formula);
         assert_eq!(result.ranked.len(), 20);
         // Ranked descending by activity_risk (lrs proxy: i/20, so f19 has the highest).
@@ -1739,7 +1794,8 @@ mod tests {
         counts[1] = 12;
         counts[2] = 10;
         let snap = make_snapshot_with_commit_counts(&counts);
-        let result = cold_start_rank(&snap);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = cold_start_rank(&snap, dir.path(), &TrainConfig::default());
         assert_eq!(result.route, ColdStartRoute::Anomaly);
         assert_eq!(result.ranked.len(), 30);
         for w in result.ranked.windows(2) {
@@ -1750,7 +1806,8 @@ mod tests {
     #[test]
     fn cold_start_empty_snapshot_is_uniform_prior_and_does_not_panic() {
         let snap = make_snapshot_with_commit_counts(&[]);
-        let result = cold_start_rank(&snap);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = cold_start_rank(&snap, dir.path(), &TrainConfig::default());
         assert_eq!(result.route, ColdStartRoute::UniformPrior);
         assert!(result.ranked.is_empty());
     }
