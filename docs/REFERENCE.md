@@ -31,6 +31,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
 | `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
 | `--skip-gate` | off | Disable suppression gate P@10 check |
+| `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
 | `-j N` / `--jobs N` | CPU count | Parallel worker threads |
 
 **Notes:**
@@ -39,6 +40,7 @@ hotspots analyze <PATH> [OPTIONS]
 - Snapshot mode text output requires `--explain` or `--level`
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
+- `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
 
 ### `hotspots diff <base> <head>`
 
@@ -117,6 +119,43 @@ hotspots: using trained ranker (model class: Ridge)
 ```
 
 Once a model is trained, `hotspots analyze . --mode snapshot --explain` adds a `✦` phrase line below each CRITICAL/HIGH function — e.g. `✦ Churns heavily and is load-bearing.` — derived from which features rank in the top 20th percentile for that repo. No `✦` lines appear without a trained ranker.
+
+### Cold-Start Ranking
+
+`hotspots analyze <PATH> --cold-start` produces a ranking without a trained ranker and
+without the label thresholds `hotspots train` requires (≥ 50 functions, ≥ 5 positive / ≥
+10 negative labels). It skips the trained-ranker lookup and snapshot pipeline entirely —
+`--mode` cannot be combined with it.
+
+```
+hotspots analyze . --cold-start
+hotspots analyze . --cold-start --top 20
+```
+
+Routing is decided per-repo by two independent gates, checked in this order, and printed
+before the ranked list (`cold-start route: formula|anomaly|uniform-prior`):
+
+1. **Uniform-prior guard.** If no file stands out even by raw commit count (top decile of
+   files by `commit_count` accounts for less than 20% of total commits), there's no basis
+   for a ranking — prints `(uniform prior — no ranking to show; all files equally likely)`
+   and returns an empty list rather than a manufactured one.
+2. **Low-label-density gate.** If the repo has *some* fix-commit history but the function-level
+   positive rate is low (5–30% of functions, with a Shannon-entropy floor to filter out
+   near-degenerate splits) — plenty of history, not enough confirmed fixes to trust a
+   supervised model — routes to the same label-free anomaly score as gate 3 below.
+3. **Gini-coefficient gate** (fallback). Computes the Gini coefficient of `commit_count`
+   across all functions:
+   - **High concentration** (a few files dominate commit activity, Gini ≥ 0.55) → the
+     existing formula score (`activity_risk`/`lrs`) is already a sufficient day-one
+     ranking; no model needed.
+   - **Low concentration** (Gini < 0.55) → fits a label-free `IsolationForest` on an
+     8-feature history vector (`commit_count`, `author_count`, `author_entropy`,
+     `burst_score`, `isolation_rate`, `age_days`, `last_touch_days`, `authors_90d`) and
+     ranks by anomaly score.
+
+Both anomaly routes (gate 2 and the low-Gini branch of gate 3) use the same
+`IsolationForest` implementation — memory-bounded, streaming, no full-matrix
+intermediate structure. Neither requires a `.hotspots/ranker.json` model file.
 
 ### `hotspots prune`
 

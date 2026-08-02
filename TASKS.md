@@ -41,7 +41,7 @@ Adds `commit_count`, `author_count`, `author_entropy`, `burst_score`, `isolation
 existing per-file-subprocess pattern — see brief for why). Must ship before the next
 task below.
 
-**Status:** not started
+**Status:** done — PR #121 (branch `feat/history-signals-porting`), merged
 
 ---
 
@@ -56,9 +56,30 @@ streaming IsolationForest). IsolationForest design pre-validated against sklearn
 Python (`scripts/poc/validate_streaming_isolation_forest.py` in the research repo,
 mean ρ gap −0.014) — see the brief's Research Artifacts section before implementing.
 
-**Status:** not started (⚠️ note: F93 below already adds a per-file-subprocess
-`burst_score` to `FunctionSnapshot` — reconcile with this task's single-git-log-pass
-design before implementing, to avoid a duplicate/conflicting field)
+**Status:** done — PR #123 (branch `feat/f62-f63-cold-start-routing`), merged, released
+v1.33.0. `hotspots analyze --cold-start` ships with Gini-gated routing
+(`ColdStartRoute::Formula`/`Anomaly`/`UniformPrior`) in `trainer.rs`.
+
+---
+
+## Task: F98 low-label-density gate for cold-start routing
+
+**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f98-lowlabel-coldstart-gate.md`
+
+**Depends on:** F62/F63 Gini-gated cold-start routing above — shipped, so this was
+unblocked (hotspots#118 closed).
+
+Adds a second, independent gate to `cold_start_rank()`: repos with fix-commit history
+but a low positive rate (0.05–0.30, function-level) route to the same `IsolationForest`
+anomaly path as the Gini-low branch, evaluated before it. Always uses function-level
+(blame-based) labels via `collect_fix_functions`, ignoring `cfg.blame_labels`, to avoid
+the file-level pos_rate inflation the brief calls out for spark/envoy-shaped repos.
+
+**Status:** implemented — branch `feat/f98-lowlabel-coldstart-gate`, not yet pushed/PR'd.
+`cold_start_rank()` signature extended to `(snapshot, repo_root, cfg)`; `handle_cold_start`
+in `hotspots-cli/src/cmd/analyze.rs` updated accordingly. 4 new integration tests in
+`hotspots-core/tests/trainer_tests.rs` cover all acceptance criteria. Full workspace
+`cargo test` (457 tests), `cargo fmt --check`, `cargo clippy -D warnings` all clean.
 
 ---
 
