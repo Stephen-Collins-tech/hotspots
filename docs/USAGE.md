@@ -58,6 +58,34 @@ hotspots analyze . --mode delta --format json   # machine-readable output
 
 In PR context (GitHub Actions, GitLab CI, CircleCI, Travis), delta mode automatically compares against the merge-base rather than the direct parent. Detection is via environment variables (`GITHUB_EVENT_NAME=pull_request`, `CI_MERGE_REQUEST_IID`, etc.).
 
+## Cold-Start Ranking
+
+`hotspots train` needs at least 50 functions and enough confirmed fix-commit labels
+(≥ 5 positive / ≥ 10 negative) to fit a ranker — a repo that's brand new to hotspots, or
+one with too little confirmed-fix history, doesn't clear that bar. `--cold-start` gives
+those repos a ranking anyway, with no trained model required:
+
+```bash
+hotspots analyze . --cold-start
+hotspots analyze . --cold-start --top 20
+```
+
+It skips the trained-ranker/snapshot pipeline entirely (`--mode` can't be combined with
+it) and picks one of three strategies per-repo, printed as the route before the ranked
+list:
+
+- **`formula`** — commit activity is concentrated in a few files; the existing
+  `activity_risk`/`lrs` score is already a good day-one ranking.
+- **`anomaly`** — commit activity is spread out, or the repo has fix history but too few
+  confirmed fixes to trust a supervised model; ranks by a label-free anomaly score over
+  history signals (commit count, author entropy, burst score, isolation rate, age, etc.)
+  instead.
+- **`uniform-prior`** — no file stands out by commit count at all; prints a note instead
+  of a manufactured ranking.
+
+See [`docs/REFERENCE.md`](REFERENCE.md#cold-start-ranking) for the exact routing
+thresholds.
+
 ## `hotspots diff`
 
 Compare snapshots between any two git refs (not just parent → HEAD):
