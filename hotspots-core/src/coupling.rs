@@ -9,7 +9,12 @@
 //!
 //! The Jaccard screener gates which variant to use:
 //!   Jaccard < DC_JACCARD_THRESHOLD → dc_365d (architecturally volatile repo)
-//!   Jaccard ≥ DC_JACCARD_THRESHOLD → dc_full (stable repo, full history is an asset)
+//!   Jaccard ≥ DC_JACCARD_THRESHOLD → dc_full (stable repo, all commits within
+//!     the DC_HISTORY_CAP_DAYS walk are used)
+//!
+//! `load_commits` caps the underlying `git log` walk at DC_HISTORY_CAP_DAYS
+//! regardless of which variant is ultimately selected, so the walk itself
+//! never becomes the bottleneck on repos with very long history.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -29,6 +34,18 @@ pub const DC_TOP_FILE_PCT: f64 = 0.2;
 
 /// 365-day window constant for windowed DC.
 pub const DC_WINDOW_365D: u32 = 365;
+
+/// Hard cap on how far back `load_commits` walks history, regardless of the
+/// Jaccard/window-day decision made afterward.
+///
+/// Without this, `git log` on a full-history walk (e.g. 580K commits on
+/// llvm-project) dominates `hotspots analyze` runtime even when the
+/// downstream logic only ends up using a 365-day window — the cost is paid
+/// up front, before the window decision is even made. Capping the walk
+/// itself trades a small amount of accuracy on repos with a stable
+/// defect-prone set of files that only shows up in ancient history for a
+/// hard ceiling on cost.
+pub const DC_HISTORY_CAP_DAYS: u32 = 730;
 
 /// Separator used in git log --format to delimit commits from file lists.
 const SEP: &str = "@@C@@";
@@ -59,12 +76,15 @@ fn is_fix_subject(subject: &str) -> bool {
     false
 }
 
-/// Load all first-parent commits as `(timestamp_secs, subject, [file_paths])`.
+/// Load first-parent commits from the last [`DC_HISTORY_CAP_DAYS`] as
+/// `(timestamp_secs, subject, [file_paths])`.
 ///
-/// Uses `git log --first-parent --name-only --diff-filter=ACDMRT` against the
-/// repo at `git_dir`. Returns an empty vec on any error (caller treats as no-op).
+/// Uses `git log --first-parent --name-only --diff-filter=ACDMRT --since=...`
+/// against the repo at `git_dir`. Returns an empty vec on any error (caller
+/// treats as no-op).
 fn load_commits(git_dir: &Path) -> Vec<(i64, String, Vec<String>)> {
     let format = format!("{}%at %s", SEP);
+    let since = format!("--since={} days ago", DC_HISTORY_CAP_DAYS);
     let out = Command::new("git")
         .args([
             "--git-dir",
@@ -73,6 +93,7 @@ fn load_commits(git_dir: &Path) -> Vec<(i64, String, Vec<String>)> {
             "--first-parent",
             "--name-only",
             "--diff-filter=ACDMRT",
+            &since,
             &format!("--format={}", format),
         ])
         .output();
@@ -282,12 +303,14 @@ pub fn compute_directed_coupling_for_repo(
         return (HashMap::new(), None);
     }
 
-    // On large repos the git log traversal can take several seconds.
+    // load_commits already caps the walk at DC_HISTORY_CAP_DAYS, but a very
+    // active repo can still produce a large commit list within that window.
     // Surface this so users aren't surprised by latency in hotspots analyze.
     if commits.len() > 50_000 {
         eprintln!(
-            "hotspots: directed coupling loading {} commits (large repo — may be slow)",
-            commits.len()
+            "hotspots: directed coupling loading {} commits from the last {} days (high commit volume — may be slow)",
+            commits.len(),
+            DC_HISTORY_CAP_DAYS
         );
     }
 
