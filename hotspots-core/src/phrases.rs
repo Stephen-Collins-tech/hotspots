@@ -69,8 +69,8 @@ fn single_phrase(name: &str) -> &'static str {
         "total_churn" => "high lifetime churn",
         "lrs" => "structurally complex",
         "fan_in" => "depended on by many callers",
-        "authors_90d" => "no clear owner",
-        "directed_coupling" => "tightly coupled to other hotspots",
+        "authors_90d" => "no single frequent owner in recent history",
+        "directed_coupling" => "frequently changes alongside other hotspots",
         "cc" => "high cyclomatic complexity",
         "nd" => "deeply nested",
         _ => "elevated risk signal",
@@ -83,15 +83,15 @@ fn pair_phrase(a: &str, b: &str) -> Option<&'static str> {
             "churns heavily and is load-bearing"
         }
         ("total_churn", "authors_90d") | ("authors_90d", "total_churn") => {
-            "high churn with no clear owner"
+            "high churn with no single frequent owner in recent history"
         }
         ("lrs", "fan_in") | ("fan_in", "lrs") => "structurally complex and widely depended on",
         ("lrs", "total_churn") | ("total_churn", "lrs") => "complex and frequently changed",
         ("authors_90d", "fan_in") | ("fan_in", "authors_90d") => {
-            "no clear owner and called from many places"
+            "no single frequent owner in recent history, called from many places"
         }
         ("directed_coupling", "total_churn") | ("total_churn", "directed_coupling") => {
-            "coupled to hotspots and changing frequently"
+            "changes alongside other hotspots and is changing frequently"
         }
         _ => return None,
     };
@@ -154,7 +154,7 @@ mod tests {
             ..all_low()
         };
         let result = top_phrases(&fp, 3);
-        assert_eq!(result, "No clear owner.");
+        assert_eq!(result, "No single frequent owner in recent history.");
     }
 
     #[test]
