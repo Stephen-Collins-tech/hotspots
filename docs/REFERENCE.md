@@ -643,3 +643,5 @@ All languages have full parity across all metrics and features.
 ## Scoring Changelog
 
 All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature was introduced in a later release; the current model is `model_version 5` (10 features). Check `CHANGELOG.md` for version-specific details.
+
+- The `authors_90d` and `directed_coupling` `--explain` phrases were reworded from directive to descriptive language (e.g. "no clear owner" → "no single frequent owner in recent history") after four independent tests found no outcome benefit from acting on the ownership/coupling diagnosis. See `META-12-observational-prescription-tests-fail.md` and `F103-review-hotspots-interventional.md` in `hotspots-research`.
