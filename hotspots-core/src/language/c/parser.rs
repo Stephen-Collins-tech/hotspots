@@ -4,7 +4,17 @@ use crate::ast::FunctionNode;
 use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::tree_sitter_utils::find_child_by_kind;
 use anyhow::{Context, Result};
-use tree_sitter::{Node, Parser, Tree};
+use std::time::{Duration, Instant};
+use tree_sitter::{Node, ParseOptions, Parser, Tree};
+
+/// Bound on how long a single C parse may run before we give up.
+///
+/// Files containing real C++ syntax (templates, namespaces, `class`, `::`) are
+/// occasionally fed to this parser via `.h` files, since hotspots has no
+/// dedicated C++ grammar. tree-sitter-c's GLR error-recovery can blow up on
+/// such input (unbounded time/memory in `ts_parser__do_all_potential_reductions`)
+/// instead of failing fast. The timeout turns that hang into a skipped file.
+const PARSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// C parser using tree-sitter
 pub struct CParser;
@@ -34,9 +44,22 @@ impl LanguageParser for CParser {
             .set_language(&language.into())
             .context("Failed to set C language")?;
 
+        let start = Instant::now();
+        let mut cancel = |_state: &tree_sitter::ParseState| start.elapsed() > PARSE_TIMEOUT;
+        let options = ParseOptions::new().progress_callback(&mut cancel);
+        let bytes = source.as_bytes();
         let tree = parser
-            .parse(source, None)
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse C file: {}", filename))?;
+            .parse_with_options(
+                &mut |byte_offset, _point| bytes.get(byte_offset..).unwrap_or(&[]),
+                None,
+                Some(options),
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to parse C file: {} (timed out or produced no tree)",
+                    filename
+                )
+            })?;
 
         Ok(Box::new(CModule {
             tree,
@@ -210,6 +233,18 @@ char *get_name(int id) {
         let module = parser.parse("", "test.c").unwrap();
         let functions = module.discover_functions(0, "");
         assert_eq!(functions.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_timeout_does_not_affect_normal_files() {
+        // The timeout exists to bound pathological GLR error-recovery blowup
+        // (e.g. C++ syntax fed through the C grammar via .h files) without
+        // affecting normal, fast parses.
+        let parser = CParser::new().unwrap();
+        let source = "int add(int a, int b) { return a + b; }";
+        let module = parser.parse(source, "test.c").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert_eq!(functions.len(), 1);
     }
 
     #[test]
