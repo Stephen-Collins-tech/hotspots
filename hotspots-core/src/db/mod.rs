@@ -403,6 +403,12 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
         let language = crate::language::Language::from_name(&language)
             .unwrap_or(crate::language::Language::TypeScript);
         let band = crate::risk::RiskBand::parse(&band).unwrap_or(crate::risk::RiskBand::Low);
+        let history_depth = crate::trainer::history_depth_tier(
+            churn
+                .as_ref()
+                .map(|c| (c.lines_added + c.lines_deleted) as u32)
+                .unwrap_or(0),
+        );
         functions.push(FunctionSnapshot {
             function_id,
             file,
@@ -443,6 +449,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             age_days: None,
             last_touch_days: None,
             explanation: None,
+            history_depth: Some(history_depth),
         });
     }
 

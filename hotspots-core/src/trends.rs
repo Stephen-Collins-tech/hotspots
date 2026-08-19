@@ -513,6 +513,7 @@ mod tests {
                     age_days: None,
                     last_touch_days: None,
                     explanation: None,
+                    history_depth: None,
                 }],
             ),
             create_test_snapshot(
@@ -558,6 +559,7 @@ mod tests {
                     age_days: None,
                     last_touch_days: None,
                     explanation: None,
+                    history_depth: None,
                 }],
             ),
         ];
@@ -615,6 +617,7 @@ mod tests {
                     age_days: None,
                     last_touch_days: None,
                     explanation: None,
+                    history_depth: None,
                 }],
             ),
             create_test_snapshot(
@@ -660,6 +663,7 @@ mod tests {
                     age_days: None,
                     last_touch_days: None,
                     explanation: None,
+                    history_depth: None,
                 }],
             ),
         ];
@@ -716,6 +720,7 @@ mod tests {
                         age_days: None,
                         last_touch_days: None,
                         explanation: None,
+                        history_depth: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -757,6 +762,7 @@ mod tests {
                         age_days: None,
                         last_touch_days: None,
                         explanation: None,
+                        history_depth: None,
                     },
                 ],
             ),
@@ -804,6 +810,7 @@ mod tests {
                         age_days: None,
                         last_touch_days: None,
                         explanation: None,
+                        history_depth: None,
                     },
                     FunctionSnapshot {
                         function_id: "src/bar.ts::func2".to_string(),
@@ -845,6 +852,7 @@ mod tests {
                         age_days: None,
                         last_touch_days: None,
                         explanation: None,
+                        history_depth: None,
                     },
                 ],
             ),
