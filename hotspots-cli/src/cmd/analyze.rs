@@ -525,7 +525,12 @@ fn handle_snapshot_mode(
     // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
     // Partner scores use make_rel so keys match the repo-relative paths that
     // compute_directed_coupling_for_repo produces from git log output.
-    {
+    //
+    // Gated behind skip_touch_metrics: like touch metrics, this runs a
+    // potentially unbounded `git log` walk (see coupling.rs), so
+    // --skip-touch-metrics must skip it too rather than leaving it as a
+    // hidden cost the flag doesn't cover.
+    if !skip_touch_metrics {
         use hotspots_core::trainer::{make_rel, repo_prefixes};
         let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
         let partner_scores: std::collections::HashMap<String, f64> = snapshot
