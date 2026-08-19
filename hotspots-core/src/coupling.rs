@@ -10,6 +10,10 @@
 //! The Jaccard screener gates which variant to use:
 //!   Jaccard < DC_JACCARD_THRESHOLD → dc_365d (architecturally volatile repo)
 //!   Jaccard ≥ DC_JACCARD_THRESHOLD → dc_full (stable repo, full history is an asset)
+//!
+//! On very large repos, this git log walk can be expensive; pass
+//! `--skip-touch-metrics` to the CLI to skip it entirely along with the
+//! other git-log-derived touch signals.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -286,7 +290,7 @@ pub fn compute_directed_coupling_for_repo(
     // Surface this so users aren't surprised by latency in hotspots analyze.
     if commits.len() > 50_000 {
         eprintln!(
-            "hotspots: directed coupling loading {} commits (large repo — may be slow)",
+            "hotspots: directed coupling loading {} commits (large repo — may be slow; pass --skip-touch-metrics to skip)",
             commits.len()
         );
     }
