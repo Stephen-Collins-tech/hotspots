@@ -93,6 +93,7 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         age_days: None,
         last_touch_days: None,
         explanation: None,
+        history_depth: None,
     }
 }
 

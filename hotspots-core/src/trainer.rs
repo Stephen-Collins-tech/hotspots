@@ -119,6 +119,31 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
     ]
 }
 
+/// Confidence tier for a function's ranked score, derived from `total_churn`
+/// (lifetime lines added + deleted). F10 found the trained ranker is most reliable
+/// in the `Rich` bucket (FT ρ = +0.635) versus `Sparse` (FT ρ = +0.131) — same
+/// model, history-depth-dependent confidence. Display-only; not a training feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryDepth {
+    Sparse,
+    Moderate,
+    Rich,
+    VeryRich,
+}
+
+/// Bucket boundaries come directly from F10's holdout analysis: Sparse 1–10,
+/// Moderate 11–50, Rich 51–200, VeryRich 201+ lifetime touches (approximated here
+/// by `total_churn`, the only per-function history-depth proxy in the snapshot).
+pub fn history_depth_tier(total_churn: u32) -> HistoryDepth {
+    match total_churn {
+        0..=10 => HistoryDepth::Sparse,
+        11..=50 => HistoryDepth::Moderate,
+        51..=200 => HistoryDepth::Rich,
+        _ => HistoryDepth::VeryRich,
+    }
+}
+
 /// Cold-start feature vector (F62/F63) — distinct from `extract_features()`'s 10
 /// structural/activity features. Order: commit_count, author_count, author_entropy,
 /// burst_score, isolation_rate, age_days, last_touch_days, authors_90d. All fields
@@ -1314,6 +1339,23 @@ impl RankerModel {
 mod tests {
     use super::*;
 
+    // ── history_depth_tier (F10) ─────────────────────────────────────────────
+
+    #[test]
+    fn history_depth_tier_covers_all_buckets() {
+        assert_eq!(history_depth_tier(0), HistoryDepth::Sparse);
+        assert_eq!(history_depth_tier(5), HistoryDepth::Sparse);
+        assert_eq!(history_depth_tier(10), HistoryDepth::Sparse);
+        assert_eq!(history_depth_tier(11), HistoryDepth::Moderate);
+        assert_eq!(history_depth_tier(25), HistoryDepth::Moderate);
+        assert_eq!(history_depth_tier(50), HistoryDepth::Moderate);
+        assert_eq!(history_depth_tier(51), HistoryDepth::Rich);
+        assert_eq!(history_depth_tier(100), HistoryDepth::Rich);
+        assert_eq!(history_depth_tier(200), HistoryDepth::Rich);
+        assert_eq!(history_depth_tier(201), HistoryDepth::VeryRich);
+        assert_eq!(history_depth_tier(250), HistoryDepth::VeryRich);
+    }
+
     // ── precision_at_k ────────────────────────────────────────────────────────
 
     fn make_scored(ids: &[&str], scores: &[f64]) -> Vec<ScoredFunction> {
@@ -1555,6 +1597,7 @@ mod tests {
                 age_days: None,
                 last_touch_days: None,
                 explanation: None,
+                history_depth: None,
             })
             .collect();
 
@@ -1730,6 +1773,7 @@ mod tests {
                 age_days: Some(30.0),
                 last_touch_days: Some(1.0),
                 explanation: None,
+                history_depth: None,
             })
             .collect();
 
@@ -1859,6 +1903,7 @@ mod tests {
             age_days: None,
             last_touch_days: None,
             explanation: None,
+            history_depth: None,
         };
         assert_eq!(cold_start_features(&func), [0.0; 8]);
     }

@@ -516,6 +516,7 @@ fn handle_snapshot_mode(
     )
     .context("failed to build enriched snapshot")?;
 
+    snapshot.populate_history_depth();
     snapshot.populate_patterns(&resolved_config.pattern_thresholds);
     if explain_patterns {
         snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
