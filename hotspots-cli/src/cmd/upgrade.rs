@@ -73,14 +73,13 @@ fn upgrade_command() -> String {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    if exe_path.contains("/.cargo/") {
-        "cargo install hotspots-cli --force".to_string()
-    } else if exe_path.contains("node_modules") || exe_path.contains(".nvm") {
-        "npm install -g @stephencollinstech/hotspots@latest".to_string()
-    } else if exe_path.contains("Cellar") || exe_path.contains("homebrew") {
-        "brew upgrade hotspots".to_string()
-    } else {
-        "curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh".to_string()
+    match exe_path {
+        p if p.contains("/.cargo/") => "cargo install hotspots-cli --force".to_string(),
+        p if p.contains("node_modules") || p.contains(".nvm") => {
+            "npm install -g @stephencollinstech/hotspots@latest".to_string()
+        }
+        p if p.contains("Cellar") || p.contains("homebrew") => "brew upgrade hotspots".to_string(),
+        _ => "curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh".to_string(),
     }
 }
 
