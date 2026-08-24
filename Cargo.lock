@@ -498,6 +498,7 @@ dependencies = [
  "owo-colors",
  "rayon",
  "serde",
+ "serde_json",
  "tempfile",
  "ureq",
 ]

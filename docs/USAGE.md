@@ -428,6 +428,8 @@ hotspots upgrade
 
 Checks the latest GitHub release against the running version. If a newer version exists, it prints the install command matching how this binary was installed (`cargo install`, `npm install -g`, or `brew upgrade`). It only reports — it does not replace the binary itself.
 
+Every `hotspots` command also does this check passively: it prints a one-line notice to stderr before any other command output when a newer version is available. The check is cached at `~/.hotspots/update_check.json` and only re-queries GitHub once every 24 hours, so most runs make no network call.
+
 ## Training a Repo-Specific Ranker
 
 By default, hotspots ranks by LRS. Training fits a model from your repo's bug-fix history to re-rank based on which structural features actually predict bugs in *your* codebase.

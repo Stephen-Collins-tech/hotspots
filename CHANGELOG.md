@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - `hotspots upgrade` checks the latest GitHub release against the running version
+- Every command now prints a passive, rate-limited notice when a newer version is available
 
 ## [1.34.1] - 2026-08-19
 
