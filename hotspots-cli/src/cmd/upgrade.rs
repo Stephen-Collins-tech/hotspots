@@ -4,6 +4,13 @@ use serde::Deserialize;
 
 const RELEASES_URL: &str =
     "https://api.github.com/repos/Stephen-Collins-tech/hotspots/releases/latest";
+const USER_AGENT: &str = "hotspots-cli";
+
+const CARGO_UPGRADE_CMD: &str = "cargo install hotspots-cli --force";
+const NPM_UPGRADE_CMD: &str = "npm install -g @stephencollinstech/hotspots@latest";
+const BREW_UPGRADE_CMD: &str = "brew upgrade hotspots";
+const CURL_UPGRADE_CMD: &str =
+    "curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh";
 
 #[derive(Deserialize)]
 struct LatestRelease {
@@ -38,7 +45,7 @@ fn current_version() -> String {
 
 fn fetch_latest_version() -> anyhow::Result<String> {
     let body: LatestRelease = ureq::get(RELEASES_URL)
-        .set("User-Agent", "hotspots-cli")
+        .set("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| anyhow::anyhow!("failed to reach GitHub releases: {e}"))?
         .into_json()
@@ -68,18 +75,16 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Best-effort detection of how this binary was installed, based on the
 /// running executable's path, so the suggested command actually works.
-fn upgrade_command() -> String {
+fn upgrade_command() -> &'static str {
     let exe_path = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
     match exe_path {
-        p if p.contains("/.cargo/") => "cargo install hotspots-cli --force".to_string(),
-        p if p.contains("node_modules") || p.contains(".nvm") => {
-            "npm install -g @stephencollinstech/hotspots@latest".to_string()
-        }
-        p if p.contains("Cellar") || p.contains("homebrew") => "brew upgrade hotspots".to_string(),
-        _ => "curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh".to_string(),
+        p if p.contains("/.cargo/") => CARGO_UPGRADE_CMD,
+        p if p.contains("node_modules") || p.contains(".nvm") => NPM_UPGRADE_CMD,
+        p if p.contains("Cellar") || p.contains("homebrew") => BREW_UPGRADE_CMD,
+        _ => CURL_UPGRADE_CMD,
     }
 }
 
