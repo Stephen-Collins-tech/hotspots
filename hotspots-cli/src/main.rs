@@ -282,6 +282,8 @@ enum Commands {
         #[arg(long, short = 'q', default_value = "false")]
         quiet: bool,
     },
+    /// Check whether a newer version of hotspots is available
+    Upgrade,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -419,6 +421,7 @@ fn main() -> anyhow::Result<()> {
             yes,
             quiet,
         })?,
+        Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
     }
 
     Ok(())
