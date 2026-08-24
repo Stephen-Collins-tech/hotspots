@@ -282,6 +282,8 @@ enum Commands {
         #[arg(long, short = 'q', default_value = "false")]
         quiet: bool,
     },
+    /// Check whether a newer version of hotspots is available
+    Upgrade,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -308,6 +310,10 @@ pub(crate) enum OutputLevel {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    if !matches!(cli.command, Commands::Upgrade) {
+        cmd::upgrade::maybe_print_update_notice();
+    }
 
     match cli.command {
         Commands::Analyze {
@@ -419,6 +425,7 @@ fn main() -> anyhow::Result<()> {
             yes,
             quiet,
         })?,
+        Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
     }
 
     Ok(())
