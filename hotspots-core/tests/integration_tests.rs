@@ -200,6 +200,21 @@ fn test_react_jsx_in_plain_js_file() {
     );
 }
 
+/// A file that trips a real panic (not a recoverable parse error) inside the
+/// swc lexer must be skipped with a warning, not crash the whole analysis run.
+/// See: https://github.com/stephenc222/hotspots/issues/135
+#[test]
+fn test_lexer_panic_is_skipped_not_fatal() {
+    let path = fixture_path("lexer-panic.tsx");
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&path, options).unwrap();
+    assert_eq!(reports.len(), 0);
+}
+
 /// Progress callback must be called with (0, total) after discovery, then
 /// (n, total) once per file analyzed, ending with (total, total).
 #[test]

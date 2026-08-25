@@ -6,6 +6,7 @@ use crate::metrics;
 use crate::report;
 use crate::risk;
 use anyhow::{Context, Result};
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use swc_common::{sync::Lrc, SourceMap};
 
@@ -60,7 +61,27 @@ pub fn analyze_file_with_config(
     let language = Language::from_path(path)
         .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
     let parser = create_parser(language, source_map)?;
-    let module = parser.parse(&src, &path.to_string_lossy())?;
+
+    let parse_result = panic::catch_unwind(AssertUnwindSafe(|| {
+        parser.parse(&src, &path.to_string_lossy())
+    }));
+
+    let module = match parse_result {
+        Ok(result) => result?,
+        Err(panic_payload) => {
+            let msg = panic_payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            eprintln!(
+                "warning: skipping {} — parser panicked: {}",
+                path.display(),
+                msg
+            );
+            return Ok(vec![]);
+        }
+    };
     let functions = module.discover_functions(file_index, &src);
 
     let func_cfg = FunctionAnalysisConfig {
