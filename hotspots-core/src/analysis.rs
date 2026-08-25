@@ -82,7 +82,16 @@ pub fn analyze_file_with_config(
             return Ok(vec![]);
         }
     };
-    let functions = module.discover_functions(file_index, &src);
+    let mut functions = module.discover_functions(file_index, &src);
+
+    // Extract suppression comments here, uniformly across all languages —
+    // language-specific parsers leave `suppression_reason: None` and rely on
+    // this pass rather than each duplicating the (language-agnostic) logic.
+    let comment_prefix = language.suppression_comment_prefix();
+    for function in &mut functions {
+        function.suppression_reason =
+            crate::suppression::extract_suppression(&src, function.span, comment_prefix);
+    }
 
     let func_cfg = FunctionAnalysisConfig {
         options,

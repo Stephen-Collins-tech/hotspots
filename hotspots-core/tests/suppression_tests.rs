@@ -1,14 +1,36 @@
 //! Integration tests for suppression comments
+//!
+//! These tests go through the full `analyze_file_with_config` pipeline (not
+//! `discover::discover_functions` directly) because suppression extraction is
+//! wired in once, uniformly, at the language-agnostic call site in
+//! `analysis.rs` — every parser's `discover_functions` leaves
+//! `suppression_reason: None` and relies on that later pass.
 
+use hotspots_core::analysis::analyze_file_with_config;
 use hotspots_core::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
-use hotspots_core::discover;
-use hotspots_core::parser;
 use hotspots_core::policy::{evaluate_policies, PolicyId, PolicySeverity};
 use hotspots_core::risk::RiskBand;
 use hotspots_core::snapshot::Snapshot;
-use hotspots_core::{git::GitContext, ResolvedConfig};
+use hotspots_core::{git::GitContext, AnalysisOptions, ResolvedConfig};
 use std::path::Path;
 use swc_common::{sync::Lrc, SourceMap};
+use tempfile::Builder;
+
+fn analyze_source(source: &str, suffix: &str) -> Vec<hotspots_core::report::FunctionRiskReport> {
+    let file = Builder::new()
+        .suffix(suffix)
+        .tempfile()
+        .expect("create temp file");
+    std::fs::write(file.path(), source).expect("write temp source");
+
+    let cm: Lrc<SourceMap> = Default::default();
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    analyze_file_with_config(file.path(), &cm, 0, &options, None, None, None)
+        .expect("analysis should succeed")
+}
 
 #[test]
 fn test_suppression_comment_extraction() {
@@ -29,9 +51,7 @@ function notSuppressed() {
 }
 "#;
 
-    let cm: Lrc<SourceMap> = Default::default();
-    let module = parser::parse_source(source, &cm, "test.ts").unwrap();
-    let functions = discover::discover_functions(&module, 0, source, &cm);
+    let functions = analyze_source(source, ".ts");
 
     assert_eq!(functions.len(), 2);
     assert_eq!(
@@ -50,9 +70,7 @@ function suppressed() {
 }
 "#;
 
-    let cm: Lrc<SourceMap> = Default::default();
-    let module = parser::parse_source(source, &cm, "test.ts").unwrap();
-    let functions = discover::discover_functions(&module, 0, source, &cm);
+    let functions = analyze_source(source, ".ts");
 
     assert_eq!(functions.len(), 1);
     assert_eq!(functions[0].suppression_reason, Some(String::new()));
@@ -68,12 +86,47 @@ function notSuppressed() {
 }
 "#;
 
-    let cm: Lrc<SourceMap> = Default::default();
-    let module = parser::parse_source(source, &cm, "test.ts").unwrap();
-    let functions = discover::discover_functions(&module, 0, source, &cm);
+    let functions = analyze_source(source, ".ts");
 
     assert_eq!(functions.len(), 1);
     assert_eq!(functions[0].suppression_reason, None);
+}
+
+/// Regression test: suppression previously only worked for TypeScript/
+/// JavaScript, because `extract_suppression` was called solely from the
+/// swc-specific `discover.rs` path. Every other language's parser set
+/// `suppression_reason: None` unconditionally and nothing ever filled it in
+/// — `// hotspots-ignore` was a silent no-op on Python, Go, Java, C#, Rust,
+/// and C. This test exercises a non-JS language end-to-end.
+#[test]
+fn test_suppression_works_for_python() {
+    let source = "# hotspots-ignore: legacy code\ndef suppressed():\n    if True:\n        return 1\n    return 0\n\n\ndef not_suppressed():\n    if True:\n        return 1\n    return 0\n";
+
+    let functions = analyze_source(source, ".py");
+
+    assert_eq!(functions.len(), 2);
+    assert_eq!(
+        functions[0].suppression_reason,
+        Some("legacy code".to_string())
+    );
+    assert_eq!(functions[1].suppression_reason, None);
+}
+
+/// Regression test: a Go file previously never got suppression either,
+/// since `Language::Go`'s parser also left `suppression_reason: None` with
+/// no follow-up extraction step.
+#[test]
+fn test_suppression_works_for_go() {
+    let source = "// hotspots-ignore: legacy code\nfunc Suppressed() int {\n\tif true {\n\t\treturn 1\n\t}\n\treturn 0\n}\n\nfunc NotSuppressed() int {\n\tif true {\n\t\treturn 1\n\t}\n\treturn 0\n}\n";
+
+    let functions = analyze_source(source, ".go");
+
+    assert_eq!(functions.len(), 2);
+    assert_eq!(
+        functions[0].suppression_reason,
+        Some("legacy code".to_string())
+    );
+    assert_eq!(functions[1].suppression_reason, None);
 }
 
 #[test]

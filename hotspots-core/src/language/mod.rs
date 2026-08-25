@@ -104,6 +104,18 @@ impl Language {
         }
     }
 
+    /// Line-comment prefix used to recognize `hotspots-ignore` suppression
+    /// comments in this language's source syntax.
+    ///
+    /// Every supported language uses `//` line comments except Python, which
+    /// uses `#`.
+    pub fn suppression_comment_prefix(&self) -> &'static str {
+        match self {
+            Language::Python => "#",
+            _ => "//",
+        }
+    }
+
     /// Detect language from file path
     ///
     /// Returns `None` if the file has no extension or the extension is not recognized.
