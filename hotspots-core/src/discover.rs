@@ -44,7 +44,9 @@ pub fn discover_functions(
     // Sort by span start for deterministic ordering
     collector.functions.sort_by_key(|f| f.span.start);
 
-    // Assign IDs and extract suppressions based on sorted order
+    // Assign IDs based on sorted order. Suppression comments are extracted
+    // uniformly for all languages by the caller (see `analysis.rs`), not here.
+    let _ = source;
     collector
         .functions
         .into_iter()
@@ -54,9 +56,6 @@ pub fn discover_functions(
                 file_index,
                 local_index: idx,
             };
-            // Extract suppression comment for this function
-            func.suppression_reason =
-                crate::suppression::extract_suppression(source, func.span, source_map);
             func
         })
         .collect()

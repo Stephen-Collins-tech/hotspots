@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Catch swc lexer panics per-file instead of crashing (#136)
+- Fix suppression comments being silently ignored for all languages except TypeScript/JavaScript
 
 ## [1.35.0] - 2026-08-24
 

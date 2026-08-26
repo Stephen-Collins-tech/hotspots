@@ -1,14 +1,14 @@
 //! Suppression comment extraction
 //!
-//! Parses `// hotspots-ignore: reason` comments from source code.
+//! Parses `<comment-prefix> hotspots-ignore: reason` comments from source code,
+//! e.g. `// hotspots-ignore: reason` or, for Python, `# hotspots-ignore: reason`.
 //!
 //! Global invariants enforced:
-//! - Deterministic extraction (pure function of source, span)
+//! - Deterministic extraction (pure function of source, span, comment prefix)
 //! - Comment must be on the line immediately before the function
 //! - Returns None (no suppression), Some("") (no reason), or Some("reason")
 
 use crate::language::SourceSpan;
-use swc_common::SourceMap;
 
 /// Extract suppression comment for a function
 ///
@@ -21,7 +21,8 @@ use swc_common::SourceMap;
 ///
 /// * `source` - The complete source code
 /// * `span` - The function's source span
-/// * `_source_map` - (Unused, kept for backwards compatibility)
+/// * `comment_prefix` - The line-comment prefix for this language (e.g. `"//"`
+///   or `"#"`), from [`crate::language::Language::suppression_comment_prefix`]
 ///
 /// # Comment Format
 ///
@@ -32,11 +33,7 @@ use swc_common::SourceMap;
 /// ```
 ///
 /// Blank lines between the comment and function will cause the comment to be ignored.
-pub fn extract_suppression(
-    source: &str,
-    span: SourceSpan,
-    _source_map: &SourceMap,
-) -> Option<String> {
+pub fn extract_suppression(source: &str, span: SourceSpan, comment_prefix: &str) -> Option<String> {
     // Get the line number of the function start (1-indexed)
     let func_line = span.start_line;
 
@@ -59,7 +56,8 @@ pub fn extract_suppression(
     let prev_line = lines[prev_line_num - 1].trim();
 
     // Check if the line contains the suppression comment
-    if !prev_line.starts_with("// hotspots-ignore") {
+    let marker = format!("{comment_prefix} hotspots-ignore");
+    if !prev_line.starts_with(&marker) {
         return None;
     }
 
@@ -118,7 +116,7 @@ mod tests {
             .expect("no function found");
 
         let source_span = crate::language::span::span_with_location(function_span, &source_map);
-        extract_suppression(source, source_span, &source_map)
+        extract_suppression(source, source_span, "//")
     }
 
     #[test]
@@ -208,5 +206,46 @@ function foo() {
 }
 "#;
         assert_eq!(parse_and_extract(source), None);
+    }
+
+    // Python uses `#` line comments, not `//`. These tests exercise
+    // `extract_suppression` directly against a synthetic Python-shaped span
+    // rather than going through the swc/TS test harness above.
+    fn python_span(func_line: u32) -> SourceSpan {
+        SourceSpan {
+            start: 0,
+            end: 0,
+            start_line: func_line,
+            end_line: func_line,
+            start_col: 0,
+        }
+    }
+
+    #[test]
+    fn test_hash_prefix_suppression_with_reason() {
+        let source =
+            "# hotspots-ignore: legacy code, will refactor later\ndef foo():\n    return 42\n";
+        assert_eq!(
+            extract_suppression(source, python_span(2), "#"),
+            Some("legacy code, will refactor later".to_string())
+        );
+    }
+
+    #[test]
+    fn test_hash_prefix_no_match_against_slash_comment() {
+        let source = "// hotspots-ignore: this is a JS-style comment\ndef foo():\n    return 42\n";
+        assert_eq!(extract_suppression(source, python_span(2), "#"), None);
+    }
+
+    #[test]
+    fn test_slash_prefix_no_match_against_hash_comment() {
+        let source = "# hotspots-ignore: this is a Python-style comment\nfunction foo() {}\n";
+        assert_eq!(extract_suppression(source, python_span(2), "//"), None);
+    }
+
+    #[test]
+    fn test_hash_prefix_blank_line_between() {
+        let source = "# hotspots-ignore: should not be recognized\n\ndef foo():\n    return 42\n";
+        assert_eq!(extract_suppression(source, python_span(3), "#"), None);
     }
 }
