@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Include tags and remotes as reachable refs in prune (#148)
 - Consult rename_hint in critical-introduction policy (#149)
 - Reject jointly-zero weights in config validation (#150)
-- `config show` no longer mislabels excludes as "custom" when the loaded config file didn't actually set an `exclude` key (#146)
+- Track whether config set exclude for config show label (#151)
 
 ## [1.35.1] - 2026-08-26
 
