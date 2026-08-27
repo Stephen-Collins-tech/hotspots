@@ -9,12 +9,13 @@
 //! - Baseline deltas skip all policy evaluation
 
 use crate::config::{PolicyMode, ResolvedConfig};
-use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
+use crate::delta::{Delta, FunctionDeltaEntry, FunctionState, FunctionStatus};
 use crate::risk::RiskBand;
 use crate::snapshot::Snapshot;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Policy identifier
@@ -200,7 +201,10 @@ pub fn evaluate_policies(
 /// Evaluate Critical Introduction policy
 ///
 /// Triggers when `after.band == Critical AND (before.band != Critical OR before is None)`
-/// `before is None` means no matching `function_id` in the parent snapshot (delta status `new`)
+/// `before is None` means no matching `function_id` in the parent snapshot (delta status `new`),
+/// UNLESS another entry's `rename_hint` points at this `function_id` — in that case the
+/// renamed-from entry's `before` state is used instead, so a pure rename/move of an
+/// already-Critical function isn't treated as a fresh introduction.
 ///
 /// A brand-new function that scores Critical on its first commit and an existing function
 /// that regresses into Critical are treated identically here — a Critical function needs
@@ -222,6 +226,18 @@ fn evaluate_critical_introduction(
         PolicyMode::Off => unreachable!("handled above"),
     };
 
+    // Maps a rename target's function_id to the pre-rename `before` state, so a
+    // `New` entry produced by a rename/move can be judged against what the
+    // function actually was, not treated as if it had no prior history.
+    let rename_before_state: HashMap<&str, &FunctionState> = deltas
+        .iter()
+        .filter_map(|entry| {
+            let target = entry.rename_hint.as_deref()?;
+            let before = entry.before.as_ref()?;
+            Some((target, before))
+        })
+        .collect();
+
     for entry in active_deltas(deltas) {
         // Check if function becomes Critical
         let becomes_critical = if let Some(after) = &entry.after {
@@ -234,11 +250,14 @@ fn evaluate_critical_introduction(
             continue;
         }
 
-        // Check if it was Critical before
+        // Check if it was Critical before, falling back to the pre-rename state
+        // for a New entry that another entry's rename_hint identifies as a rename target.
         let was_critical_before = if let Some(before) = &entry.before {
             before.band == RiskBand::Critical
+        } else if let Some(before) = rename_before_state.get(entry.function_id.as_str()) {
+            before.band == RiskBand::Critical
         } else {
-            // before is None means delta status `new` (new function)
+            // before is None and no rename was detected: genuinely new function
             false
         };
 
@@ -685,6 +704,79 @@ mod tests {
         evaluate_critical_introduction(&deltas, &config, &mut results);
 
         assert_eq!(results.failed.len(), 0);
+    }
+
+    #[test]
+    fn test_critical_introduction_pure_rename_is_not_a_violation() {
+        // Regression test for hotspots#143: a pure rename of an already-Critical
+        // function produces a Deleted entry (old id, carrying rename_hint) and a
+        // New entry (new id, before=None). The policy must consult rename_hint
+        // and treat this as "was already Critical", not a fresh introduction.
+        let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
+
+        let mut deleted_entry = create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::Deleted,
+            Some("critical"),
+            None,
+            None,
+        );
+        deleted_entry.rename_hint = Some("src/foo.ts::handleRequest".to_string());
+
+        let new_entry = create_test_delta_entry(
+            "src/foo.ts::handleRequest",
+            FunctionStatus::New,
+            None,
+            Some("critical"),
+            None,
+        );
+
+        let deltas = vec![deleted_entry, new_entry];
+
+        evaluate_critical_introduction(&deltas, &config, &mut results);
+
+        assert_eq!(
+            results.failed.len(),
+            0,
+            "pure rename of an already-Critical function must not trigger critical-introduction"
+        );
+    }
+
+    #[test]
+    fn test_critical_introduction_rename_from_non_critical_still_fires() {
+        // A rename that also becomes Critical for the first time (i.e. the
+        // renamed-from function was NOT Critical before) is a genuine
+        // introduction and must still fire.
+        let mut results = PolicyResults::new();
+        let config = ResolvedConfig::defaults().unwrap();
+
+        let mut deleted_entry = create_test_delta_entry(
+            "src/foo.ts::handler",
+            FunctionStatus::Deleted,
+            Some("moderate"),
+            None,
+            None,
+        );
+        deleted_entry.rename_hint = Some("src/foo.ts::handleRequest".to_string());
+
+        let new_entry = create_test_delta_entry(
+            "src/foo.ts::handleRequest",
+            FunctionStatus::New,
+            None,
+            Some("critical"),
+            None,
+        );
+
+        let deltas = vec![deleted_entry, new_entry];
+
+        evaluate_critical_introduction(&deltas, &config, &mut results);
+
+        assert_eq!(results.failed.len(), 1);
+        assert_eq!(
+            results.failed[0].function_id,
+            Some("src/foo.ts::handleRequest".to_string())
+        );
     }
 
     #[test]
