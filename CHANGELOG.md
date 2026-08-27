@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Warn loudly when policy evaluation is silently skipped (#147)
 - `prune --unreachable` now also treats `refs/tags/*` and `refs/remotes/*` as reachable, not just `refs/heads/*`, preventing irreversible deletion of snapshots for detached-HEAD checkouts and tagged-only releases (#142)
+- `critical-introduction` policy now consults `rename_hint` so a pure rename/move of an already-Critical function no longer false-positives as a fresh introduction (#143)
 
 ## [1.35.1] - 2026-08-26
 
