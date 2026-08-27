@@ -12,10 +12,18 @@ pub(crate) fn handle_prune(
 
     let repo_root = find_repo_root(&std::env::current_dir()?)?;
     let options = prune::PruneOptions {
-        ref_patterns: vec!["refs/heads/*".to_string()],
+        ref_patterns: vec![
+            "refs/heads/*".to_string(),
+            "refs/tags/*".to_string(),
+            "refs/remotes/*".to_string(),
+        ],
         older_than_days: older_than,
         dry_run,
     };
+    println!(
+        "Considering commits reachable from: {}",
+        options.ref_patterns.join(", ")
+    );
     let result = prune::prune_unreachable(&repo_root, options)?;
 
     if dry_run {

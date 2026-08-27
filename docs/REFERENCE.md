@@ -165,7 +165,7 @@ Remove unreachable snapshots (after force-push or branch deletion).
 hotspots prune --unreachable [--older-than DAYS] [--dry-run]
 ```
 
-`--unreachable` is required. Only prunes snapshots unreachable from `refs/heads/*`.
+`--unreachable` is required. Only prunes snapshots unreachable from `refs/heads/*`, `refs/tags/*`, or `refs/remotes/*`.
 
 ### `hotspots compact`
 
