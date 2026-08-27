@@ -18,7 +18,7 @@ use crate::snapshot::{self, Index};
 /// Pruning options
 #[derive(Debug, Clone)]
 pub struct PruneOptions {
-    /// Tracked ref patterns (default: ["refs/heads/*"])
+    /// Tracked ref patterns (default: ["refs/heads/*", "refs/tags/*", "refs/remotes/*"])
     pub ref_patterns: Vec<String>,
     /// Only prune commits older than this many days (None = no age filter)
     pub older_than_days: Option<u64>,
@@ -29,7 +29,11 @@ pub struct PruneOptions {
 impl Default for PruneOptions {
     fn default() -> Self {
         PruneOptions {
-            ref_patterns: vec!["refs/heads/*".to_string()],
+            ref_patterns: vec![
+                "refs/heads/*".to_string(),
+                "refs/tags/*".to_string(),
+                "refs/remotes/*".to_string(),
+            ],
             older_than_days: None,
             dry_run: false,
         }
@@ -68,7 +72,7 @@ fn git_at(repo_path: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Enumerate tracked refs (default: local branches refs/heads/*)
+/// Enumerate tracked refs (default: refs/heads/*, refs/tags/*, refs/remotes/*)
 ///
 /// Returns a list of commit SHAs pointed to by the tracked refs.
 fn enumerate_tracked_refs(repo_path: &Path, patterns: &[String]) -> Result<Vec<String>> {
@@ -247,4 +251,99 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
         reachable_count,
         unreachable_kept_count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Initializes a temp git repo with one commit, tags it `v1.0`, then
+    /// deletes the local branch pointing at it so the commit is only
+    /// reachable via the tag (simulating a detached-HEAD checkout or a
+    /// deleted release branch). Returns (tempdir, commit sha).
+    fn repo_with_tag_only_commit() -> (tempfile::TempDir, String) {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let repo_path = dir.path();
+
+        git_at(repo_path, &["init", "-q"]).expect("git init failed");
+        git_at(repo_path, &["config", "user.email", "test@example.com"]).unwrap();
+        git_at(repo_path, &["config", "user.name", "Test"]).unwrap();
+
+        std::fs::write(repo_path.join("file.txt"), "hello").unwrap();
+        git_at(repo_path, &["add", "file.txt"]).unwrap();
+        git_at(repo_path, &["commit", "-q", "-m", "initial"]).unwrap();
+
+        let sha = git_at(repo_path, &["rev-parse", "HEAD"]).unwrap();
+        git_at(repo_path, &["tag", "v1.0"]).unwrap();
+
+        // Detach HEAD, then delete every local branch so the commit is only
+        // reachable via the tag.
+        git_at(repo_path, &["checkout", "-q", "--detach"]).unwrap();
+        let branches = git_at(
+            repo_path,
+            &["for-each-ref", "--format=%(refname:short)", "refs/heads/*"],
+        )
+        .unwrap();
+        for branch in branches.lines().filter(|l| !l.is_empty()) {
+            git_at(repo_path, &["branch", "-D", branch]).unwrap();
+        }
+
+        (dir, sha)
+    }
+
+    #[test]
+    fn test_default_ref_patterns_include_tags_and_remotes() {
+        let patterns = PruneOptions::default().ref_patterns;
+        assert!(patterns.contains(&"refs/heads/*".to_string()));
+        assert!(patterns.contains(&"refs/tags/*".to_string()));
+        assert!(patterns.contains(&"refs/remotes/*".to_string()));
+    }
+
+    #[test]
+    fn test_heads_only_pattern_misses_tag_only_commit() {
+        // Regression guard for hotspots#142: with the OLD default
+        // (refs/heads/* only), a commit reachable only via a tag or a
+        // deleted-locally-but-still-tagged branch is invisible to
+        // reachability tracking — this is the exact silent-data-loss bug.
+        let (dir, sha) = repo_with_tag_only_commit();
+        let shas = enumerate_tracked_refs(dir.path(), &["refs/heads/*".to_string()]).unwrap();
+        assert!(!shas.contains(&sha));
+    }
+
+    #[test]
+    fn test_default_ref_patterns_find_tag_only_commit() {
+        let (dir, sha) = repo_with_tag_only_commit();
+        let shas =
+            enumerate_tracked_refs(dir.path(), &PruneOptions::default().ref_patterns).unwrap();
+        assert!(shas.contains(&sha));
+    }
+
+    #[test]
+    fn test_prune_unreachable_keeps_tag_only_snapshot_by_default() {
+        let (dir, sha) = repo_with_tag_only_commit();
+        let repo_path = dir.path();
+
+        // Write a snapshot for the tag-only commit directly to disk.
+        let snapshot_path = snapshot::snapshot_path(repo_path, &sha);
+        std::fs::create_dir_all(snapshot_path.parent().unwrap()).unwrap();
+        std::fs::write(&snapshot_path, "{}").unwrap();
+
+        let mut index = Index::new();
+        index.add_commit(snapshot::IndexEntry {
+            sha: sha.clone(),
+            parents: Vec::new(),
+            timestamp: 0,
+        });
+        let index_json = index.to_json().unwrap();
+        snapshot::atomic_write(&snapshot::index_path(repo_path), &index_json).unwrap();
+
+        let result = prune_unreachable(repo_path, PruneOptions::default()).unwrap();
+
+        assert_eq!(
+            result.pruned_count, 0,
+            "tag-only snapshot must not be pruned"
+        );
+        assert_eq!(result.reachable_count, 1);
+        assert!(snapshot_path.exists());
+    }
 }
