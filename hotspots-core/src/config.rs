@@ -513,6 +513,22 @@ fn validate_weights(w: &WeightConfig) -> Result<()> {
             }
         }
     }
+
+    // Joint degeneracy check: bounds-checking each weight individually lets
+    // cc = nd = fo = ns = 0 pass silently, which collapses every function's
+    // LRS score to 0 and disables risk scoring entirely. Resolve unset fields
+    // to their defaults (matching ResolvedConfig::resolve) before checking,
+    // since only an explicit all-zero override is degenerate.
+    let resolved_cc = w.cc.unwrap_or(1.0);
+    let resolved_nd = w.nd.unwrap_or(0.8);
+    let resolved_fo = w.fo.unwrap_or(0.6);
+    let resolved_ns = w.ns.unwrap_or(0.7);
+    if resolved_cc == 0.0 && resolved_nd == 0.0 && resolved_fo == 0.0 && resolved_ns == 0.0 {
+        anyhow::bail!(
+            "weights.cc, weights.nd, weights.fo, and weights.ns cannot all be 0 — this would collapse every function's LRS score to 0 and silently disable risk scoring"
+        );
+    }
+
     Ok(())
 }
 
@@ -992,6 +1008,33 @@ mod tests {
         let json = r#"{"weights": {"cc": 11.0}}"#;
         let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_reject_all_zero_weights() {
+        // Regression test for hotspots#145: each weight individually passes
+        // bounds checking, but all-zero collapses every LRS score to 0.
+        let json = r#"{"weights": {"cc": 0.0, "nd": 0.0, "fo": 0.0, "ns": 0.0}}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_accept_partial_zero_weights() {
+        // Only one weight is nonzero — this is unusual but not degenerate,
+        // since LRS doesn't collapse to a constant 0 for every function.
+        let json = r#"{"weights": {"cc": 0.0, "nd": 0.0, "fo": 0.0, "ns": 1.0}}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_accept_unset_weights_use_nonzero_defaults() {
+        // No weights key at all — every field defaults to a nonzero value,
+        // so this must not be flagged as degenerate.
+        let json = r#"{}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert!(config.validate().is_ok());
     }
 
     #[test]

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Warn loudly when policy evaluation is silently skipped (#147)
 - Include tags and remotes as reachable refs in prune (#148)
 - Consult rename_hint in critical-introduction policy (#149)
+- Reject all-zero `weights.{cc,nd,fo,ns}` config, which silently collapsed every function's LRS score to 0 (#145)
 
 ## [1.35.1] - 2026-08-26
 
