@@ -475,6 +475,14 @@ pub fn load_parent_snapshot(repo_root: &Path, parent_sha: &str) -> Result<Option
 /// Loads parent snapshot and computes delta. If parent is missing,
 /// returns baseline delta (baseline=true).
 ///
+/// A baseline delta always skips policy evaluation ([`crate::policy::evaluate_policies`])
+/// since there is no prior state to compare against. That's expected and safe when the
+/// current commit genuinely has no parent (a repo's root commit). It is a silent
+/// false-confidence trap when the commit *does* have a parent but that parent's snapshot
+/// simply isn't on disk (missing history, a cold cache, a fresh CI runner) — in that case
+/// this prints a loud warning so a CI log makes clear that policy checks did not actually
+/// run, rather than the run silently reporting "passed".
+///
 /// # Arguments
 ///
 /// * `repo_root` - Repository root path
@@ -491,7 +499,16 @@ pub fn compute_delta(repo_root: &Path, current: &Snapshot) -> Result<Delta> {
     let parent_sha = current.commit.parents.first();
 
     let parent = if let Some(sha) = parent_sha {
-        load_parent_snapshot(repo_root, sha)?
+        let loaded = load_parent_snapshot(repo_root, sha)?;
+        if loaded.is_none() {
+            eprintln!(
+                "warning: no snapshot found for parent commit {sha}; treating this analysis \
+                 as a baseline and SKIPPING policy evaluation. If parent history is expected \
+                 to be available (e.g. in CI), this may hide real policy violations — run \
+                 `hotspots analyze` on the parent commit first, or restore its snapshot cache."
+            );
+        }
+        loaded
     } else {
         None
     };
@@ -564,6 +581,56 @@ mod tests {
 
         // No parent - should be baseline
         let delta = Delta::new(&current, None).expect("should create baseline delta");
+
+        assert!(delta.baseline);
+        assert_eq!(delta.deltas.len(), 1);
+        assert_eq!(delta.deltas[0].status, FunctionStatus::New);
+    }
+
+    #[test]
+    fn test_compute_delta_missing_parent_snapshot_is_still_baseline() {
+        // Regression test for hotspots#141: a commit that HAS a parent SHA, but
+        // whose parent snapshot simply isn't on disk (missing history, cold
+        // cache, fresh CI runner), must still produce a baseline delta — the
+        // fix here is a loud eprintln! warning (not asserted here, matching
+        // this codebase's convention of not unit-testing warning text
+        // elsewhere), not a change to the return value. This confirms the
+        // `compute_delta` code path touched by that fix still behaves
+        // identically for callers.
+        let repo_root_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let repo_root = repo_root_dir.path();
+
+        // parent123 has no snapshot persisted anywhere under repo_root.
+        let current = create_test_snapshot("current123", "parent123", 5, 4.8, "moderate");
+
+        let delta =
+            compute_delta(repo_root, &current).expect("should compute baseline delta, not error");
+
+        assert!(delta.baseline);
+        assert_eq!(delta.commit.parent, "parent123");
+        assert_eq!(delta.deltas.len(), 1);
+        assert_eq!(delta.deltas[0].status, FunctionStatus::New);
+    }
+
+    #[test]
+    fn test_compute_delta_true_root_commit_is_baseline() {
+        // A genuine root commit (parent_shas is an EMPTY vec, not a vec
+        // containing an empty string — create_test_snapshot always inserts
+        // one entry, so it's built manually here) should also produce a
+        // baseline delta, with no warning expected (distinct from the
+        // missing-snapshot case above — this is the normal, expected
+        // baseline path, since `current.commit.parents.first()` is None).
+        let repo_root_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let repo_root = repo_root_dir.path();
+
+        // create_test_snapshot always inserts one parent_shas entry, so the
+        // genuinely-empty-parents case is built by clearing it after the fact.
+        let mut current = create_test_snapshot("root123", "unused", 5, 4.8, "moderate");
+        current.commit.parents.clear();
+
+        assert!(current.commit.parents.is_empty());
+
+        let delta = compute_delta(repo_root, &current).expect("should compute baseline delta");
 
         assert!(delta.baseline);
         assert_eq!(delta.deltas.len(), 1);
