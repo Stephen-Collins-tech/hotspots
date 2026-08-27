@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Bug Fixes
-- Warn loudly instead of silently when `analyze --policy` skips all policy evaluation due to a missing parent snapshot (#141)
+- Warn loudly when policy evaluation is silently skipped (#147)
 
 ## [1.35.1] - 2026-08-26
 
