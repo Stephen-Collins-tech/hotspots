@@ -366,6 +366,9 @@ pub struct ResolvedConfig {
     pub excessive_risk_regression_reason: Option<String>,
     /// Path the config was loaded from (None if defaults)
     pub config_path: Option<PathBuf>,
+    /// Whether the loaded config file set an `exclude` key specifically
+    /// (as opposed to `exclude` being active only via built-in defaults)
+    pub exclude_is_custom: bool,
 }
 
 impl HotspotsConfig {
@@ -812,6 +815,7 @@ impl HotspotsConfig {
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
             callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
             config_path: None,
+            exclude_is_custom: !self.exclude.is_empty(),
         })
     }
 }
@@ -1197,6 +1201,27 @@ mod tests {
         let resolved = load_and_resolve(dir.path(), Some(&config_path)).unwrap();
         assert_eq!(resolved.weight_cc, 2.0);
         assert_eq!(resolved.config_path, Some(config_path));
+        // Regression test for hotspots#146: a config file that sets only
+        // `weights` and never touches `exclude` must not report exclude as
+        // custom just because *a* config file was found.
+        assert!(!resolved.exclude_is_custom);
+    }
+
+    #[test]
+    fn test_exclude_is_custom_when_config_sets_exclude() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("custom.json");
+        fs::write(&config_path, r#"{"exclude": ["**/legacy/**"]}"#).unwrap();
+
+        let resolved = load_and_resolve(dir.path(), Some(&config_path)).unwrap();
+        assert!(resolved.exclude_is_custom);
+    }
+
+    #[test]
+    fn test_exclude_is_not_custom_with_no_config_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = load_and_resolve(dir.path(), None).unwrap();
+        assert!(!resolved.exclude_is_custom);
     }
 
     #[test]

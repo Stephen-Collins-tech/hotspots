@@ -100,7 +100,7 @@ pub(crate) fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
             );
             println!(
                 "  exclude: active ({} patterns)",
-                if resolved.config_path.is_some() {
+                if resolved.exclude_is_custom {
                     "custom"
                 } else {
                     "default"
