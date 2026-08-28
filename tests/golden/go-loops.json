@@ -5,19 +5,19 @@
     "line": 13,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 2,
       "fo": 0,
       "ns": 0,
       "loc": 7
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 2.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 3.6,
+    "lrs": 4.6,
     "band": "moderate"
   },
   {
@@ -26,19 +26,19 @@
     "line": 23,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 2,
       "fo": 0,
       "ns": 0,
       "loc": 7
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 2.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 3.6,
+    "lrs": 4.6,
     "band": "moderate"
   },
   {
@@ -47,19 +47,19 @@
     "line": 33,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 2,
       "fo": 0,
       "ns": 0,
       "loc": 7
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 2.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 3.6,
+    "lrs": 4.6,
     "band": "moderate"
   },
   {
@@ -68,19 +68,19 @@
     "line": 43,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 2,
       "fo": 0,
       "ns": 0,
       "loc": 8
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 2.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 3.6,
+    "lrs": 4.6,
     "band": "moderate"
   },
   {
@@ -89,19 +89,19 @@
     "line": 72,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 2,
       "fo": 0,
       "ns": 0,
       "loc": 9
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 2.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 3.6,
+    "lrs": 4.6,
     "band": "moderate"
   },
   {
@@ -110,20 +110,20 @@
     "line": 5,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 0,
       "ns": 0,
       "loc": 5
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 2.8,
-    "band": "low"
+    "lrs": 3.384962500721156,
+    "band": "moderate"
   },
   {
     "file": "tests/fixtures/go/loops.go",
@@ -131,20 +131,20 @@
     "line": 54,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 0,
       "ns": 0,
       "loc": 6
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 2.8,
-    "band": "low"
+    "lrs": 3.384962500721156,
+    "band": "moderate"
   },
   {
     "file": "tests/fixtures/go/loops.go",
@@ -152,19 +152,19 @@
     "line": 63,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 0,
       "ns": 0,
       "loc": 6
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 2.8,
-    "band": "low"
+    "lrs": 3.384962500721156,
+    "band": "moderate"
   }
 ]
