@@ -391,17 +391,79 @@ impl PythonCfgBuilderState {
         }
     }
 
-    fn visit_match(&mut self, _node: &Node, _source: &str) {
-        // For now, simplify match statements - just treat as a single conditional
-        // The CC contribution comes from metrics.rs counting case clauses
-        // TODO: Model match statement CFG more precisely
-
+    fn visit_match(&mut self, node: &Node, source: &str) {
         let from_node = self.current_node.expect("Current node should exist");
 
-        let stmt_node = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(from_node, stmt_node);
+        // The match body is a `block` containing `case_clause` children.
+        let Some(match_body) = find_child_by_kind(*node, "block") else {
+            self.visit_simple_statement();
+            return;
+        };
 
-        self.current_node = Some(stmt_node);
+        let mut case_clauses = Vec::new();
+        let mut cursor = match_body.walk();
+        for child in match_body.children(&mut cursor) {
+            if child.kind() == "case_clause" {
+                case_clauses.push(child);
+            }
+        }
+
+        if case_clauses.is_empty() {
+            self.visit_simple_statement();
+            return;
+        }
+
+        // Model each `case` clause as its own branch off the match subject,
+        // chained like an if/elif chain, rejoining at a shared join node.
+        let join_node = self.cfg.add_node(NodeKind::Join);
+        let mut branch_ends = Vec::new();
+        let mut last_condition = from_node;
+
+        for case in case_clauses {
+            let is_wildcard = is_wildcard_case(&case, source);
+
+            if is_wildcard {
+                // `case _:` with no guard always matches once reached, so it
+                // behaves like an `else` clause: no further condition needed,
+                // and it is the last case considered (matching Python's
+                // fall-through semantics for an unconditional wildcard).
+                if let Some(consequence) = find_child_by_kind(case, "block") {
+                    let case_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(last_condition, case_start);
+                    self.current_node = Some(case_start);
+                    self.build_from_block(&consequence, source);
+                    branch_ends.push(self.current_node.unwrap_or(case_start));
+                }
+                break;
+            }
+
+            let case_condition = self.cfg.add_node(NodeKind::Condition);
+            self.cfg.add_edge(last_condition, case_condition);
+
+            if let Some(consequence) = find_child_by_kind(case, "block") {
+                let case_start = self.cfg.add_node(NodeKind::Statement);
+                self.cfg.add_edge(case_condition, case_start);
+                self.current_node = Some(case_start);
+                self.build_from_block(&consequence, source);
+                branch_ends.push(self.current_node.unwrap_or(case_start));
+            }
+
+            last_condition = case_condition;
+        }
+
+        // As with if/elif chains, the last condition in the chain always
+        // links to join so join remains reachable even when every case body
+        // terminates (return/raise/break).
+        self.cfg.add_edge(last_condition, join_node);
+
+        // Connect all branch ends to join
+        for end in branch_ends {
+            if end != self.cfg.exit {
+                self.cfg.add_edge(end, join_node);
+            }
+        }
+
+        self.current_node = Some(join_node);
     }
 
     fn visit_return(&mut self) {
@@ -456,6 +518,32 @@ impl PythonCfgBuilderState {
             self.visit_simple_statement();
         }
     }
+}
+
+/// Check if a `case_clause` is an unconditional wildcard (`case _:`) with no
+/// guard clause and a single pattern, making it always match once reached.
+fn is_wildcard_case(case: &Node, source: &str) -> bool {
+    // A guard (`case _ if ...:`) makes the match conditional, not exhaustive.
+    if find_child_by_kind(*case, "if_clause").is_some() {
+        return false;
+    }
+
+    let mut cursor = case.walk();
+    let patterns: Vec<_> = case
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "case_pattern")
+        .collect();
+
+    // Multiple comma-separated patterns (`case 1, 2:`) aren't a bare wildcard.
+    let [pattern] = patterns.as_slice() else {
+        return false;
+    };
+
+    pattern.named_child_count() == 0
+        && pattern
+            .utf8_text(source.as_bytes())
+            .map(|text| text == "_")
+            .unwrap_or(false)
 }
 
 /// Check if expression contains control flow (comprehensions with if, ternary, boolean operators)
@@ -608,6 +696,109 @@ def test_func(items):
 
         // Should have loop structure
         assert!(cfg.node_count() >= 5);
+    }
+
+    #[test]
+    fn test_match_statement_branches_per_case() {
+        // Regression for #139: each `case` clause should be its own CFG
+        // branch, not a single collapsed conditional node.
+        let source = r#"
+def test_func(value):
+    match value:
+        case 0:
+            return "zero"
+        case 1:
+            return "one"
+        case _:
+            return "other"
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+
+        assert!(cfg.validate().is_ok(), "match CFG should be valid");
+
+        // Two non-wildcard cases each contribute a Condition node, plus a
+        // Statement node per case body and a shared Join node.
+        let condition_count = cfg
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, NodeKind::Condition))
+            .count();
+        assert_eq!(
+            condition_count, 2,
+            "expected one condition node per non-wildcard case"
+        );
+
+        let join_count = cfg
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, NodeKind::Join))
+            .count();
+        assert_eq!(join_count, 1, "expected a single shared join node");
+    }
+
+    #[test]
+    fn test_match_statement_wildcard_catch_all() {
+        // A wildcard `case _:` with no guard should not add its own
+        // condition node - it always matches once reached, like `else`.
+        let source = r#"
+def test_func(value):
+    match value:
+        case 1:
+            x = 1
+        case _:
+            x = 0
+    return x
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+
+        assert!(cfg.validate().is_ok(), "match CFG should be valid");
+
+        let condition_count = cfg
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, NodeKind::Condition))
+            .count();
+        assert_eq!(
+            condition_count, 1,
+            "wildcard case should not add its own condition node"
+        );
+    }
+
+    #[test]
+    fn test_match_statement_non_exhaustive() {
+        // Without a wildcard case, the CFG must still be valid and reachable
+        // even though none of the cases may match at runtime.
+        let source = r#"
+def test_func(value):
+    match value:
+        case 1:
+            return "one"
+        case 2:
+            return "two"
+    return "default"
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+
+        assert!(
+            cfg.validate().is_ok(),
+            "non-exhaustive match CFG should still be valid"
+        );
+
+        let condition_count = cfg
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, NodeKind::Condition))
+            .count();
+        assert_eq!(
+            condition_count, 2,
+            "expected one condition node per case when there is no wildcard"
+        );
     }
 
     #[test]
