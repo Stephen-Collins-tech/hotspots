@@ -53,13 +53,32 @@ pub struct PruneResult {
     pub unreachable_kept_count: usize,
 }
 
+/// Environment variables git uses to locate a repository, bypassing normal
+/// cwd-based discovery. If the calling process inherited one of these (e.g.
+/// `GIT_DIR`, set by git itself for hook subprocesses), passing only
+/// `current_dir` below is not enough to sandbox `git` to `repo_path` — a
+/// var like `GIT_DIR` takes priority and silently redirects the command at
+/// the *caller's* repository instead. Every call site here operates on a
+/// repo identified explicitly by `repo_path`, so none of these should ever
+/// be inherited.
+const GIT_ENV_VARS_TO_CLEAR: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+];
+
 /// Execute a git command in a specific directory
 fn git_at(repo_path: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
-        .current_dir(repo_path)
-        .args(args)
-        .output()
-        .context("failed to invoke git")?;
+    let mut command = Command::new("git");
+    command.current_dir(repo_path).args(args);
+    for var in GIT_ENV_VARS_TO_CLEAR {
+        command.env_remove(var);
+    }
+    let output = command.output().context("failed to invoke git")?;
 
     if !output.status.success() {
         anyhow::bail!(
@@ -289,6 +308,60 @@ mod tests {
         }
 
         (dir, sha)
+    }
+
+    #[test]
+    fn test_git_at_ignores_inherited_git_dir() {
+        // Regression test: git_at is called from within `cargo test`, which
+        // may itself be a child of `git commit`'s pre-commit hook — a
+        // context where git sets GIT_DIR/GIT_WORK_TREE in the environment
+        // for hook subprocesses. Before this fix, `git_at` only passed
+        // `current_dir`, so an inherited GIT_DIR silently overrode it and
+        // every "isolated" tempdir git command (git init, git config, git
+        // commit) actually operated on whatever GIT_DIR pointed at instead
+        // — this is exactly how a prune test once corrupted this repo's own
+        // real .git/config with `user.email=test@example.com`.
+        let real_repo = tempfile::tempdir().unwrap();
+        git_at(real_repo.path(), &["init", "-q"]).unwrap();
+        let real_git_dir = real_repo.path().join(".git");
+        assert!(real_git_dir.exists());
+
+        // SAFETY: single-threaded test process section; no other test reads
+        // these vars. Simulate a hook-inherited GIT_DIR/GIT_WORK_TREE
+        // pointing at `real_repo`, then run git_at against a *different*,
+        // unrelated tempdir the way `repo_with_tag_only_commit` does.
+        unsafe {
+            std::env::set_var("GIT_DIR", real_git_dir.to_str().unwrap());
+            std::env::set_var("GIT_WORK_TREE", real_repo.path().to_str().unwrap());
+        }
+        let result = std::panic::catch_unwind(|| {
+            let victim = tempfile::tempdir().unwrap();
+            git_at(victim.path(), &["init", "-q"]).unwrap();
+            git_at(
+                victim.path(),
+                &["config", "user.email", "victim@example.com"],
+            )
+            .unwrap();
+            victim
+        });
+        unsafe {
+            std::env::remove_var("GIT_DIR");
+            std::env::remove_var("GIT_WORK_TREE");
+        }
+        let victim = result.expect("git_at must not panic under an inherited GIT_DIR");
+
+        // The victim tempdir must have its own independent .git with the
+        // config write actually applied there...
+        let victim_email = git_at(victim.path(), &["config", "user.email"]).unwrap();
+        assert_eq!(victim_email, "victim@example.com");
+
+        // ...and the "real" repo (simulating this actual project's .git)
+        // must be completely untouched by the victim's git init/config.
+        let real_config = std::fs::read_to_string(real_git_dir.join("config")).unwrap();
+        assert!(
+            !real_config.contains("victim@example.com"),
+            "git_at leaked a nested test's git config into the inherited GIT_DIR's repo"
+        );
     }
 
     #[test]
