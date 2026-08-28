@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Bug Fixes
-- `prune` test helper's `git_at` no longer inherits `GIT_DIR`/`GIT_WORK_TREE`/etc. from the invoking process — under `git commit`'s pre-commit hook, these were previously inherited by `cargo test`'s own subprocess `git` calls, silently redirecting supposedly-isolated tempdir git operations onto the real repository (observed corrupting this repo's own `.git/config`)
+- Sandbox git_at from inherited GIT_DIR in prune tests (#153)
 
 ## [1.35.2] - 2026-08-28
 
