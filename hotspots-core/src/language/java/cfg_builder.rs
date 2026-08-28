@@ -499,14 +499,144 @@ impl JavaCfgBuilderState {
     }
 
     /// Visit expression statement (may contain ternary, &&, ||, lambdas)
-    fn visit_expression_statement(&mut self, _node: &Node, _source: &str) {
-        // For now, treat as simple statement
-        // Future enhancement: detect ternary, boolean operators, lambdas
+    fn visit_expression_statement(&mut self, node: &Node, source: &str) {
+        if let Some(expr) = node.named_child(0) {
+            self.visit_expr(&expr, source);
+        } else {
+            self.visit_simple_statement();
+        }
+    }
+
+    /// Visit an expression, dispatching to branch-aware handling for
+    /// ternaries, &&/|| short-circuits, and lambdas with control flow.
+    fn visit_expr(&mut self, node: &Node, source: &str) {
+        match node.kind() {
+            "ternary_expression" => self.visit_ternary(node, source),
+            "binary_expression" if Self::is_short_circuit_op(node, source) => {
+                self.visit_short_circuit(node, source)
+            }
+            "lambda_expression" => self.visit_lambda(node, source),
+            "assignment_expression" => {
+                if let Some(rhs) = node.child_by_field_name("right") {
+                    self.visit_expr(&rhs, source);
+                } else {
+                    self.visit_simple_statement();
+                }
+            }
+            "method_invocation" => {
+                let mut lambda_arg = None;
+                if let Some(args) = node.child_by_field_name("arguments") {
+                    let mut cursor = args.walk();
+                    for child in args.named_children(&mut cursor) {
+                        if child.kind() == "lambda_expression" {
+                            lambda_arg = Some(child);
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(lambda) = lambda_arg {
+                    self.visit_lambda(&lambda, source);
+                } else {
+                    self.visit_simple_statement();
+                }
+            }
+            _ => self.visit_simple_statement(),
+        }
+    }
+
+    /// Returns true if the binary expression's operator is `&&` or `||`.
+    fn is_short_circuit_op(node: &Node, source: &str) -> bool {
+        node.child_by_field_name("operator")
+            .map(|op| {
+                let text = &source[op.start_byte()..op.end_byte()];
+                text == "&&" || text == "||"
+            })
+            .unwrap_or(false)
+    }
+
+    /// Visit a ternary expression (`condition ? consequence : alternative`),
+    /// modeling it like an if/else branch.
+    fn visit_ternary(&mut self, node: &Node, source: &str) {
+        let Some(current) = self.current_node else {
+            return;
+        };
+
+        let condition = self.cfg.add_node(NodeKind::Condition);
+        self.cfg.add_edge(current, condition);
+
+        let join = self.cfg.add_node(NodeKind::Statement);
+
+        if let Some(consequence) = node.child_by_field_name("consequence") {
+            self.current_node = Some(condition);
+            self.visit_expr(&consequence, source);
+            if let Some(last) = self.current_node {
+                if last != self.cfg.exit {
+                    self.cfg.add_edge(last, join);
+                }
+            }
+        } else {
+            self.cfg.add_edge(condition, join);
+        }
+
+        if let Some(alternative) = node.child_by_field_name("alternative") {
+            self.current_node = Some(condition);
+            self.visit_expr(&alternative, source);
+            if let Some(last) = self.current_node {
+                if last != self.cfg.exit {
+                    self.cfg.add_edge(last, join);
+                }
+            }
+        } else {
+            self.cfg.add_edge(condition, join);
+        }
+
+        self.current_node = Some(join);
+    }
+
+    /// Visit a `&&`/`||` binary expression, modeling short-circuit evaluation:
+    /// the right operand is only conditionally evaluated.
+    fn visit_short_circuit(&mut self, node: &Node, source: &str) {
+        let Some(current) = self.current_node else {
+            return;
+        };
+
+        let left_evaluated = self.cfg.add_node(NodeKind::Condition);
+        self.cfg.add_edge(current, left_evaluated);
+
+        let join = self.cfg.add_node(NodeKind::Statement);
+
+        // Right operand is evaluated only when short-circuiting doesn't apply.
+        if let Some(right) = node.child_by_field_name("right") {
+            self.current_node = Some(left_evaluated);
+            self.visit_expr(&right, source);
+            if let Some(last) = self.current_node {
+                if last != self.cfg.exit {
+                    self.cfg.add_edge(last, join);
+                }
+            }
+        } else {
+            self.cfg.add_edge(left_evaluated, join);
+        }
+
+        // Short-circuit path: right operand is skipped entirely.
+        self.cfg.add_edge(left_evaluated, join);
+
+        self.current_node = Some(join);
+    }
+
+    /// Visit a lambda expression, building the CFG for its body when it has
+    /// its own control flow (a block body) instead of skipping it.
+    fn visit_lambda(&mut self, node: &Node, source: &str) {
         self.visit_simple_statement();
 
-        // TODO: Check for conditional_expression (ternary)
-        // TODO: Check for binary_expression with && or ||
-        // TODO: Check for lambda_expression with control flow
+        if let Some(body) = node.child_by_field_name("body") {
+            if body.kind() == "block" {
+                self.visit_block(&body, source);
+            } else {
+                self.visit_expr(&body, source);
+            }
+        }
     }
 
     /// Visit simple statement (no control flow impact)
@@ -665,5 +795,103 @@ public class Test {
 
         cfg.validate().unwrap();
         assert!(cfg.node_count() >= 4); // Entry, try, catch, exit
+    }
+
+    #[test]
+    fn test_ternary_expression() {
+        let source = r#"
+public class Test {
+    public void test(int x) {
+        int y;
+        y = x > 0 ? 1 : -1;
+    }
+}
+"#;
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
+        let builder = JavaCfgBuilder;
+        let cfg = builder.build(&function);
+
+        cfg.validate().unwrap();
+        // Entry, ternary condition, consequence, alternative, join, exit
+        assert!(cfg.node_count() >= 5);
+        assert!(
+            cfg.edges.iter().filter(|e| e.from != cfg.entry).count() >= 4,
+            "ternary should branch like an if/else"
+        );
+    }
+
+    #[test]
+    fn test_short_circuit_and() {
+        let source = r#"
+public class Test {
+    public void test(Object a, Object b) {
+        boolean ok;
+        ok = a != null && b.equals(a);
+    }
+}
+"#;
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
+        let builder = JavaCfgBuilder;
+        let cfg = builder.build(&function);
+
+        cfg.validate().unwrap();
+        // Entry, left-evaluated condition, right operand, join, exit
+        assert!(cfg.node_count() >= 4);
+    }
+
+    #[test]
+    fn test_short_circuit_or() {
+        let source = r#"
+public class Test {
+    public void test(boolean a, boolean b) {
+        boolean ok;
+        ok = a || b;
+    }
+}
+"#;
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
+        let builder = JavaCfgBuilder;
+        let cfg = builder.build(&function);
+
+        cfg.validate().unwrap();
+        assert!(cfg.node_count() >= 4);
+    }
+
+    #[test]
+    fn test_lambda_with_control_flow() {
+        let source = r#"
+public class Test {
+    public void test(java.util.List<Integer> items) {
+        items.forEach(item -> {
+            if (item > 0) {
+                System.out.println(item);
+            }
+        });
+    }
+}
+"#;
+        let function = make_test_function(
+            source,
+            source.find("public void test").unwrap(),
+            source.len(),
+        );
+        let builder = JavaCfgBuilder;
+        let cfg = builder.build(&function);
+
+        cfg.validate().unwrap();
+        // Entry, call-site node, lambda's if-condition, then-branch, join, exit
+        assert!(cfg.node_count() >= 5);
     }
 }
