@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Sandbox git_at from inherited GIT_DIR in prune tests (#153)
 - Build Java CFG edges for ternaries, &&/||, lambdas (#152)
+- Model each Python match case as its own CFG branch (#154)
 - Walk Go statement_list bodies instead of collapsing them (#140)
 - Fix Go type-switch cases and switch default fallthrough edge (#140)
 - Route Go labeled/unlabeled break and continue to correct targets (#140)
