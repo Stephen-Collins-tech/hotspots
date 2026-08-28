@@ -5,19 +5,19 @@
     "line": 39,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 7,
       "nd": 1,
       "fo": 0,
       "ns": 3,
       "loc": 9
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 3.0,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 3.0
     },
-    "lrs": 4.8999999999999995,
+    "lrs": 5.8999999999999995,
     "band": "moderate"
   },
   {
@@ -26,19 +26,19 @@
     "line": 20,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 6,
       "nd": 1,
       "fo": 0,
       "ns": 2,
       "loc": 7
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.807354922057604,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 2.0
     },
-    "lrs": 4.199999999999999,
+    "lrs": 5.007354922057605,
     "band": "moderate"
   },
   {
@@ -47,19 +47,19 @@
     "line": 30,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 0,
       "ns": 2,
       "loc": 6
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 2.0
     },
-    "lrs": 4.199999999999999,
+    "lrs": 4.784962500721155,
     "band": "moderate"
   },
   {
@@ -68,20 +68,20 @@
     "line": 12,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 0,
       "ns": 0,
       "loc": 5
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 0.0,
       "r_ns": 0.0
     },
-    "lrs": 2.8,
-    "band": "low"
+    "lrs": 3.384962500721156,
+    "band": "moderate"
   },
   {
     "file": "tests/fixtures/go/simple.go",

@@ -5,19 +5,19 @@
     "line": 113,
     "language": "Go",
     "metrics": {
-      "cc": 8,
+      "cc": 17,
       "nd": 3,
       "fo": 5,
       "ns": 4,
       "loc": 39
     },
     "risk": {
-      "r_cc": 3.169925001442312,
+      "r_cc": 4.169925001442312,
       "r_nd": 3.0,
       "r_fo": 2.584962500721156,
       "r_ns": 4.0
     },
-    "lrs": 9.920902501875004,
+    "lrs": 10.920902501875005,
     "band": "critical"
   },
   {
@@ -26,20 +26,20 @@
     "line": 99,
     "language": "Go",
     "metrics": {
-      "cc": 5,
+      "cc": 8,
       "nd": 2,
       "fo": 2,
       "ns": 1,
       "loc": 11
     },
     "risk": {
-      "r_cc": 2.584962500721156,
+      "r_cc": 3.169925001442312,
       "r_nd": 2.0,
       "r_fo": 1.584962500721156,
       "r_ns": 1.0
     },
-    "lrs": 5.835940001153849,
-    "band": "moderate"
+    "lrs": 6.420902501875005,
+    "band": "high"
   },
   {
     "file": "tests/fixtures/go/go_specific.go",
@@ -64,44 +64,23 @@
   },
   {
     "file": "tests/fixtures/go/go_specific.go",
-    "function": "SelectWithDefault",
-    "line": 84,
-    "language": "Go",
-    "metrics": {
-      "cc": 6,
-      "nd": 1,
-      "fo": 1,
-      "ns": 0,
-      "loc": 12
-    },
-    "risk": {
-      "r_cc": 2.807354922057604,
-      "r_nd": 1.0,
-      "r_fo": 1.0,
-      "r_ns": 0.0
-    },
-    "lrs": 4.207354922057604,
-    "band": "moderate"
-  },
-  {
-    "file": "tests/fixtures/go/go_specific.go",
     "function": "ConditionalDefer",
     "line": 24,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 1,
       "ns": 1,
       "loc": 5
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 1.0,
       "r_ns": 1.0
     },
-    "lrs": 4.1,
+    "lrs": 4.684962500721156,
     "band": "moderate"
   },
   {
@@ -110,19 +89,61 @@
     "line": 52,
     "language": "Go",
     "metrics": {
-      "cc": 3,
+      "cc": 5,
       "nd": 1,
       "fo": 1,
       "ns": 1,
       "loc": 5
     },
     "risk": {
-      "r_cc": 2.0,
+      "r_cc": 2.584962500721156,
       "r_nd": 1.0,
       "r_fo": 1.0,
       "r_ns": 1.0
     },
-    "lrs": 4.1,
+    "lrs": 4.684962500721156,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/go_specific.go",
+    "function": "SelectWithDefault",
+    "line": 84,
+    "language": "Go",
+    "metrics": {
+      "cc": 8,
+      "nd": 1,
+      "fo": 1,
+      "ns": 0,
+      "loc": 12
+    },
+    "risk": {
+      "r_cc": 3.169925001442312,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.569925001442312,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/go/go_specific.go",
+    "function": "SimpleSelect",
+    "line": 70,
+    "language": "Go",
+    "metrics": {
+      "cc": 6,
+      "nd": 1,
+      "fo": 1,
+      "ns": 0,
+      "loc": 11
+    },
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 4.207354922057604,
     "band": "moderate"
   },
   {
@@ -144,27 +165,6 @@
       "r_ns": 1.0
     },
     "lrs": 4.1,
-    "band": "moderate"
-  },
-  {
-    "file": "tests/fixtures/go/go_specific.go",
-    "function": "SimpleSelect",
-    "line": 70,
-    "language": "Go",
-    "metrics": {
-      "cc": 5,
-      "nd": 1,
-      "fo": 1,
-      "ns": 0,
-      "loc": 11
-    },
-    "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
-      "r_fo": 1.0,
-      "r_ns": 0.0
-    },
-    "lrs": 3.984962500721156,
     "band": "moderate"
   },
   {
