@@ -48,7 +48,13 @@ struct GoCfgBuilderState {
 }
 
 struct LoopContext {
-    break_target: NodeId,
+    /// Lazily created: `None` until something actually needs to jump here
+    /// (a `break`, a case falling through, or a no-default fallback edge).
+    /// A `for` loop's own header->join "exit" edge always creates it eagerly
+    /// since that path is unconditional, so it's only ever lazy for
+    /// switch/select, where every case may terminate control flow itself
+    /// (e.g. `return` in every case), leaving the join node unneeded.
+    break_target: Option<NodeId>,
     /// `None` for switch/select contexts, which do not accept `continue`
     continue_target: Option<NodeId>,
     /// Label naming this construct, for labeled break/continue
@@ -66,6 +72,21 @@ impl GoCfgBuilderState {
             loop_stack: Vec::new(),
             pending_label: None,
         }
+    }
+
+    /// Get or lazily create the break target for the loop/switch/select
+    /// context at `idx` in `loop_stack`.
+    fn get_or_create_break_target(&mut self, idx: usize) -> NodeId {
+        if let Some(ctx) = self.loop_stack.get(idx) {
+            if let Some(id) = ctx.break_target {
+                return id;
+            }
+        }
+        let id = self.cfg.add_node(NodeKind::Join);
+        if let Some(ctx) = self.loop_stack.get_mut(idx) {
+            ctx.break_target = Some(id);
+        }
+        id
     }
 
     /// Build CFG from a block node
@@ -205,13 +226,14 @@ impl GoCfgBuilderState {
         let body_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(loop_header, body_start);
 
-        // Join node (after loop)
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
-        // Push loop context for break/continue
+        // Push loop context for break/continue. The join node is created
+        // lazily below via get_or_create_break_target, but a `for` loop's
+        // header always has an unconditional "exit" edge to it (the loop
+        // condition can always be false, or there is none), so it will
+        // always end up created.
         let label = self.pending_label.take();
         self.loop_stack.push(LoopContext {
-            break_target: join_node,
+            break_target: None,
             continue_target: Some(loop_header),
             label,
         });
@@ -229,11 +251,13 @@ impl GoCfgBuilderState {
             }
         }
 
+        // Exit condition from loop header
+        let idx = self.loop_stack.len() - 1;
+        let join_node = self.get_or_create_break_target(idx);
+        self.cfg.add_edge(loop_header, join_node);
+
         // Pop loop context
         self.loop_stack.pop();
-
-        // Exit condition from loop header
-        self.cfg.add_edge(loop_header, join_node);
 
         self.current_node = Some(join_node);
     }
@@ -245,15 +269,17 @@ impl GoCfgBuilderState {
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, condition_node);
 
-        // Join node after switch
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
         // Push break context (switch/select break independently of any
         // enclosing loop; `continue` is not valid here, so continue_target
-        // is None and unlabeled continue skips over this context)
+        // is None and unlabeled continue skips over this context). The join
+        // node itself is created lazily: if every case terminates control
+        // flow (e.g. `return` in every case) and there's a default (so no
+        // fallback-to-join edge is added either), nothing ever needs a join
+        // node, and creating one eagerly would leave it unreachable.
+        let idx = self.loop_stack.len();
         let label = self.pending_label.take();
         self.loop_stack.push(LoopContext {
-            break_target: join_node,
+            break_target: None,
             continue_target: None,
             label,
         });
@@ -287,22 +313,23 @@ impl GoCfgBuilderState {
                 // Case ends connect to join (unless they explicitly break/return)
                 if let Some(case_end) = self.current_node {
                     if case_end != self.cfg.exit {
+                        let join_node = self.get_or_create_break_target(idx);
                         self.cfg.add_edge(case_end, join_node);
                     }
                 }
             }
         }
 
-        self.loop_stack.pop();
-
         // If there's no default case, no case is guaranteed to match, so the
         // switch can fall through directly to join. When a default exists,
         // one case always executes, so this edge would be spurious.
         if !has_default {
+            let join_node = self.get_or_create_break_target(idx);
             self.cfg.add_edge(condition_node, join_node);
         }
 
-        self.current_node = Some(join_node);
+        let ctx = self.loop_stack.pop().expect("pushed switch context above");
+        self.current_node = ctx.break_target;
     }
 
     fn visit_type_switch(&mut self, node: &Node, source: &str) {
@@ -317,14 +344,15 @@ impl GoCfgBuilderState {
         let condition_node = self.cfg.add_node(NodeKind::Condition);
         self.cfg.add_edge(from_node, condition_node);
 
-        // Join node after select
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
         // Push break context (select break independently of any enclosing
-        // loop; `continue` is not valid here)
+        // loop; `continue` is not valid here). The join node is created
+        // lazily: if every case terminates control flow (e.g. `return` in
+        // every case), nothing ever needs a join node, and creating one
+        // eagerly would leave it unreachable.
+        let idx = self.loop_stack.len();
         let label = self.pending_label.take();
         self.loop_stack.push(LoopContext {
-            break_target: join_node,
+            break_target: None,
             continue_target: None,
             label,
         });
@@ -348,15 +376,15 @@ impl GoCfgBuilderState {
 
                 if let Some(case_end) = self.current_node {
                     if case_end != self.cfg.exit {
+                        let join_node = self.get_or_create_break_target(idx);
                         self.cfg.add_edge(case_end, join_node);
                     }
                 }
             }
         }
 
-        self.loop_stack.pop();
-
-        self.current_node = Some(join_node);
+        let ctx = self.loop_stack.pop().expect("pushed select context above");
+        self.current_node = ctx.break_target;
     }
 
     fn visit_return(&mut self, _node: &Node) {
@@ -371,17 +399,22 @@ impl GoCfgBuilderState {
     fn visit_break(&mut self, node: &Node, source: &str) {
         if let Some(from_node) = self.current_node {
             let label = find_label_text(node, source);
-            let target = match &label {
+            let idx = match &label {
                 Some(label) => self
                     .loop_stack
                     .iter()
-                    .rev()
-                    .find(|ctx| ctx.label.as_deref() == Some(label.as_str()))
-                    .map(|ctx| ctx.break_target),
-                None => self.loop_stack.last().map(|ctx| ctx.break_target),
+                    .rposition(|ctx| ctx.label.as_deref() == Some(label.as_str())),
+                None => {
+                    if self.loop_stack.is_empty() {
+                        None
+                    } else {
+                        Some(self.loop_stack.len() - 1)
+                    }
+                }
             };
 
-            if let Some(target) = target {
+            if let Some(idx) = idx {
+                let target = self.get_or_create_break_target(idx);
                 let break_node = self.cfg.add_node(NodeKind::Statement);
                 self.cfg.add_edge(from_node, break_node);
                 self.cfg.add_edge(break_node, target);
