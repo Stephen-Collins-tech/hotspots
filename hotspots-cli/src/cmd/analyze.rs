@@ -1308,10 +1308,12 @@ pub(crate) fn build_snapshot_via_db(
     };
 
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
-    let mut enricher = snapshot::SnapshotEnricher::new(snapshot)
-        .with_subsystems(repo_root)
-        .with_burst_score(repo_root);
+    let mut enricher = snapshot::SnapshotEnricher::new(snapshot).with_subsystems(repo_root);
     if !skip_touch_metrics {
+        // burst_score does its own full-history `git log` walk (history_signals::
+        // load_commits_with_author) — gate it alongside the other touch/churn git
+        // log calls so --skip-touch-metrics actually skips it too.
+        enricher = enricher.with_burst_score(repo_root);
         let needs_progress = matches!(
             touch_mode,
             TouchMode::PerFunction | TouchMode::Hybrid { .. }
@@ -1370,8 +1372,7 @@ pub(crate) fn build_enriched_snapshot(
 
     let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports))
-        .with_subsystems(repo_root)
-        .with_burst_score(repo_root);
+        .with_subsystems(repo_root);
 
     if !git_context.parent_shas.is_empty() {
         match git::extract_commit_churn_at(repo_root, &git_context.head_sha) {
@@ -1393,6 +1394,10 @@ pub(crate) fn build_enriched_snapshot(
     }
 
     if !skip_touch_metrics {
+        // burst_score does its own full-history `git log` walk (history_signals::
+        // load_commits_with_author) — gate it alongside the other touch/churn git
+        // log calls so --skip-touch-metrics actually skips it too.
+        enricher = enricher.with_burst_score(repo_root);
         let needs_progress = matches!(
             touch_mode,
             TouchMode::PerFunction | TouchMode::Hybrid { .. }
