@@ -90,7 +90,8 @@ enum Commands {
         no_per_function_touches: bool,
 
         /// Skip all touch metrics entirely (no git log calls for churn/recency),
-        /// and skip directed coupling (also a git log walk).
+        /// skip directed coupling (also a git log walk), and skip burst_score
+        /// (also a full-history git log walk).
         /// Overrides --per-function-touches and --no-per-function-touches.
         /// Use for benchmarking pure analysis + call graph performance.
         #[arg(long, conflicts_with = "per_function_touches")]
