@@ -156,12 +156,18 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
+    // Worker threads default to a 2MB stack (std::thread default), which is too
+    // small for the recursive-descent CFG builders on deeply nested or generated
+    // source files (e.g. rust-lang/rust's tests/ui/ fixtures) and can overflow
+    // and abort the whole process. Give worker threads a larger stack unconditionally.
     // Errors are ignored: build_global() fails if rayon was already initialized
     // (e.g. in tests), which is harmless.
-    if let Some(n) = jobs {
-        let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(n)
-            .build_global();
+    {
+        let mut builder = rayon::ThreadPoolBuilder::new().stack_size(32 * 1024 * 1024);
+        if let Some(n) = jobs {
+            builder = builder.num_threads(n);
+        }
+        let _ = builder.build_global();
     }
 
     let normalized_path = if path.is_relative() {
