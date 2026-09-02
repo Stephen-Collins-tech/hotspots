@@ -6,6 +6,20 @@ use crate::language::cfg_builder::CfgBuilder;
 use anyhow::{Context, Result};
 use syn::{Block, Expr, ExprBlock, ExprForLoop, ExprIf, ExprLoop, ExprMatch, ExprWhile, Stmt};
 
+/// Maximum expression/statement nesting depth the recursive-descent builder below
+/// will walk before bailing out.
+///
+/// This is a stopgap depth guard, not a structural fix: `build_block_cfg` /
+/// `build_expr_cfg` / `build_stmt_cfg` are mutually recursive over the AST, so a
+/// sufficiently deep or generated function body (e.g. rustc's own `tests/ui/`
+/// fixtures) can still overflow the calling thread's stack even with this guard,
+/// depending on how deep `MAX_CFG_DEPTH` is set relative to the configured stack
+/// size (see the rayon worker stack size in `hotspots-cli/src/cmd/analyze.rs`).
+/// A proper fix would convert this recursive walk into an iterative one with an
+/// explicit heap-allocated work stack, removing the depth bound entirely. See
+/// https://github.com/Stephen-Collins-tech/hotspots/issues/160 for that follow-up.
+const MAX_CFG_DEPTH: usize = 500;
+
 /// CFG builder for Rust functions
 pub struct RustCfgBuilder;
 
@@ -30,7 +44,7 @@ fn build_cfg_from_source(source: &str) -> Result<Cfg> {
     let exit = cfg.exit;
 
     // Build CFG from function block
-    let last_node = build_block_cfg(&mut cfg, &item_fn.block, entry, exit)?;
+    let last_node = build_block_cfg(&mut cfg, &item_fn.block, entry, exit, 0)?;
 
     // Connect last node to exit
     cfg.add_edge(last_node, exit);
@@ -39,20 +53,36 @@ fn build_cfg_from_source(source: &str) -> Result<Cfg> {
 }
 
 /// Build CFG for a block
-fn build_block_cfg(cfg: &mut Cfg, block: &Block, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_block_cfg(
+    cfg: &mut Cfg,
+    block: &Block,
+    entry: NodeId,
+    exit: NodeId,
+    depth: usize,
+) -> Result<NodeId> {
+    if depth > MAX_CFG_DEPTH {
+        anyhow::bail!("CFG nesting depth exceeded ({MAX_CFG_DEPTH}); aborting CFG build");
+    }
+
     let mut current = entry;
 
     for stmt in &block.stmts {
-        current = build_stmt_cfg(cfg, stmt, current, exit)?;
+        current = build_stmt_cfg(cfg, stmt, current, exit, depth + 1)?;
     }
 
     Ok(current)
 }
 
 /// Build CFG for a statement
-fn build_stmt_cfg(cfg: &mut Cfg, stmt: &Stmt, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_stmt_cfg(
+    cfg: &mut Cfg,
+    stmt: &Stmt,
+    entry: NodeId,
+    exit: NodeId,
+    depth: usize,
+) -> Result<NodeId> {
     match stmt {
-        Stmt::Expr(expr, _) => build_expr_cfg(cfg, expr, entry, exit),
+        Stmt::Expr(expr, _) => build_expr_cfg(cfg, expr, entry, exit, depth),
         Stmt::Local(_) => {
             // Variable declaration
             let node = cfg.add_node(NodeKind::Statement);
@@ -75,14 +105,24 @@ fn build_stmt_cfg(cfg: &mut Cfg, stmt: &Stmt, entry: NodeId, exit: NodeId) -> Re
 }
 
 /// Build CFG for an expression
-fn build_expr_cfg(cfg: &mut Cfg, expr: &Expr, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_expr_cfg(
+    cfg: &mut Cfg,
+    expr: &Expr,
+    entry: NodeId,
+    exit: NodeId,
+    depth: usize,
+) -> Result<NodeId> {
+    if depth > MAX_CFG_DEPTH {
+        anyhow::bail!("CFG nesting depth exceeded ({MAX_CFG_DEPTH}); aborting CFG build");
+    }
+
     match expr {
-        Expr::If(expr_if) => build_if_cfg(cfg, expr_if, entry, exit),
-        Expr::Match(expr_match) => build_match_cfg(cfg, expr_match, entry, exit),
-        Expr::Loop(expr_loop) => build_loop_cfg(cfg, expr_loop, entry, exit),
-        Expr::While(expr_while) => build_while_cfg(cfg, expr_while, entry, exit),
-        Expr::ForLoop(expr_for) => build_for_cfg(cfg, expr_for, entry, exit),
-        Expr::Block(expr_block) => build_expr_block_cfg(cfg, expr_block, entry, exit),
+        Expr::If(expr_if) => build_if_cfg(cfg, expr_if, entry, exit, depth + 1),
+        Expr::Match(expr_match) => build_match_cfg(cfg, expr_match, entry, exit, depth + 1),
+        Expr::Loop(expr_loop) => build_loop_cfg(cfg, expr_loop, entry, exit, depth + 1),
+        Expr::While(expr_while) => build_while_cfg(cfg, expr_while, entry, exit, depth + 1),
+        Expr::ForLoop(expr_for) => build_for_cfg(cfg, expr_for, entry, exit, depth + 1),
+        Expr::Block(expr_block) => build_expr_block_cfg(cfg, expr_block, entry, exit, depth + 1),
         Expr::Return(_) => {
             // Return statement - connects to exit
             let node = cfg.add_node(NodeKind::Statement);
@@ -114,14 +154,20 @@ fn build_expr_cfg(cfg: &mut Cfg, expr: &Expr, entry: NodeId, exit: NodeId) -> Re
 }
 
 /// Build CFG for if expression
-fn build_if_cfg(cfg: &mut Cfg, expr_if: &ExprIf, entry: NodeId, exit: NodeId) -> Result<NodeId> {
+fn build_if_cfg(
+    cfg: &mut Cfg,
+    expr_if: &ExprIf,
+    entry: NodeId,
+    exit: NodeId,
+    depth: usize,
+) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
 
     // Then branch
     let then_entry = cfg.add_node(NodeKind::Statement);
     cfg.add_edge(condition, then_entry);
-    let then_exit = build_block_cfg(cfg, &expr_if.then_branch, then_entry, exit)?;
+    let then_exit = build_block_cfg(cfg, &expr_if.then_branch, then_entry, exit, depth)?;
 
     // Join node
     let join = cfg.add_node(NodeKind::Join);
@@ -131,7 +177,7 @@ fn build_if_cfg(cfg: &mut Cfg, expr_if: &ExprIf, entry: NodeId, exit: NodeId) ->
     if let Some((_, else_expr)) = &expr_if.else_branch {
         let else_entry = cfg.add_node(NodeKind::Statement);
         cfg.add_edge(condition, else_entry);
-        let else_exit = build_expr_cfg(cfg, else_expr, else_entry, exit)?;
+        let else_exit = build_expr_cfg(cfg, else_expr, else_entry, exit, depth)?;
         cfg.add_edge(else_exit, join);
     } else {
         // No else branch - condition can go directly to join
@@ -147,6 +193,7 @@ fn build_match_cfg(
     expr_match: &ExprMatch,
     entry: NodeId,
     exit: NodeId,
+    depth: usize,
 ) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
@@ -157,7 +204,7 @@ fn build_match_cfg(
     for arm in &expr_match.arms {
         let arm_entry = cfg.add_node(NodeKind::Statement);
         cfg.add_edge(condition, arm_entry);
-        let arm_exit = build_expr_cfg(cfg, &arm.body, arm_entry, exit)?;
+        let arm_exit = build_expr_cfg(cfg, &arm.body, arm_entry, exit, depth)?;
         cfg.add_edge(arm_exit, join);
     }
 
@@ -170,11 +217,12 @@ fn build_loop_cfg(
     expr_loop: &ExprLoop,
     entry: NodeId,
     _exit: NodeId,
+    depth: usize,
 ) -> Result<NodeId> {
     let header = cfg.add_node(NodeKind::LoopHeader);
     cfg.add_edge(entry, header);
 
-    let body_exit = build_block_cfg(cfg, &expr_loop.body, header, header)?;
+    let body_exit = build_block_cfg(cfg, &expr_loop.body, header, header, depth)?;
 
     // Back edge to header
     cfg.add_edge(body_exit, header);
@@ -192,6 +240,7 @@ fn build_while_cfg(
     expr_while: &ExprWhile,
     entry: NodeId,
     _exit: NodeId,
+    depth: usize,
 ) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
@@ -199,7 +248,7 @@ fn build_while_cfg(
     let body_entry = cfg.add_node(NodeKind::Statement);
     cfg.add_edge(condition, body_entry);
 
-    let body_exit = build_block_cfg(cfg, &expr_while.body, body_entry, condition)?;
+    let body_exit = build_block_cfg(cfg, &expr_while.body, body_entry, condition, depth)?;
 
     // Back edge to condition
     cfg.add_edge(body_exit, condition);
@@ -217,6 +266,7 @@ fn build_for_cfg(
     expr_for: &ExprForLoop,
     entry: NodeId,
     _exit: NodeId,
+    depth: usize,
 ) -> Result<NodeId> {
     let condition = cfg.add_node(NodeKind::Condition);
     cfg.add_edge(entry, condition);
@@ -224,7 +274,7 @@ fn build_for_cfg(
     let body_entry = cfg.add_node(NodeKind::Statement);
     cfg.add_edge(condition, body_entry);
 
-    let body_exit = build_block_cfg(cfg, &expr_for.body, body_entry, condition)?;
+    let body_exit = build_block_cfg(cfg, &expr_for.body, body_entry, condition, depth)?;
 
     // Back edge to condition
     cfg.add_edge(body_exit, condition);
@@ -242,8 +292,9 @@ fn build_expr_block_cfg(
     expr_block: &ExprBlock,
     entry: NodeId,
     exit: NodeId,
+    depth: usize,
 ) -> Result<NodeId> {
-    build_block_cfg(cfg, &expr_block.block, entry, exit)
+    build_block_cfg(cfg, &expr_block.block, entry, exit, depth)
 }
 
 #[cfg(test)]
@@ -265,6 +316,41 @@ mod tests {
             },
             suppression_reason: None,
         }
+    }
+
+    #[test]
+    fn test_rust_cfg_builder_depth_guard_falls_back_to_minimal_cfg() {
+        // Deeply nested blocks exceed MAX_CFG_DEPTH; the builder should bail out
+        // to a minimal entry->exit CFG instead of overflowing the stack.
+        //
+        // Run on a dedicated thread with a generous stack: `syn::parse_str`'s own
+        // recursive-descent parser has no depth bound either, and will overflow
+        // the default 2MB test-thread stack on nesting well below MAX_CFG_DEPTH,
+        // before CFG building (and this guard) even starts. That's a separate gap
+        // this depth guard does not close — see MAX_CFG_DEPTH's doc comment.
+        let mut source = String::from("fn deeply_nested() {\n");
+        for _ in 0..(MAX_CFG_DEPTH * 2) {
+            source.push_str("{\n");
+        }
+        for _ in 0..(MAX_CFG_DEPTH * 2) {
+            source.push_str("}\n");
+        }
+        source.push_str("}\n");
+
+        let (entry, exit) = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let function = make_test_function(&source);
+                let builder = RustCfgBuilder;
+                let cfg = builder.build(&function);
+                (cfg.entry, cfg.exit)
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        assert_eq!(entry, NodeId(0));
+        assert_eq!(exit, NodeId(1));
     }
 
     #[test]
