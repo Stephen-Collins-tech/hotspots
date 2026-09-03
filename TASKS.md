@@ -119,3 +119,28 @@ a future trailing-window replacement, per the brief's "Do not" section.
 **Status:** done — branch `fix/burst-score-remove-from-live-score`, PR #126,
 `cargo test` passing (452 tests). Tracker row `burst-score-remove-from-live` still
 needs to flip from `pending` to `promoted` once merged.
+
+---
+
+## Task: F05 multi-axis hotspot report (`--axes` flag)
+
+**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f05-multi-axis-report.md`
+
+Implement the promotion brief above in this repo. Create a new branch first
+(`feat/f05-multi-axis-report`), implement exactly what's specified (`--axes` flag on
+`hotspots analyze`, `HotspotAxis` enum with `Risk`/`Coupling`/`Ownership` variants,
+`rank_by_axis` function, three sequential output sections), run `cargo test`, and
+report back — do not push or open a PR.
+
+Note: the brief was revised 2026-08-31 after the original draft (Ownership axis via
+`1.0 - author_entropy_normalized`) was found stale against a later research finding
+(F102) — the Ownership axis field is now `newcomer_rate`, a genuinely new signal not
+present anywhere in `hotspots-core` today. Read the brief's "Files to change" section
+carefully: this requires adding a first-commit-per-author map and a 90-day-window
+newcomer-fraction computation to `history_signals.rs`'s existing single-pass commit
+walk, not just wiring up an existing field. The brief includes the exact formula
+(verified against the Python reference implementation) and a port-fidelity unit test
+— follow both precisely, this is the part most likely to be subtly wrong if
+reimplemented from the English description alone.
+
+**Status:** not started.
