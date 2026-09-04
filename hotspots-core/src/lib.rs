@@ -19,6 +19,7 @@ pub mod cfg;
 pub mod compact;
 pub mod config;
 pub mod coupling;
+pub mod csv_report;
 pub mod db;
 pub mod delta;
 pub mod discover;
