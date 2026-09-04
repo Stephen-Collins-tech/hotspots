@@ -31,6 +31,7 @@ pub struct HistorySignals {
     pub age_days: f64,
     pub last_touch_days: f64,
     pub burst_score: f64,
+    pub newcomer_rate: Option<f64>,
 }
 
 /// Load full commit history as `(timestamp, author_email, files)` via a single
@@ -148,6 +149,31 @@ fn burst_score(timestamps: &[i64]) -> f64 {
     counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
 }
 
+/// Newcomer commit ratio (F102/F05): fraction of a file's commits in the
+/// 90-day window before `cutoff` that were authored by someone whose
+/// first-ever commit to the repo also falls in that same window.
+///
+/// Ports `scripts/eval/eval_ownership_axis_independence.py`'s formula exactly:
+/// files with no commits in the window return `None` (excluded), not `0.0` —
+/// a file with real window commits and zero newcomers is a valid `Some(0.0)`.
+const NEWCOMER_WINDOW_DAYS: i64 = 90;
+const NEWCOMER_WINDOW_SECS: i64 = NEWCOMER_WINDOW_DAYS * 86400;
+
+fn newcomer_rate(
+    window_authors: &[&str],
+    first_seen: &HashMap<&str, i64>,
+    window_start: i64,
+) -> Option<f64> {
+    if window_authors.is_empty() {
+        return None;
+    }
+    let newcomer_count = window_authors
+        .iter()
+        .filter(|&&a| first_seen.get(a).is_some_and(|&ts| ts >= window_start))
+        .count();
+    Some(newcomer_count as f64 / window_authors.len() as f64)
+}
+
 /// Single pass over `commits`, aggregating per-file cold-start signals plus
 /// `burst_score`. Mirrors `cheap_signals.py::compute_file_signals` (minus
 /// `co_change_partners`, `mean_co_change_size` — out of scope, see brief).
@@ -156,6 +182,16 @@ pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, Hist
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let newcomer_window_start = now_ts - NEWCOMER_WINDOW_SECS;
+
+    // Repo-wide first-ever-commit timestamp per author (by email), for newcomer_rate.
+    let mut first_seen: HashMap<&str, i64> = HashMap::new();
+    for commit in commits {
+        first_seen
+            .entry(commit.author.as_str())
+            .and_modify(|ts| *ts = (*ts).min(commit.ts))
+            .or_insert(commit.ts);
+    }
 
     // commit index -> number of files touched (for isolation_rate)
     let commit_file_count: Vec<usize> = commits.iter().map(|c| c.files.len()).collect();
@@ -181,6 +217,12 @@ pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, Hist
         let first_ts = *timestamps.iter().min().unwrap_or(&0);
         let last_ts = *timestamps.iter().max().unwrap_or(&0);
 
+        let window_authors: Vec<&str> = idxs
+            .iter()
+            .filter(|&&i| commits[i].ts >= newcomer_window_start)
+            .map(|&i| commits[i].author.as_str())
+            .collect();
+
         signals.insert(
             file.to_string(),
             HistorySignals {
@@ -191,6 +233,7 @@ pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, Hist
                 age_days: (last_ts - first_ts) as f64 / 86400.0,
                 last_touch_days: (now_ts - last_ts) as f64 / 86400.0,
                 burst_score: burst_score(&timestamps),
+                newcomer_rate: newcomer_rate(&window_authors, &first_seen, newcomer_window_start),
             },
         );
     }
@@ -329,5 +372,73 @@ mod tests {
         // c.rs: single commit -> baseline 1.0.
         let c = signals.get("c.rs").expect("c.rs present");
         assert_eq!(c.burst_score, 1.0);
+    }
+
+    #[test]
+    fn newcomer_rate_matches_reference() {
+        // Hand-computed case ported from F102's eval_ownership_axis_independence.py
+        // definition: window = [window_start, now]. alice's first-ever commit is
+        // before the window (not a newcomer); bob's first-ever commit is inside
+        // the window (a newcomer). All commits below fall inside a 90-day window
+        // ending "now", so window_authors == authors for both files.
+        let window_start = 0i64;
+        let first_seen: HashMap<&str, i64> =
+            HashMap::from([("alice", -1000), ("bob", window_start + 10)]);
+
+        // a.rs: alice, alice, bob -> 1 newcomer (bob) out of 3 = 1/3.
+        let window_authors = vec!["alice", "alice", "bob"];
+        let rate = newcomer_rate(&window_authors, &first_seen, window_start);
+        assert!((rate.unwrap() - (1.0 / 3.0)).abs() < 1e-9, "got {:?}", rate);
+
+        // b.rs: alice only -> 0 newcomers out of 1 = 0.0 (valid Some, not None).
+        let window_authors = vec!["alice"];
+        let rate = newcomer_rate(&window_authors, &first_seen, window_start);
+        assert_eq!(rate, Some(0.0));
+
+        // No commits in the window -> None (excluded), not 0.0.
+        let window_authors: Vec<&str> = vec![];
+        let rate = newcomer_rate(&window_authors, &first_seen, window_start);
+        assert_eq!(rate, None);
+    }
+
+    #[test]
+    fn compute_history_signals_newcomer_rate_excludes_no_window_data() {
+        // fixture_commits() timestamps are seconds-since-epoch day 0-10 (1970),
+        // far outside any 90-day window ending "now" (2026) — so every file's
+        // newcomer_rate is None (excluded), matching the "no commits in the
+        // window" case, not a `0.0` value.
+        let commits = fixture_commits();
+        let signals = compute_history_signals(&commits);
+        for file in ["a.rs", "b.rs", "c.rs"] {
+            let s = signals.get(file).expect("file present");
+            assert_eq!(
+                s.newcomer_rate, None,
+                "{file} has no commits in the 90-day window ending now"
+            );
+        }
+    }
+
+    #[test]
+    fn compute_history_signals_newcomer_rate_included_when_recent() {
+        // Same shape as fixture_commits() but with timestamps anchored to "now"
+        // so the commits fall inside the 90-day window and newcomer_rate is
+        // defined (Some), exercising the real end-to-end wiring through
+        // compute_history_signals (not just the newcomer_rate() unit above).
+        const DAY: i64 = 86400;
+        let now_ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let commits = vec![
+            commit(now_ts - 10 * DAY, "alice@example.com", &["a.rs"]),
+            commit(now_ts - 5 * DAY, "bob@example.com", &["a.rs"]),
+        ];
+        let signals = compute_history_signals(&commits);
+        let a = signals.get("a.rs").expect("a.rs present");
+        // alice's only commit is inside the window -> not a newcomer by this
+        // definition's "first commit inside window" rule only if her
+        // first-ever commit is also inside the window, which it is here
+        // (her only commit). bob likewise. Both are newcomers: rate = 1.0.
+        assert_eq!(a.newcomer_rate, Some(1.0));
     }
 }

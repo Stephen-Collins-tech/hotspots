@@ -140,6 +140,12 @@ enum Commands {
         /// not an automatic fallback when `hotspots train` fails its label threshold.
         #[arg(long)]
         cold_start: bool,
+
+        /// Print three independent ranked sections — Risk, Coupling, Ownership —
+        /// instead of a single merged list. Files may appear in more than one
+        /// section; overlap is not deduplicated. Use --top to control section size.
+        #[arg(long)]
+        axes: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -342,6 +348,7 @@ fn main() -> anyhow::Result<()> {
             hybrid_touches,
             skip_gate,
             cold_start,
+            axes,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -367,6 +374,7 @@ fn main() -> anyhow::Result<()> {
             hybrid_touches,
             skip_gate,
             cold_start,
+            axes,
         })?,
         Commands::Prune {
             unreachable,

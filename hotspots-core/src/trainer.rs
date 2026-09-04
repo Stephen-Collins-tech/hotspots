@@ -1554,6 +1554,7 @@ mod tests {
                 isolation_rate: None,
                 age_days: None,
                 last_touch_days: None,
+                newcomer_rate: None,
                 explanation: None,
             })
             .collect();
@@ -1729,6 +1730,7 @@ mod tests {
                 isolation_rate: Some(0.5),
                 age_days: Some(30.0),
                 last_touch_days: Some(1.0),
+                newcomer_rate: None,
                 explanation: None,
             })
             .collect();
@@ -1858,6 +1860,7 @@ mod tests {
             isolation_rate: None,
             age_days: None,
             last_touch_days: None,
+            newcomer_rate: None,
             explanation: None,
         };
         assert_eq!(cold_start_features(&func), [0.0; 8]);
