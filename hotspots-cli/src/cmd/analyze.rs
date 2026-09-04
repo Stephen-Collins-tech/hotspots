@@ -224,6 +224,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
             &resolved_config,
             effective_touch_mode,
             effective_top,
+            format,
         );
     }
 
@@ -381,8 +382,13 @@ fn handle_axes(
     resolved_config: &hotspots_core::ResolvedConfig,
     touch_mode: TouchMode,
     top: Option<usize>,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     use hotspots_core::ranking::{rank_by_axis, HotspotAxis};
+
+    if !matches!(format, OutputFormat::Text | OutputFormat::Json) {
+        anyhow::bail!("--axes only supports --format text or --format json");
+    }
 
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
@@ -425,11 +431,25 @@ fn handle_axes(
         None => 10,
     };
 
-    for (axis, header) in [
-        (HotspotAxis::Risk, "Risk Hotspots"),
-        (HotspotAxis::Coupling, "Coupling Hotspots"),
-        (HotspotAxis::Ownership, "Ownership Hotspots"),
-    ] {
+    let sections = [
+        (HotspotAxis::Risk, "Risk Hotspots", "risk"),
+        (HotspotAxis::Coupling, "Coupling Hotspots", "coupling"),
+        (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
+    ];
+
+    if matches!(format, OutputFormat::Json) {
+        let obj: serde_json::Map<String, serde_json::Value> = sections
+            .iter()
+            .map(|(axis, _, key)| {
+                let ranked = rank_by_axis(&snapshot.functions, *axis, top_n);
+                (key.to_string(), serde_json::to_value(ranked).unwrap())
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+        return Ok(());
+    }
+
+    for (axis, header, _) in sections {
         println!("{header}");
         let ranked = rank_by_axis(&snapshot.functions, axis, top_n);
         if ranked.is_empty() {

@@ -6,6 +6,7 @@
 //! a composite score, see `docs/promotion-briefs/f05-multi-axis-report.md`.
 
 use crate::snapshot::FunctionSnapshot;
+use serde::Serialize;
 
 /// A hotspot ranking axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +23,7 @@ pub enum HotspotAxis {
 }
 
 /// One ranked entry: a file path and the axis-specific score it was ranked by.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RankedFile {
     pub file: String,
     pub score: f64,
