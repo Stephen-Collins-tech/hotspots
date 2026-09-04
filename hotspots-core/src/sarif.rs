@@ -297,6 +297,7 @@ mod tests {
             isolation_rate: None,
             age_days: None,
             last_touch_days: None,
+            newcomer_rate: None,
             explanation: None,
         }
     }

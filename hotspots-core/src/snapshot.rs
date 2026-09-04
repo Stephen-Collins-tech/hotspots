@@ -253,6 +253,16 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_history_signals()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_touch_days: Option<f64>,
+    /// Fraction of this file's commits in the 90-day window before the snapshot
+    /// cutoff authored by someone whose first-ever commit to the repo also falls
+    /// in that window (F102/F05 Ownership axis field).
+    /// File-level (shared by all functions in the same file).
+    /// `None` when the file has no commits in the 90-day window (excluded, not
+    /// zero-filled) — distinct from `Some(0.0)`, a file with window commits and
+    /// no newcomers.
+    /// Populated by `Snapshot::populate_history_signals()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub newcomer_rate: Option<f64>,
     /// Human-readable explanation phrase derived from feature percentiles within this repo.
     /// Populated by the `--explain` path after the trained ranker is applied.
     /// None unless `--explain` was passed and a trained ranker is present.
@@ -504,6 +514,7 @@ impl Snapshot {
                     isolation_rate: None,
                     age_days: None,
                     last_touch_days: None,
+                    newcomer_rate: None,
                     explanation: None,
                 }
             })
@@ -726,6 +737,7 @@ impl Snapshot {
                 self.functions[i].isolation_rate = Some(s.isolation_rate);
                 self.functions[i].age_days = Some(s.age_days);
                 self.functions[i].last_touch_days = Some(s.last_touch_days);
+                self.functions[i].newcomer_rate = s.newcomer_rate;
             }
         }
     }

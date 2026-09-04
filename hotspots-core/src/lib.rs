@@ -36,6 +36,7 @@ pub mod patterns;
 pub mod phrases;
 pub mod policy;
 pub mod prune;
+pub mod ranking;
 pub mod report;
 pub mod risk;
 pub mod sarif;
