@@ -233,6 +233,11 @@ fn emit_diff_output(
                 "--format csv is not supported for diff (use --format json or --format html)"
             );
         }
+        OutputFormat::Xlsx => {
+            anyhow::bail!(
+                "--format xlsx is not supported for diff (use --format json or --format html)"
+            );
+        }
     }
 
     Ok(has_blocking_failures)
