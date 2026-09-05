@@ -1,18 +1,63 @@
 # Risk Score Stability & Predictability
 
-Hotspots exists to tell teams "this is the risky code" in a way they can trust
-over time. That promise only holds if the score itself behaves predictably —
-the same input always yields the same output, a score doesn't drift for
-reasons unrelated to the code, and when a score *does* change, the reason is
-attributable. This document surveys the mechanisms already in place, the
-places where predictability is weaker than it looks, and concrete next steps.
+Hotspots exists to tell teams "this is the risky code" in a way they can
+trust over time. That promise only holds if the score itself behaves
+predictably — the same input always yields the same output, a score doesn't
+drift for reasons unrelated to the code, and when a score *does* change, the
+reason is attributable.
+
+This document is written for everyone with a stake in the outcome, not just
+engineers: product managers deciding whether to trust a "release readiness"
+signal, customers relying on a report, salespeople describing the product
+accurately, and the engineers who build and maintain it. The first section
+explains the idea in plain language. The sections after it go into the
+technical detail, for readers who want it.
+
+## In plain terms
+
+Think of Hotspots like a smoke detector for code. A good smoke detector
+should:
+
+- **Go off for the same reason every time.** If nothing changed in the room,
+  it shouldn't suddenly start beeping.
+- **Not go off just because someone moved furniture in a different room.**
+  A change in one file shouldn't flip the alarm on an unrelated file.
+- **Tell you when its own batteries or settings changed**, so you know if a
+  new alarm is because something in the room got worse, or because the
+  detector itself got more sensitive.
+
+That's what "stability and predictability" means for a risk score: the
+number attached to a piece of code should reflect *that code*, should stay
+put when nothing about that code changed, and any real change in the number
+should be explainable. If a score bounces around for reasons that have
+nothing to do with the underlying code, people stop trusting it — and a
+tool used to gate releases or prioritize work is only useful if people
+trust it.
+
+The good news, covered in detail below, is that a lot of this is already
+built in: the core score (called LRS, for "Local Risk Score") is calculated
+per function, from that function's own structure, and is unaffected by
+what happens elsewhere in the codebase — so it behaves like a reliable
+measurement rather than a floating popularity contest. The tool also
+double-checks its own consistency (it runs its analysis twice and confirms
+it gets the same answer), and it keeps a record of the reasoning that
+produced a labelled version (e.g., "Critical") so a warning can be traced
+back to a cause.
+
+The gaps, also covered below, are mostly about *transparency when something
+does change* — for example, right now there's no built-in way to tell "the
+number changed because the tool was upgraded" apart from "the number
+changed because the code got worse." Closing gaps like that doesn't change
+what the tool measures — it makes it easier to trust and explain the
+numbers it already produces.
 
 ## Why this matters
 
-A risk score that moves for the wrong reasons is worse than no score at all:
-it erodes trust in CI gates (`policy.rs`), makes `hotspots diff`/`trends`
-noisy, and makes engineers stop believing "Critical" means something. Two
-different failure modes threaten this:
+A risk score that moves for the wrong reasons is worse than no score at
+all: it erodes trust in CI gates (checks that can block a pull request),
+makes trend reports noisy, and makes engineers stop believing a label like
+"Critical" means something specific. Two different failure modes threaten
+this:
 
 - **Non-determinism** — the same commit, analyzed twice, produces different
   numbers (randomness, iteration-order bugs, clock/thread dependence).
@@ -20,7 +65,15 @@ different failure modes threaten this:
   tool upgrade, an unrelated file elsewhere in the repo, or a rolling time
   window, with no signal telling the user *why*.
 
-## A. Existing mechanisms
+---
+
+## Technical detail
+
+*The rest of this document is aimed at engineers working on or evaluating
+the scoring internals. It references specific files and functions in the
+codebase.*
+
+### A. Existing mechanisms
 
 **Determinism is a stated architectural invariant.** `docs/ARCHITECTURE.md`
 enumerates it explicitly: no randomness/clocks/threads/async in analysis,
@@ -99,7 +152,7 @@ as a documented no-op for output-schema compatibility. Similarly,
 `convention_bug_fix_rate`) because of temporal leakage that would make the
 ranker unstable or circular.
 
-## B. Where predictability is weaker than it looks
+### B. Where predictability is weaker than it looks
 
 - **No formula version surfaced in output.** Snapshots record a
   `tool_version`, but scoring weights and thresholds can change between
@@ -130,7 +183,7 @@ ranker unstable or circular.
   tie-break — correct today, but fragile if candidate ordering ever changes
   incidentally as a side effect of an unrelated refactor.
 
-## C. Possible next steps
+### C. Possible next steps
 
 1. Add a `formula_version` (or `scoring_version`) field to snapshot
    `AnalysisInfo`, bumped whenever default weights/thresholds change, so
