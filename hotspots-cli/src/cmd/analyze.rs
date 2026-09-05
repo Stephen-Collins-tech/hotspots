@@ -1079,7 +1079,10 @@ fn emit_sarif_output(
 /// `--format csv`: one row per file, full inventory (ignores `--top` — a
 /// spreadsheet is for sorting/filtering everything, not a truncated view).
 /// See `hotspots_core::csv_report` for the triage/planning audience and
-/// column rationale.
+/// column rationale. Writes two files — the main table and a `-coupling`
+/// sibling — since coupling has a real value for only a minority of files
+/// on a typical repo and folding it into the main table means most rows
+/// read "n/a" on that column.
 fn emit_csv_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
@@ -1087,6 +1090,9 @@ fn emit_csv_output(
 ) -> anyhow::Result<()> {
     let csv = hotspots_core::csv_report::render_csv(&snapshot.functions, repo_root)
         .context("failed to render CSV report")?;
+    let coupling_csv =
+        hotspots_core::csv_report::render_coupling_csv(&snapshot.functions, repo_root)
+            .context("failed to render coupling CSV report")?;
     if let Some(output_path) = opts.output {
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)
@@ -1095,10 +1101,39 @@ fn emit_csv_output(
         std::fs::write(&output_path, &csv)
             .with_context(|| format!("failed to write CSV to {}", output_path.display()))?;
         eprintln!("CSV report written to: {}", output_path.display());
+
+        let coupling_path = coupling_sibling_path(&output_path);
+        std::fs::write(&coupling_path, &coupling_csv).with_context(|| {
+            format!(
+                "failed to write coupling CSV to {}",
+                coupling_path.display()
+            )
+        })?;
+        eprintln!(
+            "Coupling CSV report written to: {}",
+            coupling_path.display()
+        );
     } else {
         print!("{csv}");
+        println!();
+        println!("# coupling.csv — files with a directed_coupling relationship");
+        print!("{coupling_csv}");
     }
     Ok(())
+}
+
+/// Derives `<stem>-coupling.<ext>` next to `output_path` (e.g.
+/// `report.csv` -> `report-coupling.csv`).
+fn coupling_sibling_path(output_path: &Path) -> PathBuf {
+    let stem = output_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "report".to_string());
+    let file_name = match output_path.extension() {
+        Some(ext) => format!("{stem}-coupling.{}", ext.to_string_lossy()),
+        None => format!("{stem}-coupling"),
+    };
+    output_path.with_file_name(file_name)
 }
 
 fn apply_top_n(
