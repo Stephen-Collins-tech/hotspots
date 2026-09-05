@@ -258,6 +258,12 @@ pub struct FunctionSnapshot {
     /// None unless `--explain` was passed and a trained ranker is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explanation: Option<String>,
+    /// Confidence tier for this function's ranked score, derived from `total_churn`
+    /// (F10). Higher tiers indicate more training signal was available for this
+    /// function's history depth. Display-only — not used as a training feature or
+    /// to filter output. Populated by `Snapshot::populate_history_depth()`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_depth: Option<crate::trainer::HistoryDepth>,
 }
 
 /// Risk distribution by band
@@ -505,6 +511,7 @@ impl Snapshot {
                     age_days: None,
                     last_touch_days: None,
                     explanation: None,
+                    history_depth: None, // Populated separately by populate_history_depth()
                 }
             })
             .collect();
@@ -655,6 +662,20 @@ impl Snapshot {
     /// Files with fewer than 2 commits receive `Some(1.0)` (no burst signal).
     ///
     /// Errors are soft: if the git call fails, all functions keep `burst_score = None`.
+    /// Populate `history_depth` on every function from its already-computed `churn`
+    /// (F10). Pure computation — no git subprocess, no repo_root needed. Functions
+    /// with no churn data (`churn: None`) are treated as `total_churn = 0` → `Sparse`.
+    pub fn populate_history_depth(&mut self) {
+        for func in &mut self.functions {
+            let total_churn = func
+                .churn
+                .as_ref()
+                .map(|c| (c.lines_added + c.lines_deleted) as u32)
+                .unwrap_or(0);
+            func.history_depth = Some(crate::trainer::history_depth_tier(total_churn));
+        }
+    }
+
     pub fn populate_burst_score(&mut self, repo_root: &Path) {
         use std::collections::HashMap;
 

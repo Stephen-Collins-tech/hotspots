@@ -693,6 +693,7 @@ mod tests {
             age_days: None,
             last_touch_days: None,
             explanation: None,
+            history_depth: None,
         }
     }
 
