@@ -47,6 +47,7 @@ pub mod suppression;
 pub mod touch_cache;
 pub mod trainer;
 pub mod trends;
+pub mod xlsx_report;
 
 pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;

@@ -135,6 +135,9 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if matches!(format, OutputFormat::Csv) && *mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format csv requires --mode snapshot");
     }
+    if matches!(format, OutputFormat::Xlsx) && *mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--format xlsx requires --mode snapshot");
+    }
     Ok(())
 }
 
@@ -515,6 +518,7 @@ fn handle_default_output(
         }
         OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
         OutputFormat::Csv => anyhow::bail!("--format csv requires --mode snapshot"),
+        OutputFormat::Xlsx => anyhow::bail!("--format xlsx requires --mode snapshot"),
     }
     Ok(())
 }
@@ -661,11 +665,11 @@ fn handle_snapshot_mode(
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }
 
-    // `--format csv`'s Ownership column needs `newcomer_rate`, which the
-    // standard snapshot pipeline otherwise never populates (only the
-    // `--cold-start` and `--axes` paths call this today) — gated to CSV so
-    // other formats don't pay for an extra full-history `git log` walk.
-    if !skip_touch_metrics && matches!(format, OutputFormat::Csv) {
+    // `--format csv`/`--format xlsx`'s Ownership column needs `newcomer_rate`,
+    // which the standard snapshot pipeline otherwise never populates (only the
+    // `--cold-start` and `--axes` paths call this today) — gated to these two
+    // formats so others don't pay for an extra full-history `git log` walk.
+    if !skip_touch_metrics && matches!(format, OutputFormat::Csv | OutputFormat::Xlsx) {
         snapshot.populate_history_signals(repo_root);
     }
 
@@ -901,7 +905,11 @@ fn handle_models_mode(
                 hotspots_core::models::render_model_risk_json(&model_map)?
             );
         }
-        OutputFormat::Html | OutputFormat::Jsonl | OutputFormat::Sarif | OutputFormat::Csv => {
+        OutputFormat::Html
+        | OutputFormat::Jsonl
+        | OutputFormat::Sarif
+        | OutputFormat::Csv
+        | OutputFormat::Xlsx => {
             unreachable!("validated by validate_analyze_flags")
         }
     }
@@ -936,6 +944,7 @@ fn emit_snapshot_output(
         OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
         OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
+        OutputFormat::Xlsx => emit_xlsx_output(snapshot, repo_root, opts),
     }
 }
 
@@ -1079,10 +1088,9 @@ fn emit_sarif_output(
 /// `--format csv`: one row per file, full inventory (ignores `--top` — a
 /// spreadsheet is for sorting/filtering everything, not a truncated view).
 /// See `hotspots_core::csv_report` for the triage/planning audience and
-/// column rationale. Writes two files — the main table and a `-coupling`
-/// sibling — since coupling has a real value for only a minority of files
-/// on a typical repo and folding it into the main table means most rows
-/// read "n/a" on that column.
+/// column rationale. Single file, single table — coupling data lives only in
+/// `--format xlsx` (a real workbook can hold it as a separate sheet; CSV has
+/// no notion of multiple tables in one file, so it doesn't try to).
 fn emit_csv_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
@@ -1090,9 +1098,6 @@ fn emit_csv_output(
 ) -> anyhow::Result<()> {
     let csv = hotspots_core::csv_report::render_csv(&snapshot.functions, repo_root)
         .context("failed to render CSV report")?;
-    let coupling_csv =
-        hotspots_core::csv_report::render_coupling_csv(&snapshot.functions, repo_root)
-            .context("failed to render coupling CSV report")?;
     if let Some(output_path) = opts.output {
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)
@@ -1101,39 +1106,34 @@ fn emit_csv_output(
         std::fs::write(&output_path, &csv)
             .with_context(|| format!("failed to write CSV to {}", output_path.display()))?;
         eprintln!("CSV report written to: {}", output_path.display());
-
-        let coupling_path = coupling_sibling_path(&output_path);
-        std::fs::write(&coupling_path, &coupling_csv).with_context(|| {
-            format!(
-                "failed to write coupling CSV to {}",
-                coupling_path.display()
-            )
-        })?;
-        eprintln!(
-            "Coupling CSV report written to: {}",
-            coupling_path.display()
-        );
     } else {
         print!("{csv}");
-        println!();
-        println!("# coupling.csv — files with a directed_coupling relationship");
-        print!("{coupling_csv}");
     }
     Ok(())
 }
 
-/// Derives `<stem>-coupling.<ext>` next to `output_path` (e.g.
-/// `report.csv` -> `report-coupling.csv`).
-fn coupling_sibling_path(output_path: &Path) -> PathBuf {
-    let stem = output_path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "report".to_string());
-    let file_name = match output_path.extension() {
-        Some(ext) => format!("{stem}-coupling.{}", ext.to_string_lossy()),
-        None => format!("{stem}-coupling"),
-    };
-    output_path.with_file_name(file_name)
+/// `--format xlsx`: a real multi-sheet workbook — "Files" (the main triage
+/// table) and "Coupling" (files with a real `directed_coupling` value only).
+/// Binary format, so it always writes to a file: `--output`, or
+/// `.hotspots/report.xlsx` by default (mirrors HTML's default path).
+fn emit_xlsx_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let bytes = hotspots_core::xlsx_report::render_xlsx(&snapshot.functions, repo_root)
+        .context("failed to render XLSX report")?;
+    let output_path = opts
+        .output
+        .unwrap_or_else(|| snapshot::hotspots_dir(repo_root).join("report.xlsx"));
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+    }
+    std::fs::write(&output_path, &bytes)
+        .with_context(|| format!("failed to write XLSX to {}", output_path.display()))?;
+    eprintln!("XLSX report written to: {}", output_path.display());
+    Ok(())
 }
 
 fn apply_top_n(
@@ -1145,10 +1145,10 @@ fn apply_top_n(
 ) {
     let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
     let is_text = matches!(format, OutputFormat::Text);
-    // CSV always emits the full file inventory — a spreadsheet is for
+    // CSV/XLSX always emit the full file inventory — a spreadsheet is for
     // sorting/filtering everything, not a truncated view (see csv_report.rs).
-    let is_csv = matches!(format, OutputFormat::Csv);
-    if !is_aggregate_level && !is_csv && (top.is_some() || (is_text && explain)) {
+    let is_spreadsheet = matches!(format, OutputFormat::Csv | OutputFormat::Xlsx);
+    if !is_aggregate_level && !is_spreadsheet && (top.is_some() || (is_text && explain)) {
         snapshot.functions.sort_by(|a, b| {
             let a_score = a.activity_risk.unwrap_or(a.lrs);
             let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -1337,6 +1337,9 @@ fn emit_delta_output(
         }
         OutputFormat::Csv => {
             anyhow::bail!("--format csv is not supported for delta mode (use --mode snapshot)");
+        }
+        OutputFormat::Xlsx => {
+            anyhow::bail!("--format xlsx is not supported for delta mode (use --mode snapshot)");
         }
     }
 
