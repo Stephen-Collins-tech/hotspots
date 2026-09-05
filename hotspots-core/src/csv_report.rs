@@ -3,12 +3,19 @@
 //! Audience: a tech lead or EM doing triage, ownership handoff, or sprint
 //! planning in a spreadsheet — not a raw per-function data dump (that's
 //! `--format json --all-functions`) and not an in-IDE fix workflow (that's
-//! the text/HTML outputs). Rows are one per file, with the three F05 axes
-//! (Risk/Coupling/Ownership) as sortable/filterable columns side by side,
-//! plus enough context (band, quadrant, function/critical counts, subsystem)
-//! to triage without opening the tool again. Always the full file list,
-//! ignoring `--top` — a spreadsheet is for sorting/filtering everything,
-//! not a truncated view.
+//! the text/HTML outputs). Rows are one per file, plus enough context (band,
+//! quadrant, function/critical counts, subsystem) to triage without opening
+//! the tool again. Always the full file list, ignoring `--top` — a
+//! spreadsheet is for sorting/filtering everything, not a truncated view.
+//!
+//! Coupling lives in a **separate** output (`render_coupling_csv`), not the
+//! main table: on a real repo only ~20% of files have any `directed_coupling`
+//! relationship at all (most files never co-change with another file above
+//! the minimum count threshold), so folding it into the main table means most
+//! rows read "n/a" on that column — a dedicated sheet where every row has a
+//! real value is more useful than diluting the main table with mostly-empty
+//! cells. Ownership (`newcomer_rate`) stays in the main table since it's
+//! populated for a majority of files, not a small minority.
 
 use crate::risk::RiskBand;
 use crate::snapshot::FunctionSnapshot;
@@ -33,9 +40,14 @@ pub struct FileCsvRow {
     pub band: String,
     /// Quadrant of the file's highest-risk function (fire/debt/watch/ok), empty if unset.
     pub quadrant: String,
-    /// Coupling axis: `directed_coupling` rounded to 2dp, or `"n/a"` if absent/zero
-    /// (see `ranking::HotspotAxis`) — never a blank cell.
-    pub coupling: String,
+    /// Symbol name of the function that earned `risk_score` (the file's max, not an
+    /// average) — per hotspots-research F110/F111/F112, file-level rollup can hide or
+    /// invert the real signal, which lives at function granularity. Carrying the
+    /// function forward means a row is still actionable without re-deriving which
+    /// function the tool already identified as the actual driver.
+    pub top_function: String,
+    /// Line number of `top_function`, for jumping straight to it.
+    pub top_function_line: u32,
     /// Ownership axis: `newcomer_rate` rounded to 2dp, or `"n/a"` if the file has no
     /// commits in the 90-day window — never a blank cell, and never confused with a
     /// real `0.00` (a file with window commits and zero newcomers).
@@ -54,6 +66,14 @@ fn fmt_axis_value(v: Option<f64>) -> String {
     }
 }
 
+/// Extract the symbol name from a `function_id` of the form `<file>::<symbol>`.
+/// Falls back to the full `function_id` if the separator isn't found.
+fn function_symbol(function_id: &str) -> &str {
+    function_id
+        .rsplit_once("::")
+        .map_or(function_id, |(_, s)| s)
+}
+
 /// Repo-relative path with `/` separators, falling back to the original string
 /// (also `/`-normalized) if it isn't under `repo_root`.
 fn relativize(file: &str, repo_root: &Path) -> String {
@@ -65,8 +85,8 @@ fn relativize(file: &str, repo_root: &Path) -> String {
 
 /// Aggregate `functions` into one row per file, sorted by `risk_score` descending
 /// (ties broken by file path for determinism). Mirrors the file-level dedup logic
-/// in `ranking::rank_by_axis` (max risk score per file; `directed_coupling` and
-/// `newcomer_rate` are already file-level so any function's value represents the file).
+/// in `ranking::rank_by_axis` (max risk score per file; `newcomer_rate` is already
+/// file-level so any function's value represents the file).
 pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -> Vec<FileCsvRow> {
     use std::collections::HashMap;
 
@@ -74,7 +94,8 @@ pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -
         best_risk: f64,
         best_band: &'a RiskBand,
         best_quadrant: &'a Option<String>,
-        coupling: Option<f64>,
+        best_function_id: &'a str,
+        best_line: u32,
         ownership_newcomer_rate: Option<f64>,
         function_count: usize,
         critical_count: usize,
@@ -89,7 +110,8 @@ pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -
             best_risk: f64::MIN,
             best_band: &f.band,
             best_quadrant: &f.quadrant,
-            coupling: f.directed_coupling.filter(|&dc| dc != 0.0),
+            best_function_id: f.function_id.as_str(),
+            best_line: f.line,
             ownership_newcomer_rate: f.newcomer_rate,
             function_count: 0,
             critical_count: 0,
@@ -100,6 +122,8 @@ pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -
             entry.best_risk = risk;
             entry.best_band = &f.band;
             entry.best_quadrant = &f.quadrant;
+            entry.best_function_id = f.function_id.as_str();
+            entry.best_line = f.line;
         }
         entry.function_count += 1;
         if matches!(f.band, RiskBand::Critical) {
@@ -115,7 +139,8 @@ pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -
             risk_score: acc.best_risk,
             band: acc.best_band.as_str().to_string(),
             quadrant: acc.best_quadrant.clone().unwrap_or_default(),
-            coupling: fmt_axis_value(acc.coupling),
+            top_function: function_symbol(acc.best_function_id).to_string(),
+            top_function_line: acc.best_line,
             ownership_newcomer_rate: fmt_axis_value(acc.ownership_newcomer_rate),
             function_count: acc.function_count,
             critical_count: acc.critical_count,
@@ -135,6 +160,62 @@ pub fn compute_file_csv_rows(functions: &[FunctionSnapshot], repo_root: &Path) -
 /// Render `functions` as a CSV string, one row per file (see `compute_file_csv_rows`).
 pub fn render_csv(functions: &[FunctionSnapshot], repo_root: &Path) -> anyhow::Result<String> {
     let rows = compute_file_csv_rows(functions, repo_root);
+    let mut writer = csv::Writer::from_writer(vec![]);
+    for row in &rows {
+        writer.serialize(row)?;
+    }
+    let bytes = writer.into_inner()?;
+    Ok(String::from_utf8(bytes)?)
+}
+
+/// One row per file with a coupling relationship. Column order is the CSV column order.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CouplingCsvRow {
+    pub file: String,
+    /// `directed_coupling`, rounded to 2dp. Every row here has a real value —
+    /// files with none are excluded entirely, not represented as `"n/a"" rows
+    /// (see module docs for why coupling gets its own output).
+    pub coupling: f64,
+}
+
+/// Files with a defined (non-zero) `directed_coupling`, sorted descending.
+/// Excludes files with none at all — this output's whole purpose is to be a
+/// place where every row is real, unlike a "n/a"-heavy column in the main table.
+pub fn compute_coupling_csv_rows(
+    functions: &[FunctionSnapshot],
+    repo_root: &Path,
+) -> Vec<CouplingCsvRow> {
+    use std::collections::HashMap;
+
+    let mut by_file: HashMap<&str, f64> = HashMap::new();
+    for f in functions {
+        if let Some(dc) = f.directed_coupling.filter(|&dc| dc != 0.0) {
+            by_file.entry(f.file.as_str()).or_insert(dc);
+        }
+    }
+
+    let mut rows: Vec<CouplingCsvRow> = by_file
+        .into_iter()
+        .map(|(file, coupling)| CouplingCsvRow {
+            file: relativize(file, repo_root),
+            coupling: (coupling * 100.0).round() / 100.0,
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.coupling
+            .total_cmp(&a.coupling)
+            .then_with(|| a.file.cmp(&b.file))
+    });
+    rows
+}
+
+/// Render the coupling-only CSV (see `compute_coupling_csv_rows`).
+pub fn render_coupling_csv(
+    functions: &[FunctionSnapshot],
+    repo_root: &Path,
+) -> anyhow::Result<String> {
+    let rows = compute_coupling_csv_rows(functions, repo_root);
     let mut writer = csv::Writer::from_writer(vec![]);
     for row in &rows {
         writer.serialize(row)?;
@@ -244,19 +325,59 @@ mod tests {
     }
 
     #[test]
-    fn coupling_excludes_zero() {
-        let mut functions = vec![fixture("a.rs", 10, RiskBand::Low)];
-        functions[0].directed_coupling = Some(0.0);
+    fn top_function_is_the_symbol_from_the_highest_risk_function() {
+        let mut functions = vec![
+            fixture("a.rs", 10, RiskBand::Low),
+            fixture("a.rs", 10, RiskBand::Low),
+        ];
+        functions[0].function_id = "a.rs::low_risk_fn".to_string();
+        functions[0].activity_risk = Some(1.0);
+        functions[0].line = 5;
+        functions[1].function_id = "a.rs::high_risk_fn".to_string();
+        functions[1].activity_risk = Some(9.0);
+        functions[1].line = 42;
         let rows = compute_file_csv_rows(&functions, &root());
-        assert_eq!(rows[0].coupling, "n/a");
+        assert_eq!(rows[0].top_function, "high_risk_fn");
+        assert_eq!(rows[0].top_function_line, 42);
     }
 
     #[test]
-    fn coupling_present_is_rounded_not_blank() {
+    fn coupling_excludes_zero_from_coupling_csv() {
+        let mut functions = vec![fixture("a.rs", 10, RiskBand::Low)];
+        functions[0].directed_coupling = Some(0.0);
+        let rows = compute_coupling_csv_rows(&functions, &root());
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn coupling_present_is_rounded_in_coupling_csv() {
         let mut functions = vec![fixture("a.rs", 10, RiskBand::Low)];
         functions[0].directed_coupling = Some(12.3456);
-        let rows = compute_file_csv_rows(&functions, &root());
-        assert_eq!(rows[0].coupling, "12.35");
+        let rows = compute_coupling_csv_rows(&functions, &root());
+        assert_eq!(rows[0].coupling, 12.35);
+    }
+
+    #[test]
+    fn coupling_csv_sorted_descending() {
+        let mut functions = vec![
+            fixture("a.rs", 10, RiskBand::Low),
+            fixture("b.rs", 10, RiskBand::Low),
+        ];
+        functions[0].directed_coupling = Some(5.0);
+        functions[1].directed_coupling = Some(10.0);
+        let rows = compute_coupling_csv_rows(&functions, &root());
+        let files: Vec<&str> = rows.iter().map(|r| r.file.as_str()).collect();
+        assert_eq!(files, vec!["b.rs", "a.rs"]);
+    }
+
+    #[test]
+    fn render_coupling_csv_produces_header_and_rows() {
+        let mut functions = vec![fixture("a.rs", 10, RiskBand::Low)];
+        functions[0].directed_coupling = Some(3.5);
+        let csv_str = render_coupling_csv(&functions, &root()).unwrap();
+        let mut lines = csv_str.lines();
+        assert_eq!(lines.next().unwrap(), "file,coupling");
+        assert_eq!(lines.next().unwrap(), "a.rs,3.5");
     }
 
     #[test]
@@ -311,7 +432,7 @@ mod tests {
         let mut lines = csv_str.lines();
         assert_eq!(
             lines.next().unwrap(),
-            "file,risk_score,band,quadrant,coupling,ownership_newcomer_rate,function_count,critical_count,loc,subsystem"
+            "file,risk_score,band,quadrant,top_function,top_function_line,ownership_newcomer_rate,function_count,critical_count,loc,subsystem"
         );
         assert!(lines.next().unwrap().starts_with("a.rs,"));
     }
