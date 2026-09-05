@@ -935,7 +935,7 @@ fn emit_snapshot_output(
         OutputFormat::Text => emit_text_output(snapshot, repo_root, opts),
         OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
-        OutputFormat::Csv => emit_csv_output(snapshot, opts),
+        OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
     }
 }
 
@@ -1080,8 +1080,12 @@ fn emit_sarif_output(
 /// spreadsheet is for sorting/filtering everything, not a truncated view).
 /// See `hotspots_core::csv_report` for the triage/planning audience and
 /// column rationale.
-fn emit_csv_output(snapshot: &mut Snapshot, opts: SnapshotOutputOpts) -> anyhow::Result<()> {
-    let csv = hotspots_core::csv_report::render_csv(&snapshot.functions)
+fn emit_csv_output(
+    snapshot: &mut Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let csv = hotspots_core::csv_report::render_csv(&snapshot.functions, repo_root)
         .context("failed to render CSV report")?;
     if let Some(output_path) = opts.output {
         if let Some(parent) = output_path.parent() {
