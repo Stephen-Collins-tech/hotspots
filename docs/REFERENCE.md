@@ -31,6 +31,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
 | `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
 | `--skip-gate` | off | Disable suppression gate P@10 check |
+| — | — | Suppression gate verdicts are smoothed: `Suppressed` is only reported after 3 consecutive raw `Suppressed` readings across runs, tracked in `.hotspots/gate_history.json` |
 | `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
 | `-j N` / `--jobs N` | CPU count | Parallel worker threads |
 

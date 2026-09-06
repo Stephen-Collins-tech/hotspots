@@ -3,7 +3,7 @@ use crate::util::{find_repo_root, write_html_report};
 use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
 use hotspots_core::delta::Delta;
-use hotspots_core::gate::{check_gate, GateConfig, GateVerdict};
+use hotspots_core::gate::{check_gate_smoothed, GateConfig, GateVerdict};
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
@@ -702,11 +702,14 @@ fn handle_snapshot_mode(
 
     // Suppression gate: check if the activity ranker is working on this repo.
     // Run on the full sorted snapshot (before top-N truncation) so calibration
-    // sees a representative top-50.
+    // sees a representative top-50. The verdict is smoothed across runs
+    // (`.hotspots/gate_history.json`) so a single sparse/bursty 90-day window
+    // can't flip the reported verdict — see `GateConfig::consecutive_suppressed`.
     // Inconclusive is silent — it fires on greenfield repos or non-conventional
     // commit histories and is not actionable.
     if !skip_gate {
-        let gate_verdict = check_gate(repo_root, &snapshot.functions, &GateConfig::default());
+        let gate_verdict =
+            check_gate_smoothed(repo_root, &snapshot.functions, &GateConfig::default());
         if let GateVerdict::Suppressed {
             p_at_10, threshold, ..
         } = &gate_verdict
