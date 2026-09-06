@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Add risk score stability and predictability doc
 - Add plain-language summary to stability doc
+- Audit cumulative features for ratchet risk
+- Classify percentile/driver/quadrant as label-relative
 
 
 ### Features
