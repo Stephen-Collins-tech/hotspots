@@ -578,3 +578,136 @@ fn cold_start_lowlabel_gate_uses_function_level_not_file_level_labels() {
         "function-level pos_rate (0.15) should drive the gate, not file-level (1.0)"
     );
 }
+
+// ── Determinism ────────────────────────────────────────────────────────────────
+
+/// `hotspots train`, run twice on identical snapshot + git-history input, must
+/// produce byte-for-byte identical `RankerModel` JSON. Mirrors the analysis
+/// determinism test pattern (e.g. `test_golden_determinism` in golden_tests.rs):
+/// run twice, serialize, assert the JSON strings are equal.
+#[test]
+fn train_is_deterministic_across_runs() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    fn make_py_file(n: usize) -> String {
+        (0..n)
+            .map(|i| format!("def func_{i}():\n    x = {i}\n    return x\n\n"))
+            .collect()
+    }
+
+    commit_file(p, "buggy.py", &make_py_file(20), "feat: add buggy module");
+    commit_file(
+        p,
+        "clean_a.py",
+        &make_py_file(20),
+        "feat: add clean_a module",
+    );
+    commit_file(
+        p,
+        "clean_b.py",
+        &make_py_file(20),
+        "feat: add clean_b module",
+    );
+
+    for i in 0..8 {
+        let content = format!("{}\n# fix iteration {i}", make_py_file(20));
+        commit_file(
+            p,
+            "buggy.py",
+            &content,
+            &format!("fix: patch issue #{i} in buggy"),
+        );
+    }
+
+    let mut functions = Vec::new();
+    for i in 0u32..20 {
+        let mut f = make_func("buggy.py", &format!("buggy_func_{i}"), i * 4 + 1);
+        f.metrics.cc = 10;
+        f.lrs = 5.0;
+        functions.push(f);
+    }
+    for i in 0u32..20 {
+        functions.push(make_func(
+            "clean_a.py",
+            &format!("clean_a_func_{i}"),
+            i * 4 + 1,
+        ));
+    }
+    for i in 0u32..20 {
+        functions.push(make_func(
+            "clean_b.py",
+            &format!("clean_b_func_{i}"),
+            i * 4 + 1,
+        ));
+    }
+    let snapshot = make_snapshot(functions);
+
+    let cfg = TrainConfig {
+        n_estimators: 50,
+        ..Default::default()
+    };
+
+    let model1 = train(&snapshot, p, &cfg, None)
+        .expect("train")
+        .expect("model should be returned — enough training signal");
+    let model2 = train(&snapshot, p, &cfg, None)
+        .expect("train")
+        .expect("model should be returned — enough training signal");
+
+    let json1 = serde_json::to_string_pretty(&model1).expect("serialize model1");
+    let json2 = serde_json::to_string_pretty(&model2).expect("serialize model2");
+
+    assert_eq!(
+        json1, json2,
+        "RankerModel JSON must be byte-for-byte identical across runs on identical input"
+    );
+}
+
+/// `cold_start_rank`, run twice on identical snapshot + git-history input, must
+/// produce an identical route and ranking order/scores.
+#[test]
+fn cold_start_rank_is_deterministic_across_runs() {
+    let dir = init_repo();
+    let p = dir.path();
+
+    let mut blocks = make_blocks(20);
+    commit_file(p, "big.py", &render_blocks(&blocks), "feat: add big module");
+    for target in [2usize, 7, 13] {
+        blocks[target] = format!("def func_{target}():\n    x = {target}  # fixed\n    return x\n");
+        commit_file(
+            p,
+            "big.py",
+            &render_blocks(&blocks),
+            &format!("fix: correct func_{target}"),
+        );
+    }
+
+    let mut counts = vec![1u32; 20];
+    counts[0] = 30;
+    let snap = make_snapshot_with_file_and_counts("big.py", 20, &counts);
+
+    let result1 = cold_start_rank(&snap, p, &TrainConfig::default());
+    let result2 = cold_start_rank(&snap, p, &TrainConfig::default());
+
+    assert_eq!(
+        result1.route, result2.route,
+        "cold_start_rank route must be identical across runs"
+    );
+
+    let ranked1: Vec<(String, f64)> = result1
+        .ranked
+        .iter()
+        .map(|sf| (sf.function_id.clone(), sf.score))
+        .collect();
+    let ranked2: Vec<(String, f64)> = result2
+        .ranked
+        .iter()
+        .map(|sf| (sf.function_id.clone(), sf.score))
+        .collect();
+
+    assert_eq!(
+        ranked1, ranked2,
+        "cold_start_rank ranking order/scores must be identical across runs"
+    );
+}
