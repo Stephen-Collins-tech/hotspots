@@ -531,6 +531,21 @@ changes on every release; `formula_version` does not — use it in `hotspots
 diff`/`trends` tooling to tell a score delta caused by a tool upgrade apart
 from one caused by a real code change.
 
+**`formula_version` vs. config `schema_version` — not the same thing.**
+`formula_version` tracks changes to hotspots' *built-in default* weights/thresholds
+(`ScoringWeights::default()` etc.) and is unaffected by a user's own
+`.hotspotsrc.json` — a repo with fully custom weights sees the same
+`formula_version` as one with no config at all, because *their* scoring didn't
+change even when the shipped defaults did. Config `schema_version` (above) tracks
+the *shape/meaning* of the config file format itself — e.g. a field being renamed
+or changing units — independent of what any particular default value is. A release
+that changes a default weight's value bumps `formula_version` only; a release that
+changes what a config field *means* bumps `schema_version` (and `formula_version`
+too, if that also changes computed scores). Note `formula_version` today only
+covers default-value changes, not changes to the scoring formula's structure
+(e.g. adding/removing a term from `compute_activity_risk`) — a structural change
+is not guaranteed to bump it.
+
 ### Function fields (v2 / `--all-functions`)
 
 ```json
