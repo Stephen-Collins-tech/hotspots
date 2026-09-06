@@ -22,11 +22,24 @@
 //! The binary labels come from an on-the-fly commit scan — no pre-built holdout
 //! required. The 90-day window matches the prediction horizon in both the ranker
 //! and the LLM fallback prompt.
+//!
+//! ## Verdict smoothing
+//!
+//! A single 90-day window can be sparse or bursty (a repo with few fix commits
+//! that quarter can flip P@10 across the threshold from run to run without any
+//! real change in ranker quality). [`check_gate_smoothed`] guards against this
+//! by requiring `consecutive_suppressed` back-to-back raw `Suppressed` readings
+//! before the *reported* verdict flips to `Suppressed`. Raw readings are
+//! persisted to `.hotspots/gate_history.json` (reusing the repo's existing
+//! `.hotspots/` state directory) so the count survives across CLI invocations.
+//! `Inconclusive` readings do not count as either a hit or a miss — they are
+//! passed through unchanged and do not reset or extend the streak.
 
 use crate::snapshot::FunctionSnapshot;
 use crate::trainer::{make_rel, repo_prefixes};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Result of the suppression gate check.
@@ -70,6 +83,13 @@ pub struct GateConfig {
     pub cal_n: usize,
     /// P@10 below this → suppress the ranker.
     pub threshold: f64,
+    /// Number of consecutive raw `Suppressed` readings (across historical runs,
+    /// via `check_gate_smoothed`) required before the reported verdict flips to
+    /// `Suppressed`. Defaults to 3: `hotspots analyze` typically runs on every
+    /// push or on a daily CI schedule, so 3 consecutive readings corresponds to
+    /// roughly 3 runs of sustained failure — enough to rule out a single sparse
+    /// or bursty 90-day window while still reacting within a few days.
+    pub consecutive_suppressed: usize,
 }
 
 impl Default for GateConfig {
@@ -78,6 +98,7 @@ impl Default for GateConfig {
             window_days: 90,
             cal_n: 50,
             threshold: 0.5,
+            consecutive_suppressed: 3,
         }
     }
 }
@@ -134,6 +155,96 @@ pub fn check_gate(
             fix_files_found: fix_files.len(),
         }
     }
+}
+
+/// On-disk record of recent raw (unsmoothed) gate readings, oldest first.
+/// Capped to `consecutive_suppressed` entries — that's all `smooth_verdict`
+/// needs to decide whether the streak is unbroken.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct GateHistory {
+    /// `true` for a raw `Suppressed` reading, `false` for `Pass`.
+    readings: Vec<bool>,
+}
+
+fn gate_history_path(repo_root: &Path) -> PathBuf {
+    crate::snapshot::hotspots_dir(repo_root).join("gate_history.json")
+}
+
+fn load_gate_history(path: &Path) -> GateHistory {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_gate_history(path: &Path, history: &GateHistory) {
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    if let Ok(json) = serde_json::to_string(history) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+/// Fold one new raw reading into `history` and decide the smoothed verdict.
+///
+/// `Inconclusive` readings pass through untouched — they neither extend nor
+/// reset the consecutive-`Suppressed` streak, since they carry no signal about
+/// ranker quality either way. A raw `Suppressed` reading is only reported as
+/// `Suppressed` once the last `consecutive_suppressed` readings (including
+/// this one) are all `Suppressed`; otherwise it is reported as `Pass` (with
+/// the same `p_at_10`/`fix_files_found` the raw reading computed) so the
+/// streak can still be observed without flipping CI red prematurely.
+fn smooth_verdict(
+    raw: GateVerdict,
+    history: &mut GateHistory,
+    consecutive_suppressed: usize,
+) -> GateVerdict {
+    let consecutive_suppressed = consecutive_suppressed.max(1);
+
+    if matches!(raw, GateVerdict::Inconclusive { .. }) {
+        return raw;
+    }
+
+    history.readings.push(raw.is_suppressed());
+    let len = history.readings.len();
+    if len > consecutive_suppressed {
+        history.readings.drain(0..len - consecutive_suppressed);
+    }
+
+    let streak_complete = history.readings.len() == consecutive_suppressed
+        && history.readings.iter().all(|&suppressed| suppressed);
+
+    match raw {
+        GateVerdict::Suppressed {
+            p_at_10,
+            fix_files_found,
+            ..
+        } if !streak_complete => GateVerdict::Pass {
+            p_at_10,
+            fix_files_found,
+        },
+        other => other,
+    }
+}
+
+/// Like [`check_gate`], but smooths the verdict across historical runs: the
+/// reported verdict only flips to `Suppressed` after `config.consecutive_suppressed`
+/// back-to-back raw `Suppressed` readings. Reading history is persisted to
+/// `.hotspots/gate_history.json` under `repo_root`.
+pub fn check_gate_smoothed(
+    repo_root: &Path,
+    functions: &[FunctionSnapshot],
+    config: &GateConfig,
+) -> GateVerdict {
+    let raw = check_gate(repo_root, functions, config);
+    let history_path = gate_history_path(repo_root);
+    let mut history = load_gate_history(&history_path);
+    let smoothed = smooth_verdict(raw, &mut history, config.consecutive_suppressed);
+    save_gate_history(&history_path, &history);
+    smoothed
 }
 
 /// Scan git history for files touched by fix commits in the last `window_days` days.
@@ -278,5 +389,88 @@ mod tests {
             threshold: 0.5
         }
         .is_suppressed());
+    }
+
+    fn suppressed(p_at_10: f64) -> GateVerdict {
+        GateVerdict::Suppressed {
+            p_at_10,
+            fix_files_found: 1,
+            threshold: 0.5,
+        }
+    }
+
+    fn pass(p_at_10: f64) -> GateVerdict {
+        GateVerdict::Pass {
+            p_at_10,
+            fix_files_found: 1,
+        }
+    }
+
+    #[test]
+    fn test_smooth_verdict_oscillating_never_flips() {
+        // Suppressed, Pass, Suppressed, Pass, ... never produces 2 consecutive
+        // raw Suppressed readings, so the smoothed verdict should never flip.
+        let mut history = GateHistory::default();
+        let raws = [
+            suppressed(0.1),
+            pass(0.9),
+            suppressed(0.0),
+            pass(0.8),
+            suppressed(0.2),
+        ];
+        for raw in raws {
+            let smoothed = smooth_verdict(raw, &mut history, 2);
+            assert!(
+                !smoothed.is_suppressed(),
+                "oscillating readings should not flip the smoothed verdict"
+            );
+        }
+    }
+
+    #[test]
+    fn test_smooth_verdict_n_consecutive_flips() {
+        // 3 consecutive Suppressed readings should flip the smoothed verdict
+        // once the streak is complete, but not before.
+        let mut history = GateHistory::default();
+        assert!(!smooth_verdict(suppressed(0.1), &mut history, 3).is_suppressed());
+        assert!(!smooth_verdict(suppressed(0.1), &mut history, 3).is_suppressed());
+        assert!(smooth_verdict(suppressed(0.1), &mut history, 3).is_suppressed());
+    }
+
+    #[test]
+    fn test_smooth_verdict_pass_resets_streak() {
+        let mut history = GateHistory::default();
+        assert!(!smooth_verdict(suppressed(0.1), &mut history, 2).is_suppressed());
+        assert!(!smooth_verdict(pass(0.9), &mut history, 2).is_suppressed());
+        // Streak was broken by the Pass reading, so one more Suppressed isn't enough.
+        assert!(!smooth_verdict(suppressed(0.1), &mut history, 2).is_suppressed());
+        assert!(smooth_verdict(suppressed(0.1), &mut history, 2).is_suppressed());
+    }
+
+    #[test]
+    fn test_smooth_verdict_inconclusive_passthrough() {
+        // Inconclusive readings are neither smoothed nor do they affect the streak.
+        let mut history = GateHistory::default();
+        assert!(!smooth_verdict(suppressed(0.1), &mut history, 2).is_suppressed());
+        let inconclusive = GateVerdict::Inconclusive {
+            reason: "no fix commits found".to_string(),
+        };
+        let result = smooth_verdict(inconclusive.clone(), &mut history, 2);
+        assert_eq!(result, inconclusive);
+        // The streak from before the Inconclusive reading is preserved.
+        assert!(smooth_verdict(suppressed(0.1), &mut history, 2).is_suppressed());
+    }
+
+    #[test]
+    fn test_check_gate_smoothed_persists_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_root = dir.path();
+        // Not a git repo, so scan_fix_files fails and check_gate returns
+        // Inconclusive on every call — this just verifies check_gate_smoothed
+        // runs end-to-end (I/O path) without panicking and passes Inconclusive
+        // through unchanged.
+        let functions = stub_fns(&["a.rs"]);
+        let verdict = check_gate_smoothed(repo_root, &functions, &GateConfig::default());
+        assert!(matches!(verdict, GateVerdict::Inconclusive { .. }));
     }
 }
