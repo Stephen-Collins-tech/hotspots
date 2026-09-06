@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Add formula_version to snapshot AnalysisInfo (#176)
+- Add schema_version field to HotspotsConfig (#175)
 
 ## [1.35.5] - 2026-09-02
 
