@@ -351,7 +351,10 @@ fn handle_cold_start(
     snapshot.populate_history_signals(&repo_root);
     snapshot.populate_authors_90d(&repo_root);
 
-    let train_cfg = hotspots_core::trainer::TrainConfig::default();
+    let train_cfg = hotspots_core::trainer::TrainConfig {
+        gini_dead_zone: resolved_config.cold_start_gini_dead_zone,
+        ..Default::default()
+    };
     let result = hotspots_core::trainer::cold_start_rank(&snapshot, &repo_root, &train_cfg);
 
     let route_label = match result.route {

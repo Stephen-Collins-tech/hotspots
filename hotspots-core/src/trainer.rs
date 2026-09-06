@@ -379,6 +379,10 @@ pub struct TrainConfig {
     /// When set, only commits before this date are used as training labels.
     /// Useful for matching a specific benchmark label window.
     pub label_before: Option<String>,
+    /// Dead-zone width (in Gini points) subtracted from `LOW_GINI` before
+    /// `cold_start_rank()` switches from the `Formula` route to the `Anomaly`
+    /// route (default: 0.0, no dead zone). See `cold_start_rank` for details.
+    pub gini_dead_zone: f64,
 }
 
 impl Default for TrainConfig {
@@ -390,6 +394,7 @@ impl Default for TrainConfig {
             seed: 42,
             blame_labels: false,
             label_before: None,
+            gini_dead_zone: 0.0,
         }
     }
 }
@@ -813,11 +818,19 @@ pub fn gini_coefficient(values: &[f64]) -> f64 {
 /// Routes via the Gini coefficient of `commit_count` across all functions (F62):
 /// - `Gini >= HIGH_GINI` (or the 0.55-0.60 middle zone) → `Formula`: rank by the
 ///   existing `activity_risk`/`lrs` score, no new model needed.
-/// - `Gini < LOW_GINI` → `Anomaly`: fit a label-free `IsolationForest` on the 8-feature
-///   cold-start vector (`cold_start_features`) and rank by anomaly score.
+/// - `Gini < LOW_GINI - cfg.gini_dead_zone` → `Anomaly`: fit a label-free
+///   `IsolationForest` on the 8-feature cold-start vector (`cold_start_features`)
+///   and rank by anomaly score.
 /// - Uniform-prior guard (checked first): if the top 10% of files by `commit_count`
 ///   account for less than 20% of total commits, no file stands out even by raw count
 ///   — return a uniform prior rather than a manufactured ranking.
+///
+/// `cfg.gini_dead_zone` (default `0.0`) widens the ambiguous middle zone that
+/// already defaults to `Formula` by lowering the effective `Anomaly` boundary:
+/// a repo whose Gini sits inside `[LOW_GINI - gini_dead_zone, LOW_GINI)` now
+/// routes to `Formula` instead of flipping to `Anomaly`, damping boundary
+/// flicker from marginal commits. `HIGH_GINI` and `LOW_GINI` themselves are
+/// unchanged — the dead zone only shrinks the `Anomaly` region.
 ///
 /// Two streaming passes over `snapshot.functions` on the `Anomaly` route (fit, then
 /// score) — no intermediate full-matrix structure is built at any point.
@@ -900,8 +913,9 @@ pub fn cold_start_rank(
     }
 
     let gini = gini_coefficient(&commit_counts);
+    let effective_low_gini = LOW_GINI - cfg.gini_dead_zone;
 
-    if gini < LOW_GINI {
+    if gini < effective_low_gini {
         return anomaly_route();
     }
 
@@ -1805,6 +1819,62 @@ mod tests {
         for w in result.ranked.windows(2) {
             assert!(w[0].score >= w[1].score);
         }
+    }
+
+    #[test]
+    fn cold_start_regression_boundaries_unchanged_with_zero_dead_zone() {
+        // gini ≈ 0.518, just under LOW_GINI (0.55) — with the default (0.0) dead
+        // zone this must still route to Anomaly exactly as before the hysteresis
+        // change (LOW_GINI/HIGH_GINI values themselves are untouched by this issue).
+        let mut counts = vec![1u32; 19];
+        counts.push(25);
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let gini = gini_coefficient(&counts.iter().map(|&c| c as f64).collect::<Vec<_>>());
+        assert!(
+            gini < LOW_GINI && gini > LOW_GINI - 0.05,
+            "test fixture gini {gini} out of expected range"
+        );
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let result = cold_start_rank(&snap, dir.path(), &TrainConfig::default());
+        assert_eq!(result.route, ColdStartRoute::Anomaly);
+    }
+
+    #[test]
+    fn cold_start_dead_zone_routes_boundary_gini_to_formula() {
+        // Same fixture as above (gini ≈ 0.518, just under LOW_GINI), but with a
+        // dead zone wide enough to pull the effective Anomaly threshold below the
+        // fixture's gini — the boundary value should now route to Formula instead
+        // of flipping to Anomaly.
+        let mut counts = vec![1u32; 19];
+        counts.push(25);
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let gini = gini_coefficient(&counts.iter().map(|&c| c as f64).collect::<Vec<_>>());
+        let dead_zone = (LOW_GINI - gini) + 0.01;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg = TrainConfig {
+            gini_dead_zone: dead_zone,
+            ..Default::default()
+        };
+        let result = cold_start_rank(&snap, dir.path(), &cfg);
+        assert_eq!(result.route, ColdStartRoute::Formula);
+    }
+
+    #[test]
+    fn cold_start_high_gini_route_unaffected_by_dead_zone() {
+        // gini ≈ 0.56, already >= LOW_GINI — a dead zone only shrinks the Anomaly
+        // region below LOW_GINI, so this must remain Formula regardless.
+        let mut counts = vec![1u32; 20];
+        counts[0] = 30;
+        let snap = make_snapshot_with_commit_counts(&counts);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg = TrainConfig {
+            gini_dead_zone: 0.1,
+            ..Default::default()
+        };
+        let result = cold_start_rank(&snap, dir.path(), &cfg);
+        assert_eq!(result.route, ColdStartRoute::Formula);
     }
 
     #[test]

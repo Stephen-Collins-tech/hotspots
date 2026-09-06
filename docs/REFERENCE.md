@@ -157,6 +157,21 @@ Both anomaly routes (gate 2 and the low-Gini branch of gate 3) use the same
 `IsolationForest` implementation — memory-bounded, streaming, no full-matrix
 intermediate structure. Neither requires a `.hotspots/ranker.json` model file.
 
+**Gini dead zone.** The Gini-coefficient gate is stateless and per-run — a repo whose
+Gini sits just under the 0.55 low threshold could flip from `formula` to `anomaly` on
+a marginal commit. Set `cold_start_gini_dead_zone` in `.hotspotsrc.json` (default `0.0`)
+to widen the ambiguous middle zone that already defaults to `formula`: the effective
+low threshold becomes `0.55 - cold_start_gini_dead_zone`, so Gini values in
+`[0.55 - cold_start_gini_dead_zone, 0.55)` route to `formula` instead of `anomaly`.
+The 0.55 and 0.60 constants themselves are unchanged; the dead zone only shrinks the
+`anomaly` region. Must be non-negative and less than 0.55.
+
+```json
+{
+  "cold_start_gini_dead_zone": 0.03
+}
+```
+
 ### `hotspots prune`
 
 Remove unreachable snapshots (after force-push or branch deletion).
