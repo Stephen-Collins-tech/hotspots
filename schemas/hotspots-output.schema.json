@@ -65,7 +65,7 @@
     "AnalysisInfo": {
       "type": "object",
       "description": "Metadata about the analysis run",
-      "required": ["scope", "tool_version"],
+      "required": ["scope", "tool_version", "formula_version"],
       "properties": {
         "scope": {
           "type": "string",
@@ -76,6 +76,10 @@
           "type": "string",
           "description": "Version of Hotspots that produced this output",
           "pattern": "^\\d+\\.\\d+\\.\\d+"
+        },
+        "formula_version": {
+          "type": "integer",
+          "description": "Version of the scoring formula (default ScoringWeights/LrsWeights/RiskThresholds) used to produce this output. Bumped whenever a default weight or threshold changes, independent of tool_version."
         }
       }
     },

@@ -1236,7 +1236,9 @@ pub(crate) fn build_snapshot_via_db(
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     use hotspots_core::db::TempDb;
-    use hotspots_core::snapshot::{AnalysisInfo, CommitInfo, SNAPSHOT_SCHEMA_VERSION};
+    use hotspots_core::snapshot::{
+        AnalysisInfo, CommitInfo, FORMULA_VERSION, SNAPSHOT_SCHEMA_VERSION,
+    };
 
     let git_context =
         git::extract_git_context_at(repo_root).context("failed to extract git context")?;
@@ -1307,6 +1309,7 @@ pub(crate) fn build_snapshot_via_db(
         analysis: AnalysisInfo {
             scope: "full".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            formula_version: FORMULA_VERSION,
         },
         functions,
         summary: None,

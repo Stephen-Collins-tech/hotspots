@@ -713,6 +713,7 @@ mod tests {
             analysis: AnalysisInfo {
                 scope: ".".to_string(),
                 tool_version: "test".to_string(),
+                formula_version: crate::snapshot::FORMULA_VERSION,
             },
             functions,
             summary: None,

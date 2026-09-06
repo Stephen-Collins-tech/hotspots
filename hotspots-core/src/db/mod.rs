@@ -771,7 +771,7 @@ impl SnapshotDb {
 
     /// Load a snapshot for the given commit SHA, returning None if not found.
     pub fn load(&self, sha: &str) -> Result<Option<Snapshot>> {
-        use crate::snapshot::{AnalysisInfo, SNAPSHOT_SCHEMA_VERSION};
+        use crate::snapshot::{AnalysisInfo, FORMULA_VERSION, SNAPSHOT_SCHEMA_VERSION};
 
         // Type alias avoids clippy::type_complexity for the query row.
         type CommitRow = (
@@ -852,6 +852,7 @@ impl SnapshotDb {
             analysis: AnalysisInfo {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
+                formula_version: FORMULA_VERSION,
             },
             functions,
             summary: None,
