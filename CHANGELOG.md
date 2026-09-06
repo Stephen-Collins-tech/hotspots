@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add risk score stability and predictability doc
 - Add plain-language summary to stability doc
 
+
+### Features
+- Add formula_version to snapshot AnalysisInfo (#176)
+
 ## [1.35.5] - 2026-09-02
 
 ### Bug Fixes
