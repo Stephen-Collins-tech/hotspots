@@ -214,6 +214,7 @@ impl Default for HotspotsConfig {
             callgraph_skip_above: None,
             patterns: None,
             policy: None,
+            cold_start_gini_dead_zone: None,
         }
     }
 }
