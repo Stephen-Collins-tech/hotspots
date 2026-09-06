@@ -280,6 +280,30 @@ Logarithmic scaling for CC and FO: going from CC 1→4 matters more than CC 40�
 
 Thresholds are configurable.
 
+### Field stability: absolute vs. population-relative
+
+Output fields fall into two categories with different stability guarantees. This
+matters when diffing output commit-to-commit or gating CI on it:
+
+| Field | Category | Behavior |
+|---|---|---|
+| `lrs` | Absolute | Depends only on that function's own metrics (`cc`, `nd`, `fo`, `ns`). Unchanged unless the function itself changes. |
+| `activity_risk` | Absolute | Extends `lrs` with that function's own git/call-graph signals. Unchanged unless the function or its direct callers/history change. |
+| `band` (risk band) | Absolute | A fixed threshold on `lrs`/`activity_risk` (see Risk bands above). Moves only when the function's own score crosses a threshold. |
+| `percentile` | Population-relative | A rank against every other function in the current run. Can change when unrelated functions elsewhere in the repo are added, removed, or change score — even if this function is untouched. |
+| `driver` / `driver_detail` | Population-relative | Computed from percentile thresholds (default P75, see Driver labels below). Can flip for the same reason as `percentile`. |
+| `quadrant` | Population-relative | Depends on population-relative activity thresholds (median/P75, see Quadrant assignment below) as well as `band`. Can flip even when the function's own `lrs`/`activity_risk`/`band` are unchanged. |
+
+**Implication for CI gates:** if you want a gate that only fires when a function's
+*own* risk changed — not when the rest of the repo's distribution shifted — key it on
+`lrs`, `activity_risk`, and `band`. Gates keyed on `percentile`, `driver`, or
+`quadrant` can trip on a commit that didn't touch the flagged function at all, because
+those labels are recomputed relative to the whole population on every run.
+
+No output field is renamed or restructured by this distinction — it is purely
+documentation of behavior that already exists in `compute_percentiles`,
+`populate_driver_labels`, and `compute_quadrants` (`hotspots-core/src/snapshot.rs`).
+
 ### Activity Risk Score (snapshot mode)
 
 Extends LRS with git history and call graph signals:
@@ -367,6 +391,9 @@ Activity is "high" if: 30-day touch count above population median, OR changed wi
 
 `fire` = live regression risk (refactor now). `debt` = structural debt (schedule proactively). `watch` = monitor. `ok` = no action.
 
+`quadrant` is population-relative (activity is judged against the current run's
+median/P75) — see "Field stability" above before keying a CI gate on it.
+
 ### Driver labels
 
 Each function gets a single primary diagnosis, checked in priority order:
@@ -384,6 +411,10 @@ Each function gets a single primary diagnosis, checked in priority order:
 Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`). `cyclic_dep` is the sole absolute check.
 
 `driver_detail` (JSON): for `composite` functions, lists up to 3 near-miss dimensions with their percentile rank (e.g. `"cc (P72), nd (P68)"` — notable but below P75 threshold). Omitted when null.
+
+`driver` and `driver_detail` are population-relative (thresholds are recomputed from
+the current run's distribution) — see "Field stability" above before keying a CI gate
+on them.
 
 ### Pattern detection
 
@@ -577,6 +608,13 @@ is not guaranteed to bump it.
 ```
 
 `pattern_details` is populated only with `--explain-patterns`. `suppression_reason` is omitted (not null) when no suppression is present.
+
+`lrs`, `activity_risk`, and `band` are absolute — stable across runs unless the
+function's own metrics/history change. `quadrant`, `driver`, `driver_detail`, and
+`percentile` (`is_top_10_pct`/`is_top_5_pct`/`is_top_1_pct`, omitted from the example
+above but present when populated) are population-relative — they can change between
+runs purely because other functions in the repo changed, even when this function did
+not. See "Field stability" under Metrics above.
 
 ### Aggregates (`--all-functions`)
 
