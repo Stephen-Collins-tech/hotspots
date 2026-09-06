@@ -45,8 +45,8 @@ pub(crate) struct AnalyzeArgs {
     /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
     /// Explicit opt-in only; reads no fix-commit label data.
     pub cold_start: bool,
-    /// Print three independent ranked sections (Risk, Coupling, Ownership)
-    /// instead of a single merged list (F05).
+    /// Print four independent ranked sections (Risk, Coupling, Ownership,
+    /// Centrality) instead of a single merged list (F05).
     pub axes: bool,
 }
 
@@ -372,10 +372,10 @@ fn handle_cold_start(
     Ok(())
 }
 
-/// `--axes` (F05): prints three independent ranked sections — Risk, Coupling,
-/// Ownership — in that fixed order, instead of a single merged list. Files
-/// may appear in more than one section; overlap is not deduplicated, and the
-/// axes are never blended into a composite score
+/// `--axes` (F05): prints four independent ranked sections — Risk, Coupling,
+/// Ownership, Centrality — in that fixed order, instead of a single merged
+/// list. Files may appear in more than one section; overlap is not
+/// deduplicated, and the axes are never blended into a composite score
 /// (`docs/promotion-briefs/f05-multi-axis-report.md`).
 fn handle_axes(
     path: &Path,
@@ -435,6 +435,7 @@ fn handle_axes(
         (HotspotAxis::Risk, "Risk Hotspots", "risk"),
         (HotspotAxis::Coupling, "Coupling Hotspots", "coupling"),
         (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
+        (HotspotAxis::Centrality, "Centrality Hotspots", "centrality"),
     ];
 
     if matches!(format, OutputFormat::Json) {

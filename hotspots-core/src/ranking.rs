@@ -4,6 +4,10 @@
 //! low pairwise correlation (F05: coupling |r|=0.075, ownership |r|=0.104 vs
 //! defect risk). Each axis is ranked independently — do not blend them into
 //! a composite score, see `docs/promotion-briefs/f05-multi-axis-report.md`.
+//!
+//! Centrality is a presentation-only extension of the same unblended-axis
+//! design, reusing the already-shipped `callgraph.pagerank` field (no new
+//! snapshot field or formula) — see PR description for rationale.
 
 use crate::snapshot::FunctionSnapshot;
 use serde::Serialize;
@@ -20,6 +24,12 @@ pub enum HotspotAxis {
     /// Ownership churn, ranked by `newcomer_rate`. Files with no commits in
     /// the 90-day newcomer window (`newcomer_rate == None`) are excluded.
     Ownership,
+    /// Call-graph centrality, ranked by `callgraph.pagerank`. Files with no
+    /// call-graph data (`callgraph == None`) are excluded. PageRank is used
+    /// unblended — it already folds fan-in-weighted transitive importance
+    /// into one number, so no composite with fan-in/fan-out/betweenness is
+    /// introduced (see module doc: axes stay unblended).
+    Centrality,
 }
 
 /// One ranked entry: a file path and the axis-specific score it was ranked by.
@@ -34,8 +44,9 @@ pub struct RankedFile {
 /// value for the axis are excluded rather than sorted to the bottom (see
 /// `HotspotAxis` docs). Coupling and Ownership scores are file-level
 /// (identical across every function in a file), so deduping is a no-op for
-/// them; Risk (`activity_risk`/`lrs`) varies per function, so the max score
-/// among a file's functions is used to represent the file.
+/// them; Risk (`activity_risk`/`lrs`) and Centrality (`pagerank`) vary per
+/// function, so the max score among a file's functions is used to represent
+/// the file.
 pub fn rank_by_axis(
     entries: &[FunctionSnapshot],
     axis: HotspotAxis,
@@ -74,6 +85,7 @@ fn axis_score(f: &FunctionSnapshot, axis: HotspotAxis) -> Option<f64> {
         HotspotAxis::Risk => Some(f.activity_risk.unwrap_or(f.lrs)),
         HotspotAxis::Coupling => f.directed_coupling.filter(|&dc| dc != 0.0),
         HotspotAxis::Ownership => f.newcomer_rate,
+        HotspotAxis::Centrality => f.callgraph.as_ref().map(|cg| cg.pagerank),
     }
 }
 
@@ -83,6 +95,21 @@ mod tests {
     use crate::language::Language;
     use crate::report::MetricsReport;
     use crate::risk::RiskBand;
+    use crate::snapshot::CallGraphMetrics;
+
+    fn callgraph_with_pagerank(pagerank: f64) -> CallGraphMetrics {
+        CallGraphMetrics {
+            fan_in: 0,
+            fan_out: 0,
+            pagerank,
+            betweenness: 0.0,
+            scc_id: 0,
+            scc_size: 1,
+            is_entrypoint: false,
+            dependency_depth: None,
+            neighbor_churn: None,
+        }
+    }
 
     fn fixture(file: &str) -> FunctionSnapshot {
         FunctionSnapshot {
@@ -171,6 +198,34 @@ mod tests {
         let ranked = rank_by_axis(&entries, HotspotAxis::Ownership, 10);
         let files: Vec<&str> = ranked.iter().map(|r| r.file.as_str()).collect();
         assert_eq!(files, vec!["a.rs", "c.rs"]);
+    }
+
+    #[test]
+    fn multi_axis_centrality_ordering() {
+        let mut entries = vec![fixture("a.rs"), fixture("b.rs"), fixture("c.rs")];
+        entries[0].callgraph = Some(callgraph_with_pagerank(0.05));
+        entries[1].callgraph = Some(callgraph_with_pagerank(0.20));
+        entries[2].callgraph = Some(callgraph_with_pagerank(0.10));
+
+        let ranked = rank_by_axis(&entries, HotspotAxis::Centrality, 10);
+        let files: Vec<&str> = ranked.iter().map(|r| r.file.as_str()).collect();
+        assert_eq!(files, vec!["b.rs", "c.rs", "a.rs"]);
+    }
+
+    #[test]
+    fn multi_axis_centrality_excludes_missing_callgraph() {
+        let mut entries = vec![fixture("a.rs"), fixture("b.rs"), fixture("c.rs")];
+        entries[0].callgraph = Some(callgraph_with_pagerank(0.15));
+        entries[1].callgraph = None;
+        // c.rs: max-per-file across two functions sharing the same file
+        let mut c2 = fixture("c.rs");
+        entries[2].callgraph = Some(callgraph_with_pagerank(0.05));
+        c2.callgraph = Some(callgraph_with_pagerank(0.30));
+        entries.push(c2);
+
+        let ranked = rank_by_axis(&entries, HotspotAxis::Centrality, 10);
+        let files: Vec<&str> = ranked.iter().map(|r| r.file.as_str()).collect();
+        assert_eq!(files, vec!["c.rs", "a.rs"]);
     }
 
     #[test]
