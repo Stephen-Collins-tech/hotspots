@@ -17,11 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add plain-language summary to stability doc
 - Audit cumulative features for ratchet risk
 - Classify percentile/driver/quadrant as label-relative
+- Queue F05 multi-axis report brief for implementation
 
 
 ### Features
 - Add formula_version to snapshot AnalysisInfo (#176)
 - Add schema_version field to HotspotsConfig (#175)
+- Add hotspots analyze --axes multi-axis report (F05)
+- Add JSON output support for analyze --axes
 
 ## [1.35.5] - 2026-09-02
 
