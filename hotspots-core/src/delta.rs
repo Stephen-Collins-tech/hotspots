@@ -389,12 +389,12 @@ fn apply_rename_hints(
     parent_funcs: &HashMap<&str, &FunctionSnapshot>,
     current_funcs: &HashMap<&str, &FunctionSnapshot>,
 ) {
-    let deleted_ids: Vec<String> = deltas
+    let mut deleted_ids: Vec<String> = deltas
         .iter()
         .filter(|e| e.status == FunctionStatus::Deleted)
         .map(|e| e.function_id.clone())
         .collect();
-    let new_ids: Vec<String> = deltas
+    let mut new_ids: Vec<String> = deltas
         .iter()
         .filter(|e| e.status == FunctionStatus::New)
         .map(|e| e.function_id.clone())
@@ -402,6 +402,11 @@ fn apply_rename_hints(
     if deleted_ids.is_empty() || new_ids.is_empty() {
         return;
     }
+    // Sort candidates by a stable tiebreak key (function_id, which is derived
+    // from file path + function name + line) so "first match wins" no longer
+    // depends on incidental input/collection ordering.
+    deleted_ids.sort();
+    new_ids.sort();
     let mut matched_new: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut hints: Vec<(String, String)> = Vec::new();
     for del_id in &deleted_ids {
@@ -708,5 +713,122 @@ mod tests {
         assert_eq!(delta.deltas[0].status, FunctionStatus::Deleted);
         assert!(delta.deltas[0].before.is_some());
         assert!(delta.deltas[0].after.is_none());
+    }
+
+    fn make_fn_snapshot(name: &str, file: &str, line: u32) -> FunctionSnapshot {
+        let git_context = GitContext {
+            head_sha: "sha".to_string(),
+            parent_shas: vec![],
+            timestamp: 1705600000,
+            branch: Some("main".to_string()),
+            is_detached: false,
+            message: Some("test commit".to_string()),
+            author: Some("Test Author".to_string()),
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
+        };
+        let report = FunctionRiskReport {
+            file: file.to_string(),
+            function: name.to_string(),
+            line,
+            language: Language::TypeScript,
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 1,
+                fo: 1,
+                ns: 1,
+                loc: 5,
+            },
+            risk: crate::report::RiskReport {
+                r_cc: 1.0,
+                r_nd: 1.0,
+                r_fo: 1.0,
+                r_ns: 1.0,
+            },
+            lrs: 1.0,
+            band: RiskBand::Low,
+            suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
+            callees: vec![],
+            explanation: None,
+        };
+        Snapshot::new(git_context, vec![report]).functions[0].clone()
+    }
+
+    fn make_delta_entry(function_id: &str, status: FunctionStatus) -> FunctionDeltaEntry {
+        FunctionDeltaEntry {
+            function_id: function_id.to_string(),
+            status,
+            before: None,
+            after: None,
+            delta: None,
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: None,
+        }
+    }
+
+    #[test]
+    fn test_apply_rename_hints_is_order_independent() {
+        // Two deleted functions with the same name in different files both
+        // qualify for a rename match against a single new function with that
+        // name (heuristic #1: same name, different file). Only one deleted
+        // entry can win the match (each new function is claimed at most
+        // once), so the outcome must be decided by a stable tiebreak key
+        // rather than by incidental input ordering.
+        let del_a = make_fn_snapshot("a.ts::foo", "a.ts", 1);
+        let del_b = make_fn_snapshot("b.ts::foo", "b.ts", 1);
+        let new_c = make_fn_snapshot("c.ts::foo", "c.ts", 1);
+
+        let parent_funcs: HashMap<&str, &FunctionSnapshot> =
+            [("a.ts::foo", &del_a), ("b.ts::foo", &del_b)]
+                .into_iter()
+                .collect();
+        let current_funcs: HashMap<&str, &FunctionSnapshot> =
+            [("c.ts::foo", &new_c)].into_iter().collect();
+
+        // Order 1: b before a.
+        let mut deltas_order1 = vec![
+            make_delta_entry("b.ts::foo", FunctionStatus::Deleted),
+            make_delta_entry("a.ts::foo", FunctionStatus::Deleted),
+            make_delta_entry("c.ts::foo", FunctionStatus::New),
+        ];
+        apply_rename_hints(&mut deltas_order1, &parent_funcs, &current_funcs);
+
+        // Order 2: a before b (shuffled relative to order 1).
+        let mut deltas_order2 = vec![
+            make_delta_entry("a.ts::foo", FunctionStatus::Deleted),
+            make_delta_entry("c.ts::foo", FunctionStatus::New),
+            make_delta_entry("b.ts::foo", FunctionStatus::Deleted),
+        ];
+        apply_rename_hints(&mut deltas_order2, &parent_funcs, &current_funcs);
+
+        let hint_for = |deltas: &[FunctionDeltaEntry], id: &str| {
+            deltas
+                .iter()
+                .find(|e| e.function_id == id)
+                .and_then(|e| e.rename_hint.clone())
+        };
+
+        // Whichever deleted entry wins, both orderings must agree.
+        assert_eq!(
+            hint_for(&deltas_order1, "a.ts::foo"),
+            hint_for(&deltas_order2, "a.ts::foo")
+        );
+        assert_eq!(
+            hint_for(&deltas_order1, "b.ts::foo"),
+            hint_for(&deltas_order2, "b.ts::foo")
+        );
+        // Exactly one of the two deleted entries should have been matched.
+        let matched_count = [
+            hint_for(&deltas_order1, "a.ts::foo"),
+            hint_for(&deltas_order1, "b.ts::foo"),
+        ]
+        .iter()
+        .filter(|h| h.is_some())
+        .count();
+        assert_eq!(matched_count, 1);
     }
 }
