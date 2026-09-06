@@ -97,7 +97,10 @@ enum Commands {
         #[arg(long, conflicts_with = "per_function_touches")]
         skip_touch_metrics: bool,
 
-        /// Output all functions as a flat array (only valid with --mode snapshot --format json)
+        /// Output all functions as a flat array (only valid with --mode snapshot --format json).
+        /// Note: `quadrant`, `driver`, `driver_detail`, and `percentile` are population-relative
+        /// and can change run-to-run even when a function's own `lrs`/`activity_risk`/`band`
+        /// don't; see docs/REFERENCE.md "Field stability" before keying CI gates on them.
         #[arg(long)]
         all_functions: bool,
 
