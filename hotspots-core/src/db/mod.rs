@@ -442,6 +442,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             isolation_rate: None,
             age_days: None,
             last_touch_days: None,
+            newcomer_rate: None,
             explanation: None,
         });
     }

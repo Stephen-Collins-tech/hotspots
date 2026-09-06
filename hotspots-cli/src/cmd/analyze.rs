@@ -45,6 +45,9 @@ pub(crate) struct AnalyzeArgs {
     /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
     /// Explicit opt-in only; reads no fix-commit label data.
     pub cold_start: bool,
+    /// Print three independent ranked sections (Risk, Coupling, Ownership)
+    /// instead of a single merged list (F05).
+    pub axes: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -62,10 +65,17 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
         include_models,
         explain_patterns,
         cold_start,
+        axes,
         ..
     } = args;
     if *cold_start && mode.is_some() {
         anyhow::bail!("--cold-start is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
+    }
+    if *axes && mode.is_some() {
+        anyhow::bail!("--axes is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
+    }
+    if *axes && *cold_start {
+        anyhow::bail!("--axes and --cold-start are mutually exclusive");
     }
     if *policy && *mode != Some(OutputMode::Delta) {
         anyhow::bail!("--policy flag is only valid with --mode delta");
@@ -153,6 +163,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         callgraph_skip_above,
         skip_gate,
         cold_start,
+        axes,
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
@@ -210,6 +221,16 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
             &resolved_config,
             effective_touch_mode,
             effective_top,
+        );
+    }
+
+    if axes {
+        return handle_axes(
+            &normalized_path,
+            &resolved_config,
+            effective_touch_mode,
+            effective_top,
+            format,
         );
     }
 
@@ -352,6 +373,98 @@ fn handle_cold_start(
     };
     for scored in result.ranked.iter().take(limit) {
         println!("{:.4}  {}", scored.score, scored.function_id);
+    }
+
+    Ok(())
+}
+
+/// `--axes` (F05): prints three independent ranked sections — Risk, Coupling,
+/// Ownership — in that fixed order, instead of a single merged list. Files
+/// may appear in more than one section; overlap is not deduplicated, and the
+/// axes are never blended into a composite score
+/// (`docs/promotion-briefs/f05-multi-axis-report.md`).
+fn handle_axes(
+    path: &Path,
+    resolved_config: &hotspots_core::ResolvedConfig,
+    touch_mode: TouchMode,
+    top: Option<usize>,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    use hotspots_core::ranking::{rank_by_axis, HotspotAxis};
+
+    if !matches!(format, OutputFormat::Text | OutputFormat::Json) {
+        anyhow::bail!("--axes only supports --format text or --format json");
+    }
+
+    let repo_root = find_repo_root(path)?;
+    let analysis_progress = make_analysis_progress();
+    let reports = analyze_with_progress(
+        path,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+        Some(resolved_config),
+        Some(analysis_progress.as_ref()),
+    )?;
+
+    let mut snapshot = build_enriched_snapshot(
+        &repo_root,
+        resolved_config,
+        reports,
+        touch_mode,
+        None,
+        false, // needed for directed_coupling and newcomer_rate below
+    )
+    .context("failed to build snapshot for --axes ranking")?;
+    snapshot.populate_history_signals(&repo_root);
+
+    use hotspots_core::trainer::{make_rel, repo_prefixes};
+    let (prefix_can, prefix_raw) = repo_prefixes(&repo_root);
+    let partner_scores: std::collections::HashMap<String, f64> = snapshot
+        .functions
+        .iter()
+        .map(|f| {
+            let rel = make_rel(&f.file, &prefix_can, &prefix_raw);
+            (rel, f.activity_risk.unwrap_or(f.lrs))
+        })
+        .collect();
+    snapshot.populate_directed_coupling(&repo_root, &partner_scores);
+
+    let top_n = match top {
+        Some(0) => snapshot.functions.len(),
+        Some(n) => n,
+        None => 10,
+    };
+
+    let sections = [
+        (HotspotAxis::Risk, "Risk Hotspots", "risk"),
+        (HotspotAxis::Coupling, "Coupling Hotspots", "coupling"),
+        (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
+    ];
+
+    if matches!(format, OutputFormat::Json) {
+        let obj: serde_json::Map<String, serde_json::Value> = sections
+            .iter()
+            .map(|(axis, _, key)| {
+                let ranked = rank_by_axis(&snapshot.functions, *axis, top_n);
+                (key.to_string(), serde_json::to_value(ranked).unwrap())
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&obj)?);
+        return Ok(());
+    }
+
+    for (axis, header, _) in sections {
+        println!("{header}");
+        let ranked = rank_by_axis(&snapshot.functions, axis, top_n);
+        if ranked.is_empty() {
+            println!("  (no qualifying files)");
+        }
+        for r in &ranked {
+            println!("  {:.4}  {}", r.score, r.file);
+        }
+        println!();
     }
 
     Ok(())

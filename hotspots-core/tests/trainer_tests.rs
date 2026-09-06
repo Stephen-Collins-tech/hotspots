@@ -92,6 +92,7 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         isolation_rate: None,
         age_days: None,
         last_touch_days: None,
+        newcomer_rate: None,
         explanation: None,
     }
 }
