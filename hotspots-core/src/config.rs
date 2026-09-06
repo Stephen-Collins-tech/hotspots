@@ -75,10 +75,27 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     "**/contrib/**",
 ];
 
+/// Current schema version for `.hotspotsrc.json` / `hotspots.config.json` files.
+///
+/// Mirrors `SNAPSHOT_SCHEMA_VERSION` / `DELTA_SCHEMA_VERSION`: bump this when a
+/// breaking change to weight/threshold semantics requires migration or explicit
+/// detection rather than silent reinterpretation.
+pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+
+fn default_config_schema_version() -> u32 {
+    CONFIG_SCHEMA_VERSION
+}
+
 /// Hotspots configuration loaded from a JSON config file
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HotspotsConfig {
+    /// Schema version of this config file (default: `CONFIG_SCHEMA_VERSION`).
+    /// Existing config files on disk predate this field, so it defaults to the
+    /// current version rather than requiring every user config to set it.
+    #[serde(default = "default_config_schema_version")]
+    pub schema_version: u32,
+
     /// Glob patterns for files to include (default: all supported extensions)
     #[serde(default)]
     pub include: Vec<String>,
@@ -163,6 +180,32 @@ pub struct HotspotsConfig {
     /// Per-repo severity overrides for blocking policies.
     #[serde(default)]
     pub policy: Option<PolicyConfig>,
+}
+
+impl Default for HotspotsConfig {
+    fn default() -> Self {
+        HotspotsConfig {
+            schema_version: CONFIG_SCHEMA_VERSION,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            thresholds: None,
+            weights: None,
+            warning_thresholds: None,
+            min_lrs: None,
+            top: None,
+            scoring: None,
+            co_change_window_days: None,
+            co_change_min_count: None,
+            per_function_touches: None,
+            hybrid_touch_threshold: None,
+            driver_threshold_percentile: None,
+            betweenness_exact_threshold: None,
+            betweenness_approx_k: None,
+            callgraph_skip_above: None,
+            patterns: None,
+            policy: None,
+        }
+    }
 }
 
 /// Severity for a blocking policy, as configured per-repo.
@@ -374,6 +417,14 @@ pub struct ResolvedConfig {
 impl HotspotsConfig {
     /// Validate the configuration for logical errors
     pub fn validate(&self) -> Result<()> {
+        if self.schema_version > CONFIG_SCHEMA_VERSION {
+            anyhow::bail!(
+                "config schema_version {} is newer than supported version {}; \
+                 upgrade hotspots to read this config",
+                self.schema_version,
+                CONFIG_SCHEMA_VERSION
+            );
+        }
         if let Some(ref t) = self.thresholds {
             validate_thresholds(t)?;
         }
@@ -998,6 +1049,23 @@ mod tests {
         let json = r#"{"unknown_field": true}"#;
         let result: Result<HotspotsConfig, _> = serde_json::from_str(json);
         assert!(result.is_err(), "unknown fields should be rejected");
+    }
+
+    #[test]
+    fn test_schema_version_defaults_when_omitted() {
+        // Existing config files on disk predate schema_version and must keep working.
+        let json = r#"{}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn test_schema_version_newer_than_supported_rejected() {
+        let json = r#"{"schema_version": 999}"#;
+        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("schema_version"));
     }
 
     #[test]

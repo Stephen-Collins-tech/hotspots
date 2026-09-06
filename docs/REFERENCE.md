@@ -432,6 +432,7 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 
 ```json
 {
+  "schema_version": 1,
   "include": ["src/**/*.ts"],
   "exclude": [
     "**/*.test.ts", "**/*.spec.ts",
@@ -478,6 +479,12 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 - `policy.*` values must be one of `"block"`, `"warn"`, `"off"`
 - `policy.<name>_reason` is **required** (non-empty) whenever `policy.<name>` is not `"block"`
 - Unknown fields are rejected (to catch typos)
+- `schema_version` must not exceed the version this build of hotspots supports
+
+**`schema_version`:** defaults to the current config schema version (currently `1`) when
+omitted, so existing `.hotspotsrc.json` files without it keep working unchanged. Bumped
+only when a breaking change to weight/threshold semantics needs migration or explicit
+detection, mirroring `schema_version` on snapshot and delta files.
 
 **`policy`:** severity overrides for the two blocking CI policies. Both default to
 `"block"`. `critical-introduction` fires identically whether a function is brand-new or
