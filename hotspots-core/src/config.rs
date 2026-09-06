@@ -163,6 +163,16 @@ pub struct HotspotsConfig {
     /// Per-repo severity overrides for blocking policies.
     #[serde(default)]
     pub policy: Option<PolicyConfig>,
+
+    /// Dead-zone width (in Gini points) subtracted from `LOW_GINI` before the
+    /// cold-start router (F62/F63) switches from the Formula route to the
+    /// Anomaly route (default: 0.0, no dead zone). Widens the ambiguous middle
+    /// zone that already defaults to Formula, so a repo whose commit-count Gini
+    /// sits just under 0.55 doesn't flip ranking strategy on a marginal commit.
+    /// Does not change the `HIGH_GINI` (0.60) or `LOW_GINI` (0.55) constants
+    /// themselves. Must be non-negative and less than `LOW_GINI`.
+    #[serde(default)]
+    pub cold_start_gini_dead_zone: Option<f64>,
 }
 
 /// Severity for a blocking policy, as configured per-repo.
@@ -337,6 +347,8 @@ pub struct ResolvedConfig {
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
+    /// Cold-start Gini-routing dead-zone width (see `HotspotsConfig::cold_start_gini_dead_zone`)
+    pub cold_start_gini_dead_zone: f64,
     /// Co-change mining parameters
     pub co_change_window_days: u64,
     pub co_change_min_count: usize,
@@ -424,6 +436,21 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
     if let Some(k) = c.betweenness_approx_k {
         if k == 0 {
             anyhow::bail!("betweenness_approx_k must be at least 1");
+        }
+    }
+    if let Some(dz) = c.cold_start_gini_dead_zone {
+        if dz < 0.0 {
+            anyhow::bail!(
+                "cold_start_gini_dead_zone must be non-negative (got {})",
+                dz
+            );
+        }
+        if dz >= crate::trainer::LOW_GINI {
+            anyhow::bail!(
+                "cold_start_gini_dead_zone ({}) must be less than LOW_GINI ({})",
+                dz,
+                crate::trainer::LOW_GINI
+            );
         }
     }
     Ok(())
@@ -814,6 +841,7 @@ impl HotspotsConfig {
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
             callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
+            cold_start_gini_dead_zone: self.cold_start_gini_dead_zone.unwrap_or(0.0),
             config_path: None,
             exclude_is_custom: !self.exclude.is_empty(),
         })
@@ -1182,6 +1210,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = discover_config(dir.path()).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_cold_start_gini_dead_zone_defaults_to_zero() {
+        let resolved = HotspotsConfig::default().resolve().unwrap();
+        assert_eq!(resolved.cold_start_gini_dead_zone, 0.0);
+    }
+
+    #[test]
+    fn test_cold_start_gini_dead_zone_resolves_from_config() {
+        let raw = HotspotsConfig {
+            cold_start_gini_dead_zone: Some(0.05),
+            ..Default::default()
+        };
+        let resolved = raw.resolve().unwrap();
+        assert_eq!(resolved.cold_start_gini_dead_zone, 0.05);
+    }
+
+    #[test]
+    fn test_cold_start_gini_dead_zone_rejects_negative() {
+        let raw = HotspotsConfig {
+            cold_start_gini_dead_zone: Some(-0.1),
+            ..Default::default()
+        };
+        assert!(raw.validate().is_err());
+    }
+
+    #[test]
+    fn test_cold_start_gini_dead_zone_rejects_at_or_above_low_gini() {
+        let raw = HotspotsConfig {
+            cold_start_gini_dead_zone: Some(crate::trainer::LOW_GINI),
+            ..Default::default()
+        };
+        assert!(raw.validate().is_err());
     }
 
     #[test]
