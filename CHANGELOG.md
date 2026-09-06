@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.36.0] - 2026-09-06
 
 ### Bug Fixes
 - Give rayon worker threads a larger stack to prevent overflow on deep CFG builds
@@ -459,6 +459,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[1.36.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.36.0
 [1.35.5]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.35.5
 [1.35.4]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.35.4
 [1.35.3]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.35.3
