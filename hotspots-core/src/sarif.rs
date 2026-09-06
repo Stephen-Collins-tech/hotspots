@@ -250,6 +250,7 @@ mod tests {
             analysis: AnalysisInfo {
                 scope: ".".to_string(),
                 tool_version: "1.0.0".to_string(),
+                formula_version: 1,
             },
             functions,
             summary: None,

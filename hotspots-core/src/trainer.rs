@@ -1574,6 +1574,7 @@ mod tests {
             analysis: AnalysisInfo {
                 scope: "test".into(),
                 tool_version: "0.0.0".into(),
+                formula_version: 1,
             },
             functions,
             summary: None,
@@ -1749,6 +1750,7 @@ mod tests {
             analysis: AnalysisInfo {
                 scope: "test".into(),
                 tool_version: "0.0.0".into(),
+                formula_version: 1,
             },
             functions,
             summary: None,

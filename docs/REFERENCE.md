@@ -517,6 +517,13 @@ workflow file can remove a required check — but it does mean the change can't 
 
 Always check `schema_version` before consuming output in tooling.
 
+`analysis.formula_version` is a separate integer that tracks the scoring
+formula (default `ScoringWeights`, `LrsWeights`, `RiskThresholds`), bumped
+only when a default weight or threshold changes. `analysis.tool_version`
+changes on every release; `formula_version` does not — use it in `hotspots
+diff`/`trends` tooling to tell a score delta caused by a tool upgrade apart
+from one caused by a real code change.
+
 ### Function fields (v2 / `--all-functions`)
 
 ```json

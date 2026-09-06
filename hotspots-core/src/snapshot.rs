@@ -44,6 +44,16 @@ pub enum TouchMode {
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
+/// Version of the scoring formula (default `ScoringWeights`, `LrsWeights`,
+/// `RiskThresholds`). Bumped whenever a default weight or threshold changes,
+/// so `hotspots diff`/`trends` can distinguish a score delta caused by a tool
+/// upgrade from one caused by a real code change.
+pub const FORMULA_VERSION: u32 = 1;
+
+fn default_formula_version() -> u32 {
+    FORMULA_VERSION
+}
+
 /// Schema version for index
 const INDEX_SCHEMA_VERSION: u32 = 1;
 
@@ -91,6 +101,10 @@ pub struct AnalysisInfo {
     pub scope: String,
     #[serde(rename = "tool_version")]
     pub tool_version: String,
+    /// Version of the scoring formula that produced this snapshot's scores.
+    /// See `FORMULA_VERSION`.
+    #[serde(default = "default_formula_version")]
+    pub formula_version: u32,
 }
 
 /// Churn metrics for a file/function
@@ -518,6 +532,7 @@ impl Snapshot {
             analysis: AnalysisInfo {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
+                formula_version: FORMULA_VERSION,
             },
             functions,
             summary: None,

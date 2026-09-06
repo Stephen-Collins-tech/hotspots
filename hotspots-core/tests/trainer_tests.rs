@@ -113,6 +113,7 @@ fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
         analysis: AnalysisInfo {
             scope: "test".to_string(),
             tool_version: "0.0.0".to_string(),
+            formula_version: 1,
         },
         functions,
         summary: None,
