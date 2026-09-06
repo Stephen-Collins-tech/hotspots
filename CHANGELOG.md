@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add schema_version field to HotspotsConfig (#175)
 - Add hotspots analyze --axes multi-axis report (F05)
 - Add JSON output support for analyze --axes
+- Add Centrality as a 4th --axes ranking section
 
 ## [1.35.5] - 2026-09-02
 
