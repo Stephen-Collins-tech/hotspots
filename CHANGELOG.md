@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add hotspots analyze --axes multi-axis report (F05)
 - Add JSON output support for analyze --axes
 - Add Centrality as a 4th --axes ranking section
+- Add dead zone to cold-start Gini routing threshold
+- Smooth suppression gate verdict across runs
 
 ## [1.35.5] - 2026-09-02
 
