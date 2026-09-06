@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Give rayon worker threads a larger stack to prevent overflow on deep CFG builds
+- Sort rename-hint candidates for deterministic matching
 
 
 ### Documentation
