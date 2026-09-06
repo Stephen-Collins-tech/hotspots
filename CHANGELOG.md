@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Give rayon worker threads a larger stack to prevent overflow on deep CFG builds
 
+
+### Documentation
+- Add risk score stability and predictability doc
+- Add plain-language summary to stability doc
+
 ## [1.35.5] - 2026-09-02
 
 ### Bug Fixes
