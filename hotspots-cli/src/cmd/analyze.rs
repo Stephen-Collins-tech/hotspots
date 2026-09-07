@@ -40,6 +40,9 @@ pub(crate) struct AnalyzeArgs {
     pub skip_touch_metrics: bool,
     /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
     pub hybrid_touches: Option<usize>,
+    /// `--touch-mode`: supersedes per_function_touches/no_per_function_touches/
+    /// skip_touch_metrics/hybrid_touches (kept as deprecated aliases).
+    pub touch_mode: Option<TouchModeArg>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
     /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
@@ -155,6 +158,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         no_per_function_touches,
         skip_touch_metrics,
         hybrid_touches,
+        touch_mode,
         all_functions,
         include_models,
         explain_patterns,
@@ -165,6 +169,13 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         cold_start,
         axes,
     } = args;
+
+    warn_deprecated_touch_flags(
+        no_per_function_touches,
+        per_function_touches,
+        skip_touch_metrics,
+        hybrid_touches,
+    );
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
@@ -202,17 +213,14 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let touch_args = TouchArgs {
-        no_per_function: no_per_function_touches,
-        per_function: per_function_touches,
-        hybrid: hybrid_touches,
-        skip: skip_touch_metrics,
-    };
-    let effective_touch_mode = resolve_touch_mode(
-        touch_args.no_per_function,
-        touch_args.per_function,
-        touch_args.hybrid.or(resolved_config.hybrid_touch_threshold),
+    let (effective_touch_mode, effective_skip_touch_metrics) = resolve_touch_mode_and_skip(
+        touch_mode,
+        no_per_function_touches,
+        per_function_touches,
+        hybrid_touches,
+        skip_touch_metrics,
         resolved_config.per_function_touches,
+        resolved_config.hybrid_touch_threshold,
     );
 
     if cold_start {
@@ -255,7 +263,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
-                skip_touch_metrics: touch_args.skip,
+                skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
             },
         );
@@ -289,7 +297,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
-                skip_touch_metrics: touch_args.skip,
+                skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
             },
         );
@@ -305,13 +313,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         effective_top,
         &resolved_config,
     )
-}
-
-struct TouchArgs {
-    no_per_function: bool,
-    per_function: bool,
-    hybrid: Option<usize>,
-    skip: bool,
 }
 
 /// `hotspots analyze --cold-start`: Gini-gated cold-start routing (F62/F63).
@@ -1668,13 +1669,14 @@ fn rewrite_worktree_paths(snapshot: &mut Snapshot, worktree_prefix: &str, repo_p
     }
 }
 
+const DEFAULT_HYBRID_THRESHOLD: usize = 5;
+
 fn resolve_touch_mode(
     no_per_function: bool,
     per_function: bool,
     hybrid_threshold: Option<usize>,
     config_per_function: bool,
 ) -> TouchMode {
-    const DEFAULT_HYBRID_THRESHOLD: usize = 5;
     if no_per_function {
         TouchMode::File
     } else if let Some(threshold) = hybrid_threshold {
@@ -1685,6 +1687,106 @@ fn resolve_touch_mode(
         TouchMode::Hybrid {
             threshold: DEFAULT_HYBRID_THRESHOLD,
         }
+    }
+}
+
+/// `--touch-mode` value (see issue #184). Supersedes `--per-function-touches`,
+/// `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches`,
+/// which are kept as deprecated aliases.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum TouchModeArg {
+    /// Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`,
+    /// falling back to hybrid with the default threshold — today's implicit default.
+    Auto,
+    PerFunction,
+    File,
+    /// `hybrid` (bare) uses `DEFAULT_HYBRID_THRESHOLD`; `hybrid:N` uses N.
+    Hybrid(Option<usize>),
+    /// Skip all touch metrics, directed coupling, and burst_score (no git log calls).
+    None,
+}
+
+pub(crate) fn parse_touch_mode_arg(s: &str) -> Result<TouchModeArg, String> {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("hybrid") {
+        return if rest.is_empty() {
+            Ok(TouchModeArg::Hybrid(None))
+        } else {
+            let n_str = rest.strip_prefix(':').ok_or_else(|| {
+                format!("invalid --touch-mode '{s}': expected 'hybrid' or 'hybrid:N'")
+            })?;
+            let n: usize = n_str.parse().map_err(|_| {
+                format!("invalid --touch-mode '{s}': N must be a non-negative integer")
+            })?;
+            Ok(TouchModeArg::Hybrid(Some(n)))
+        };
+    }
+    match s {
+        "auto" => Ok(TouchModeArg::Auto),
+        "per-function" => Ok(TouchModeArg::PerFunction),
+        "file" => Ok(TouchModeArg::File),
+        "none" => Ok(TouchModeArg::None),
+        _ => Err(format!(
+            "invalid --touch-mode '{s}': expected one of auto, per-function, file, hybrid[:N], none"
+        )),
+    }
+}
+
+/// Resolves `--touch-mode` (or, absent that, the four deprecated legacy flags) plus
+/// config defaults into a `(TouchMode, skip_touch_metrics)` pair. `TouchMode` is
+/// meaningless when `skip_touch_metrics` is true — callers already gate all touch
+/// computation behind `!skip_touch_metrics` and never consult `TouchMode` otherwise.
+fn resolve_touch_mode_and_skip(
+    touch_mode_arg: Option<TouchModeArg>,
+    legacy_no_per_function: bool,
+    legacy_per_function: bool,
+    legacy_hybrid: Option<usize>,
+    legacy_skip: bool,
+    config_per_function: bool,
+    config_hybrid_threshold: Option<usize>,
+) -> (TouchMode, bool) {
+    match touch_mode_arg {
+        Some(TouchModeArg::Auto) | None => {
+            let touch_mode = resolve_touch_mode(
+                legacy_no_per_function,
+                legacy_per_function,
+                legacy_hybrid.or(config_hybrid_threshold),
+                config_per_function,
+            );
+            (touch_mode, legacy_skip)
+        }
+        Some(TouchModeArg::PerFunction) => (TouchMode::PerFunction, false),
+        Some(TouchModeArg::File) => (TouchMode::File, false),
+        Some(TouchModeArg::Hybrid(threshold)) => (
+            TouchMode::Hybrid {
+                threshold: threshold.unwrap_or(DEFAULT_HYBRID_THRESHOLD),
+            },
+            false,
+        ),
+        Some(TouchModeArg::None) => (TouchMode::File, true),
+    }
+}
+
+/// Prints a one-line deprecation notice for each deprecated touch-metrics flag
+/// actually used. No-op when `--touch-mode` was used instead (clap's `conflicts_with`
+/// already rejects combining them).
+fn warn_deprecated_touch_flags(
+    no_per_function_touches: bool,
+    per_function_touches: bool,
+    skip_touch_metrics: bool,
+    hybrid_touches: Option<usize>,
+) {
+    if no_per_function_touches {
+        eprintln!("warning: --no-per-function-touches is deprecated, use --touch-mode file");
+    }
+    if per_function_touches {
+        eprintln!("warning: --per-function-touches is deprecated, use --touch-mode per-function");
+    }
+    if skip_touch_metrics {
+        eprintln!("warning: --skip-touch-metrics is deprecated, use --touch-mode none");
+    }
+    if let Some(n) = hybrid_touches {
+        eprintln!("warning: --hybrid-touches is deprecated, use --touch-mode hybrid:{n}");
     }
 }
 
@@ -1733,4 +1835,175 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
             }
         }
     })
+}
+
+#[cfg(test)]
+mod touch_mode_tests {
+    use super::*;
+
+    #[test]
+    fn parse_touch_mode_arg_all_named_values() {
+        assert_eq!(parse_touch_mode_arg("auto"), Ok(TouchModeArg::Auto));
+        assert_eq!(
+            parse_touch_mode_arg("per-function"),
+            Ok(TouchModeArg::PerFunction)
+        );
+        assert_eq!(parse_touch_mode_arg("file"), Ok(TouchModeArg::File));
+        assert_eq!(parse_touch_mode_arg("none"), Ok(TouchModeArg::None));
+    }
+
+    #[test]
+    fn parse_touch_mode_arg_hybrid_bare_and_with_threshold() {
+        assert_eq!(
+            parse_touch_mode_arg("hybrid"),
+            Ok(TouchModeArg::Hybrid(None))
+        );
+        assert_eq!(
+            parse_touch_mode_arg("hybrid:12"),
+            Ok(TouchModeArg::Hybrid(Some(12)))
+        );
+        assert_eq!(
+            parse_touch_mode_arg("hybrid:0"),
+            Ok(TouchModeArg::Hybrid(Some(0)))
+        );
+    }
+
+    #[test]
+    fn parse_touch_mode_arg_rejects_garbage() {
+        assert!(parse_touch_mode_arg("bogus").is_err());
+        assert!(parse_touch_mode_arg("hybrid:").is_err());
+        assert!(parse_touch_mode_arg("hybrid:abc").is_err());
+        assert!(parse_touch_mode_arg("hybrid-5").is_err());
+        assert!(parse_touch_mode_arg("hybrid:-1").is_err());
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_auto_falls_back_to_config() {
+        // No --touch-mode, no legacy flags, config says per_function_touches=true.
+        let (mode, skip) = resolve_touch_mode_and_skip(None, false, false, None, false, true, None);
+        assert_eq!(mode, TouchMode::PerFunction);
+        assert!(!skip);
+
+        // No config either: default hybrid threshold.
+        let (mode, skip) =
+            resolve_touch_mode_and_skip(None, false, false, None, false, false, None);
+        assert_eq!(
+            mode,
+            TouchMode::Hybrid {
+                threshold: DEFAULT_HYBRID_THRESHOLD
+            }
+        );
+        assert!(!skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_explicit_auto_matches_none() {
+        let (mode, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::Auto),
+            false,
+            false,
+            None,
+            false,
+            true,
+            Some(9),
+        );
+        // Explicit `--touch-mode auto` still honors config hybrid_touch_threshold,
+        // same as omitting --touch-mode entirely (both resolve through resolve_touch_mode).
+        assert_eq!(mode, TouchMode::Hybrid { threshold: 9 });
+        assert!(!skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_per_function() {
+        let (mode, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::PerFunction),
+            false,
+            false,
+            None,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(mode, TouchMode::PerFunction);
+        assert!(!skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_file() {
+        let (mode, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::File),
+            false,
+            false,
+            None,
+            false,
+            true, // config says per-function; --touch-mode file must still win
+            None,
+        );
+        assert_eq!(mode, TouchMode::File);
+        assert!(!skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_hybrid_default_and_explicit_threshold() {
+        let (mode, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::Hybrid(None)),
+            false,
+            false,
+            None,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(
+            mode,
+            TouchMode::Hybrid {
+                threshold: DEFAULT_HYBRID_THRESHOLD
+            }
+        );
+        assert!(!skip);
+
+        let (mode, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::Hybrid(Some(42))),
+            false,
+            false,
+            None,
+            false,
+            false,
+            None,
+        );
+        assert_eq!(mode, TouchMode::Hybrid { threshold: 42 });
+        assert!(!skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_none_sets_skip_true() {
+        let (_, skip) = resolve_touch_mode_and_skip(
+            Some(TouchModeArg::None),
+            false,
+            false,
+            None,
+            false,
+            true,
+            Some(3),
+        );
+        assert!(skip);
+    }
+
+    #[test]
+    fn resolve_touch_mode_and_skip_legacy_flags_unchanged_when_touch_mode_absent() {
+        // Legacy --skip-touch-metrics still works when --touch-mode isn't passed.
+        let (_, skip) = resolve_touch_mode_and_skip(None, false, false, None, true, false, None);
+        assert!(skip);
+
+        // Legacy --no-per-function-touches still works.
+        let (mode, skip) = resolve_touch_mode_and_skip(None, true, false, None, false, true, None);
+        assert_eq!(mode, TouchMode::File);
+        assert!(!skip);
+
+        // Legacy --hybrid-touches still works.
+        let (mode, skip) =
+            resolve_touch_mode_and_skip(None, false, false, Some(7), false, false, None);
+        assert_eq!(mode, TouchMode::Hybrid { threshold: 7 });
+        assert!(!skip);
+    }
 }

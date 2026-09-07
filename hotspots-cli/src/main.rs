@@ -76,25 +76,32 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Use per-function git log -L for touch metrics (more accurate than file-level
-        /// batching). Results are cached in .hotspots/touch-cache.json.zst — the first
-        /// run on a new commit is slow (~9 ms per uncached function); subsequent runs
-        /// are fast. A warning is printed when 50+ functions need to be fetched.
-        #[arg(long)]
+        /// Touch metrics mode: `auto` (default — config or hybrid:5), `per-function`
+        /// (accurate, O(functions) git calls, cached in .hotspots/touch-cache.json.zst),
+        /// `file` (fast file-level batching), `hybrid[:N]` (file-level first,
+        /// per-function only for files with touch_count_30d >= N, default N=5), or
+        /// `none` (skip touch metrics, directed coupling, and burst_score entirely —
+        /// no git log calls; for benchmarking pure analysis + call graph performance).
+        #[arg(long, value_parser = cmd::analyze::parse_touch_mode_arg, conflicts_with_all = ["per_function_touches", "no_per_function_touches", "skip_touch_metrics", "hybrid_touches"])]
+        touch_mode: Option<cmd::analyze::TouchModeArg>,
+
+        /// Deprecated: use `--touch-mode per-function`. Use per-function git log -L
+        /// for touch metrics (more accurate than file-level batching). Results are
+        /// cached in .hotspots/touch-cache.json.zst — the first run on a new commit
+        /// is slow (~9 ms per uncached function); subsequent runs are fast. A warning
+        /// is printed when 50+ functions need to be fetched.
+        #[arg(long, conflicts_with = "touch_mode")]
         per_function_touches: bool,
 
-        /// Disable per-function touch metrics, use file-level batching instead.
-        /// Overrides config and --per-function-touches. Useful for large repos
-        /// where the cold-start per-function git log -L calls dominate CPU time.
-        #[arg(long, conflicts_with = "per_function_touches")]
+        /// Deprecated: use `--touch-mode file`. Disable per-function touch metrics,
+        /// use file-level batching instead. Overrides config and --per-function-touches.
+        #[arg(long, conflicts_with = "touch_mode")]
         no_per_function_touches: bool,
 
-        /// Skip all touch metrics entirely (no git log calls for churn/recency),
-        /// skip directed coupling (also a git log walk), and skip burst_score
-        /// (also a full-history git log walk).
-        /// Overrides --per-function-touches and --no-per-function-touches.
-        /// Use for benchmarking pure analysis + call graph performance.
-        #[arg(long, conflicts_with = "per_function_touches")]
+        /// Deprecated: use `--touch-mode none`. Skip all touch metrics entirely (no
+        /// git log calls for churn/recency), skip directed coupling (also a git log
+        /// walk), and skip burst_score (also a full-history git log walk).
+        #[arg(long, conflicts_with = "touch_mode")]
         skip_touch_metrics: bool,
 
         /// Output all functions as a flat array (only valid with --mode snapshot --format json).
@@ -131,10 +138,9 @@ enum Commands {
         #[arg(long)]
         skip_gate: bool,
 
-        /// Hybrid touch mode: run file-level touch first, then per-function only for
-        /// files with touch_count_30d >= N. Balances accuracy and performance for
-        /// large repos. Conflicts with --per-function-touches and --no-per-function-touches.
-        #[arg(long, value_name = "N", conflicts_with_all = ["per_function_touches", "no_per_function_touches"])]
+        /// Deprecated: use `--touch-mode hybrid:N`. Hybrid touch mode: run file-level
+        /// touch first, then per-function only for files with touch_count_30d >= N.
+        #[arg(long, value_name = "N", conflicts_with = "touch_mode")]
         hybrid_touches: Option<usize>,
 
         /// Rank using a Gini-gated cold-start strategy (formula / IsolationForest
@@ -349,6 +355,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            touch_mode,
             skip_gate,
             cold_start,
             axes,
@@ -375,6 +382,7 @@ fn main() -> anyhow::Result<()> {
             jobs,
             callgraph_skip_above,
             hybrid_touches,
+            touch_mode,
             skip_gate,
             cold_start,
             axes,

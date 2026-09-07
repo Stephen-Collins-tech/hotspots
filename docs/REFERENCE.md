@@ -24,9 +24,11 @@ hotspots analyze <PATH> [OPTIONS]
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
-| `--per-function-touches` | off | Use `git log -L` for precise touch counts (slow cold start) |
-| `--no-per-function-touches` | off | Force file-level touch batching |
-| `--skip-touch-metrics` | off | Skip all git log I/O (touch counts reported as 0) |
+| `--touch-mode` | `auto` | `auto`, `per-function`, `file`, `hybrid[:N]` (default N=5), or `none` — see below |
+| `--per-function-touches` | off | **Deprecated**, use `--touch-mode per-function`. Use `git log -L` for precise touch counts (slow cold start) |
+| `--no-per-function-touches` | off | **Deprecated**, use `--touch-mode file`. Force file-level touch batching |
+| `--skip-touch-metrics` | off | **Deprecated**, use `--touch-mode none`. Skip all git log I/O (touch counts reported as 0) |
+| `--hybrid-touches N` | — | **Deprecated**, use `--touch-mode hybrid:N`. File-level first, per-function for files with touch_count_30d >= N |
 | `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
 | `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
 | `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
@@ -42,6 +44,21 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
+- `--touch-mode` conflicts with each of the four deprecated flags above; the deprecated flags still work on their own (each prints a one-line warning to stderr) and remain mutually compatible with each other, resolved with the same precedence as before
+
+#### `--touch-mode`
+
+Controls how touch metrics (git churn/recency) are computed:
+
+| Value | Behavior |
+|---|---|
+| `auto` (default) | Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`, falling back to `hybrid:5` |
+| `per-function` | `git log -L` per function — accurate, but O(functions) cold-start git calls, cached in `.hotspots/touch-cache.json.zst` |
+| `file` | File-level batching — fast, one `git log` call per unique file |
+| `hybrid` / `hybrid:N` | File-level first; per-function only for files with `touch_count_30d >= N` (N defaults to 5) |
+| `none` | Skip touch metrics, directed coupling, and burst_score entirely — no git log calls at all |
+
+`--per-function-touches`, `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches` are deprecated aliases for `per-function`, `file`, `none`, and `hybrid:N` respectively. They still work but print a deprecation warning; use `--touch-mode` in new scripts and CI configs.
 
 ### `hotspots diff <base> <head>`
 
