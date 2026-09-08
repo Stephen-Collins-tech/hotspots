@@ -190,6 +190,20 @@ The 0.55 and 0.60 constants themselves are unchanged; the dead zone only shrinks
 }
 ```
 
+### `hotspots estimate <path>`
+
+Projects `analyze --touch-mode per-function`'s wall-clock cost before running it, so callers can pick a touch mode instead of guessing from repo size (`size_kb` is a weak proxy — see the runtime-prediction spike this command is based on).
+
+```
+hotspots estimate <PATH> [--format text|json] [--config PATH] [--budget-seconds N] [--tier1-timeout-seconds N]
+```
+
+Two tiers:
+- **Tier 0** (near-instant, no parsing): file discovery + a raw line count per file, always completes fast.
+- **Tier 1** (the real `--touch-mode none` structural pass — parsing, CFG, call graph, but zero git-log calls): gives the real per-language function count. Runs on a background thread with a `--tier1-timeout-seconds` budget (default 30s) so Tier 0's report is never blocked by a repo where even Tier 1 is slow.
+
+Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (directional, not a fitted regression). `--budget-seconds` compares the projection against a caller-supplied wall-clock budget and recommends `per-function`, `hybrid`, or `file`.
+
 ### `hotspots prune`
 
 Remove unreachable snapshots (after force-push or branch deletion).

@@ -252,7 +252,9 @@ fn is_supported_source_file(filename: &str) -> bool {
 /// - Java: .java
 /// - Python: .py, .pyw
 /// - Rust: .rs
-pub(crate) fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
+///
+/// Pure filesystem I/O: no git calls, no parsing.
+pub fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
 
     if path.is_file() {

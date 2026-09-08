@@ -11,7 +11,7 @@ mod output;
 mod util;
 
 use clap::{Parser, Subcommand};
-use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs};
+use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -300,6 +300,27 @@ enum Commands {
     },
     /// Check whether a newer version of hotspots is available
     Upgrade,
+    /// Project `analyze --touch-mode per-function`'s wall-clock cost before running it
+    Estimate {
+        /// Path to source file or directory
+        path: PathBuf,
+
+        /// Output format
+        #[arg(long, default_value = "text")]
+        format: OutputFormat,
+
+        /// Path to config file (default: auto-discover)
+        #[arg(long)]
+        config: Option<PathBuf>,
+
+        /// If given, recommend a touch mode against this wall-clock budget (seconds)
+        #[arg(long, value_name = "SECONDS")]
+        budget_seconds: Option<u64>,
+
+        /// How long to let the Tier 1 structural pass run before giving up on it
+        #[arg(long, value_name = "SECONDS", default_value = "30")]
+        tier1_timeout_seconds: u64,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -446,6 +467,19 @@ fn main() -> anyhow::Result<()> {
             quiet,
         })?,
         Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
+        Commands::Estimate {
+            path,
+            format,
+            config,
+            budget_seconds,
+            tier1_timeout_seconds,
+        } => cmd::estimate::handle_estimate(EstimateArgs {
+            path,
+            format,
+            config_path: config,
+            budget_seconds,
+            tier1_timeout_seconds,
+        })?,
     }
 
     Ok(())
