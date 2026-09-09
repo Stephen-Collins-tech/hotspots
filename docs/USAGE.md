@@ -383,23 +383,30 @@ Good reasons: complex algorithm with test coverage, generated code, migration pe
 
 ## Touch Metrics
 
-Touch metrics measure how often functions change in git history.
+Touch metrics measure how often functions change in git history. Controlled by `--touch-mode`:
 
 ```bash
 # Default: hybrid mode (file-level for most, per-function for active files)
 hotspots analyze . --mode snapshot
 
 # Full per-function precision (slower cold start, cached after first run)
-hotspots analyze . --mode snapshot --per-function-touches
+hotspots analyze . --mode snapshot --touch-mode per-function
 
 # File-level only (fastest, disables per-function cache)
-hotspots analyze . --mode snapshot --no-per-function-touches
+hotspots analyze . --mode snapshot --touch-mode file
+
+# Explicit hybrid threshold (file-level first, per-function for files with touch_count_30d >= N)
+hotspots analyze . --mode snapshot --touch-mode hybrid:10
 
 # Skip all git I/O (for very large repos, 50k+ functions)
-hotspots analyze . --mode snapshot --skip-touch-metrics
+hotspots analyze . --mode snapshot --touch-mode none
 ```
 
+`--per-function-touches`, `--no-per-function-touches`, `--hybrid-touches N`, and `--skip-touch-metrics` still work as deprecated aliases for the values above, but print a warning — prefer `--touch-mode` in new scripts and CI configs.
+
 Per-function touch results are cached in `.hotspots/touch-cache.json.zst`. First run on a new commit is slow; subsequent runs are fast.
+
+Not sure which mode a repo needs? `hotspots estimate <path> --budget-seconds N` projects `--touch-mode per-function`'s wall-clock cost from a real function count before you commit to a full run, and recommends a mode against your budget — see [REFERENCE.md](REFERENCE.md#hotspots-estimate-path).
 
 Configure in `.hotspotsrc.json`:
 ```json

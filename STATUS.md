@@ -1,95 +1,71 @@
 # hotspots — Work in Progress
 
-Current version: **1.25.3**  
-Last updated: 2026-06-27
+Current version: **1.37.0**
+Last updated: 2026-09-09
 
-This document tracks what is ready to implement, what is in flight, and what the next
-release milestone looks like. It is the working companion to
-[`docs/requirements/`](docs/requirements/) and [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
-
----
-
-## Baseline established
-
-Benchmark run completed 2026-06-27 against v1.25.3 (ARS formula, no trained ranker).
-Full results: [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) · raw: [`benchmarks/versions/v1.25.3.json`](benchmarks/versions/v1.25.3.json)
-
-| Repo | Language | ρ | P@10 |
-|---|---|---|---|
-| curl/curl | C | +0.476 | **1.00** |
-| redis/redis | C | +0.476 | 0.70 |
-| facebook/react | JavaScript | +0.352 | 0.50 |
-| git/git | C | +0.340 | 0.50 |
-| django/django | Python | +0.293 | 0.70 |
-| golang/go | Go | +0.265 | 0.00 |
-| microsoft/vscode | TypeScript | +0.251 | 0.40 |
-| **mean** | | **+0.350** | **0.54** |
-
-Every future release that changes ranking or scoring must run the benchmark and append a
-new block to `RESULTS.md` before the release tag is cut.
+This document tracks what is ready to implement, what is in flight, and known gaps
+against the project's own process rules. It is the working companion to
+[`docs/requirements/`](docs/requirements/), [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md),
+[`TASKS.md`](TASKS.md) (active promotion-brief handoffs from `../hotspots-research`),
+and open GitHub issues for day-to-day tracking — this file had gone unmaintained since
+the v1.25.3 baseline (2026-06-27) through eleven releases; the sections below are a
+2026-09-09 correction pass, not a claim that this file is kept current release-to-release
+going forward. Prefer `CHANGELOG.md`, `TASKS.md`, and GitHub issues for anything more
+recent than this correction.
 
 ---
 
-## Ready to implement
+## REQ-001 through REQ-004 — resolved
 
-Three requirements docs are written and fully specified. Implement in this order —
-REQ-001 and REQ-002 are independent; REQ-003 depends on neither but benefits from
-REQ-002's feature names being stable first.
+The four requirements this file originally tracked as "ready to implement" have all
+been resolved, three shipped and one rejected after implementation:
 
-### REQ-001 — History depth tier annotation
-**Spec:** [`docs/requirements/REQ-001-history-depth-tier.md`](docs/requirements/REQ-001-history-depth-tier.md)  
-**What it does:** Annotates each function with a `history_depth` tier (`sparse` / `moderate` / `rich` / `very_rich`) derived from lifetime churn. Output annotation only — does not affect scoring. Shown in `--explain` output.  
-**Files to change:** `snapshot.rs`, `analysis.rs`, `explain.rs`, `aggregates.rs`  
-**Effort:** Small — new enum + one match expression + populate in one analysis pass.
-
-### REQ-002 — convention_bug_fix_count as 10th ranker feature
-**Spec:** [`docs/requirements/REQ-002-convention-bug-fix-feature.md`](docs/requirements/REQ-002-convention-bug-fix-feature.md)  
-**What it does:** Adds `convention_bug_fix_count` to `FEATURE_NAMES` in `trainer.rs`, making it a 10th input to the trained ranker. Field must be added to `FunctionSnapshot` and populated from git history. Model version bumped.  
-**Files to change:** `snapshot.rs`, `trainer.rs`.  
-**Effort:** Small — new field + populate method in `snapshot.rs`, two array literals + one version bump in `trainer.rs`.  
-**Benchmark trigger:** Yes — re-run after this ships and append v1.26.x results.
-
-### REQ-003 — Ranker explanation layer (✦ phrases)
-**Spec:** [`docs/requirements/REQ-003-ranker-explanation-layer.md`](docs/requirements/REQ-003-ranker-explanation-layer.md)  
-**What it does:** When `--explain` is passed, renders a `✦` line below each CRITICAL and HIGH function with a plain-English phrase naming the 1–3 most elevated signals. Deterministic phrase-table lookup — no LLM, no network.  
-**Files to change:** new `phrases.rs`, `lib.rs`, `snapshot.rs`, `analysis.rs`, `explain.rs`, `aggregates.rs`  
-**Effort:** Medium — new module + percentile computation pass + phrase table.
-
-### REQ-004 — Public benchmark corpus
-**Spec:** [`docs/requirements/REQ-004-public-benchmarks.md`](docs/requirements/REQ-004-public-benchmarks.md)  
-**What it does:** Adds `benchmarks/` to the public repo — `corpus.json`, `run.sh`, `label.py`, `score.py`, `RESULTS.md`, `versions/`. Already partially complete (see below).  
-**Status:** Scripts and first results are written. Remaining work: wire `run.sh` to auto-detect `hotspots --version` and write the versioned JSON automatically; write `corpus.json`; finalise `README.md`.  
+- **REQ-001 (history depth tier annotation) — rejected, not shipped.** Implemented as
+  hotspots PR #133, but the finding behind it (F10, `hotspots-research`) was
+  re-triaged after implementation and found not to survive function-granularity
+  testing — the confidence-tier premise (`history_depth` predicting ranker
+  reliability) did not hold once measured correctly. PR #133 was closed 2026-09-06,
+  not merged. See `hotspots-research/docs/findings/10-history-depth-and-signal-quality.md`
+  and the F10 row in `hotspots-research/docs/promotion-tracker.md`. Do not
+  re-attempt this without first re-reading that closure — the rejection is about the
+  underlying signal, not the implementation.
+- **REQ-002 (`convention_bug_fix_count` as 10th ranker feature) — shipped.** Landed
+  v1.26.0 (`convention_bug_fix_count` collected) with the trained-ranker feature
+  activation following; see `docs/requirements/REQ-002-convention-bug-fix-feature.md`
+  and the F54 row in `hotspots-research/docs/promotion-tracker.md` (`promoted`).
+- **REQ-003 (ranker explanation layer, `✦` phrases) — shipped.** `--explain` flag +
+  `phrases.rs`, hotspots PR #115 (commit `7579672`). See TASKS.md's "done" entry.
+- **REQ-004 (public benchmark corpus) — shipped.** `benchmarks/run.sh` and
+  `benchmarks/corpus.json` were the two missing pieces this file called out; both
+  were built as part of the F93 task (see TASKS.md), which also re-ran the full
+  7-repo benchmark (`benchmarks/versions/v1.30.0.json`).
 
 ---
 
-## Benchmark infrastructure — current state
+## Known gap: the benchmark has not been re-run since v1.30.0
 
-Already written and working:
+STATUS.md's own rule below (kept from the original version of this file, still the
+right rule) has not been followed for the last seven releases:
 
-| File | Status |
-|---|---|
-| `benchmarks/label.py` | Done — generates bug-commit labels from bare clone |
-| `benchmarks/score.py` | Done — computes ρ and P@10, handles path normalisation |
-| `benchmarks/RESULTS.md` | Done — v1.25.3 baseline populated |
-| `benchmarks/versions/v1.25.3.json` | Done — first versioned result on record |
-| `benchmarks/README.md` | Done — full explanation with Wikipedia links |
+> Every future release that changes ranking or scoring must run the benchmark and
+> append a new block to `RESULTS.md` before the release tag is cut.
 
-Still needed:
+`benchmarks/RESULTS.md`'s most recent entry is **v1.30.0** (2026-07-12). Since then,
+at least one release changed the live scoring formula in a way the benchmark rule
+was written to catch: **v1.33.2** removed the `burst_score` term from
+`compute_activity_risk` entirely (`burst-score-remove-from-live-score`,
+hotspots PR #126) — a real change to what `activity_risk` computes for every repo,
+never benchmarked. Other since-v1.30.0 changes with plausible ranking impact:
+the F62/F63 cold-start Gini routing (v1.33.0), the cold-start Gini dead zone
+(v1.37.0), and the suppression-gate smoothing (v1.37.0) — none of these have a
+`benchmarks/versions/v1.3x.x.json` entry either.
 
-| File | What to do |
-|---|---|
-| `benchmarks/run.sh` | Wire together label.py + hotspots analyze + score.py; auto-detect version; write versioned JSON |
-| `benchmarks/corpus.json` | Write the 7-repo manifest with pinned SHAs (content is in REQ-004) |
-
----
-
-## Next release checklist (v1.26.x)
-
-- [ ] Implement REQ-002 (`convention_bug_fix_count` feature)
-- [ ] Implement REQ-001 (history depth tier)
-- [ ] Re-train ranker with new 10-feature set
-- [ ] Run benchmark → append `benchmarks/versions/v1.26.x.json` + RESULTS.md block
-- [ ] Implement REQ-003 (`--explain` phrase layer) — can ship in same release or follow-on
+This means `benchmarks/RESULTS.md`'s numbers do not reflect what v1.37.0 actually
+computes. Re-running the 7-repo benchmark and appending a current block is the
+single most out-of-date piece of process debt this file knows about as of this
+correction pass — flagged here rather than silently run, since it's a
+multi-repo-clone, non-trivial task that deserves its own scoped pass rather than
+being folded into a docs-audit commit.
 
 ---
 

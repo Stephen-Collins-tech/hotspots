@@ -143,4 +143,15 @@ walk, not just wiring up an existing field. The brief includes the exact formula
 — follow both precisely, this is the part most likely to be subtly wrong if
 reimplemented from the English description alone.
 
-**Status:** not started.
+**Status:** done — hotspots PR [#162](https://github.com/Stephen-Collins-tech/hotspots/pull/162), merged commit `6bb9237` (2026-09-06). `HotspotAxis`/`rank_by_axis` in `ranking.rs`, `newcomer_rate` in `history_signals.rs`, `--axes` text/JSON output in `analyze.rs`. Followed same day by a 4th axis not in the original brief — Centrality (ranked by `callgraph.pagerank`, unblended, same precedent as the other three) — hotspots PR [#183](https://github.com/Stephen-Collins-tech/hotspots/pull/183), merged commit `db6df3b`. Tracker row (F05) flipped to `promoted`.
+
+---
+
+## Task: `hotspots estimate` pre-flight runtime projection
+
+Not a promotion-brief handoff — scoped directly from a `hotspots-cloud` incident
+(golang/go crawl timeout) and the resulting hotspots#163 spike, not a
+`hotspots-research` finding. Included here for continuity with the rest of this
+file's history.
+
+**Status:** done — hotspots PR [#186](https://github.com/Stephen-Collins-tech/hotspots/pull/186) (`--touch-mode` flag consolidation, prerequisite) and PR [#188](https://github.com/Stephen-Collins-tech/hotspots/pull/188) (`hotspots estimate` command), merged commits `9510e53` and `dede5cb`. Shipped in v1.37.0. Wired into `hotspots-cloud`'s crawl pipeline as the primary touch-mode screen (hotspots-cloud PR #121).
