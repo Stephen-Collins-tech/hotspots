@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Relativize CSV paths and label missing axis data as n/a
+
+
 ### Documentation
 - Correct stale STATUS/TASKS, document --touch-mode/estimate
+- Document --format csv/xlsx in REFERENCE.md
+
+
+### Features
+- Add hotspots analyze --format csv for triage spreadsheets
+- Split coupling into its own CSV, add top_function column
+- Add --format xlsx, revert csv to single-file/single-table
 
 ## [1.37.0] - 2026-09-08
 
