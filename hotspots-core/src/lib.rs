@@ -19,6 +19,7 @@ pub mod cfg;
 pub mod compact;
 pub mod config;
 pub mod coupling;
+pub mod csv_report;
 pub mod db;
 pub mod delta;
 pub mod discover;
@@ -46,6 +47,7 @@ pub mod suppression;
 pub mod touch_cache;
 pub mod trainer;
 pub mod trends;
+pub mod xlsx_report;
 
 pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;

@@ -12,7 +12,7 @@ hotspots analyze <PATH> [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--format` | `text` | `text`, `json`, `jsonl`, `html`, `sarif` |
+| `--format` | `text` | `text`, `json`, `jsonl`, `html`, `sarif`, `csv`, `xlsx` |
 | `--mode` | — | `snapshot`, `delta`, `models` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
@@ -45,6 +45,15 @@ hotspots analyze <PATH> [OPTIONS]
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
 - `--touch-mode` conflicts with each of the four deprecated flags above; the deprecated flags still work on their own (each prints a one-line warning to stderr) and remain mutually compatible with each other, resolved with the same precedence as before
+- `--format csv`/`--format xlsx` require `--mode snapshot`
+
+#### `--format csv` / `--format xlsx`
+
+A file-level triage/planning view for spreadsheet workflows — a tech lead or EM doing triage, ownership handoff, or sprint planning, not a raw per-function data dump (`--format json --all-functions`) or an in-IDE fix workflow (text/HTML). One row per file, always the full file list (ignores `--top`), with the risk band, quadrant, the file's highest-risk function and its line, ownership `newcomer_rate`, function/critical counts, LOC, and subsystem.
+
+Coupling (`directed_coupling`) is not in the main table — only a minority of files have any coupling relationship, so folding it in would leave most rows reading "n/a" on that column. `--format xlsx` is a real multi-sheet workbook: "Files" (the main table) plus a "Coupling" sheet (files with a real `directed_coupling` value only). `--format csv` is single-file/single-table only — CSV has no notion of multiple tables, so coupling isn't included; use `--format xlsx` for coupling data. `--format xlsx` always writes to a file (`--output`, or `.hotspots/report.xlsx` by default); `--format csv` prints to stdout without `--output`.
+
+Missing axis values (a file excluded from an axis, not a measured zero) are written as the literal string `n/a`, never a blank cell.
 
 #### `--touch-mode`
 
