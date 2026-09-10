@@ -89,16 +89,49 @@ impl GoCfgBuilderState {
         id
     }
 
-    /// Build CFG from a block node
-    fn build_from_block(&mut self, block: &Node, source: &str) {
-        let mut cursor = block.walk();
-
-        for child in block.children(&mut cursor) {
+    /// Visit every named child of `node` in order, dispatching each through
+    /// `visit_node`. Shared by `build_from_block` (a function/if/for body) and
+    /// the `statement_list` dispatch arm below (the wrapper tree-sitter-go
+    /// puts around every multi-statement body), so the walk-and-dispatch loop
+    /// isn't duplicated between them.
+    fn visit_children(&mut self, node: &Node, source: &str) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
             // Skip braces and other structural nodes
             if child.is_named() {
                 self.visit_node(&child, source);
             }
         }
+    }
+
+    /// Visit one case body shared by `visit_switch` and `visit_select`: build
+    /// the case's start node off `condition_node`, walk its body, and connect
+    /// its end to the enclosing switch/select's join (unless the case body
+    /// itself already terminated control flow, e.g. `return`/`break`).
+    /// `case`'s own kind (`expression_case`/`type_case`/`default_case` for a
+    /// switch, `communication_case`/`default_case` for a select) is the
+    /// caller's concern, not this helper's — a case is a case once the
+    /// caller has already decided to visit it.
+    fn visit_case(&mut self, case: &Node, condition_node: NodeId, idx: usize, source: &str) {
+        let case_start = self.cfg.add_node(NodeKind::Statement);
+        self.cfg.add_edge(condition_node, case_start);
+        self.current_node = Some(case_start);
+
+        // `:` is a punctuation token, already excluded by `visit_children`'s
+        // `is_named()` check like every other unnamed token.
+        self.visit_children(case, source);
+
+        if let Some(case_end) = self.current_node {
+            if case_end != self.cfg.exit {
+                let join_node = self.get_or_create_break_target(idx);
+                self.cfg.add_edge(case_end, join_node);
+            }
+        }
+    }
+
+    /// Build CFG from a block node
+    fn build_from_block(&mut self, block: &Node, source: &str) {
+        self.visit_children(block, source);
 
         // Connect last node to exit
         if let Some(last_node) = self.current_node {
@@ -131,34 +164,31 @@ impl GoCfgBuilderState {
             "labeled_statement" => self.visit_labeled(node, source),
             "defer_statement" => self.visit_defer(node),
             "go_statement" => self.visit_go_statement(node),
-            "expression_statement" => {
-                // Check if this is a panic call
-                if is_panic_call(node, source) {
-                    self.visit_panic();
-                } else {
-                    self.visit_simple_statement();
-                }
-            }
+            "expression_statement" => self.visit_expression_statement(node, source),
             "block" => self.build_from_block(node, source),
-            "statement_list" => {
-                // tree-sitter-go wraps every sequence of statements (a
-                // function/if/for block body, a switch/select case body,
-                // etc.) in a statement_list node. Without flattening it
-                // here, every statement inside would be treated as one
-                // opaque, un-dispatched node - collapsing entire multi-
-                // statement blocks into a single generic statement and
-                // silently skipping any if/for/switch/etc. nested inside.
-                let mut cursor = node.walk();
-                for child in node.children(&mut cursor) {
-                    if child.is_named() {
-                        self.visit_node(&child, source);
-                    }
-                }
-            }
+            // tree-sitter-go wraps every sequence of statements (a
+            // function/if/for block body, a switch/select case body, etc.)
+            // in a statement_list node. Without flattening it via
+            // `visit_children`, every statement inside would be treated as
+            // one opaque, un-dispatched node - collapsing entire multi-
+            // statement blocks into a single generic statement and silently
+            // skipping any if/for/switch/etc. nested inside.
+            "statement_list" => self.visit_children(node, source),
             _ => {
                 // Regular statement - add node and continue
                 self.visit_simple_statement();
             }
+        }
+    }
+
+    /// A bare expression statement is a `panic(...)` call or an ordinary
+    /// statement; distinguishing the two is real decision logic, not
+    /// dispatch, so it lives here rather than inline in `visit_node`'s match.
+    fn visit_expression_statement(&mut self, node: &Node, source: &str) {
+        if is_panic_call(node, source) {
+            self.visit_panic();
+        } else {
+            self.visit_simple_statement();
         }
     }
 
@@ -289,34 +319,10 @@ impl GoCfgBuilderState {
         let mut has_default = false;
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "expression_case"
-                || child.kind() == "type_case"
-                || child.kind() == "default_case"
-            {
-                if child.kind() == "default_case" {
-                    has_default = true;
-                }
-
-                let case_start = self.cfg.add_node(NodeKind::Statement);
-                self.cfg.add_edge(condition_node, case_start);
-
-                self.current_node = Some(case_start);
-
-                // Visit case body
-                let mut case_cursor = child.walk();
-                for case_child in child.children(&mut case_cursor) {
-                    if case_child.is_named() && case_child.kind() != ":" {
-                        self.visit_node(&case_child, source);
-                    }
-                }
-
-                // Case ends connect to join (unless they explicitly break/return)
-                if let Some(case_end) = self.current_node {
-                    if case_end != self.cfg.exit {
-                        let join_node = self.get_or_create_break_target(idx);
-                        self.cfg.add_edge(case_end, join_node);
-                    }
-                }
+            let kind = child.kind();
+            if is_switch_case_kind(kind) {
+                has_default |= kind == "default_case";
+                self.visit_case(&child, condition_node, idx, source);
             }
         }
 
@@ -360,26 +366,8 @@ impl GoCfgBuilderState {
         // Visit each communication case
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            if child.kind() == "communication_case" || child.kind() == "default_case" {
-                let case_start = self.cfg.add_node(NodeKind::Statement);
-                self.cfg.add_edge(condition_node, case_start);
-
-                self.current_node = Some(case_start);
-
-                // Visit case body
-                let mut case_cursor = child.walk();
-                for case_child in child.children(&mut case_cursor) {
-                    if case_child.is_named() {
-                        self.visit_node(&case_child, source);
-                    }
-                }
-
-                if let Some(case_end) = self.current_node {
-                    if case_end != self.cfg.exit {
-                        let join_node = self.get_or_create_break_target(idx);
-                        self.cfg.add_edge(case_end, join_node);
-                    }
-                }
+            if matches!(child.kind(), "communication_case" | "default_case") {
+                self.visit_case(&child, condition_node, idx, source);
             }
         }
 
@@ -522,6 +510,13 @@ fn find_child_by_field<'a>(node: Node<'a>, field: &str) -> Option<Node<'a>> {
 fn find_label_text(node: &Node, source: &str) -> Option<String> {
     find_child_by_kind(*node, "label_name")
         .map(|n| source[n.start_byte()..n.end_byte()].to_string())
+}
+
+/// True for switch/type-switch case node kinds (`switch x { ... }` and
+/// `switch x.(type) { ... }` share `default_case`; only `expression_case` vs.
+/// `type_case` differs between them).
+fn is_switch_case_kind(kind: &str) -> bool {
+    matches!(kind, "expression_case" | "type_case" | "default_case")
 }
 
 /// Check if a node is a panic() call
