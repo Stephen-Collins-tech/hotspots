@@ -515,6 +515,11 @@ fn find_label_text(node: &Node, source: &str) -> Option<String> {
 /// True for switch/type-switch case node kinds (`switch x { ... }` and
 /// `switch x.(type) { ... }` share `default_case`; only `expression_case` vs.
 /// `type_case` differs between them).
+/// Whether a tree-sitter-go node kind is a `switch` case arm
+/// (`expression_case`/`type_case`/`default_case`). Used by `visit_switch` and
+/// `visit_type_switch` to filter case children before handing them to
+/// `visit_case`; select's `communication_case` is a distinct kind and isn't
+/// covered here.
 fn is_switch_case_kind(kind: &str) -> bool {
     matches!(kind, "expression_case" | "type_case" | "default_case")
 }
@@ -1121,5 +1126,54 @@ Done:
 "#;
         let cfg = build_cfg(source);
         cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn test_is_switch_case_kind() {
+        assert!(is_switch_case_kind("expression_case"));
+        assert!(is_switch_case_kind("type_case"));
+        assert!(is_switch_case_kind("default_case"));
+        // select's case kind is distinct and must not be treated as a switch case.
+        assert!(!is_switch_case_kind("communication_case"));
+        assert!(!is_switch_case_kind("block"));
+    }
+
+    #[test]
+    fn test_visit_expression_statement_panic_call_marks_dead_code() {
+        // visit_panic (unlike visit_simple_statement) sets current_node to
+        // None, so statements after a bare panic() call must be elided from
+        // the CFG entirely rather than turned into unreachable nodes.
+        let panic_source = r#"
+package main
+func test() {
+    doA()
+    panic("boom")
+    doB()
+    doC()
+}
+"#;
+        let plain_source = r#"
+package main
+func test() {
+    doA()
+    doB()
+    doC()
+}
+"#;
+        let panic_cfg = build_cfg(panic_source);
+        let plain_cfg = build_cfg(plain_source);
+        panic_cfg.validate().unwrap();
+        plain_cfg.validate().unwrap();
+
+        assert_eq!(
+            panic_cfg.node_count(),
+            4, // entry, doA, panic, exit — doB/doC are dead code
+            "statements after panic() must not become CFG nodes"
+        );
+        assert_eq!(
+            plain_cfg.node_count(),
+            5, // entry, doA, doB, doC, exit — all reachable
+            "an ordinary call sequence keeps every statement reachable"
+        );
     }
 }
