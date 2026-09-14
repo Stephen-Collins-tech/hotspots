@@ -298,6 +298,16 @@ enum Commands {
         #[arg(long, short = 'q', default_value = "false")]
         quiet: bool,
     },
+    /// Analyze coupling and ownership risk for a set of files before starting work
+    Coordinate {
+        /// Comma-separated list of file paths to analyze
+        #[arg(long)]
+        files: String,
+
+        /// Path to repository root
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
     /// Check whether a newer version of hotspots is available
     Upgrade,
     /// Project `analyze --touch-mode per-function`'s wall-clock cost before running it
@@ -468,6 +478,9 @@ fn main() -> anyhow::Result<()> {
             yes,
             quiet,
         })?,
+        Commands::Coordinate { files, path } => {
+            cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs { files, path })?
+        }
         Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
         Commands::Estimate {
             path,

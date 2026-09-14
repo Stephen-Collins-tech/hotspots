@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
+use crate::coupling::git_dir;
+
 /// Separator used in git log --format to delimit commits from file lists.
 const SEP: &str = "@@HC@@";
 
@@ -241,6 +243,27 @@ pub fn compute_history_signals(commits: &[CommitRecord]) -> HashMap<String, Hist
     signals
 }
 
+/// High-level entry point: load full commit history from `repo_root` and
+/// compute per-file `HistorySignals`, without requiring a pre-built
+/// `Snapshot`. Thin wrapper around [`load_commits_with_author`] +
+/// [`compute_history_signals`], mirroring `coupling.rs`'s
+/// `compute_directed_coupling_for_repo` repo-root-level convenience pattern.
+/// Used by `hotspots coordinate`, which operates on bare file paths and has
+/// no function-level snapshot to attach signals to.
+pub fn compute_history_signals_for_repo(repo_root: &Path) -> HashMap<String, HistorySignals> {
+    let gd = git_dir(repo_root);
+    if !gd.exists() {
+        return HashMap::new();
+    }
+
+    let commits = load_commits_with_author(&gd);
+    if commits.is_empty() {
+        return HashMap::new();
+    }
+
+    compute_history_signals(&commits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -440,5 +463,13 @@ mod tests {
         // first-ever commit is also inside the window, which it is here
         // (her only commit). bob likewise. Both are newcomers: rate = 1.0.
         assert_eq!(a.newcomer_rate, Some(1.0));
+    }
+
+    // ── compute_history_signals_for_repo ────────────────────────────────────────
+
+    #[test]
+    fn history_signals_for_repo_missing_git_dir_returns_empty() {
+        let signals = compute_history_signals_for_repo(Path::new("/nonexistent/repo/path"));
+        assert!(signals.is_empty());
     }
 }
