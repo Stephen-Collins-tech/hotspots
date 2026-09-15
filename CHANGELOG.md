@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add hotspots analyze --format csv for triage spreadsheets
 - Split coupling into its own CSV, add top_function column
 - Add --format xlsx, revert csv to single-file/single-table
+- Add `hotspots coordinate` v1 minimal subcommand (#192)
 
 ## [1.37.0] - 2026-09-08
 
