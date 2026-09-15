@@ -1,6 +1,7 @@
 pub(crate) mod analyze;
 pub(crate) mod compact;
 pub(crate) mod config;
+pub(crate) mod coordinate;
 pub(crate) mod diff;
 pub(crate) mod estimate;
 pub(crate) mod init;

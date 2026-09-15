@@ -308,6 +308,82 @@ pub fn compute_directed_coupling_for_repo(
     (scores, jaccard)
 }
 
+/// Raw pairwise co-occurrence ratio, unweighted by any partner defect score.
+///
+/// `coupling_ratio(A, B) = co_occurrence(A, B) / min(commits(A), commits(B))`.
+/// Distinct from [`compute_directed_coupling`], which weights co-changes by a
+/// partner's defect score — this is the plain co-change baseline `hotspots
+/// coordinate` needs (F37-style DC scoring is a separate, later enhancement).
+///
+/// Files appearing fewer than `min_appearances` times are excluded entirely
+/// (not scored against anything). Each unordered pair appears at most once in
+/// the output, keyed with the lexicographically smaller path first.
+pub fn compute_raw_coupling_ratios(
+    commits: &[(i64, String, Vec<String>)],
+    min_appearances: usize,
+) -> HashMap<(String, String), f64> {
+    let mut appearances: HashMap<String, usize> = HashMap::new();
+    let mut co_occurrence: HashMap<(String, String), usize> = HashMap::new();
+
+    for (_, _, files) in commits {
+        let mut fs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        fs.sort_unstable();
+        fs.dedup();
+
+        for &f in &fs {
+            *appearances.entry(f.to_string()).or_insert(0) += 1;
+        }
+
+        for i in 0..fs.len() {
+            for j in (i + 1)..fs.len() {
+                let (fa, fb) = (fs[i], fs[j]);
+                let key = if fa < fb {
+                    (fa.to_string(), fb.to_string())
+                } else {
+                    (fb.to_string(), fa.to_string())
+                };
+                *co_occurrence.entry(key).or_insert(0) += 1;
+            }
+        }
+    }
+
+    co_occurrence
+        .into_iter()
+        .filter_map(|((a, b), co_count)| {
+            let count_a = *appearances.get(&a).unwrap_or(&0);
+            let count_b = *appearances.get(&b).unwrap_or(&0);
+            if count_a < min_appearances || count_b < min_appearances {
+                return None;
+            }
+            let denom = count_a.min(count_b);
+            if denom == 0 {
+                return None;
+            }
+            Some(((a, b), co_count as f64 / denom as f64))
+        })
+        .collect()
+}
+
+/// High-level entry point: load commits from `repo_root` and compute raw
+/// (unweighted) pairwise coupling ratios, full history, no minimum-appearances
+/// filter (`min_appearances = 1`) — `hotspots coordinate` operates on a small,
+/// caller-specified file set, not a repo-wide ranking, so the noise floor that
+/// matters for [`compute_directed_coupling_for_repo`]'s repo-wide scoring
+/// doesn't apply here.
+pub fn compute_raw_coupling_for_repo(repo_root: &Path) -> HashMap<(String, String), f64> {
+    let gd = git_dir(repo_root);
+    if !gd.exists() {
+        return HashMap::new();
+    }
+
+    let commits = load_commits(&gd);
+    if commits.is_empty() {
+        return HashMap::new();
+    }
+
+    compute_raw_coupling_ratios(&commits, 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,5 +501,65 @@ mod tests {
         commits.extend((8..10).map(|i| commit(i, "fix: y", &["b.rs"])));
         let j = compute_jaccard_stability(&commits, 0.8, 0.2).unwrap();
         assert!((j - 0.0).abs() < 1e-9);
+    }
+
+    // ── compute_raw_coupling_ratios ────────────────────────────────────────────
+
+    #[test]
+    fn raw_coupling_empty_commits_returns_empty() {
+        let ratios = compute_raw_coupling_ratios(&[], 1);
+        assert!(ratios.is_empty());
+    }
+
+    #[test]
+    fn raw_coupling_single_file_commits_no_pairs() {
+        let commits = vec![
+            commit(1, "feat: a", &["a.rs"]),
+            commit(2, "feat: a", &["a.rs"]),
+        ];
+        let ratios = compute_raw_coupling_ratios(&commits, 1);
+        assert!(ratios.is_empty());
+    }
+
+    #[test]
+    fn raw_coupling_exact_ratio_matches_formula() {
+        // a.rs appears in 4 commits, b.rs in 2 commits, co-occurring in both of
+        // b.rs's commits. coupling_ratio(a,b) = 2 / min(4, 2) = 1.0.
+        let commits = vec![
+            commit(1, "feat: a", &["a.rs"]),
+            commit(2, "feat: ab", &["a.rs", "b.rs"]),
+            commit(3, "feat: a", &["a.rs"]),
+            commit(4, "feat: ab", &["a.rs", "b.rs"]),
+        ];
+        let ratios = compute_raw_coupling_ratios(&commits, 1);
+        let key = ("a.rs".to_string(), "b.rs".to_string());
+        assert!((ratios[&key] - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn raw_coupling_key_is_order_independent() {
+        // Files listed b.rs, a.rs in the commit should still key as (a.rs, b.rs).
+        let commits = vec![commit(1, "feat: ab", &["b.rs", "a.rs"])];
+        let ratios = compute_raw_coupling_ratios(&commits, 1);
+        assert!(ratios.contains_key(&("a.rs".to_string(), "b.rs".to_string())));
+        assert!(!ratios.contains_key(&("b.rs".to_string(), "a.rs".to_string())));
+    }
+
+    #[test]
+    fn raw_coupling_min_appearances_excludes_sparse_files() {
+        // b.rs appears only once total -- below min_appearances=2, excluded
+        // even though it co-occurred with a.rs.
+        let commits = vec![
+            commit(1, "feat: ab", &["a.rs", "b.rs"]),
+            commit(2, "feat: a", &["a.rs"]),
+        ];
+        let ratios = compute_raw_coupling_ratios(&commits, 2);
+        assert!(!ratios.contains_key(&("a.rs".to_string(), "b.rs".to_string())));
+    }
+
+    #[test]
+    fn raw_coupling_for_repo_missing_git_dir_returns_empty() {
+        let ratios = compute_raw_coupling_for_repo(Path::new("/nonexistent/repo/path"));
+        assert!(ratios.is_empty());
     }
 }
