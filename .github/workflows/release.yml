@@ -216,6 +216,9 @@ jobs:
     needs: [bump-and-tag, build-binaries]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -228,6 +231,9 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@latest
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -268,17 +274,13 @@ jobs:
           done
 
       - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          (cd packages/hotspots-linux-x64 && npm publish --access public)
-          (cd packages/hotspots-darwin-arm64 && npm publish --access public)
-          (cd packages/hotspots-win32-x64 && npm publish --access public)
+          (cd packages/hotspots-linux-x64 && npm publish --access public --provenance)
+          (cd packages/hotspots-darwin-arm64 && npm publish --access public --provenance)
+          (cd packages/hotspots-win32-x64 && npm publish --access public --provenance)
 
       - name: Publish wrapper package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: (cd packages/hotspots && npm publish --access public)
+        run: (cd packages/hotspots && npm publish --access public --provenance)
 
   publish-pypi:
     name: Publish to PyPI (${{ matrix.target }})
