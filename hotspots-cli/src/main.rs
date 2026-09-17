@@ -10,8 +10,10 @@ mod cmd;
 mod output;
 mod util;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs};
+use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -302,7 +304,15 @@ enum Commands {
     Coordinate {
         /// Comma-separated list of file paths to analyze
         #[arg(long)]
-        files: String,
+        files: Option<String>,
+
+        /// Derive the file set from a unified diff read on stdin
+        #[arg(long)]
+        diff: bool,
+
+        /// Derive the file set from `git diff --cached --name-only`
+        #[arg(long)]
+        staged: bool,
 
         /// Path to repository root
         #[arg(default_value = ".")]
@@ -478,8 +488,27 @@ fn main() -> anyhow::Result<()> {
             yes,
             quiet,
         })?,
-        Commands::Coordinate { files, path } => {
-            cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs { files, path })?
+        Commands::Coordinate {
+            files,
+            diff,
+            staged,
+            path,
+        } => {
+            let diff_text = if diff {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buf)
+                    .context("read diff from stdin")?;
+                Some(buf)
+            } else {
+                None
+            };
+            cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs {
+                files,
+                diff: diff_text,
+                staged,
+                path,
+            })?
         }
         Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
         Commands::Estimate {
