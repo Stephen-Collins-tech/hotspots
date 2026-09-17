@@ -20,7 +20,7 @@ use anyhow::{bail, Context, Result};
 use hotspots_core::coupling::compute_raw_coupling_for_repo;
 use hotspots_core::history_signals::compute_history_signals_for_repo;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -146,9 +146,12 @@ fn staged_files(repo_root: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
-    let repo_root = args.path.canonicalize().context("resolve repo path")?;
-
+/// Resolves the input file set from whichever of `--files`/`--diff`/`--staged`
+/// was provided, enforcing mutual exclusion. Pure dispatch logic split out
+/// from `handle_coordinate` so it's unit-testable without a real repo or git
+/// history — `staged_files` is the only branch that still needs `repo_root`
+/// for its own `git` invocation.
+fn resolve_input_files(args: &CoordinateArgs, repo_root: &Path) -> Result<Vec<String>> {
     let provided = [args.files.is_some(), args.diff.is_some(), args.staged]
         .iter()
         .filter(|&&p| p)
@@ -157,34 +160,40 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
         bail!("--files, --diff, and --staged are mutually exclusive");
     }
 
-    let input_files: Vec<String> = if let Some(files) = &args.files {
-        files
+    if let Some(files) = &args.files {
+        Ok(files
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .collect()
+            .collect())
     } else if let Some(diff_text) = &args.diff {
-        extract_files_from_diff(diff_text)
+        Ok(extract_files_from_diff(diff_text))
     } else if args.staged {
-        staged_files(&repo_root)?
+        staged_files(repo_root)
     } else {
         bail!("one of --files, --diff, or --staged is required");
-    };
+    }
+}
 
-    let coupling = compute_raw_coupling_for_repo(&repo_root);
-    let ownership_signals = compute_history_signals_for_repo(&repo_root);
-
-    let input_set: std::collections::HashSet<&str> =
-        input_files.iter().map(|s| s.as_str()).collect();
+/// Classifies raw pairwise coupling against the input file set: pairs fully
+/// inside the set go to `within_set`; pairs with exactly one endpoint inside
+/// the set, at or above `HIDDEN_DEP_THRESHOLD`, go to `hidden_dependencies`
+/// (one entry per outside file, kept against its strongest coupling
+/// partner). Pure classification logic split out from `handle_coordinate`
+/// so it's unit-testable without a real repo or git history.
+fn classify_coupling(
+    coupling: &HashMap<(String, String), f64>,
+    input_files: &[String],
+) -> (Vec<CouplingPair>, Vec<HiddenDependency>) {
+    let input_set: HashSet<&str> = input_files.iter().map(|s| s.as_str()).collect();
 
     let mut within_set = Vec::new();
-    let mut hidden_dependencies: Vec<HiddenDependency> = Vec::new();
     // Track the max coupling_ratio seen for each hidden-dep candidate so a
     // file coupled to multiple input files is reported once, against its
     // strongest coupling partner.
     let mut hidden_dep_best: HashMap<String, HiddenDependency> = HashMap::new();
 
-    for ((file_a, file_b), ratio) in &coupling {
+    for ((file_a, file_b), ratio) in coupling {
         let a_in = input_set.contains(file_a.as_str());
         let b_in = input_set.contains(file_b.as_str());
 
@@ -200,9 +209,19 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
             } else {
                 (file_a.clone(), file_b.clone())
             };
+            // Tie-break deterministically on `inside` (the input-set file
+            // this hidden dep would be reported against): iteration order
+            // over `coupling` (a HashMap) is not stable across runs, so a
+            // strict `>` alone let a coupling_ratio tie resolve to whichever
+            // candidate happened to be visited first — non-deterministic
+            // output on identical input, found by running the same binary
+            // on the same input repeatedly and diffing.
             let better = hidden_dep_best
                 .get(&outside)
-                .map(|existing| *ratio > existing.coupling_ratio)
+                .map(|existing| {
+                    *ratio > existing.coupling_ratio
+                        || (*ratio == existing.coupling_ratio && inside < existing.coupled_to)
+                })
                 .unwrap_or(true);
             if better {
                 hidden_dep_best.insert(
@@ -216,13 +235,26 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
             }
         }
     }
-    hidden_dependencies.extend(hidden_dep_best.into_values());
+
+    let mut hidden_dependencies: Vec<HiddenDependency> = hidden_dep_best.into_values().collect();
     hidden_dependencies.sort_by(|a, b| a.file.cmp(&b.file));
     within_set.sort_by(|a, b| {
         a.file_a
             .cmp(&b.file_a)
             .then_with(|| a.file_b.cmp(&b.file_b))
     });
+
+    (within_set, hidden_dependencies)
+}
+
+pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
+    let repo_root = args.path.canonicalize().context("resolve repo path")?;
+    let input_files = resolve_input_files(&args, &repo_root)?;
+
+    let coupling = compute_raw_coupling_for_repo(&repo_root);
+    let ownership_signals = compute_history_signals_for_repo(&repo_root);
+
+    let (within_set, hidden_dependencies) = classify_coupling(&coupling, &input_files);
 
     let ownership: Vec<FileOwnership> = input_files
         .iter()
@@ -364,6 +396,135 @@ mod tests {
         // empty-string entry in the file list.
         let diff = "+++ b/\n+++ b/real.rs\n";
         assert_eq!(extract_files_from_diff(diff), vec!["real.rs"]);
+    }
+
+    // -- resolve_input_files (mutual exclusion / dispatch, previously only
+    // covered by CLI-level smoke testing, not a Rust unit test) --
+
+    fn args_with(files: Option<&str>, diff: Option<&str>, staged: bool) -> CoordinateArgs {
+        CoordinateArgs {
+            files: files.map(str::to_string),
+            diff: diff.map(str::to_string),
+            staged,
+            path: PathBuf::from("."),
+        }
+    }
+
+    #[test]
+    fn resolve_input_files_from_files() {
+        let args = args_with(Some("a.rs, b.rs ,,c.rs"), None, false);
+        let files = resolve_input_files(&args, Path::new(".")).unwrap();
+        assert_eq!(files, vec!["a.rs", "b.rs", "c.rs"]);
+    }
+
+    #[test]
+    fn resolve_input_files_from_diff() {
+        let args = args_with(None, Some("+++ b/x.rs\n"), false);
+        let files = resolve_input_files(&args, Path::new(".")).unwrap();
+        assert_eq!(files, vec!["x.rs"]);
+    }
+
+    #[test]
+    fn resolve_input_files_rejects_more_than_one_source() {
+        let args = args_with(Some("a.rs"), Some("+++ b/x.rs\n"), false);
+        let err = resolve_input_files(&args, Path::new(".")).unwrap_err();
+        assert!(err.to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn resolve_input_files_rejects_none_provided() {
+        let args = args_with(None, None, false);
+        let err = resolve_input_files(&args, Path::new(".")).unwrap_err();
+        assert!(err.to_string().contains("required"));
+    }
+
+    // -- classify_coupling (v1-minimal.md — previously only covered by
+    // CLI-level smoke testing, not a Rust unit test) --
+
+    fn pair(a: &str, b: &str, ratio: f64) -> ((String, String), f64) {
+        ((a.to_string(), b.to_string()), ratio)
+    }
+
+    #[test]
+    fn classify_coupling_within_set_pair() {
+        let coupling = HashMap::from([pair("a.rs", "b.rs", 0.9)]);
+        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
+        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
+        assert_eq!(within_set.len(), 1);
+        assert_eq!(within_set[0].coupling_ratio, 0.9);
+        assert!(hidden_deps.is_empty());
+    }
+
+    #[test]
+    fn classify_coupling_hidden_dependency_above_threshold() {
+        let coupling = HashMap::from([pair("a.rs", "outside.rs", 0.8)]);
+        let input_files = vec!["a.rs".to_string()];
+        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
+        assert!(within_set.is_empty());
+        assert_eq!(hidden_deps.len(), 1);
+        assert_eq!(hidden_deps[0].file, "outside.rs");
+        assert_eq!(hidden_deps[0].coupled_to, "a.rs");
+    }
+
+    #[test]
+    fn classify_coupling_below_threshold_is_not_hidden_dependency() {
+        let coupling = HashMap::from([pair("a.rs", "outside.rs", 0.5)]);
+        let input_files = vec!["a.rs".to_string()];
+        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
+        assert!(within_set.is_empty());
+        assert!(hidden_deps.is_empty());
+    }
+
+    #[test]
+    fn classify_coupling_pair_entirely_outside_set_is_ignored() {
+        let coupling = HashMap::from([pair("outside_a.rs", "outside_b.rs", 1.0)]);
+        let input_files = vec!["a.rs".to_string()];
+        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
+        assert!(within_set.is_empty());
+        assert!(hidden_deps.is_empty());
+    }
+
+    #[test]
+    fn classify_coupling_keeps_strongest_partner_for_outside_file() {
+        // outside.rs is coupled to two input files at different ratios;
+        // it must be reported once, against the stronger of the two.
+        let coupling = HashMap::from([
+            pair("a.rs", "outside.rs", 0.75),
+            pair("outside.rs", "b.rs", 0.95),
+        ]);
+        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
+        let (_within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
+        assert_eq!(hidden_deps.len(), 1);
+        assert_eq!(hidden_deps[0].coupling_ratio, 0.95);
+        assert_eq!(hidden_deps[0].coupled_to, "b.rs");
+    }
+
+    #[test]
+    fn classify_coupling_tied_ratio_resolves_deterministically() {
+        // outside.rs is coupled to both a.rs and b.rs at the exact same
+        // ratio. Which one "wins" must not depend on HashMap iteration
+        // order (found via manual testing: the same binary on the same
+        // input flipped its answer run to run before this fix). Regardless
+        // of insertion order, the lexicographically smaller `coupled_to`
+        // must win -- construct the map both ways and assert both agree.
+        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
+
+        let coupling_a_first = HashMap::from([
+            pair("a.rs", "outside.rs", 0.9),
+            pair("outside.rs", "b.rs", 0.9),
+        ]);
+        let coupling_b_first = HashMap::from([
+            pair("outside.rs", "b.rs", 0.9),
+            pair("a.rs", "outside.rs", 0.9),
+        ]);
+
+        let (_, hidden_a) = classify_coupling(&coupling_a_first, &input_files);
+        let (_, hidden_b) = classify_coupling(&coupling_b_first, &input_files);
+
+        assert_eq!(hidden_a.len(), 1);
+        assert_eq!(hidden_b.len(), 1);
+        assert_eq!(hidden_a[0].coupled_to, "a.rs");
+        assert_eq!(hidden_b[0].coupled_to, "a.rs");
     }
 
     // -- staged_files (coordinate-diff-mode.md, acceptance criterion 3 —
