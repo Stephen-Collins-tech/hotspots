@@ -9,3 +9,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 echo "→ cargo test"
 cargo test --lib -- --skip git::tests::test_extract_git_context
+
+echo "→ hotspots analyze"
+cargo run --quiet --release --bin hotspots -- analyze . --mode delta --policy --format text
