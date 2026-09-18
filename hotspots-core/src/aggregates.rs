@@ -99,6 +99,30 @@ pub struct FileDeltaAggregates {
     pub improvement_count: usize,
 }
 
+/// Single risk score for an entire PR (all changed functions collapsed into one view).
+///
+/// `pr_risk_score` is the net LRS delta summed across every New/Modified/Deleted
+/// function (New adds `after.lrs`, Deleted subtracts `before.lrs`, Modified adds
+/// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
+/// just summed across the whole diff instead of grouped by file.
+///
+/// `band` is the highest risk band reached by any New or Modified function's
+/// `after` state (Deleted functions don't count toward it — removing risky code
+/// isn't risk introduced by the PR).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct PrRiskSummary {
+    pub pr_risk_score: f64,
+    pub band: RiskBand,
+    pub new_count: usize,
+    pub modified_count: usize,
+    pub deleted_count: usize,
+    pub regression_count: usize,
+    pub improvement_count: usize,
+    pub band_upgrades: usize,
+    pub policy_blocking: bool,
+}
+
 /// A co-change pair entry in the delta diff
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -124,6 +148,7 @@ pub struct DeltaAggregates {
     pub files: Vec<FileDeltaAggregates>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub co_change_delta: Vec<CoChangeDeltaEntry>,
+    pub pr_summary: PrRiskSummary,
 }
 
 /// Number of functions per quadrant in the agent triage view
@@ -1071,6 +1096,85 @@ pub fn compute_delta_aggregates(
     DeltaAggregates {
         files: aggregates,
         co_change_delta,
+        pr_summary: compute_pr_risk_summary(delta),
+    }
+}
+
+/// Collapse every function-level delta entry into a single PR-wide risk view.
+///
+/// See [`PrRiskSummary`] for what `pr_risk_score` and `band` mean.
+pub fn compute_pr_risk_summary(delta: &Delta) -> PrRiskSummary {
+    use crate::delta::FunctionStatus;
+
+    let mut pr_risk_score = 0.0;
+    let mut new_count = 0;
+    let mut modified_count = 0;
+    let mut deleted_count = 0;
+    let mut regression_count = 0;
+    let mut improvement_count = 0;
+    let mut band_upgrades = 0;
+    let mut band = RiskBand::Low;
+
+    for entry in &delta.deltas {
+        match entry.status {
+            FunctionStatus::New => {
+                new_count += 1;
+                if let Some(after) = &entry.after {
+                    pr_risk_score += after.lrs;
+                    band = band.max(after.band);
+                }
+            }
+            FunctionStatus::Deleted => {
+                deleted_count += 1;
+                if let Some(before) = &entry.before {
+                    pr_risk_score -= before.lrs;
+                    improvement_count += 1;
+                }
+            }
+            FunctionStatus::Modified => {
+                modified_count += 1;
+                if let Some(d) = &entry.delta {
+                    pr_risk_score += d.lrs;
+                    if d.lrs > 0.0 {
+                        regression_count += 1;
+                    } else if d.lrs < 0.0 {
+                        improvement_count += 1;
+                    }
+                }
+                if let Some(after) = &entry.after {
+                    band = band.max(after.band);
+                }
+            }
+            FunctionStatus::Unchanged => continue,
+        }
+
+        if let Some(t) = &entry.band_transition {
+            let from = RiskBand::parse(&t.from);
+            let to = RiskBand::parse(&t.to);
+            if let (Some(from), Some(to)) = (from, to) {
+                if to > from {
+                    band_upgrades += 1;
+                }
+            }
+        }
+    }
+
+    let policy_blocking = delta
+        .policy
+        .as_ref()
+        .map(|p| p.has_blocking_failures())
+        .unwrap_or(false);
+
+    PrRiskSummary {
+        pr_risk_score,
+        band,
+        new_count,
+        modified_count,
+        deleted_count,
+        regression_count,
+        improvement_count,
+        band_upgrades,
+        policy_blocking,
     }
 }
 

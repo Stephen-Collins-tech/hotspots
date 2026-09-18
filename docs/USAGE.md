@@ -108,6 +108,21 @@ hotspots diff main HEAD
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
+### PR risk score
+
+Every `diff` collapses all function-level changes into a single `pr_risk_score`
+(net LRS delta across the whole diff — new functions add their LRS, deleted
+functions subtract theirs, modified functions add their ΔLRS) plus a `band`
+(the highest risk band reached by any new or modified function). Text output
+prints it under the summary line; JSON/JSONL expose it at
+`aggregates.pr_summary`; the HTML report shows it as a summary card.
+
+```
+3 modified, 1 new, 0 deleted
+PR risk score: +7.50 (band: critical)
+====================================================================================================
+```
+
 ## Policy Engine
 
 The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff ... --policy`).
