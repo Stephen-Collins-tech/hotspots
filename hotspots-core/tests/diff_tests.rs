@@ -318,3 +318,65 @@ fn test_diff_delta_aggregates_attached() {
     );
     assert_eq!(agg.files[0].file, "src/i.ts");
 }
+
+#[test]
+fn test_diff_pr_risk_summary_collapses_all_changes_to_one_score() {
+    let tmp = TempDir::new().unwrap();
+    init_repo(tmp.path());
+
+    // base: one moderate function that will regress, one high function that will be deleted
+    let base = Snapshot::new(
+        git_ctx("base007", "root007"),
+        vec![
+            make_report("src/j.ts", "regresses", 6, 4.0, "moderate"),
+            make_report("src/j.ts", "removed", 15, 7.0, "high"),
+        ],
+    );
+    // head: "regresses" jumps to critical, plus a brand-new critical function
+    let head = Snapshot::new(
+        git_ctx("head007", "base007"),
+        vec![
+            make_report("src/j.ts", "regresses", 20, 9.5, "critical"),
+            make_report("src/j.ts", "brandNew", 18, 9.0, "critical"),
+        ],
+    );
+
+    let base = persist_and_load(tmp.path(), &base);
+    let head = persist_and_load(tmp.path(), &head);
+
+    let mut delta = Delta::new(&head, Some(&base)).expect("delta failed");
+    delta
+        .deltas
+        .retain(|e| e.status != FunctionStatus::Unchanged);
+
+    let summary = hotspots_core::aggregates::compute_pr_risk_summary(&delta);
+
+    assert_eq!(summary.new_count, 1);
+    assert_eq!(summary.modified_count, 1);
+    assert_eq!(summary.deleted_count, 1);
+    assert_eq!(summary.regression_count, 1);
+    assert_eq!(
+        summary.improvement_count, 1,
+        "the deleted function counts as an improvement"
+    );
+    assert_eq!(
+        summary.band,
+        hotspots_core::risk::RiskBand::Critical,
+        "worst band among New/Modified after-states should be Critical"
+    );
+    assert_eq!(
+        summary.band_upgrades, 1,
+        "only the modified function transitions bands"
+    );
+
+    // net = (9.5 - 4.0) [modified] + 9.0 [new] - 7.0 [deleted] = 7.5
+    assert!(
+        (summary.pr_risk_score - 7.5).abs() < 1e-9,
+        "unexpected pr_risk_score: {}",
+        summary.pr_risk_score
+    );
+
+    // compute_delta_aggregates should attach the same summary
+    let agg = hotspots_core::aggregates::compute_delta_aggregates(&delta, &[], &[]);
+    assert_eq!(agg.pr_summary, summary);
+}

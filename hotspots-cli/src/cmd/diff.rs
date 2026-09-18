@@ -286,6 +286,14 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
         out,
         "{modified_count} modified, {new_count} new, {deleted_count} deleted"
     )?;
+    if let Some(summary) = delta_val.aggregates.as_ref().map(|a| &a.pr_summary) {
+        writeln!(
+            out,
+            "PR risk score: {:+.2} (band: {})",
+            summary.pr_risk_score,
+            summary.band.as_str()
+        )?;
+    }
     writeln!(out, "{}", "=".repeat(100))?;
 
     if delta_val.deltas.is_empty() {

@@ -3693,6 +3693,24 @@ fn render_delta_summary(delta: &Delta) -> String {
         .filter(|d| d.delta.as_ref().map(|dt| dt.lrs > 0.0).unwrap_or(false))
         .count();
 
+    let pr_summary_card = delta
+        .aggregates
+        .as_ref()
+        .map(|a| &a.pr_summary)
+        .map(|s| {
+            format!(
+                r#"
+    <div class="summary-card">
+        <h3>PR Risk Score</h3>
+        <div class="value band-{band_class}">{score:+.2} ({band})</div>
+    </div>"#,
+                score = s.pr_risk_score,
+                band = s.band.as_str(),
+                band_class = s.band.as_str(),
+            )
+        })
+        .unwrap_or_default();
+
     format!(
         r#"<div class="summary">
     <div class="summary-card">
@@ -3710,12 +3728,13 @@ fn render_delta_summary(delta: &Delta) -> String {
     <div class="summary-card">
         <h3>Regressions</h3>
         <div class="value band-high">{regressions}</div>
-    </div>
+    </div>{pr_summary_card}
 </div>"#,
         new = new_count,
         modified = modified_count,
         deleted = deleted_count,
         regressions = regressions,
+        pr_summary_card = pr_summary_card,
     )
 }
 

@@ -735,11 +735,31 @@ Instability near 0 = everything depends on it (risky to change). Instability nea
   "policy": {
     "failed": [{ "id": "critical-introduction", "severity": "blocking", "message": "..." }],
     "warnings": []
+  },
+  "aggregates": {
+    "pr_summary": {
+      "pr_risk_score": 1.4,
+      "band": "critical",
+      "new_count": 0,
+      "modified_count": 1,
+      "deleted_count": 0,
+      "regression_count": 1,
+      "improvement_count": 0,
+      "band_upgrades": 1,
+      "policy_blocking": true
+    }
   }
 }
 ```
 
 Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by default).
+
+**`aggregates.pr_summary`** — collapses every changed function into a single PR-wide
+risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new
+functions add `after.lrs`, deleted functions subtract `before.lrs`, modified
+functions add `delta.lrs`); `band` is the highest risk band reached by any
+new/modified function's `after` state. Present whenever `aggregates` is attached
+(always true for `hotspots diff` output).
 
 ---
 
