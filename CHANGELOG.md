@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Add PR-wide risk score to diff aggregates (#201)
+- Downgrade coordinate recommendation for all-concentrated ownership (#200)
 
 ## [1.39.1] - 2026-09-18
 
