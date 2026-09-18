@@ -55,93 +55,393 @@ pub(crate) struct AnalyzeArgs {
 
 /// Validate flag combinations that are mode/format-specific.
 pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    let AnalyzeArgs {
-        mode,
-        format,
-        policy,
-        explain,
-        per_function_touches,
-        no_persist,
-        force,
-        level,
-        all_functions,
-        include_models,
-        explain_patterns,
-        cold_start,
-        axes,
-        ..
-    } = args;
-    if *cold_start && mode.is_some() {
+    validate_mode_bypass_flags(args)?;
+    validate_policy_flag(args)?;
+    validate_explain_flag(args)?;
+    validate_per_function_touches_flag(args)?;
+    validate_no_persist_flag(args)?;
+    validate_level_flag(args)?;
+    validate_all_functions_flag(args)?;
+    validate_models_mode_format(args)?;
+    validate_include_models_flag(args)?;
+    validate_explain_patterns_flag(args)?;
+    validate_format_mode_requirements(args)?;
+    Ok(())
+}
+
+/// `--cold-start`/`--axes` both bypass the trained-ranker/snapshot pipeline
+/// entirely, so neither is compatible with `--mode`, and they're mutually
+/// exclusive with each other.
+fn validate_mode_bypass_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.cold_start && args.mode.is_some() {
         anyhow::bail!("--cold-start is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
     }
-    if *axes && mode.is_some() {
+    if args.axes && args.mode.is_some() {
         anyhow::bail!("--axes is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
     }
-    if *axes && *cold_start {
+    if args.axes && args.cold_start {
         anyhow::bail!("--axes and --cold-start are mutually exclusive");
     }
-    if *policy && *mode != Some(OutputMode::Delta) {
+    Ok(())
+}
+
+fn validate_policy_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.policy && args.mode != Some(OutputMode::Delta) {
         anyhow::bail!("--policy flag is only valid with --mode delta");
     }
-    if *explain && mode.is_some() && *mode != Some(OutputMode::Snapshot) {
+    Ok(())
+}
+
+fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.explain && args.mode.is_some() && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--explain is not compatible with --mode delta or --mode models");
     }
-    if *per_function_touches && mode.is_none() {
+    Ok(())
+}
+
+fn validate_per_function_touches_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.per_function_touches && args.mode.is_none() {
         anyhow::bail!(
             "--per-function-touches is only valid with --mode snapshot, --mode delta, or --mode models"
         );
     }
-    if *no_persist {
-        if mode.is_none() {
-            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
-        }
-        if *mode == Some(OutputMode::Models) {
-            anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
-        }
-        if *force {
-            anyhow::bail!("--no-persist and --force are mutually exclusive");
-        }
+    Ok(())
+}
+
+fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if !args.no_persist {
+        return Ok(());
     }
-    if level.is_some() {
-        if *mode != Some(OutputMode::Snapshot) {
-            anyhow::bail!("--level is only valid with --mode snapshot");
-        }
-        if !matches!(format, OutputFormat::Text) {
-            anyhow::bail!("--level is only valid with --format text");
-        }
-        if *explain {
-            anyhow::bail!("--level and --explain are mutually exclusive");
-        }
+    if args.mode.is_none() || args.mode == Some(OutputMode::Models) {
+        anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
     }
-    if *all_functions
-        && (*mode != Some(OutputMode::Snapshot) || !matches!(format, OutputFormat::Json))
+    if args.force {
+        anyhow::bail!("--no-persist and --force are mutually exclusive");
+    }
+    Ok(())
+}
+
+fn validate_level_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.level.is_none() {
+        return Ok(());
+    }
+    if args.mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--level is only valid with --mode snapshot");
+    }
+    if !matches!(args.format, OutputFormat::Text) {
+        anyhow::bail!("--level is only valid with --format text");
+    }
+    if args.explain {
+        anyhow::bail!("--level and --explain are mutually exclusive");
+    }
+    Ok(())
+}
+
+fn validate_all_functions_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.all_functions
+        && (args.mode != Some(OutputMode::Snapshot) || !matches!(args.format, OutputFormat::Json))
     {
         anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
     }
-    if *mode == Some(OutputMode::Models)
-        && !matches!(format, OutputFormat::Text | OutputFormat::Json)
+    Ok(())
+}
+
+fn validate_models_mode_format(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.mode == Some(OutputMode::Models)
+        && !matches!(args.format, OutputFormat::Text | OutputFormat::Json)
     {
         anyhow::bail!("--mode models supports --format text or --format json");
     }
-    if *include_models
-        && (*mode != Some(OutputMode::Snapshot)
-            || !matches!(format, OutputFormat::Json | OutputFormat::Html))
+    Ok(())
+}
+
+fn validate_include_models_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.include_models
+        && (args.mode != Some(OutputMode::Snapshot)
+            || !matches!(args.format, OutputFormat::Json | OutputFormat::Html))
     {
         anyhow::bail!("--include-models is only valid with --mode snapshot --format json/html");
     }
-    if *explain_patterns && *mode != Some(OutputMode::Snapshot) && mode.is_some() {
+    Ok(())
+}
+
+fn validate_explain_patterns_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.explain_patterns && args.mode != Some(OutputMode::Snapshot) && args.mode.is_some() {
         anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
     }
-    if matches!(format, OutputFormat::Sarif) && *mode != Some(OutputMode::Snapshot) {
+    Ok(())
+}
+
+/// Output formats that require `--mode snapshot` specifically.
+fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if matches!(args.format, OutputFormat::Sarif) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format sarif requires --mode snapshot");
     }
-    if matches!(format, OutputFormat::Csv) && *mode != Some(OutputMode::Snapshot) {
+    if matches!(args.format, OutputFormat::Csv) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format csv requires --mode snapshot");
     }
-    if matches!(format, OutputFormat::Xlsx) && *mode != Some(OutputMode::Snapshot) {
+    if matches!(args.format, OutputFormat::Xlsx) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format xlsx requires --mode snapshot");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod validate_analyze_flags_tests {
+    use super::*;
+
+    /// All-permissive baseline: no mode, text format, every bool false, every
+    /// optional field unset. Individual tests override just the field(s) under test.
+    fn base_args() -> AnalyzeArgs {
+        AnalyzeArgs {
+            path: PathBuf::new(),
+            format: OutputFormat::Text,
+            mode: None,
+            policy: false,
+            top: None,
+            min_lrs: None,
+            config_path: None,
+            output: None,
+            explain: false,
+            force: false,
+            no_persist: false,
+            level: None,
+            per_function_touches: false,
+            all_functions: false,
+            include_models: false,
+            explain_patterns: false,
+            source_url: None,
+            jobs: None,
+            callgraph_skip_above: None,
+            no_per_function_touches: false,
+            skip_touch_metrics: false,
+            hybrid_touches: None,
+            touch_mode: None,
+            skip_gate: false,
+            cold_start: false,
+            axes: false,
+        }
+    }
+
+    #[test]
+    fn base_args_pass_validation() {
+        assert!(validate_analyze_flags(&base_args()).is_ok());
+    }
+
+    #[test]
+    fn cold_start_and_axes_reject_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            axes: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn cold_start_and_axes_are_mutually_exclusive() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            axes: true,
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn policy_requires_delta_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn explain_rejects_delta_and_models_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Models),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: Some(OutputMode::Models),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            force: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            explain: true,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn all_functions_requires_snapshot_mode_and_json_format() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn models_mode_supports_only_text_or_json() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            mode: Some(OutputMode::Models),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            mode: Some(OutputMode::Models),
+            format: OutputFormat::Html,
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn include_models_requires_snapshot_mode_and_json_or_html_format() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            include_models: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Html,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            include_models: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn explain_patterns_rejects_non_snapshot_mode_only_when_mode_is_set() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: None,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn sarif_csv_xlsx_formats_require_snapshot_mode() {
+        for format in [OutputFormat::Sarif, OutputFormat::Csv, OutputFormat::Xlsx] {
+            assert!(validate_analyze_flags(&AnalyzeArgs {
+                format,
+                mode: None,
+                ..base_args()
+            })
+            .is_err());
+            assert!(validate_analyze_flags(&AnalyzeArgs {
+                format,
+                mode: Some(OutputMode::Snapshot),
+                ..base_args()
+            })
+            .is_ok());
+        }
+    }
 }
 
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
