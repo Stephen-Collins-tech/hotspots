@@ -666,8 +666,14 @@ pub fn batch_touch_metrics_at(
 }
 
 /// For files absent from the 30-day window, find the most recent commit timestamp
-/// for each using batched `git log` calls (up to 500 files per invocation).
-/// This replaces O(N) individual `git log -1 -- file` calls with O(N/500) calls.
+/// for each using a single unrestricted `git log --name-only` walk.
+///
+/// This replaces one full-history, path-limited `git log -- <500 paths>` per 500
+/// files: each of those walked the entire history, so cost grew with history length
+/// times stale files / 500 (minutes on large repos). One walk with no pathspec
+/// resolves every file at once. It also sees commits that reached a file through a
+/// merged side branch, which path-limited history simplification can prune, so a
+/// value is never older than the old method's and is occasionally more recent.
 pub fn batch_last_touch_for_files(
     repo_path: &Path,
     stale_files: &std::collections::HashSet<&str>,
@@ -679,35 +685,28 @@ pub fn batch_last_touch_for_files(
     }
 
     let until_arg = format!("--until={}", as_of_timestamp);
-    let files: Vec<&str> = stale_files.iter().copied().collect();
+    let output = match git_at(
+        repo_path,
+        &["log", "--format=COMMIT %ct", "--name-only", &until_arg],
+    ) {
+        Ok(o) => o,
+        Err(_) => return HashMap::new(),
+    };
+
     let mut result: HashMap<String, u32> = HashMap::new();
-
-    for chunk in files.chunks(500) {
-        let mut args: Vec<&str> = vec![
-            "log",
-            "--format=COMMIT %ct",
-            "--name-only",
-            &until_arg,
-            "--",
-        ];
-        args.extend_from_slice(chunk);
-
-        let output = match git_at(repo_path, &args) {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-
-        let mut current_ts: i64 = 0;
-        for line in output.lines() {
-            if let Some(ts_str) = line.strip_prefix("COMMIT ") {
-                current_ts = ts_str.trim().parse().unwrap_or(0);
-            } else if current_ts > 0 && !line.trim().is_empty() {
-                let file = line.trim();
-                if stale_files.contains(file) {
-                    // entry() only inserts on first (= most recent) occurrence
-                    result.entry(file.to_string()).or_insert_with(|| {
-                        ((as_of_timestamp - current_ts).max(0) / (24 * 60 * 60)) as u32
-                    });
+    let mut current_ts: i64 = 0;
+    for line in output.lines() {
+        if let Some(ts_str) = line.strip_prefix("COMMIT ") {
+            current_ts = ts_str.trim().parse().unwrap_or(0);
+        } else if current_ts > 0 && !line.trim().is_empty() {
+            let file = line.trim();
+            if stale_files.contains(file) {
+                // entry() only inserts on first (= most recent) occurrence
+                result.entry(file.to_string()).or_insert_with(|| {
+                    ((as_of_timestamp - current_ts).max(0) / (24 * 60 * 60)) as u32
+                });
+                if result.len() == stale_files.len() {
+                    break;
                 }
             }
         }
@@ -1310,5 +1309,178 @@ mod tests {
             result.is_none(),
             "should return None when not in a git repo"
         );
+    }
+
+    // -- batch_last_touch_for_files (single unrestricted walk) --
+
+    const DAY: i64 = 24 * 60 * 60;
+
+    fn run_git_dated(dir: &Path, ts: i64, args: &[&str]) {
+        let date = format!("{ts} +0000");
+        let mut cmd = Command::new("git");
+        for var in GIT_DISCOVERY_ENV_VARS {
+            cmd.env_remove(var);
+        }
+        let out = cmd
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn write_commit(dir: &Path, ts: i64, files: &[(&str, &str)]) {
+        for (name, content) in files {
+            std::fs::write(dir.join(name), content).unwrap();
+        }
+        run_git_dated(dir, ts, &["add", "-A"]);
+        run_git_dated(dir, ts, &["commit", "-q", "-m", "c"]);
+    }
+
+    /// The pre-change implementation (one path-limited full-history walk per 500
+    /// files), kept only to assert equivalence on linear history.
+    fn last_touch_reference_pathspec(
+        repo_path: &Path,
+        stale_files: &std::collections::HashSet<&str>,
+        as_of_timestamp: i64,
+    ) -> std::collections::HashMap<String, u32> {
+        let until_arg = format!("--until={}", as_of_timestamp);
+        let files: Vec<&str> = stale_files.iter().copied().collect();
+        let mut result = std::collections::HashMap::new();
+        for chunk in files.chunks(500) {
+            let mut args: Vec<&str> = vec![
+                "log",
+                "--format=COMMIT %ct",
+                "--name-only",
+                &until_arg,
+                "--",
+            ];
+            args.extend_from_slice(chunk);
+            let output = git_at(repo_path, &args).unwrap();
+            let mut current_ts: i64 = 0;
+            for line in output.lines() {
+                if let Some(ts_str) = line.strip_prefix("COMMIT ") {
+                    current_ts = ts_str.trim().parse().unwrap_or(0);
+                } else if current_ts > 0 && !line.trim().is_empty() {
+                    let file = line.trim();
+                    if stale_files.contains(file) {
+                        result.entry(file.to_string()).or_insert_with(|| {
+                            ((as_of_timestamp - current_ts).max(0) / DAY) as u32
+                        });
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn last_touch_single_walk_matches_reference_on_linear_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        write_commit(dir, x, &[("a.txt", "1"), ("b.txt", "1")]);
+        write_commit(dir, x + DAY, &[("a.txt", "2"), ("c.txt", "1")]);
+        std::fs::rename(dir.join("c.txt"), dir.join("d.txt")).unwrap();
+        write_commit(dir, x + 2 * DAY, &[]);
+
+        let stale: std::collections::HashSet<&str> =
+            ["a.txt", "b.txt", "c.txt", "d.txt"].into_iter().collect();
+        let as_of = x + 10 * DAY;
+        let new = batch_last_touch_for_files(dir, &stale, as_of);
+        let reference = last_touch_reference_pathspec(dir, &stale, as_of);
+
+        assert_eq!(new, reference);
+        assert_eq!(new["a.txt"], 9);
+        assert_eq!(new["b.txt"], 10);
+        assert_eq!(new["d.txt"], 8);
+    }
+
+    #[test]
+    fn last_touch_single_walk_ignores_commits_after_as_of() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        write_commit(dir, x, &[("a.txt", "1")]);
+        write_commit(dir, x + 20 * DAY, &[("a.txt", "2")]);
+
+        let stale: std::collections::HashSet<&str> = ["a.txt"].into_iter().collect();
+        let new = batch_last_touch_for_files(dir, &stale, x + 10 * DAY);
+
+        assert_eq!(new["a.txt"], 10);
+    }
+
+    #[test]
+    fn last_touch_single_walk_empty_input_spawns_no_git() {
+        let stale: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let new = batch_last_touch_for_files(Path::new("/nonexistent/not-a-repo"), &stale, 0);
+        assert!(new.is_empty());
+    }
+
+    #[test]
+    fn last_touch_single_walk_omits_files_absent_from_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        write_commit(dir, x, &[("a.txt", "1")]);
+
+        let stale: std::collections::HashSet<&str> =
+            ["a.txt", "never-committed.txt"].into_iter().collect();
+        let new = batch_last_touch_for_files(dir, &stale, x + 5 * DAY);
+
+        assert!(new.contains_key("a.txt"));
+        assert!(!new.contains_key("never-committed.txt"));
+    }
+
+    #[test]
+    fn last_touch_single_walk_sees_side_branch_commits_the_old_method_pruned() {
+        // A side-branch commit touches f.txt; the merge keeps the first parent's
+        // tree (`-s ours`), so the merge is TREESAME to the first parent and the
+        // old path-limited walk prunes the side branch: it reports f.txt as last
+        // touched at the base commit. The single walk sees the side commit.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        write_commit(dir, x, &[("f.txt", "base"), ("g.txt", "base")]);
+        run_git_dated(dir, x, &["checkout", "-q", "-b", "side"]);
+        write_commit(dir, x + 2 * DAY, &[("f.txt", "side")]);
+        run_git_dated(dir, x + 2 * DAY, &["checkout", "-q", "main"]);
+        write_commit(dir, x + DAY, &[("g.txt", "main")]);
+        run_git_dated(
+            dir,
+            x + 3 * DAY,
+            &["merge", "-q", "-s", "ours", "--no-edit", "side"],
+        );
+
+        let stale: std::collections::HashSet<&str> = ["f.txt", "g.txt"].into_iter().collect();
+        let as_of = x + 10 * DAY;
+        let new = batch_last_touch_for_files(dir, &stale, as_of);
+        let reference = last_touch_reference_pathspec(dir, &stale, as_of);
+
+        for file in ["f.txt", "g.txt"] {
+            assert!(
+                new[file] <= reference[file],
+                "{file}: new must never be older"
+            );
+        }
+        assert_eq!(new["g.txt"], reference["g.txt"]);
+        assert_eq!(reference["f.txt"], 10);
+        assert_eq!(new["f.txt"], 8);
     }
 }
