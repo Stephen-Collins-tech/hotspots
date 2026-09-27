@@ -84,7 +84,9 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Touch factor: min(touch_count_30d / 10, 5.0)
+    // Touch factor: min(touch_count_30d / 10, 5.0). Despite the field name (kept for
+    // JSON/schema compatibility), the window is now 365 days per F165 (see
+    // hotspots-core::git::TOUCH_WINDOW_DAYS's doc comment).
     let touch_score = if let Some(touches) = input.touch_count_30d {
         ((touches as f64 / 10.0).min(5.0)) * weights.touch
     } else {
@@ -98,23 +100,21 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Fan-in factor: min(fan_in / 5, 10.0)
-    let fan_in_score = if let Some(fi) = input.fan_in {
-        ((fi as f64 / 5.0).min(10.0)) * weights.fan_in
-    } else {
-        0.0
-    };
-
-    // SCC penalty: scc_size if > 1, else 0
-    let scc_score = if let Some(size) = input.scc_size {
-        if size > 1 {
-            (size as f64) * weights.scc
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
+    // Fan-in and SCC-penalty terms: removed from the live composite score per
+    // hotspots-research F160 (confirmed, 17-repo pre-registered gate, "V1" variant):
+    // together they carry ~5% Shapley share of the composite's rho (fan_in 4%, scc 1%,
+    // both individually "no measurable contribution"), and dropping both from the sum
+    // is non-inferior within the pre-registered margin (d_rho -0.0006 [-0.0055,+0.0033],
+    // d_P@10 -0.0004 [-0.0077,+0.0060] — both CIs comfortably inside the ±0.02/±0.03
+    // non-inferiority bar). Following the same pattern already used for `burst_score`
+    // (see below): both fields are still computed/populated/stored for other consumers
+    // (e.g. `--axes coupling`, `trainer::extract_features`'s `fan_in` column, on the raw
+    // `FunctionSnapshot`, not this struct), just zeroed out of the live ranking score,
+    // not deleted. `RiskFactors.fan_in`/`.cyclic_dependency` below are always 0.0 now
+    // (they report what fed the score, not the raw magnitude), matching how `.burst`
+    // is already reported as 0.0.
+    let fan_in_score = 0.0;
+    let scc_score = 0.0;
 
     // Depth penalty: min(dependency_depth / 3, 5.0)
     let depth_score = if let Some(depth) = input.dependency_depth {
@@ -237,16 +237,20 @@ mod tests {
         // churn: (100/100) * 0.5 = 0.5
         // touch: min(20/10, 5.0) * 0.3 = 2.0 * 0.3 = 0.6
         // recency: max(0, 5.0 - 1/7) * 0.2 ≈ 4.857 * 0.2 ≈ 0.971
-        // fan_in: min(25/5, 10.0) * 0.4 = 5.0 * 0.4 = 2.0
-        // scc: 3 * 0.3 = 0.9
+        // fan_in, scc: removed from the live composite per F160 (hotspots-research,
+        // confirmed non-inferior V1 variant) — always 0.0 regardless of input, see
+        // compute_activity_risk's doc comment on fan_in_score/scc_score.
         // depth: min(9/3, 5.0) * 0.1 = 3.0 * 0.1 = 0.3
         // neighbor_churn: 1000/500 * 0.2 = 2.0 * 0.2 = 0.4
+        // total ≈ 10.0 + 0.5 + 0.6 + 0.971 + 0.0 + 0.0 + 0.3 + 0.4 ≈ 12.77
 
-        assert!(risk > 15.0); // Should be significantly higher than base LRS
+        assert!(risk > 12.0); // Should be higher than base LRS from the un-removed terms
+        assert!(risk < 13.5); // ...but not as high as before F160 removed fan_in/scc
         assert_eq!(factors.complexity, 10.0);
         assert_eq!(factors.churn, 0.5);
         assert_eq!(factors.activity, 0.6);
-        assert!((factors.cyclic_dependency - 0.9).abs() < 0.001); // Approximate equality for floats
+        assert_eq!(factors.fan_in, 0.0);
+        assert_eq!(factors.cyclic_dependency, 0.0);
     }
 
     #[test]

@@ -132,6 +132,15 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub co_change_window_days: Option<u64>,
 
+    /// Touch-metrics window in days (default: 365, see `git::TOUCH_WINDOW_DAYS`'s doc
+    /// comment / hotspots-research F165). On high-commit-velocity repos this widened
+    /// default costs real wall-clock time (measured: +943ms on a 1.3GB, high-velocity
+    /// repo, vs +16ms on a moderate one) for one extra `git log --since` call — set this
+    /// lower (e.g. 30, the pre-F165 default) to trade that validated ranking-quality
+    /// gain back for speed.
+    #[serde(default)]
+    pub touch_window_days: Option<u32>,
+
     /// Minimum number of co-changes required to report a pair (default: 3)
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
@@ -205,6 +214,7 @@ impl Default for HotspotsConfig {
             top: None,
             scoring: None,
             co_change_window_days: None,
+            touch_window_days: None,
             co_change_min_count: None,
             per_function_touches: None,
             hybrid_touch_threshold: None,
@@ -396,6 +406,8 @@ pub struct ResolvedConfig {
     /// Co-change mining parameters
     pub co_change_window_days: u64,
     pub co_change_min_count: usize,
+    /// Touch-metrics window in days (default 365; see `HotspotsConfig::touch_window_days`)
+    pub touch_window_days: u32,
     /// Whether to use per-function git log -L for touch metrics
     pub per_function_touches: bool,
     /// Hybrid touch threshold: Some(n) = file-level first, per-function for files with ≥n touches
@@ -470,6 +482,11 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
     if let Some(w) = c.co_change_window_days {
         if w == 0 {
             anyhow::bail!("co_change_window_days must be at least 1");
+        }
+    }
+    if let Some(w) = c.touch_window_days {
+        if w == 0 {
+            anyhow::bail!("touch_window_days must be at least 1");
         }
     }
     if let Some(m) = c.co_change_min_count {
@@ -886,6 +903,9 @@ impl HotspotsConfig {
             excessive_risk_regression_mode,
             excessive_risk_regression_reason,
             co_change_window_days: self.co_change_window_days.unwrap_or(90),
+            touch_window_days: self
+                .touch_window_days
+                .unwrap_or(crate::git::TOUCH_WINDOW_DAYS as u32),
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(false),
             hybrid_touch_threshold: self.hybrid_touch_threshold,

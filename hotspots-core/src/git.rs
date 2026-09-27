@@ -600,6 +600,21 @@ pub fn extract_commit_churn_at(repo_path: &Path, sha: &str) -> Result<Vec<FileCh
     Ok(churns)
 }
 
+/// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count_30d` /
+/// `days_since_last_change` pair.
+///
+/// Widened from 30 to 365 per hotspots-research F165 (confirmed, pre-registered,
+/// 13-repo cutoff-safe gate): substituting a 365-day window for the 30-day one raised
+/// mean rho by +0.029 and mean P@10% by +0.015 with both bootstrap CI lower bounds
+/// positive, monotonically across the whole tested grid with no peak — and a paired
+/// size-confound check (partial correlation controlling for loc) found the gain is
+/// not just "counting more commits." The `touch_count_30d` field/struct names are kept
+/// as-is for JSON/schema compatibility with existing consumers (dashboards, `--compare`,
+/// hotspots-cloud) even though they now measure a 365-day window — see F165's own note
+/// that this cost was not separately measured (the git walk here is still one process
+/// call, just scanning a wider `--since` range).
+pub const TOUCH_WINDOW_DAYS: i64 = 365;
+
 /// Compute touch metrics for all files in a repository using two git log calls.
 ///
 /// Replaces the previous O(files) approach (one subprocess per file) with two
@@ -608,17 +623,19 @@ pub fn extract_commit_churn_at(repo_path: &Path, sha: &str) -> Result<Vec<FileCh
 /// # Algorithm
 ///
 /// Call 1: `git log --format="COMMIT %ct" --name-only --since=X --until=Y`
-///   → builds `touch_count_30d` and finds last-change timestamp for files in window.
+///   → builds `touch_count_30d` (a `TOUCH_WINDOW_DAYS`-wide window, see its doc
+///   comment) and finds last-change timestamp for files in window.
 ///
 /// Call 2 (fallback): for any file not seen in call 1, a single `git log -1 --format=%ct`
 ///   call per file (typically very few files; most active files appear in the window).
 pub fn batch_touch_metrics_at(
     repo_root: &Path,
     as_of_timestamp: i64,
+    window_days: u32,
 ) -> Result<BatchedTouchMetrics> {
     use std::collections::HashMap;
 
-    let thirty_days_ago = as_of_timestamp - (30 * 24 * 60 * 60);
+    let thirty_days_ago = as_of_timestamp - (window_days as i64 * 24 * 60 * 60);
     let since_arg = format!("--since={}", thirty_days_ago);
     let until_arg = format!("--until={}", as_of_timestamp);
 

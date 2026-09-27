@@ -946,6 +946,7 @@ impl Snapshot {
     fn populate_file_level_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
+        window_days: u32,
     ) -> anyhow::Result<()> {
         use std::collections::HashMap;
 
@@ -971,14 +972,15 @@ impl Snapshot {
             })
             .collect();
 
-        // One batched call for the 30-day window (replaces N×2 individual calls)
-        let batched = crate::git::batch_touch_metrics_at(repo_root, self.commit.timestamp)
-            .unwrap_or_else(|_| crate::git::BatchedTouchMetrics {
-                touch_count_30d: HashMap::new(),
-                days_since_last_change: HashMap::new(),
-            });
+        // One batched call for the touch window (replaces N×2 individual calls)
+        let batched =
+            crate::git::batch_touch_metrics_at(repo_root, self.commit.timestamp, window_days)
+                .unwrap_or_else(|_| crate::git::BatchedTouchMetrics {
+                    touch_count_30d: HashMap::new(),
+                    days_since_last_change: HashMap::new(),
+                });
 
-        // Collect files whose last-touch timestamp isn't in the 30-day window
+        // Collect files whose last-touch timestamp isn't in the touch window
         // and resolve them in a single streaming git log pass instead of one
         // subprocess per file.
         let stale_files: std::collections::HashSet<&str> = abs_to_rel
@@ -1016,7 +1018,7 @@ impl Snapshot {
     /// Populate touch count and recency metrics from git data
     ///
     /// For each file (or function when `per_function` is true), computes:
-    /// - touch_count_30d: number of commits in last 30 days
+    /// - touch_count_30d: number of commits in the last `git::TOUCH_WINDOW_DAYS` days (365; F165)
     /// - days_since_last_change: days since last modification
     ///
     pub fn populate_touch_metrics(
@@ -1024,14 +1026,15 @@ impl Snapshot {
         repo_root: &std::path::Path,
         mode: TouchMode,
         progress_fn: Option<&dyn Fn(usize, usize)>,
+        window_days: u32,
     ) -> anyhow::Result<()> {
         match mode {
-            TouchMode::File => self.populate_file_level_touch_metrics(repo_root),
+            TouchMode::File => self.populate_file_level_touch_metrics(repo_root, window_days),
             TouchMode::PerFunction => {
                 self.populate_per_function_touch_metrics(repo_root, progress_fn)
             }
             TouchMode::Hybrid { threshold } => {
-                self.populate_hybrid_touch_metrics(repo_root, threshold, progress_fn)
+                self.populate_hybrid_touch_metrics(repo_root, threshold, progress_fn, window_days)
             }
         }
     }
@@ -1043,8 +1046,9 @@ impl Snapshot {
         repo_root: &std::path::Path,
         threshold: usize,
         progress_fn: Option<&dyn Fn(usize, usize)>,
+        window_days: u32,
     ) -> anyhow::Result<()> {
-        self.populate_file_level_touch_metrics(repo_root)?;
+        self.populate_file_level_touch_metrics(repo_root, window_days)?;
 
         let hot_indices: Vec<usize> = self
             .functions
@@ -1936,11 +1940,14 @@ impl SnapshotEnricher {
         repo_root: &Path,
         mode: TouchMode,
         progress_fn: Option<Box<dyn Fn(usize, usize)>>,
+        window_days: u32,
     ) -> Self {
-        if let Err(e) =
-            self.snapshot
-                .populate_touch_metrics(repo_root, mode, progress_fn.as_deref())
-        {
+        if let Err(e) = self.snapshot.populate_touch_metrics(
+            repo_root,
+            mode,
+            progress_fn.as_deref(),
+            window_days,
+        ) {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
         self
@@ -2669,7 +2676,12 @@ mod tests {
 
         let mut snapshot = snapshot;
         snapshot
-            .populate_touch_metrics(dir.path(), crate::snapshot::TouchMode::PerFunction, None)
+            .populate_touch_metrics(
+                dir.path(),
+                crate::snapshot::TouchMode::PerFunction,
+                None,
+                crate::git::TOUCH_WINDOW_DAYS as u32,
+            )
             .unwrap();
 
         assert_eq!(snapshot.functions[0].touch_count_30d, Some(7));
@@ -2698,6 +2710,7 @@ mod tests {
                 Some(&|i, n| {
                     calls_ref.lock().unwrap().push((i, n));
                 }),
+                crate::git::TOUCH_WINDOW_DAYS as u32,
             )
             .unwrap();
 
@@ -2729,6 +2742,7 @@ mod tests {
             Some(&|i, n| {
                 calls_ref.lock().unwrap().push((i, n));
             }),
+            crate::git::TOUCH_WINDOW_DAYS as u32,
         );
 
         let calls = calls.lock().unwrap();

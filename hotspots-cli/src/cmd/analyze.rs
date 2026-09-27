@@ -1003,7 +1003,7 @@ fn handle_snapshot_mode(
 
     // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
     // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
-    // even if they haven't been touched in the last 30 days.
+    // even if they haven't been touched recently (touch window: hotspots_core::git::TOUCH_WINDOW_DAYS).
     if ranker_applied {
         snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
     }
@@ -1835,7 +1835,12 @@ pub(crate) fn build_snapshot_via_db(
         } else {
             None
         };
-        enricher = enricher.with_touch_metrics(repo_root, touch_mode, progress);
+        enricher = enricher.with_touch_metrics(
+            repo_root,
+            touch_mode,
+            progress,
+            resolved_config.touch_window_days,
+        );
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -1919,7 +1924,12 @@ pub(crate) fn build_enriched_snapshot(
         } else {
             None
         };
-        enricher = enricher.with_touch_metrics(repo_root, touch_mode, progress);
+        enricher = enricher.with_touch_metrics(
+            repo_root,
+            touch_mode,
+            progress,
+            resolved_config.touch_window_days,
+        );
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
