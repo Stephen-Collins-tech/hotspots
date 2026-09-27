@@ -30,9 +30,11 @@ profile (same shape as the "historical/eval context" carve-out kept for
 `hotspots-core/src/scoring.rs::compute_activity_risk` is the default live
 formula. Confirmed by direct inspection: it does **not** reference
 `convention_bug_fix_count`, `directed_coupling`, or `total_churn` at all.
-Its inputs are `churn`, `touch_count_30d`, `days_since_last_change`,
-`fan_in`, `scc`, `depth`, `neighbor_churn` — plus `burst`, whose weight is
-permanently `0.0` per the prior fix.
+Its inputs are `churn`, `touch_count_30d` (a 365-day window by default since
+hotspots-research F165; field name kept for compatibility), `days_since_last_change`,
+`depth`, `neighbor_churn` — plus `fan_in`, `scc`, and `burst`, all three of whose
+weights are permanently `0.0` (`fan_in`/`scc` per F160's non-inferiority result,
+`burst` per the prior ratchet-bug fix).
 
 However, there is a **second, opt-in path** that also writes into the same
 `activity_risk` field: `hotspots-cli/src/cmd/analyze.rs::apply_trained_ranker`.
