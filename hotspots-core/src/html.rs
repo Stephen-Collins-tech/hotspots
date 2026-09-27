@@ -200,7 +200,7 @@ fn render_scatter_section(json: &str) -> String {
             </div>
             <div class="scatter-axis-row">
                 <span class="scatter-axis-key">Y: Touches</span>
-                <span class="scatter-axis-desc">commits to this function in the last 30 days</span>
+                <span class="scatter-axis-desc">commits to this function in the last year</span>
             </div>
         </div>
     </div>
@@ -2809,7 +2809,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
         ""
     };
     let touches_header = if has_touches {
-        "<th class=\"sortable\" data-column=\"touches\" title=\"Number of commits touching this function in the last 30 days\">Touches</th>"
+        "<th class=\"sortable\" data-column=\"touches\" title=\"Number of commits touching this function in the last year\">Touches</th>"
     } else {
         ""
     };
@@ -3049,7 +3049,7 @@ fn next_action_reason(
         "higher fan-in means plan tests before changing it"
     };
     format!(
-        "{urgency}: {driver_reason}; {touches} touch(es) in 30 days; {fan_in_note}. {}.",
+        "{urgency}: {driver_reason}; {touches} touch(es) in the last year; {fan_in_note}. {}.",
         triage_action(function.driver.as_deref(), function.quadrant.as_deref())
     )
 }

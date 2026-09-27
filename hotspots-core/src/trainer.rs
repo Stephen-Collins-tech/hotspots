@@ -469,6 +469,17 @@ pub fn train(
     let n_pos = rows.iter().filter(|(_, l)| *l).count();
     let n_neg = rows.len() - n_pos;
 
+    if !rows.is_empty() && !cfg.blame_labels {
+        let pos_rate = n_pos as f64 / rows.len() as f64;
+        if label_is_degenerate(pos_rate) {
+            eprintln!(
+                "hotspots: warning: {:.0}% of functions are labeled positive under the                  default keyword fix-commit label (>{:.0}% threshold) — this label                  degenerates on mature, high-cadence repos (hotspots-research META-06),                  and the trained ranker below may be trained on a near-useless signal.                  Re-run with --blame for a more precise, blame-based label.",
+                pos_rate * 100.0,
+                DEGENERATE_LABEL_POS_RATE * 100.0
+            );
+        }
+    }
+
     if rows.len() < 50 || n_pos < 5 || n_neg < 10 {
         return Ok(None);
     }
@@ -761,6 +772,19 @@ pub const LOWLABEL_POS_RATE_MAX: f64 = 0.30;
 /// confirmed-good repos (entropy 0.391-0.932) from the rejected `dotnet__aspnetcore`
 /// case (entropy 0.198).
 pub const LOWLABEL_ENTROPY_MIN: f64 = 0.3;
+
+/// Default-label (keyword, non-`--blame`) positive-rate threshold above which
+/// `hotspots-research` META-06 (confirmed) found fix-commit keyword labels degenerate
+/// on mature, high-cadence repos (label positive rate >85% observed on the repos that
+/// motivated this finding). META-06's own CLI recommendation: warn above a configurable
+/// threshold (default 80%) and point at `--blame` as the fix. This gate was never
+/// shipped alongside `--blame` itself (PR #113) until now.
+pub const DEGENERATE_LABEL_POS_RATE: f64 = 0.80;
+
+/// Pure check split out for testability — see the eprintln! call site in `train()`.
+fn label_is_degenerate(pos_rate: f64) -> bool {
+    pos_rate > DEGENERATE_LABEL_POS_RATE
+}
 
 /// Standard binary Shannon entropy of a positive rate `p`. Returns `0.0` at the
 /// degenerate extremes (`p == 0.0` or `p == 1.0`) rather than `NaN`.
@@ -1327,6 +1351,26 @@ impl RankerModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── label_is_degenerate (META-06) ────────────────────────────────────────
+
+    #[test]
+    fn label_is_degenerate_below_threshold_is_false() {
+        assert!(!label_is_degenerate(0.79));
+        assert!(!label_is_degenerate(0.0));
+    }
+
+    #[test]
+    fn label_is_degenerate_above_threshold_is_true() {
+        assert!(label_is_degenerate(0.81));
+        assert!(label_is_degenerate(1.0));
+    }
+
+    #[test]
+    fn label_is_degenerate_at_threshold_is_false() {
+        // Strictly greater-than, matching META-06's ">80%" framing, not "≥80%".
+        assert!(!label_is_degenerate(DEGENERATE_LABEL_POS_RATE));
+    }
 
     // ── precision_at_k ────────────────────────────────────────────────────────
 
