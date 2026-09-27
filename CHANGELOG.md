@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Update REFERENCE.md/audit doc for R1/A1 (fan_in/scc removed, 365d touch window)
+
+
 ### Features
 - Align scoring with confirmed research — F160, F165, META-06
 
