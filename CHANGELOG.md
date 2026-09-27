@@ -7,23 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Widen the touch-metrics window from 30 to 365 days in `activity_risk` (`touch_count_30d`
-  field name kept for compatibility); the wider window is what hotspots-research F165
-  (confirmed) validated. Configurable via `.hotspotsrc.json`'s `touch_window_days` (default
-  365) for repos where the added git-log cost matters — measured +16ms on a moderate-velocity
-  repo, up to +943ms on a high-velocity one.
-- Drop `fan_in` and `scc` (cyclic-dependency) terms from the live `activity_risk` score.
-  hotspots-research F160 (confirmed) found both contribute no measurable ranking value, and
-  removing them is non-inferior within a pre-registered margin. Both fields are still
-  computed and reported (`--axes coupling`, CSV/HTML output, `hotspots train`'s feature set)
-  — only the live ranking score changes.
+### Features
+- Align scoring with confirmed research — F160, F165, META-06
 
-### Added
-- Warn (and recommend `--blame`) when `hotspots train`'s default keyword fix-commit label
-  exceeds an 80% positive rate — hotspots-research META-06 (confirmed) found this label
-  degenerates on mature, high-cadence repos; the warning was the finding's own stated fix,
-  never previously shipped alongside `--blame` itself.
 
 ### Performance
 - Resolve stale-file last-touch with one git walk, not one per 500 files (#203)
