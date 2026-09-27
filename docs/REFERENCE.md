@@ -367,13 +367,26 @@ Extends LRS with git history and call graph signals:
 ```
 Activity Risk = LRS
   + (lines_added + lines_deleted) / 100 × 0.5   # churn
-  + min(touch_count_30d / 10, 5.0) × 0.3         # touch frequency
+  + min(touch_count_30d / 10, 5.0) × 0.3         # touch frequency (see note below on the window)
   + max(0, 5.0 − days_since_change / 7) × 0.2    # recency
-  + min(fan_in / 5, 10.0) × 0.4                  # call graph fan-in
-  + (scc_size if in cycle else 0) × 0.3           # cyclic dependency
   + min(dependency_depth / 3, 5.0) × 0.1         # depth from entrypoints
   + neighbor_churn / 500 × 0.2                    # churn in callees
 ```
+
+`touch_count_30d`'s field name is kept for compatibility, but the window it measures is
+**365 days by default**, not 30 — see the touch-window note below the formula.
+
+`fan_in` and `scc` (cyclic dependency) no longer contribute to the live Activity Risk /
+composite score, per hotspots-research F160 (confirmed, 17-repo pre-registered gate):
+both terms individually showed "no measurable contribution" to ranking quality (fan_in 4%
+Shapley share of rho, scc 1%), and dropping both is non-inferior within a pre-registered
+margin. Both values are still computed and reported elsewhere — `--axes coupling`,
+CSV/HTML output, and as features 5 and 8 of `hotspots train`'s 10-feature set — only the
+live Activity Risk sum no longer includes them, following the same pattern already in
+place for `burst_score` below. The `fan_in`/`scc` weights (`ScoringWeights.fan_in`/`.scc`,
+defaults `0.4`/`0.3`) and the `RiskFactors.fan_in`/`.cyclic_dependency` fields are kept in
+place, unused (both are always `0.0` in `RiskFactors`), for the same forward-compatibility
+reason as `burst`.
 
 `burst_score` no longer contributes to the live Activity Risk / composite score. It is
 computed and stored on the snapshot (and still used by `trainer::cold_start_features`
@@ -408,13 +421,22 @@ CVE/OSV-linked-file logistic regression (largest standardized coefficient of 5
 candidate signals, positive across all leave-one-repo-out folds tested) — see
 `hotspots-research` findings F67 and F93 for the full cross-repo evaluation.
 
+**Touch window:** the git-log window behind `touch_count_30d` (and
+`days_since_last_change`) is 365 days by default (`git::TOUCH_WINDOW_DAYS`), per
+hotspots-research F165 (confirmed, pre-registered, 13-repo cutoff-safe gate) — 365 days
+gave the strongest, monotonic gain of every window tested, with a size-confound check
+ruling out "it's just counting more commits." On a high-commit-velocity repo this is a
+real, measured wall-clock cost (a single git subprocess call, but scanning more history:
++16ms on a moderate-velocity repo, up to +943ms on a very active one in testing) —
+override it with `touch_window_days` in `.hotspotsrc.json` (any positive integer; default
+365) if that cost matters more than the ranking-quality gain for a given repo.
+
 Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
 
-All seven activity-risk weights in the formula above (`churn`, `touch`, `recency`,
-`fan_in`, `scc`, `depth`, `neighbor_churn`) are overridable via the `scoring` key in
-`.hotspotsrc.json`. `burst` is also accepted for forward compatibility with a future
-replacement, but currently has no effect since `burst_score` is not read by the live
-formula:
+All activity-risk weights in the formula above (`churn`, `touch`, `recency`, `depth`,
+`neighbor_churn`) are overridable via the `scoring` key in `.hotspotsrc.json`. `fan_in`,
+`scc`, and `burst` are also accepted for forward compatibility, but currently have no
+effect since none of the three is read by the live formula:
 
 ```json
 {
@@ -443,7 +465,8 @@ as the LRS `weights` block: non-negative, at most 10.0.
 | **High/Critical band** | `debt` | `fire` |
 | **Low/Moderate band** | `ok` | `watch` |
 
-Activity is "high" if: 30-day touch count above population median, OR changed within last 30 days.
+Activity is "high" if: touch count (365-day window by default, see `touch_window_days`
+above) above population median, OR changed within that same window.
 
 `fire` = live regression risk (refactor now). `debt` = structural debt (schedule proactively). `watch` = monitor. `ok` = no action.
 
