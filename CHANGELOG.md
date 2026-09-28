@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `hotspots diff`'s `pr_summary` gains `fn_changed_lines`: diff-changed lines inside touched
+  functions, the strongest tested predictor of PR defect risk (hotspots-research F132/F159/F161)
+  — beats `pr_risk_score` and every other tested LRS-weighted score on every repo tested.
+  Surfaced in text, HTML, and JSON output.
+
+### Changed
+- `pr_risk_score` is now documented and displayed as a structural signal, not a validated risk
+  estimate — per the same research above, it does not beat a simple size measure at predicting
+  which PRs later need a defect fix.
+
 ## [1.41.0] - 2026-09-27
 
 ### Documentation

@@ -99,10 +99,23 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         .as_ref()
         .map(|a| a.co_change.as_slice())
         .unwrap_or(&[]);
+    // hotspots-research F132/F159/F161: fn_changed_lines (diff-changed lines inside touched
+    // functions) is the strongest tested predictor of PR defect risk, beating every
+    // LRS-weighted composite tried, including pr_risk_score itself. Best-effort — an
+    // empty/failed git diff (e.g. shallow clone) degrades to an empty line-set map, giving 0,
+    // not an error, matching extract_commit_churn_at's convention.
+    let diff_lines = git::diff_line_sets_at(&repo_root, &base_sha, &head_sha).unwrap_or_default();
+    let fn_changed_lines = git::compute_fn_changed_lines(
+        &delta_val.deltas,
+        &head_snapshot,
+        &base_snapshot,
+        &diff_lines,
+    );
     delta_val.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
         &delta_val,
         current_co_change,
         prev_co_change,
+        fn_changed_lines,
     ));
 
     // Filter out Unchanged, then optionally keep top N by risk magnitude
@@ -289,7 +302,14 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     if let Some(summary) = delta_val.aggregates.as_ref().map(|a| &a.pr_summary) {
         writeln!(
             out,
-            "PR risk score: {:+.2} (band: {})",
+            "Changed lines in touched functions: {} (strongest tested predictor of \
+             defect risk — hotspots-research F132/F159/F161)",
+            summary.fn_changed_lines
+        )?;
+        writeln!(
+            out,
+            "PR risk score: {:+.2} (band: {}) — structural signal, not validated as beating \
+             the line-count measure above",
             summary.pr_risk_score,
             summary.band.as_str()
         )?;

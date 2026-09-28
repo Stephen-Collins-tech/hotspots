@@ -106,6 +106,15 @@ pub struct FileDeltaAggregates {
 /// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
 /// just summed across the whole diff instead of grouped by file.
 ///
+/// **Not validated as beating a simple size measure.** hotspots-research tested this exact
+/// formula against the real compiled binary (F164) and against four other repos with a
+/// different construction (F161, `net_delta_lrs`): on every repo tested, `pr_risk_score`
+/// scored below `fn_changed_lines` (also in this struct) at predicting which PRs later needed a
+/// defect fix — F161 found it the weakest of five tested LRS-based scores. Read `band` as a
+/// structural-risk signal (what's the worst code in this diff), not a calibrated estimate of
+/// which PR is more likely to cause a bug — `fn_changed_lines` is the better-evidenced signal
+/// for that specific question.
+///
 /// `band` is the highest risk band reached by any New or Modified function's
 /// `after` state (Deleted functions don't count toward it — removing risky code
 /// isn't risk introduced by the PR).
@@ -113,6 +122,12 @@ pub struct FileDeltaAggregates {
 #[serde(rename_all = "snake_case")]
 pub struct PrRiskSummary {
     pub pr_risk_score: f64,
+    /// Diff-changed lines that fall inside a touched function (`git::compute_fn_changed_lines`).
+    /// hotspots-research (F132/F159/F161) found this is the strongest tested predictor of which
+    /// PRs later need a defect fix in this corpus — it beat every LRS-weighted score tried,
+    /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
+    /// comment for the comparison.
+    pub fn_changed_lines: usize,
     pub band: RiskBand,
     pub new_count: usize,
     pub modified_count: usize,
@@ -1032,6 +1047,7 @@ pub fn compute_delta_aggregates(
     delta: &Delta,
     current_co_change: &[crate::git::CoChangePair],
     prev_co_change: &[crate::git::CoChangePair],
+    fn_changed_lines: usize,
 ) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
@@ -1096,14 +1112,14 @@ pub fn compute_delta_aggregates(
     DeltaAggregates {
         files: aggregates,
         co_change_delta,
-        pr_summary: compute_pr_risk_summary(delta),
+        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines),
     }
 }
 
 /// Collapse every function-level delta entry into a single PR-wide risk view.
 ///
 /// See [`PrRiskSummary`] for what `pr_risk_score` and `band` mean.
-pub fn compute_pr_risk_summary(delta: &Delta) -> PrRiskSummary {
+pub fn compute_pr_risk_summary(delta: &Delta, fn_changed_lines: usize) -> PrRiskSummary {
     use crate::delta::FunctionStatus;
 
     let mut pr_risk_score = 0.0;
@@ -1167,6 +1183,7 @@ pub fn compute_pr_risk_summary(delta: &Delta) -> PrRiskSummary {
 
     PrRiskSummary {
         pr_risk_score,
+        fn_changed_lines,
         band,
         new_count,
         modified_count,

@@ -3701,9 +3701,18 @@ fn render_delta_summary(delta: &Delta) -> String {
             format!(
                 r#"
     <div class="summary-card">
+        <h3>Changed Lines in Touched Functions</h3>
+        <div class="value">{fn_changed_lines}</div>
+        <p style="font-size:0.8em;margin-top:4px;">Strongest tested predictor of defect risk
+        (hotspots-research F132/F159/F161).</p>
+    </div>
+    <div class="summary-card">
         <h3>PR Risk Score</h3>
         <div class="value band-{band_class}">{score:+.2} ({band})</div>
+        <p style="font-size:0.8em;margin-top:4px;">Structural signal, not validated as beating
+        the line-count measure to the left.</p>
     </div>"#,
+                fn_changed_lines = s.fn_changed_lines,
                 score = s.pr_risk_score,
                 band = s.band.as_str(),
                 band_class = s.band.as_str(),

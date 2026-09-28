@@ -304,6 +304,7 @@ fn test_diff_delta_aggregates_attached() {
         &delta,
         &[],
         &[],
+        0,
     ));
 
     assert!(
@@ -349,7 +350,7 @@ fn test_diff_pr_risk_summary_collapses_all_changes_to_one_score() {
         .deltas
         .retain(|e| e.status != FunctionStatus::Unchanged);
 
-    let summary = hotspots_core::aggregates::compute_pr_risk_summary(&delta);
+    let summary = hotspots_core::aggregates::compute_pr_risk_summary(&delta, 0);
 
     assert_eq!(summary.new_count, 1);
     assert_eq!(summary.modified_count, 1);
@@ -377,6 +378,6 @@ fn test_diff_pr_risk_summary_collapses_all_changes_to_one_score() {
     );
 
     // compute_delta_aggregates should attach the same summary
-    let agg = hotspots_core::aggregates::compute_delta_aggregates(&delta, &[], &[]);
+    let agg = hotspots_core::aggregates::compute_delta_aggregates(&delta, &[], &[], 0);
     assert_eq!(agg.pr_summary, summary);
 }
