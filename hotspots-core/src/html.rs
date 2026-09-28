@@ -3702,9 +3702,10 @@ fn render_delta_summary(delta: &Delta) -> String {
                 r#"
     <div class="summary-card">
         <h3>Changed Lines in Touched Functions</h3>
-        <div class="value">{fn_changed_lines}</div>
+        <div class="value">{fn_changed_lines} <span style="font-size:0.6em;font-weight:normal;">({size_band})</span></div>
         <p style="font-size:0.8em;margin-top:4px;">Strongest tested predictor of defect risk
-        (hotspots-research F132/F159/F161).</p>
+        (hotspots-research F132/F159/F161). Size band is a display convenience, not itself
+        research-derived — see docs/REFERENCE.md.</p>
     </div>
     <div class="summary-card">
         <h3>PR Risk Score</h3>
@@ -3713,6 +3714,7 @@ fn render_delta_summary(delta: &Delta) -> String {
         the line-count measure to the left.</p>
     </div>"#,
                 fn_changed_lines = s.fn_changed_lines,
+                size_band = s.size_band,
                 score = s.pr_risk_score,
                 band = s.band.as_str(),
                 band_class = s.band.as_str(),

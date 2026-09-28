@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   — beats `pr_risk_score` and every other tested LRS-weighted score on every repo tested.
   Surfaced in text, HTML, and JSON output.
 
+- `pr_summary` gains `size_band` (`"small"`/`"medium"`/`"large"`/`"very_large"`) for a quick,
+  human-readable comparison of `fn_changed_lines` across PRs. Unlike `fn_changed_lines` itself,
+  this is a display convenience, not a research-derived signal — cutoffs are configurable
+  defaults (`change_size_thresholds` in `.hotspotsrc.json`), the same category as
+  `RiskThresholds`' own LRS band cutoffs.
+
+### Fixed
+- `Delta::new`'s function matching used each function's absolute file path with no
+  normalization, so two snapshots analyzed from different absolute roots — e.g. `hotspots
+  diff --auto-analyze`'s temp git worktrees for base and head — could report every function as
+  both new and deleted even when the code was identical. Matching is now done on each
+  snapshot's own root-stripped relative path; reported `function_id` values are unaffected.
+
 ### Changed
 - `pr_risk_score` is now documented and displayed as a structural signal, not a validated risk
   estimate — per the same research above, it does not beat a simple size measure at predicting

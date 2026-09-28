@@ -128,6 +128,12 @@ pub struct PrRiskSummary {
     /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
     /// comment for the comparison.
     pub fn_changed_lines: usize,
+    /// Human-readable size bucket for `fn_changed_lines` ("small"/"medium"/"large"/
+    /// "very_large") — a display convenience for comparing PRs at a glance, **not itself a
+    /// research-derived signal** (unlike `fn_changed_lines`, which is). Cutoffs are
+    /// configurable defaults (`ChangeSizeThresholds`), the same category as `RiskThresholds`'
+    /// LRS band cutoffs — a presentation judgment, not a validated claim.
+    pub size_band: String,
     pub band: RiskBand,
     pub new_count: usize,
     pub modified_count: usize,
@@ -1048,6 +1054,7 @@ pub fn compute_delta_aggregates(
     current_co_change: &[crate::git::CoChangePair],
     prev_co_change: &[crate::git::CoChangePair],
     fn_changed_lines: usize,
+    size_thresholds: &ChangeSizeThresholds,
 ) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
@@ -1112,14 +1119,54 @@ pub fn compute_delta_aggregates(
     DeltaAggregates {
         files: aggregates,
         co_change_delta,
-        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines),
+        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines, size_thresholds),
+    }
+}
+
+/// `size_band`'s cutoffs — a display convenience, not a research-derived signal. See
+/// `PrRiskSummary::size_band`'s doc comment. Defaults (small<50, medium<200, large<500,
+/// else very_large) are arbitrary round numbers, not fitted to any corpus; override via
+/// `.hotspotsrc.json`'s `change_size_thresholds` if they don't fit your repo.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChangeSizeThresholds {
+    pub small: usize,
+    pub medium: usize,
+    pub large: usize,
+}
+
+impl Default for ChangeSizeThresholds {
+    fn default() -> Self {
+        ChangeSizeThresholds {
+            small: 50,
+            medium: 200,
+            large: 500,
+        }
+    }
+}
+
+/// Buckets `fn_changed_lines` into a human-readable size label for display. Boundaries are
+/// inclusive-below (`< small` is "small", `< medium` is "medium", etc.) — see
+/// `ChangeSizeThresholds` for why these specific numbers carry no research claim.
+pub fn size_band(fn_changed_lines: usize, thresholds: &ChangeSizeThresholds) -> &'static str {
+    if fn_changed_lines < thresholds.small {
+        "small"
+    } else if fn_changed_lines < thresholds.medium {
+        "medium"
+    } else if fn_changed_lines < thresholds.large {
+        "large"
+    } else {
+        "very_large"
     }
 }
 
 /// Collapse every function-level delta entry into a single PR-wide risk view.
 ///
 /// See [`PrRiskSummary`] for what `pr_risk_score` and `band` mean.
-pub fn compute_pr_risk_summary(delta: &Delta, fn_changed_lines: usize) -> PrRiskSummary {
+pub fn compute_pr_risk_summary(
+    delta: &Delta,
+    fn_changed_lines: usize,
+    size_thresholds: &ChangeSizeThresholds,
+) -> PrRiskSummary {
     use crate::delta::FunctionStatus;
 
     let mut pr_risk_score = 0.0;
@@ -1184,6 +1231,7 @@ pub fn compute_pr_risk_summary(delta: &Delta, fn_changed_lines: usize) -> PrRisk
     PrRiskSummary {
         pr_risk_score,
         fn_changed_lines,
+        size_band: size_band(fn_changed_lines, size_thresholds).to_string(),
         band,
         new_count,
         modified_count,
@@ -1200,6 +1248,34 @@ mod tests {
     use super::*;
     use crate::report::MetricsReport;
     use crate::snapshot::FunctionSnapshot;
+
+    // ── size_band ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn size_band_default_boundaries() {
+        let t = ChangeSizeThresholds::default(); // small=50, medium=200, large=500
+        assert_eq!(size_band(0, &t), "small");
+        assert_eq!(size_band(49, &t), "small");
+        assert_eq!(size_band(50, &t), "medium"); // boundary: >= small is medium, not small
+        assert_eq!(size_band(199, &t), "medium");
+        assert_eq!(size_band(200, &t), "large");
+        assert_eq!(size_band(499, &t), "large");
+        assert_eq!(size_band(500, &t), "very_large");
+        assert_eq!(size_band(usize::MAX, &t), "very_large");
+    }
+
+    #[test]
+    fn size_band_respects_custom_thresholds() {
+        let t = ChangeSizeThresholds {
+            small: 10,
+            medium: 20,
+            large: 30,
+        };
+        assert_eq!(size_band(9, &t), "small");
+        assert_eq!(size_band(10, &t), "medium");
+        assert_eq!(size_band(25, &t), "large");
+        assert_eq!(size_band(30, &t), "very_large");
+    }
 
     fn create_test_function(file: &str, function: &str, lrs: f64, band: &str) -> FunctionSnapshot {
         FunctionSnapshot {

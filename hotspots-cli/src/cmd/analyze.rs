@@ -1181,6 +1181,7 @@ fn enrich_delta(
                 hotspots_core::git::diff_line_sets_at(repo_root, parent_sha, &snapshot.commit.sha)
                     .unwrap_or_default();
             hotspots_core::git::compute_fn_changed_lines(
+                repo_root,
                 &delta_val.deltas,
                 snapshot,
                 parent,
@@ -1194,6 +1195,7 @@ fn enrich_delta(
         &current_co_change,
         &prev_co_change,
         fn_changed_lines,
+        &resolved_config.change_size_thresholds,
     ));
     Ok(enriched)
 }

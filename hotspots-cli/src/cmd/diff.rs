@@ -106,6 +106,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     // not an error, matching extract_commit_churn_at's convention.
     let diff_lines = git::diff_line_sets_at(&repo_root, &base_sha, &head_sha).unwrap_or_default();
     let fn_changed_lines = git::compute_fn_changed_lines(
+        &repo_root,
         &delta_val.deltas,
         &head_snapshot,
         &base_snapshot,
@@ -116,6 +117,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         current_co_change,
         prev_co_change,
         fn_changed_lines,
+        &resolved_config.change_size_thresholds,
     ));
 
     // Filter out Unchanged, then optionally keep top N by risk magnitude
@@ -302,9 +304,10 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     if let Some(summary) = delta_val.aggregates.as_ref().map(|a| &a.pr_summary) {
         writeln!(
             out,
-            "Changed lines in touched functions: {} (strongest tested predictor of \
-             defect risk — hotspots-research F132/F159/F161)",
-            summary.fn_changed_lines
+            "Changed lines in touched functions: {} · {} (strongest tested predictor of \
+             defect risk — hotspots-research F132/F159/F161; size band is a display \
+             convenience, not itself research-derived — see docs/REFERENCE.md)",
+            summary.fn_changed_lines, summary.size_band
         )?;
         writeln!(
             out,

@@ -703,6 +703,7 @@ fn parse_hunk_header(hunk: &str) -> Option<(Vec<u32>, Vec<u32>)> {
 /// `loc` for differently than raw line count, but it's the same measure `hotspots analyze`
 /// already reports, not a new approximation invented for this feature.
 pub fn compute_fn_changed_lines(
+    repo_root: &Path,
     deltas: &[crate::delta::FunctionDeltaEntry],
     head_snapshot: &crate::snapshot::Snapshot,
     base_snapshot: &crate::snapshot::Snapshot,
@@ -710,6 +711,18 @@ pub fn compute_fn_changed_lines(
 ) -> usize {
     use crate::delta::FunctionStatus;
     use std::collections::HashMap;
+
+    // FunctionSnapshot.file is absolute; diff_lines is keyed by the repo-relative path git
+    // diff prints (`+++ b/<path>`). Same abs->rel conversion this crate already uses
+    // elsewhere (e.g. snapshot.rs's touch-metrics file matching) — without it every lookup
+    // below misses and this silently returns 0 (caught live via this feature's own dogfood
+    // test on this repo: a 9-function, 400+ line PR reported fn_changed_lines=0).
+    let rel = |abs: &str| -> String {
+        Path::new(abs)
+            .strip_prefix(repo_root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| abs.to_string())
+    };
 
     let head_by_id: HashMap<&str, &crate::snapshot::FunctionSnapshot> = head_snapshot
         .functions
@@ -725,28 +738,20 @@ pub fn compute_fn_changed_lines(
     let mut total = 0usize;
     for entry in deltas {
         let (snapshot_func, side_lines) = match entry.status {
-            FunctionStatus::New | FunctionStatus::Modified => (
-                head_by_id.get(entry.function_id.as_str()),
-                diff_lines
-                    .get(
-                        head_by_id
-                            .get(entry.function_id.as_str())
-                            .map(|f| f.file.as_str())
-                            .unwrap_or(""),
-                    )
-                    .map(|d| &d.new_lines),
-            ),
-            FunctionStatus::Deleted => (
-                base_by_id.get(entry.function_id.as_str()),
-                diff_lines
-                    .get(
-                        base_by_id
-                            .get(entry.function_id.as_str())
-                            .map(|f| f.file.as_str())
-                            .unwrap_or(""),
-                    )
-                    .map(|d| &d.old_lines),
-            ),
+            FunctionStatus::New | FunctionStatus::Modified => {
+                let func = head_by_id.get(entry.function_id.as_str());
+                let lines = func
+                    .and_then(|f| diff_lines.get(&rel(&f.file)))
+                    .map(|d| &d.new_lines);
+                (func, lines)
+            }
+            FunctionStatus::Deleted => {
+                let func = base_by_id.get(entry.function_id.as_str());
+                let lines = func
+                    .and_then(|f| diff_lines.get(&rel(&f.file)))
+                    .map(|d| &d.old_lines);
+                (func, lines)
+            }
             FunctionStatus::Unchanged => continue,
         };
         let (Some(func), Some(lines)) = (snapshot_func, side_lines) else {
@@ -1532,7 +1537,7 @@ index 3333333..4444444 100644
             crate::delta::FunctionStatus::New,
         )];
         assert_eq!(
-            compute_fn_changed_lines(&deltas, &head, &base, &diff_lines),
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
             1
         );
     }
@@ -1556,7 +1561,7 @@ index 3333333..4444444 100644
         )];
         // 100 and 101 fall in [100, 102]; 999 does not.
         assert_eq!(
-            compute_fn_changed_lines(&deltas, &head, &base, &diff_lines),
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
             2
         );
     }
@@ -1578,7 +1583,7 @@ index 3333333..4444444 100644
             make_delta_entry("f.rs::missing", crate::delta::FunctionStatus::New), // not in any snapshot
         ];
         assert_eq!(
-            compute_fn_changed_lines(&deltas, &head, &base, &diff_lines),
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
             0
         );
     }
@@ -1593,7 +1598,7 @@ index 3333333..4444444 100644
             crate::delta::FunctionStatus::New,
         )];
         assert_eq!(
-            compute_fn_changed_lines(&deltas, &head, &base, &diff_lines),
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
             0
         );
     }
