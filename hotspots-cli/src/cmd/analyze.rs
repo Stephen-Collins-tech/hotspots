@@ -1148,15 +1148,15 @@ fn enrich_delta(
     );
 
     let parent_sha = snapshot.commit.parents.first().cloned();
-    let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_sha
-        .as_deref()
-        .and_then(|sha| {
-            hotspots_core::delta::load_parent_snapshot(repo_root, sha)
-                .ok()
-                .flatten()
-        })
-        .and_then(|s| s.aggregates)
-        .map(|a| a.co_change)
+    let parent_snapshot: Option<Snapshot> = parent_sha.as_deref().and_then(|sha| {
+        hotspots_core::delta::load_parent_snapshot(repo_root, sha)
+            .ok()
+            .flatten()
+    });
+    let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_snapshot
+        .as_ref()
+        .and_then(|s| s.aggregates.as_ref())
+        .map(|a| a.co_change.clone())
         .unwrap_or_default();
 
     let mut enriched = delta_val.clone();
@@ -1172,10 +1172,30 @@ fn enrich_delta(
             enriched.policy = Some(results);
         }
     }
+    // hotspots-research F132/F159/F161: fn_changed_lines is the strongest tested predictor of
+    // PR defect risk. Best-effort — no parent snapshot (first commit, or an untracked parent)
+    // or a failed git diff both degrade to an empty line-set map, giving 0, not an error.
+    let fn_changed_lines = match (&parent_snapshot, &parent_sha) {
+        (Some(parent), Some(parent_sha)) => {
+            let diff_lines =
+                hotspots_core::git::diff_line_sets_at(repo_root, parent_sha, &snapshot.commit.sha)
+                    .unwrap_or_default();
+            hotspots_core::git::compute_fn_changed_lines(
+                repo_root,
+                &delta_val.deltas,
+                snapshot,
+                parent,
+                &diff_lines,
+            )
+        }
+        _ => 0,
+    };
     enriched.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
         &delta_val,
         &current_co_change,
         &prev_co_change,
+        fn_changed_lines,
+        &resolved_config.change_size_thresholds,
     ));
     Ok(enriched)
 }

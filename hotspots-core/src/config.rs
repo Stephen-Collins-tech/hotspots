@@ -141,6 +141,11 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub touch_window_days: Option<u32>,
 
+    /// `hotspots diff`'s `pr_summary.size_band` cutoffs — a display convenience, not a
+    /// research-derived signal. See `ChangeSizeThresholdConfig`'s doc comment.
+    #[serde(default)]
+    pub change_size_thresholds: Option<ChangeSizeThresholdConfig>,
+
     /// Minimum number of co-changes required to report a pair (default: 3)
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
@@ -215,6 +220,7 @@ impl Default for HotspotsConfig {
             scoring: None,
             co_change_window_days: None,
             touch_window_days: None,
+            change_size_thresholds: None,
             co_change_min_count: None,
             per_function_touches: None,
             hybrid_touch_threshold: None,
@@ -293,6 +299,25 @@ pub struct ThresholdConfig {
     pub high: Option<f64>,
     /// LRS threshold for critical risk (default: 9.0)
     pub critical: Option<f64>,
+}
+
+/// Custom `fn_changed_lines` size-band cutoffs for `hotspots diff`'s `pr_summary.size_band`.
+///
+/// **These are a display convenience, not a research-derived signal.** Unlike
+/// `fn_changed_lines` itself (confirmed by hotspots-research F132/F159/F161 as the
+/// strongest tested predictor of PR defect risk), no finding specifies where "small" ends
+/// and "large" begins — that's a presentation judgment, the same category as
+/// `ThresholdConfig`'s own LRS band cutoffs above, not a validated claim. Override these
+/// if the built-in defaults don't fit your repo's typical change size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeSizeThresholdConfig {
+    /// Below this many `fn_changed_lines`, `size_band` is "small" (default: 50)
+    pub small: Option<usize>,
+    /// Below this, "medium"; at or above, "large" or "very_large" (default: 200)
+    pub medium: Option<usize>,
+    /// Below this, "large"; at or above, "very_large" (default: 500)
+    pub large: Option<usize>,
 }
 
 /// Custom metric weights for LRS calculation
@@ -408,6 +433,9 @@ pub struct ResolvedConfig {
     pub co_change_min_count: usize,
     /// Touch-metrics window in days (default 365; see `HotspotsConfig::touch_window_days`)
     pub touch_window_days: u32,
+    /// `hotspots diff` size-band cutoffs (display only, not research-derived; see
+    /// `HotspotsConfig::change_size_thresholds`)
+    pub change_size_thresholds: crate::aggregates::ChangeSizeThresholds,
     /// Whether to use per-function git log -L for touch metrics
     pub per_function_touches: bool,
     /// Hybrid touch threshold: Some(n) = file-level first, per-function for files with ≥n touches
@@ -487,6 +515,16 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
     if let Some(w) = c.touch_window_days {
         if w == 0 {
             anyhow::bail!("touch_window_days must be at least 1");
+        }
+    }
+    if let Some(t) = &c.change_size_thresholds {
+        let small = t.small.unwrap_or(50);
+        let medium = t.medium.unwrap_or(200);
+        let large = t.large.unwrap_or(500);
+        if !(small < medium && medium < large) {
+            anyhow::bail!(
+                "change_size_thresholds must satisfy small < medium < large (got {small}, {medium}, {large})"
+            );
         }
     }
     if let Some(m) = c.co_change_min_count {
@@ -906,6 +944,14 @@ impl HotspotsConfig {
             touch_window_days: self
                 .touch_window_days
                 .unwrap_or(crate::git::TOUCH_WINDOW_DAYS as u32),
+            change_size_thresholds: {
+                let c = self.change_size_thresholds.as_ref();
+                crate::aggregates::ChangeSizeThresholds {
+                    small: c.and_then(|c| c.small).unwrap_or(50),
+                    medium: c.and_then(|c| c.medium).unwrap_or(200),
+                    large: c.and_then(|c| c.large).unwrap_or(500),
+                }
+            },
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
             per_function_touches: self.per_function_touches.unwrap_or(false),
             hybrid_touch_threshold: self.hybrid_touch_threshold,

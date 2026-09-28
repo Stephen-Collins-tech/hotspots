@@ -133,16 +133,38 @@ impl Delta {
             .iter()
             .map(|f| (f.function_id.as_str(), f))
             .collect();
-        // Collect all function_ids (union of parent and current), sorted deterministically
-        let mut all_ids: Vec<&str> = parent_funcs
+        // `function_id` embeds each function's absolute file path (`<abs path>::<symbol>`).
+        // Two snapshots analyzed from different absolute roots — e.g. `hotspots diff`'s
+        // `--auto-analyze`, which builds each ref in its own temp git worktree — never share
+        // a common root, so raw function_id equality spuriously fails for every function even
+        // when the code is identical, misreporting the whole snapshot as all-new + all-deleted.
+        // Pair functions on each snapshot's own root-stripped relative key instead, just for
+        // this matching step; `parent_funcs`/`current_funcs` above (absolute-keyed) are the
+        // ones `apply_rename_hints` uses, and the real absolute `function_id` is what every
+        // built `FunctionDeltaEntry` reports — this is a matching-key fix only, not a format
+        // change, so serialized output/downstream consumers are unaffected.
+        let parent_root = common_root(&parent_snap.functions);
+        let current_root = common_root(&current.functions);
+        let parent_by_rel: HashMap<String, &FunctionSnapshot> = parent_snap
+            .functions
+            .iter()
+            .map(|f| (relative_match_key(f, parent_root.as_deref()), f))
+            .collect();
+        let current_by_rel: HashMap<String, &FunctionSnapshot> = current
+            .functions
+            .iter()
+            .map(|f| (relative_match_key(f, current_root.as_deref()), f))
+            .collect();
+        // Collect all match keys (union of parent and current), sorted deterministically
+        let mut all_rel_ids: Vec<&str> = parent_by_rel
             .keys()
-            .chain(current_funcs.keys())
-            .copied()
+            .chain(current_by_rel.keys())
+            .map(String::as_str)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        all_ids.sort();
-        let mut deltas = compute_function_deltas(&all_ids, &parent_funcs, &current_funcs);
+        all_rel_ids.sort();
+        let mut deltas = compute_function_deltas(&all_rel_ids, &parent_by_rel, &current_by_rel);
         apply_rename_hints(&mut deltas, &parent_funcs, &current_funcs);
         Ok(Delta {
             schema_version: DELTA_SCHEMA_VERSION,
@@ -244,14 +266,14 @@ fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
 }
 
 fn compute_function_deltas(
-    all_ids: &[&str],
-    parent_funcs: &HashMap<&str, &FunctionSnapshot>,
-    current_funcs: &HashMap<&str, &FunctionSnapshot>,
+    all_rel_ids: &[&str],
+    parent_by_rel: &HashMap<String, &FunctionSnapshot>,
+    current_by_rel: &HashMap<String, &FunctionSnapshot>,
 ) -> Vec<FunctionDeltaEntry> {
     let mut deltas = Vec::new();
-    for function_id in all_ids {
-        let parent_func = parent_funcs.get(function_id);
-        let current_func = current_funcs.get(function_id);
+    for rel_id in all_rel_ids {
+        let parent_func = parent_by_rel.get(*rel_id);
+        let current_func = current_by_rel.get(*rel_id);
         match (parent_func, current_func) {
             (Some(parent), Some(current)) => {
                 let status = if functions_differ(parent, current) {
@@ -272,8 +294,11 @@ fn compute_function_deltas(
                 } else {
                     None
                 };
+                // `current`'s own function_id (absolute) is the entry's identity — matches
+                // pre-existing behavior when both snapshots share a root (relative key ==
+                // suffix of the absolute one in that case) and is correct when they don't.
                 deltas.push(FunctionDeltaEntry {
-                    function_id: function_id.to_string(),
+                    function_id: current.function_id.clone(),
                     status,
                     before: Some(FunctionState {
                         metrics: parent.metrics.clone(),
@@ -293,7 +318,7 @@ fn compute_function_deltas(
             }
             (Some(parent), None) => {
                 deltas.push(FunctionDeltaEntry {
-                    function_id: function_id.to_string(),
+                    function_id: parent.function_id.clone(),
                     status: FunctionStatus::Deleted,
                     before: Some(FunctionState {
                         metrics: parent.metrics.clone(),
@@ -309,7 +334,7 @@ fn compute_function_deltas(
             }
             (None, Some(current)) => {
                 deltas.push(FunctionDeltaEntry {
-                    function_id: function_id.to_string(),
+                    function_id: current.function_id.clone(),
                     status: FunctionStatus::New,
                     before: None,
                     after: Some(FunctionState {
@@ -324,11 +349,64 @@ fn compute_function_deltas(
                 });
             }
             (None, None) => {
-                unreachable!("function_id should exist in at least one snapshot");
+                unreachable!("rel_id should exist in at least one snapshot");
             }
         }
     }
     deltas
+}
+
+/// The longest common path-component prefix shared by every function's file in a snapshot,
+/// used to strip each snapshot's own analysis root before matching functions across two
+/// snapshots (see `Delta::new`'s doc comment on why). `None` for an empty snapshot, or when
+/// there's only one distinct file (its own parent directory is used as the "root" in that
+/// case, since a bare filename carries no path information to compare against the other side).
+fn common_root(functions: &[FunctionSnapshot]) -> Option<std::path::PathBuf> {
+    let mut files = functions.iter().map(|f| Path::new(&f.file));
+    let first = files.next()?;
+    let mut root: Vec<std::path::Component> = first
+        .parent()
+        .map(|p| p.components().collect())
+        .unwrap_or_default();
+    for file in files {
+        let parent_components: Vec<_> = file
+            .parent()
+            .map(|p| p.components().collect())
+            .unwrap_or_default();
+        let common_len = root
+            .iter()
+            .zip(parent_components.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+        root.truncate(common_len);
+        if root.is_empty() {
+            break;
+        }
+    }
+    if root.is_empty() {
+        None
+    } else {
+        Some(root.into_iter().collect())
+    }
+}
+
+/// `<relative file>::<symbol>` using `root` to strip the snapshot-specific absolute prefix
+/// from `f.file`, or the raw (absolute) `function_id` unchanged if `root` is `None` or
+/// doesn't actually prefix this file (defensive fallback — matches prior behavior exactly
+/// for a snapshot with no discernible common root instead of producing an inconsistent key).
+fn relative_match_key(f: &FunctionSnapshot, root: Option<&Path>) -> String {
+    match root.and_then(|r| Path::new(&f.file).strip_prefix(r).ok()) {
+        Some(rel) => format!("{}::{}", rel.to_string_lossy(), symbol_of(f)),
+        None => f.function_id.clone(),
+    }
+}
+
+/// The `<symbol>` half of `function_id` (everything after the last `<file>::` separator),
+/// i.e. what's left once the absolute-path half is stripped off.
+fn symbol_of(f: &FunctionSnapshot) -> &str {
+    f.function_id
+        .strip_prefix(&format!("{}::", f.file))
+        .unwrap_or(&f.function_id)
 }
 
 /// Find the best rename match for a deleted function among new functions.
@@ -529,6 +607,141 @@ mod tests {
     use crate::report::{FunctionRiskReport, MetricsReport};
     use crate::risk::RiskBand;
     use crate::snapshot::Snapshot;
+
+    // ── common_root / relative_match_key (the auto-analyze cross-worktree fix) ──
+
+    #[test]
+    fn common_root_finds_shared_ancestor_across_multiple_files() {
+        let fns = vec![
+            make_fn_snapshot("a", "/tmp/wt1/src/x.rs", 1),
+            make_fn_snapshot("b", "/tmp/wt1/src/sub/y.rs", 1),
+            make_fn_snapshot("c", "/tmp/wt1/tests/z.rs", 1),
+        ];
+        assert_eq!(
+            common_root(&fns),
+            Some(std::path::PathBuf::from("/tmp/wt1"))
+        );
+    }
+
+    #[test]
+    fn common_root_similar_but_distinct_prefixes_dont_false_match() {
+        // "/tmp/wtA-old" and "/tmp/wtA-new" share the string prefix "/tmp/wtA" but are
+        // different directories — component-wise comparison must not treat them as shared.
+        let fns = vec![
+            make_fn_snapshot("a", "/tmp/wtA-old/src/x.rs", 1),
+            make_fn_snapshot("b", "/tmp/wtA-new/src/x.rs", 1),
+        ];
+        assert_eq!(common_root(&fns), Some(std::path::PathBuf::from("/tmp")));
+    }
+
+    #[test]
+    fn common_root_empty_snapshot_is_none() {
+        assert_eq!(common_root(&[]), None);
+    }
+
+    #[test]
+    fn relative_match_key_strips_each_snapshots_own_root() {
+        // The actual bug: two snapshots of identical code analyzed from two different
+        // temp-worktree roots must produce the SAME match key.
+        let f1 = make_fn_snapshot("foo", "/tmp/wt1/src/x.rs", 10);
+        let f2 = make_fn_snapshot("foo", "/tmp/wt2/src/x.rs", 10);
+        let root1 = std::path::PathBuf::from("/tmp/wt1");
+        let root2 = std::path::PathBuf::from("/tmp/wt2");
+        assert_eq!(
+            relative_match_key(&f1, Some(&root1)),
+            relative_match_key(&f2, Some(&root2))
+        );
+    }
+
+    #[test]
+    fn relative_match_key_distinguishes_genuinely_different_files() {
+        let root = std::path::PathBuf::from("/tmp/wt1");
+        let x = make_fn_snapshot("foo", "/tmp/wt1/src/x.rs", 10);
+        let y = make_fn_snapshot("foo", "/tmp/wt1/src/y.rs", 10);
+        assert_ne!(
+            relative_match_key(&x, Some(&root)),
+            relative_match_key(&y, Some(&root))
+        );
+    }
+
+    #[test]
+    fn relative_match_key_falls_back_to_function_id_when_root_is_none() {
+        let f = make_fn_snapshot("foo", "/tmp/wt1/src/x.rs", 10);
+        assert_eq!(relative_match_key(&f, None), f.function_id);
+    }
+
+    #[test]
+    fn delta_new_matches_identical_code_across_different_worktree_roots() {
+        // End-to-end regression test for the real bug: two snapshots with byte-identical
+        // function content, analyzed from two different absolute roots (as --auto-analyze's
+        // two temp worktrees would produce), must report Unchanged, not New+Deleted for
+        // every function.
+        let mk_report = |name: &str, file: String, line: u32| FunctionRiskReport {
+            file,
+            function: name.to_string(),
+            line,
+            language: Language::TypeScript,
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 1,
+                fo: 1,
+                ns: 1,
+                loc: 5,
+            },
+            risk: crate::report::RiskReport {
+                r_cc: 1.0,
+                r_nd: 1.0,
+                r_fo: 1.0,
+                r_ns: 1.0,
+            },
+            lrs: 1.0,
+            band: RiskBand::Low,
+            suppression_reason: None,
+            patterns: vec![],
+            pattern_details: None,
+            callees: vec![],
+            explanation: None,
+        };
+        let mk = |root: &str| {
+            let git_context = GitContext {
+                head_sha: "sha".to_string(),
+                parent_shas: vec!["parent_sha".to_string()],
+                timestamp: 1705600000,
+                branch: Some("main".to_string()),
+                is_detached: false,
+                message: None,
+                author: None,
+                is_fix_commit: Some(false),
+                is_revert_commit: Some(false),
+                ticket_ids: vec![],
+            };
+            Snapshot::new(
+                git_context,
+                vec![
+                    mk_report("foo", format!("{root}/src/x.rs"), 10),
+                    mk_report("bar", format!("{root}/src/y.rs"), 5),
+                ],
+            )
+        };
+        let parent = mk("/tmp/worktree-aaaa");
+        let current = mk("/tmp/worktree-bbbb");
+
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+
+        assert_eq!(
+            delta.deltas.len(),
+            2,
+            "expected exactly 2 matched functions, not 4 (2 new + 2 deleted)"
+        );
+        for entry in &delta.deltas {
+            assert_eq!(
+                entry.status,
+                FunctionStatus::Unchanged,
+                "function_id {} should match across worktree roots",
+                entry.function_id
+            );
+        }
+    }
 
     fn create_test_snapshot(
         sha: &str,

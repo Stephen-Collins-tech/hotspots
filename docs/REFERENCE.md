@@ -762,6 +762,8 @@ Instability near 0 = everything depends on it (risky to change). Instability nea
   "aggregates": {
     "pr_summary": {
       "pr_risk_score": 1.4,
+      "fn_changed_lines": 23,
+      "size_band": "small",
       "band": "critical",
       "new_count": 0,
       "modified_count": 1,
@@ -781,8 +783,31 @@ Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by 
 risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new
 functions add `after.lrs`, deleted functions subtract `before.lrs`, modified
 functions add `delta.lrs`); `band` is the highest risk band reached by any
-new/modified function's `after` state. Present whenever `aggregates` is attached
+new/modified function's `after` state.
+
+**`fn_changed_lines`** is the count of diff-changed lines (`git diff -U0`) that fall inside a
+touched function's line span, summed across the whole diff — hotspots-research (F132, F159,
+F161) tested this directly against the real compiled binary and found it the strongest
+predictor of which PRs later need a defect fix, beating `pr_risk_score` and every other
+LRS-weighted score tried on every repo tested. **Read `pr_risk_score` as a structural signal
+(what's the worst code in this diff), not a validated risk estimate** — `fn_changed_lines` is
+the better-evidenced number for "is this PR risky." Present whenever `aggregates` is attached
 (always true for `hotspots diff` output).
+
+**`size_band`** buckets `fn_changed_lines` into `"small"` / `"medium"` / `"large"` /
+`"very_large"` for a quick, human-readable comparison across PRs. **Unlike `fn_changed_lines`
+itself, this is not a research-derived signal** — no finding specifies where "small" ends and
+"large" begins; the cutoffs (default: <50/<200/<500/else) are an arbitrary, configurable
+presentation judgment, the same category as `RiskThresholds`' own LRS band cutoffs. Override
+via `.hotspotsrc.json`'s `change_size_thresholds` (`small`/`medium`/`large`, each a
+`fn_changed_lines` count; must satisfy `small < medium < large`) if the defaults don't fit
+your repo's typical change size:
+
+```json
+{
+  "change_size_thresholds": { "small": 30, "medium": 150, "large": 600 }
+}
+```
 
 ---
 

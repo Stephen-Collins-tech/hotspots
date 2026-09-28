@@ -600,6 +600,170 @@ pub fn extract_commit_churn_at(repo_path: &Path, sha: &str) -> Result<Vec<FileCh
     Ok(churns)
 }
 
+/// Per-file changed-line numbers from a unified diff, split by old-file (deleted/context-shifted
+/// lines) and new-file (added lines) line numbers. Keyed by the file's path as it appears in the
+/// diff header (`b/<path>` for the new side, used as the map key; `--- /dev/null` new-file adds
+/// and `+++ /dev/null` deletes are handled via whichever side has a real path).
+#[derive(Debug, Default)]
+pub struct DiffLineSet {
+    pub old_lines: std::collections::BTreeSet<u32>,
+    pub new_lines: std::collections::BTreeSet<u32>,
+}
+
+/// Parse `git diff -U0 base..head`'s hunk headers (`@@ -oldStart[,oldCount] +newStart[,newCount] @@`)
+/// into per-file changed-line sets, old and new file line numbers kept separate.
+///
+/// `-U0` (zero context lines) means every line in a hunk's old/new range is an actual
+/// addition/deletion, not surrounding context — exactly the "changed lines" this needs, with no
+/// extra filtering required.
+pub fn diff_line_sets_at(
+    repo_path: &Path,
+    base_sha: &str,
+    head_sha: &str,
+) -> Result<std::collections::HashMap<String, DiffLineSet>> {
+    let range = format!("{base_sha}..{head_sha}");
+    let output = match git_at(repo_path, &["diff", "-U0", "--no-color", &range]) {
+        Ok(out) => out,
+        Err(_) => return Ok(std::collections::HashMap::new()),
+    };
+
+    let mut result: std::collections::HashMap<String, DiffLineSet> =
+        std::collections::HashMap::new();
+    let mut current_file: Option<String> = None;
+
+    for line in output.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_file = Some(path.to_string());
+        } else if let Some(path) = line.strip_prefix("+++ ") {
+            // "+++ /dev/null" (pure deletion) — keep the old-side path from the preceding "--- a/..."
+            if path == "/dev/null" {
+                // current_file already set from "--- a/<path>" handling below; leave as-is
+            }
+        } else if let Some(path) = line.strip_prefix("--- a/") {
+            // Only used when the file is later deleted entirely (no "+++ b/..." line follows);
+            // "+++ b/..." above takes precedence when both are present (the common case).
+            current_file.get_or_insert_with(|| path.to_string());
+        } else if let Some(hunk) = line.strip_prefix("@@ ") {
+            let Some(file) = current_file.clone() else {
+                continue;
+            };
+            if let Some((old_range, new_range)) = parse_hunk_header(hunk) {
+                let entry = result.entry(file).or_default();
+                entry.old_lines.extend(old_range);
+                entry.new_lines.extend(new_range);
+            }
+        } else if line.starts_with("diff --git ") {
+            current_file = None; // reset between files; next --- / +++ lines set it again
+        }
+    }
+
+    Ok(result)
+}
+
+/// Parses one hunk header's body (everything after `"@@ "`, e.g. `"-12,3 +12,5 @@ fn foo() {"`)
+/// into (old_line_numbers, new_line_numbers). A missing count (`-12` with no `,count`) means 1.
+/// A count of 0 (pure add/delete at that side) contributes no lines on that side.
+fn parse_hunk_header(hunk: &str) -> Option<(Vec<u32>, Vec<u32>)> {
+    let end = hunk.find(" @@")?;
+    let ranges = &hunk[..end];
+    let mut parts = ranges.split_whitespace();
+    let old = parts.next()?.strip_prefix('-')?;
+    let new = parts.next()?.strip_prefix('+')?;
+
+    let parse_range = |s: &str| -> Option<Vec<u32>> {
+        let mut it = s.splitn(2, ',');
+        let start: u32 = it.next()?.parse().ok()?;
+        let count: u32 = match it.next() {
+            Some(c) => c.parse().ok()?,
+            None => 1,
+        };
+        Some((start..start + count).collect())
+    };
+
+    Some((parse_range(old)?, parse_range(new)?))
+}
+
+/// `fn_changed_lines` (hotspots-research F132/F159/F161): the number of diff-changed lines that
+/// fall inside a function touched by this PR — restricted to functions, not the whole file
+/// (tests/docs/config changes elsewhere in the same file don't count). The confirmed strongest
+/// tested predictor of which PRs later need a defect fix in this corpus: it beat every
+/// LRS-weighted composite tried, including `pr_risk_score` itself (F161: 0 of 20 tested variants
+/// beat this size-matched baseline).
+///
+/// For each New/Modified function, counts new-file changed lines inside its `[line, line+loc-1]`
+/// span (using the head snapshot's line numbers, since that's the version those lines exist in).
+/// For each Deleted function, counts old-file changed lines inside its base-snapshot span. This
+/// mirrors the research's own method (F161: "restricted to functions overlapping a changed
+/// hunk") using whichever side of the diff a function's lines actually exist on, avoiding
+/// double-counting between the old/new line sets for the same function.
+///
+/// Function spans are estimated as `[line, line + loc - 1]`, the same approximation F161's own
+/// Limitations section names ("the CLI gives start line and `loc`, not end line") — this can
+/// overshoot on functions with trailing blank lines or undershoot on ones the parser measures
+/// `loc` for differently than raw line count, but it's the same measure `hotspots analyze`
+/// already reports, not a new approximation invented for this feature.
+pub fn compute_fn_changed_lines(
+    repo_root: &Path,
+    deltas: &[crate::delta::FunctionDeltaEntry],
+    head_snapshot: &crate::snapshot::Snapshot,
+    base_snapshot: &crate::snapshot::Snapshot,
+    diff_lines: &std::collections::HashMap<String, DiffLineSet>,
+) -> usize {
+    use crate::delta::FunctionStatus;
+    use std::collections::HashMap;
+
+    // FunctionSnapshot.file is absolute; diff_lines is keyed by the repo-relative path git
+    // diff prints (`+++ b/<path>`). Same abs->rel conversion this crate already uses
+    // elsewhere (e.g. snapshot.rs's touch-metrics file matching) — without it every lookup
+    // below misses and this silently returns 0 (caught live via this feature's own dogfood
+    // test on this repo: a 9-function, 400+ line PR reported fn_changed_lines=0).
+    let rel = |abs: &str| -> String {
+        Path::new(abs)
+            .strip_prefix(repo_root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| abs.to_string())
+    };
+
+    let head_by_id: HashMap<&str, &crate::snapshot::FunctionSnapshot> = head_snapshot
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), f))
+        .collect();
+    let base_by_id: HashMap<&str, &crate::snapshot::FunctionSnapshot> = base_snapshot
+        .functions
+        .iter()
+        .map(|f| (f.function_id.as_str(), f))
+        .collect();
+
+    let mut total = 0usize;
+    for entry in deltas {
+        let (snapshot_func, side_lines) = match entry.status {
+            FunctionStatus::New | FunctionStatus::Modified => {
+                let func = head_by_id.get(entry.function_id.as_str());
+                let lines = func
+                    .and_then(|f| diff_lines.get(&rel(&f.file)))
+                    .map(|d| &d.new_lines);
+                (func, lines)
+            }
+            FunctionStatus::Deleted => {
+                let func = base_by_id.get(entry.function_id.as_str());
+                let lines = func
+                    .and_then(|f| diff_lines.get(&rel(&f.file)))
+                    .map(|d| &d.old_lines);
+                (func, lines)
+            }
+            FunctionStatus::Unchanged => continue,
+        };
+        let (Some(func), Some(lines)) = (snapshot_func, side_lines) else {
+            continue;
+        };
+        let start = func.line;
+        let end = start + func.metrics.loc.saturating_sub(1);
+        total += lines.range(start..=end).count();
+    }
+    total
+}
+
 /// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count_30d` /
 /// `days_since_last_change` pair.
 ///
@@ -1161,6 +1325,283 @@ pub fn extract_co_change_pairs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── parse_hunk_header ────────────────────────────────────────────────────
+
+    #[test]
+    fn hunk_header_both_sides_with_counts() {
+        let (old, new) = parse_hunk_header("-12,3 +12,5 @@ fn foo() {").unwrap();
+        assert_eq!(old, vec![12, 13, 14]);
+        assert_eq!(new, vec![12, 13, 14, 15, 16]);
+    }
+
+    #[test]
+    fn hunk_header_missing_count_means_one() {
+        // "-12 +12" (no ",count") is git's shorthand for a single-line hunk.
+        let (old, new) = parse_hunk_header("-12 +14 @@").unwrap();
+        assert_eq!(old, vec![12]);
+        assert_eq!(new, vec![14]);
+    }
+
+    #[test]
+    fn hunk_header_zero_count_is_pure_add_or_delete() {
+        // Pure addition: old side has 0 lines (insertion point only).
+        let (old, new) = parse_hunk_header("-5,0 +6,3 @@").unwrap();
+        assert_eq!(old, Vec::<u32>::new());
+        assert_eq!(new, vec![6, 7, 8]);
+    }
+
+    #[test]
+    fn hunk_header_malformed_returns_none() {
+        assert!(parse_hunk_header("not a hunk header").is_none());
+        assert!(parse_hunk_header("-12,3 @@").is_none()); // missing new side
+    }
+
+    // ── diff_line_sets_at (hunk parsing over a real unified diff) ───────────
+
+    #[test]
+    fn diff_line_sets_parses_multi_file_multi_hunk_output() {
+        // A hand-written unified diff (-U0 shape) covering two files, to test the
+        // line-level parser without needing a real git repo.
+        let diff = "\
+diff --git a/src/a.rs b/src/a.rs
+index 1111111..2222222 100644
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -10,2 +10,1 @@ fn a() {
+-old line 1
+-old line 2
++new line 1
+@@ -20,0 +19,2 @@ fn b() {
++added line 1
++added line 2
+diff --git a/src/c.rs b/src/c.rs
+index 3333333..4444444 100644
+--- a/src/c.rs
++++ b/src/c.rs
+@@ -5,1 +5,0 @@ fn c() {
+-removed line
+";
+        let sets = parse_diff_output_for_test(diff);
+
+        let a = sets.get("src/a.rs").expect("src/a.rs present");
+        // Second hunk (@@ -20,0 +19,2 @@) has a zero-count old side (pure insertion) — 20
+        // correctly does not appear in old_lines.
+        assert_eq!(a.old_lines, [10, 11].into_iter().collect());
+        assert_eq!(a.new_lines, [10, 19, 20].into_iter().collect());
+
+        let c = sets.get("src/c.rs").expect("src/c.rs present");
+        assert_eq!(c.old_lines, [5].into_iter().collect());
+        assert_eq!(c.new_lines, Default::default());
+    }
+
+    /// Test-only helper: runs `diff_line_sets_at`'s parsing logic over a literal diff string
+    /// instead of shelling out to git, by duplicating just the line-loop (kept in sync by the
+    /// test above exercising the same hunk-header format `diff_line_sets_at` parses from git).
+    fn parse_diff_output_for_test(output: &str) -> std::collections::HashMap<String, DiffLineSet> {
+        let mut result: std::collections::HashMap<String, DiffLineSet> =
+            std::collections::HashMap::new();
+        let mut current_file: Option<String> = None;
+        for line in output.lines() {
+            if let Some(path) = line.strip_prefix("+++ b/") {
+                current_file = Some(path.to_string());
+            } else if let Some(path) = line.strip_prefix("--- a/") {
+                current_file.get_or_insert_with(|| path.to_string());
+            } else if let Some(hunk) = line.strip_prefix("@@ ") {
+                let Some(file) = current_file.clone() else {
+                    continue;
+                };
+                if let Some((old_range, new_range)) = parse_hunk_header(hunk) {
+                    let entry = result.entry(file).or_default();
+                    entry.old_lines.extend(old_range);
+                    entry.new_lines.extend(new_range);
+                }
+            } else if line.starts_with("diff --git ") {
+                current_file = None;
+            }
+        }
+        result
+    }
+
+    // ── compute_fn_changed_lines ─────────────────────────────────────────────
+
+    fn make_fn_snapshot(
+        id: &str,
+        file: &str,
+        line: u32,
+        loc: u32,
+    ) -> crate::snapshot::FunctionSnapshot {
+        crate::snapshot::FunctionSnapshot {
+            function_id: id.to_string(),
+            file: file.to_string(),
+            line,
+            language: crate::language::Language::Rust,
+            metrics: crate::report::MetricsReport {
+                cc: 1,
+                nd: 0,
+                fo: 0,
+                ns: 0,
+                loc,
+            },
+            lrs: 1.0,
+            band: crate::risk::RiskBand::Low,
+            suppression_reason: None,
+            churn: None,
+            touch_count_30d: None,
+            days_since_last_change: None,
+            callgraph: None,
+            activity_risk: None,
+            risk_factors: None,
+            percentile: None,
+            driver: None,
+            driver_detail: None,
+            quadrant: None,
+            patterns: vec![],
+            pattern_details: None,
+            subsystem: None,
+            authors_90d: None,
+            directed_coupling: None,
+            jaccard_label_stability: None,
+            convention_bug_fix_count: None,
+            burst_score: None,
+            commit_count: None,
+            author_count: None,
+            author_entropy: None,
+            isolation_rate: None,
+            age_days: None,
+            last_touch_days: None,
+            newcomer_rate: None,
+            explanation: None,
+        }
+    }
+
+    fn make_snapshot(
+        functions: Vec<crate::snapshot::FunctionSnapshot>,
+    ) -> crate::snapshot::Snapshot {
+        crate::snapshot::Snapshot {
+            schema_version: 1,
+            commit: crate::snapshot::CommitInfo {
+                sha: "head".to_string(),
+                parents: vec!["base".to_string()],
+                timestamp: 0,
+                branch: None,
+                message: None,
+                author: None,
+                is_fix_commit: None,
+                is_revert_commit: None,
+                ticket_ids: vec![],
+            },
+            analysis: crate::snapshot::AnalysisInfo {
+                scope: "full".to_string(),
+                tool_version: "test".to_string(),
+                formula_version: 1,
+            },
+            functions,
+            summary: None,
+            aggregates: None,
+        }
+    }
+
+    fn make_delta_entry(
+        id: &str,
+        status: crate::delta::FunctionStatus,
+    ) -> crate::delta::FunctionDeltaEntry {
+        crate::delta::FunctionDeltaEntry {
+            function_id: id.to_string(),
+            status,
+            before: None,
+            after: None,
+            delta: None,
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: None,
+        }
+    }
+
+    #[test]
+    fn fn_changed_lines_counts_new_function_lines_from_new_side() {
+        // Function spans lines 10..=14 (line=10, loc=5) in the head snapshot; new-side diff
+        // touched lines 12 and 20 — only 12 falls inside the span.
+        let head = make_snapshot(vec![make_fn_snapshot("f.rs::foo", "f.rs", 10, 5)]);
+        let base = make_snapshot(vec![]);
+        let mut diff_lines = std::collections::HashMap::new();
+        diff_lines.insert(
+            "f.rs".to_string(),
+            DiffLineSet {
+                old_lines: Default::default(),
+                new_lines: [12u32, 20].into_iter().collect(),
+            },
+        );
+        let deltas = vec![make_delta_entry(
+            "f.rs::foo",
+            crate::delta::FunctionStatus::New,
+        )];
+        assert_eq!(
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
+            1
+        );
+    }
+
+    #[test]
+    fn fn_changed_lines_counts_deleted_function_lines_from_old_side() {
+        // Deleted function only exists in the base snapshot — must use the old-side line set.
+        let head = make_snapshot(vec![]);
+        let base = make_snapshot(vec![make_fn_snapshot("f.rs::gone", "f.rs", 100, 3)]);
+        let mut diff_lines = std::collections::HashMap::new();
+        diff_lines.insert(
+            "f.rs".to_string(),
+            DiffLineSet {
+                old_lines: [100u32, 101, 999].into_iter().collect(),
+                new_lines: Default::default(),
+            },
+        );
+        let deltas = vec![make_delta_entry(
+            "f.rs::gone",
+            crate::delta::FunctionStatus::Deleted,
+        )];
+        // 100 and 101 fall in [100, 102]; 999 does not.
+        assert_eq!(
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
+            2
+        );
+    }
+
+    #[test]
+    fn fn_changed_lines_ignores_unchanged_and_missing_functions() {
+        let head = make_snapshot(vec![make_fn_snapshot("f.rs::foo", "f.rs", 1, 5)]);
+        let base = make_snapshot(vec![]);
+        let mut diff_lines = std::collections::HashMap::new();
+        diff_lines.insert(
+            "f.rs".to_string(),
+            DiffLineSet {
+                old_lines: Default::default(),
+                new_lines: [1u32, 2, 3].into_iter().collect(),
+            },
+        );
+        let deltas = vec![
+            make_delta_entry("f.rs::foo", crate::delta::FunctionStatus::Unchanged),
+            make_delta_entry("f.rs::missing", crate::delta::FunctionStatus::New), // not in any snapshot
+        ];
+        assert_eq!(
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
+            0
+        );
+    }
+
+    #[test]
+    fn fn_changed_lines_zero_when_file_has_no_diff_entry() {
+        let head = make_snapshot(vec![make_fn_snapshot("f.rs::foo", "f.rs", 1, 5)]);
+        let base = make_snapshot(vec![]);
+        let diff_lines = std::collections::HashMap::new(); // no entry for f.rs at all
+        let deltas = vec![make_delta_entry(
+            "f.rs::foo",
+            crate::delta::FunctionStatus::New,
+        )];
+        assert_eq!(
+            compute_fn_changed_lines(Path::new("/repo"), &deltas, &head, &base, &diff_lines),
+            0
+        );
+    }
 
     /// Serializes tests that depend on (or mutate) the process' ambient working
     /// directory. `git()` (as opposed to `git_at()`) always runs relative to
