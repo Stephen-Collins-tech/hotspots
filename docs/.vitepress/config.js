@@ -38,6 +38,7 @@ export default defineConfig({
           { text: 'Usage & Workflows', link: '/USAGE' },
           { text: 'CLI & Config Reference', link: '/REFERENCE' },
           { text: 'Architecture', link: '/ARCHITECTURE' },
+          { text: 'Score Stability & Predictability', link: '/RISK_STABILITY' },
           { text: 'Contributing', link: '/CONTRIBUTING' },
         ]
       },

@@ -80,7 +80,7 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 ### Phase 5 — Enrichment (snapshot mode)
 
-**Git history:** `git log` provides per-file or per-function (with `-L`) churn and touch counts. Results cached in `.hotspots/touch-cache.json.zst`. Hybrid mode: file-level for all functions, per-function for files with ≥ N touches/30d.
+**Git history:** `git log` provides per-file or per-function (with `-L`) churn and touch counts. Results cached in `.hotspots/touch-cache.json.zst`. Hybrid mode: file-level for all functions, per-function for files with ≥ N touches in the touch window (365 days by default — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
 **Call graph:** Import resolution builds a cross-file call graph. Fan-in, fan-out, PageRank, betweenness centrality (exact for < 2000 nodes; Brandes algorithm with k=256 pivots for larger), SCC (Tarjan's algorithm), dependency depth (topological sort).
 
@@ -137,9 +137,12 @@ hotspots-cli/src/
     ├── analyze.rs
     ├── diff.rs
     ├── train.rs
+    ├── coordinate.rs   # coupling/ownership risk for a set of files, pre-work
     ├── trends.rs
     ├── prune.rs
     ├── compact.rs
+    ├── estimate.rs     # projects per-function touch-mode cost before running it
+    ├── upgrade.rs       # checks for a newer hotspots release
     ├── config.rs
     └── init.rs
 ```
@@ -181,6 +184,6 @@ These are non-negotiable. Any violation is a bug.
 
 **Percentile-relative driver labels.** Absolute thresholds for driver labels would fire on different functions in a 100-function repo vs a 100k-function repo. Percentile-relative checks (default P75) adapt to the codebase's own distribution.
 
-**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank) are added at the Activity Risk layer, not folded into LRS. This separation keeps LRS a pure structural measure and Activity Risk the combined signal.
+**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank, etc.) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: hotspots-research found both add no measurable ranking value (confirmed, non-inferior to remove). They're still computed and reported (`--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
 
 **Betweenness centrality approximation above 2000 nodes.** Exact betweenness is O(V·E), which becomes prohibitive on large call graphs. The Brandes approximation with k=256 random pivot nodes is accurate enough for ranking purposes and runs in bounded time.
