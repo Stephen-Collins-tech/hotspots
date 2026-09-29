@@ -73,3 +73,11 @@ html:not(.dark) {
 .VPSidebarItem.level-0 > .item > .link:hover .text {
     color: #ffffff !important;
 }
+
+/* hotspots.dev's wordmark is font-bold tracking-tight text-white (Header.astro) —
+   VitePress's default site-title weight/tracking/color don't quite match. */
+.VPNavBarTitle .title {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+}
