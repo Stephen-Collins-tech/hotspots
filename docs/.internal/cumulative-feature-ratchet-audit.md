@@ -154,6 +154,27 @@ ratchet for files with an old burst of fixes/churn, since — unlike the
 default score — a user must explicitly opt in via `hotspots train` to hit
 this path.
 
+## Status update (issue #182)
+
+`convention_bug_fix_count`'s absence from `scoring.rs::compute_activity_risk`
+(the default live formula) is **intentional-by-precedent, not an
+oversight** — it mirrors the `burst_score` removal above — but it was
+under-documented until now. `hotspots-research`'s META-08
+(`../hotspots-research/docs/meta/RESEARCH-STATE.md`) says "if confirmed,
+`hotspots_score` formula should weight `convention_fix_count` more
+heavily," but that "if confirmed" has not been resolved into an
+implementable promotion brief: no `docs/promotion-briefs/` entry exists for
+folding `convention_bug_fix_count` into the direct formula, and per
+CLAUDE.md's research-sync rule, no `scoring.rs` edit should happen without
+one. Issue #182 tracks the empirical ratchet check for the opt-in
+trained-ranker path (Ridge-vs-RandomForest monotonicity probe); until that
+lands, `scoring.rs` deliberately continues to omit this feature. If/when a
+promotion brief is written for weighting it into the direct formula, the
+right design is a windowed/decayed variant (e.g.
+`convention_bug_fix_count_365d`, reusing `TOUCH_WINDOW_DAYS`) following the
+`directed_coupling` self-correcting pattern above — not the raw cumulative
+count, which would reintroduce the exact `burst_score` ratchet shape.
+
 ## Cross-repo note
 
 This is a CLI-only audit. Per the task scope, `../hotspots-research`'s
