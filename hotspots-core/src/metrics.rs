@@ -127,7 +127,31 @@ fn cyclomatic_complexity(cfg: &Cfg, body: &BlockStmt) -> usize {
     // Increment for catch clauses
     let catch_count = count_catch_clauses(body);
 
-    base_cc + short_circuit_count + switch_case_count + catch_count
+    // Increment for ternary expressions (CondExpr), e.g. `const y = x > 0 ? 1 : 2;`.
+    // These are decision points that the statement-level CFG builder never sees
+    // since ternaries live in expression position.
+    let ternary_count = count_ternaries(body);
+
+    base_cc + short_circuit_count + switch_case_count + catch_count + ternary_count
+}
+
+/// Count ternary (conditional) expressions in the AST
+fn count_ternaries(body: &BlockStmt) -> usize {
+    let mut count = 0;
+    let mut visitor = TernaryCounter { count: &mut count };
+    body.visit_with(&mut visitor);
+    count
+}
+
+struct TernaryCounter<'a> {
+    count: &'a mut usize,
+}
+
+impl Visit for TernaryCounter<'_> {
+    fn visit_cond_expr(&mut self, cond_expr: &CondExpr) {
+        *self.count += 1;
+        cond_expr.visit_children_with(self);
+    }
 }
 
 /// Visitor to count boolean short-circuit operators
@@ -1865,6 +1889,25 @@ func withDefer() {
     }
 
     #[test]
+    fn test_extract_ecmascript_ternary_increments_cc() {
+        // Regression for #224: ternary-as-let-initializer was invisible to CC.
+        let no_ternary_source = r#"function f(x: number) { return x + 1; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(no_ternary_source);
+        let baseline_cc = extract_metrics(&func, &cfg).cc;
+
+        let ternary_source = r#"function f(x: number) { const y = x > 0 ? 1 : 2; return y; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(ternary_source);
+        let ternary_cc = extract_metrics(&func, &cfg).cc;
+
+        assert!(
+            ternary_cc > baseline_cc,
+            "ternary must increment cc: baseline={}, ternary={}",
+            baseline_cc,
+            ternary_cc
+        );
+    }
+
+    #[test]
     fn test_extract_ecmascript_computed_callee_filtered() {
         // Dynamic calls like arr[0]() produce <computed> — should be filtered
         let source = r#"function dyn(arr: any[]) { arr[0](); }"#;
@@ -1939,6 +1982,33 @@ func withDefer() {
             );
         }
         assert_eq!(m.fo, 5, "fan-out must count all calls in binary chain");
+    }
+
+    #[test]
+    fn test_extract_rust_if_as_let_initializer_increments_cc() {
+        // Regression for #224: if/if-let used as a let-initializer was invisible to CC.
+        let stmt_source = r#"fn check(cond: bool) -> i32 {
+            if cond { 1 } else { 2 }
+        }"#;
+        let (func, cfg) = rust_function_and_cfg(stmt_source);
+        let stmt_cc = extract_metrics(&func, &cfg).cc;
+
+        let expr_source = r#"fn check(cond: bool) -> i32 {
+            let x = if cond { 1 } else { 2 };
+            x
+        }"#;
+        let (func, cfg) = rust_function_and_cfg(expr_source);
+        let expr_cc = extract_metrics(&func, &cfg).cc;
+
+        assert_eq!(
+            stmt_cc, expr_cc,
+            "if-as-statement and if-as-let-initializer must score the same cc"
+        );
+        assert!(
+            expr_cc > 1,
+            "if-as-let-initializer must be counted as a decision point, got cc={}",
+            expr_cc
+        );
     }
 
     #[test]
