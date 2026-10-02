@@ -81,3 +81,27 @@ html:not(.dark) {
     letter-spacing: -0.01em;
     color: #ffffff;
 }
+
+/* Match hotspots.dev's font stack (global.css @theme --font-sans). The main site
+   declares Open Sans but loads no webfont, so it renders the system fallback;
+   do the same here rather than shipping VitePress's default Inter. */
+:root {
+    --vp-font-family-base: Open Sans, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Prose in Merriweather, headings/UI in sans — same split as hotspots.dev's
+   .article-content (global.css). Stack only; no webfont is loaded there either. */
+.vp-doc p,
+.vp-doc li,
+.vp-doc blockquote,
+.vp-doc td,
+.vp-doc th {
+    font-family: Merriweather, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+.vp-doc h1, .vp-doc h2, .vp-doc h3, .vp-doc h4, .vp-doc h5, .vp-doc h6,
+.vp-doc code, .vp-doc pre {
+    font-family: var(--vp-font-family-base);
+}
+.vp-doc :not(pre) > code, .vp-doc pre code {
+    font-family: var(--vp-font-family-mono);
+}
