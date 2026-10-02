@@ -502,6 +502,41 @@ fn apply_rename_hints(
     apply_hints(deltas, &hints);
 }
 
+/// Identify pure renames: a Deleted entry whose `rename_hint` points at a New
+/// entry, where the two sides carry identical metrics/LRS/band (i.e. the
+/// rename carried no content change).
+///
+/// Returns the set of `function_id`s on both sides of each such pair, so
+/// callers (PR risk summary, per-file delta aggregates) can net them out
+/// instead of counting them as independent new+deleted entries.
+pub fn pure_rename_function_ids(
+    deltas: &[FunctionDeltaEntry],
+) -> std::collections::HashSet<String> {
+    let new_by_id: HashMap<&str, &FunctionDeltaEntry> = deltas
+        .iter()
+        .filter(|e| e.status == FunctionStatus::New)
+        .map(|e| (e.function_id.as_str(), e))
+        .collect();
+
+    let mut excluded = std::collections::HashSet::new();
+    for entry in deltas {
+        if entry.status != FunctionStatus::Deleted {
+            continue;
+        }
+        let Some(hint) = &entry.rename_hint else {
+            continue;
+        };
+        let Some(new_entry) = new_by_id.get(hint.as_str()) else {
+            continue;
+        };
+        if entry.before == new_entry.after {
+            excluded.insert(entry.function_id.clone());
+            excluded.insert(new_entry.function_id.clone());
+        }
+    }
+    excluded
+}
+
 /// Check if two functions differ (based on metrics, LRS, or band)
 ///
 /// Ignores file/line changes - only structural changes matter.
@@ -1043,5 +1078,92 @@ mod tests {
         .filter(|h| h.is_some())
         .count();
         assert_eq!(matched_count, 1);
+    }
+
+    fn make_state(lrs: f64, band: RiskBand) -> FunctionState {
+        FunctionState {
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 1,
+                fo: 1,
+                ns: 1,
+                loc: 5,
+            },
+            lrs,
+            band,
+        }
+    }
+
+    #[test]
+    fn test_pure_rename_function_ids_nets_out_identical_rename() {
+        // Regression for #223: a pure rename (rename_hint set, identical
+        // before/after state) must be netted out, not double-counted as a
+        // separate new+deleted pair.
+        let state = make_state(5.4, RiskBand::Moderate);
+        let mut deleted = make_delta_entry("old/path.ts::foo", FunctionStatus::Deleted);
+        deleted.before = Some(state.clone());
+        deleted.rename_hint = Some("new/path.ts::foo".to_string());
+
+        let mut created = make_delta_entry("new/path.ts::foo", FunctionStatus::New);
+        created.after = Some(state);
+
+        let deltas = vec![deleted, created];
+        let excluded = pure_rename_function_ids(&deltas);
+
+        assert!(excluded.contains("old/path.ts::foo"));
+        assert!(excluded.contains("new/path.ts::foo"));
+    }
+
+    #[test]
+    fn test_pure_rename_function_ids_keeps_renames_with_content_change() {
+        // A rename_hint paired with a metrics/LRS change is a real modification
+        // riding along with a move — it must NOT be netted out.
+        let mut deleted = make_delta_entry("old/path.ts::foo", FunctionStatus::Deleted);
+        deleted.before = Some(make_state(5.4, RiskBand::Moderate));
+        deleted.rename_hint = Some("new/path.ts::foo".to_string());
+
+        let mut created = make_delta_entry("new/path.ts::foo", FunctionStatus::New);
+        created.after = Some(make_state(9.0, RiskBand::High));
+
+        let deltas = vec![deleted, created];
+        let excluded = pure_rename_function_ids(&deltas);
+
+        assert!(excluded.is_empty());
+    }
+
+    #[test]
+    fn test_pr_risk_summary_nets_out_pure_rename() {
+        use crate::aggregates::{compute_pr_risk_summary, ChangeSizeThresholds};
+
+        let state = make_state(5.4, RiskBand::Moderate);
+        let mut deleted = make_delta_entry("old/path.ts::foo", FunctionStatus::Deleted);
+        deleted.before = Some(state.clone());
+        deleted.rename_hint = Some("new/path.ts::foo".to_string());
+
+        let mut created = make_delta_entry("new/path.ts::foo", FunctionStatus::New);
+        created.after = Some(state);
+
+        let delta = Delta {
+            schema_version: DELTA_SCHEMA_VERSION,
+            commit: DeltaCommitInfo {
+                sha: "sha".to_string(),
+                parent: "parent".to_string(),
+            },
+            baseline: false,
+            deltas: vec![deleted, created],
+            policy: None,
+            aggregates: None,
+        };
+
+        let summary = compute_pr_risk_summary(&delta, 0, &ChangeSizeThresholds::default());
+        assert_eq!(summary.new_count, 0, "pure rename must not count as new");
+        assert_eq!(
+            summary.deleted_count, 0,
+            "pure rename must not count as deleted"
+        );
+        assert_eq!(
+            summary.pr_risk_score, 0.0,
+            "pure rename must contribute zero risk score"
+        );
     }
 }

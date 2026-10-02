@@ -1059,7 +1059,15 @@ pub fn compute_delta_aggregates(
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
 
+    // Pure renames (rename_hint with no content change on either side) must not
+    // contribute churn: without this, a file that was only renamed shows up with
+    // real-looking new+deleted net_lrs_delta despite touching zero code.
+    let pure_renames = crate::delta::pure_rename_function_ids(&delta.deltas);
+
     for entry in &delta.deltas {
+        if pure_renames.contains(&entry.function_id) {
+            continue;
+        }
         // Extract file path from function_id (format: "path/to/file.ts::function")
         let file = if let Some(sep_pos) = entry.function_id.rfind("::") {
             entry.function_id[..sep_pos].to_string()
@@ -1178,7 +1186,14 @@ pub fn compute_pr_risk_summary(
     let mut band_upgrades = 0;
     let mut band = RiskBand::Low;
 
+    // Pure renames (rename_hint with no content change on either side) must not
+    // be double-counted as independent new+deleted entries.
+    let pure_renames = crate::delta::pure_rename_function_ids(&delta.deltas);
+
     for entry in &delta.deltas {
+        if pure_renames.contains(&entry.function_id) {
+            continue;
+        }
         match entry.status {
             FunctionStatus::New => {
                 new_count += 1;
