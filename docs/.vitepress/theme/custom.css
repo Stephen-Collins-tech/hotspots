@@ -1,17 +1,11 @@
+/* Palette matches hotspots.dev exactly (Tailwind zinc/orange scale) so the docs
+   site reads as one property, not a second, differently-designed product page. */
 :root {
-    /* Brand */
+    /* Brand — Tailwind orange-500/400/600, same classes hotspots.dev uses on its CTAs */
     --vp-c-brand-1: #f97316;
-    --vp-c-brand-2: #ea6a0a;
-    --vp-c-brand-3: #c2550a;
+    --vp-c-brand-2: #fb923c;
+    --vp-c-brand-3: #ea580c;
     --vp-c-brand-soft: rgba(249, 115, 22, 0.14);
-
-    /* Home hero name gradient */
-    --vp-home-hero-name-color: transparent;
-    --vp-home-hero-name-background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
-
-    /* Home hero image glow */
-    --vp-home-hero-image-background-image: radial-gradient(ellipse at center, rgba(249, 115, 22, 0.35) 0%, transparent 70%);
-    --vp-home-hero-image-filter: blur(44px);
 
     /* Buttons */
     --vp-button-brand-border: transparent;
@@ -19,10 +13,10 @@
     --vp-button-brand-bg: #f97316;
     --vp-button-brand-hover-border: transparent;
     --vp-button-brand-hover-text: #ffffff;
-    --vp-button-brand-hover-bg: #ea6a0a;
+    --vp-button-brand-hover-bg: #fb923c;
     --vp-button-brand-active-border: transparent;
     --vp-button-brand-active-text: #ffffff;
-    --vp-button-brand-active-bg: #c2550a;
+    --vp-button-brand-active-bg: #ea580c;
 
     /* Badge */
     --vp-badge-tip-border: transparent;
@@ -30,10 +24,60 @@
     --vp-badge-tip-bg: #f97316;
 }
 
-/* Dark mode adjustments */
+/* hotspots.dev is dark-only (bg-zinc-950/text-zinc-100) — match it in both color-scheme
+   states instead of following the visitor's OS light/dark preference, so the docs site
+   never looks like a different, lighter product when linked to from the main site. */
+:root,
 .dark {
     --vp-c-brand-1: #fb923c;
     --vp-c-brand-2: #f97316;
-    --vp-c-brand-3: #ea6a0a;
+    --vp-c-brand-3: #ea580c;
     --vp-c-brand-soft: rgba(249, 115, 22, 0.16);
+
+    /* Backgrounds — Tailwind zinc-950/900/800 (hotspots.dev's exact body/panel/border scale) */
+    --vp-c-bg: #09090b;
+    --vp-c-bg-alt: #18181b;
+    --vp-c-bg-soft: #18181b;
+    --vp-c-bg-elv: #18181b;
+    --vp-c-gutter: #27272a;
+    --vp-c-divider: #27272a;
+    --vp-c-border: #27272a;
+
+    /* Text — Tailwind zinc-100/400/500 */
+    --vp-c-text-1: #f4f4f5;
+    --vp-c-text-2: #a1a1aa;
+    --vp-c-text-3: #71717a;
+
+    color-scheme: dark;
+}
+
+/* Force dark mode regardless of OS preference (hotspots.dev has no light theme) and
+   hide the now-nonfunctional theme toggle VitePress renders by default. */
+html:not(.dark) {
+    filter: none;
+}
+.VPSwitchAppearance {
+    display: none !important;
+}
+
+/* Nav/sidebar panels sit on zinc-900, same as hotspots.dev's card surfaces. */
+.VPNav,
+.VPSidebar,
+.VPLocalNav {
+    background-color: #18181b !important;
+}
+
+/* hotspots.dev's hover state is text-white, not a brand-orange tint — keep that on
+   the docs nav so nav links behave identically on both sites. */
+.VPNavBarMenuLink:hover,
+.VPSidebarItem.level-0 > .item > .link:hover .text {
+    color: #ffffff !important;
+}
+
+/* hotspots.dev's wordmark is font-bold tracking-tight text-white (Header.astro) —
+   VitePress's default site-title weight/tracking/color don't quite match. */
+.VPNavBarTitle .title {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #ffffff;
 }

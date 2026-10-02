@@ -92,6 +92,24 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
 
+### `hotspots coordinate [PATH]`
+
+Coupling and ownership risk for a set of files, before starting work on them. See
+[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings, including
+the honest caveat on `recommendation`.
+
+```
+hotspots coordinate [PATH] [OPTIONS]
+```
+
+| Flag | Description |
+|---|---|
+| `--files <FILES>` | Comma-separated file paths to analyze |
+| `--diff` | Derive the file set from a unified diff read on stdin |
+| `--staged` | Derive the file set from `git diff --cached --name-only` |
+
+JSON output only today. `PATH` defaults to `.`.
+
 ### `hotspots train [PATH]`
 
 Fit a ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
@@ -263,6 +281,18 @@ hotspots config validate --path FILE
 ```bash
 hotspots init --hooks   # print pre-commit and CI hook templates to stdout
 ```
+
+### `hotspots upgrade`
+
+```bash
+hotspots upgrade
+```
+
+Checks the latest GitHub release against the running version and prints the matching install
+command (`cargo install`, `npm install -g`, or `brew upgrade`) if one is newer — reports only,
+never replaces the binary. Every other command also does this check passively (a one-line
+stderr notice), cached at `~/.hotspots/update_check.json`, re-queried at most once every 24
+hours.
 
 ### Global flags
 

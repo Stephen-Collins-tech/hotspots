@@ -19,6 +19,9 @@ export default defineConfig({
 
   themeConfig: {
     logo: '/logo.svg',
+    // hotspots.dev's own wordmark is lowercase (Header.astro: "hotspots") — match it
+    // exactly rather than defaulting to the capitalized `title` above.
+    siteTitle: 'hotspots',
 
     nav: [
       { text: 'Quick Start', link: '/quickstart' },
@@ -38,6 +41,7 @@ export default defineConfig({
           { text: 'Usage & Workflows', link: '/USAGE' },
           { text: 'CLI & Config Reference', link: '/REFERENCE' },
           { text: 'Architecture', link: '/ARCHITECTURE' },
+          { text: 'Score Stability & Predictability', link: '/RISK_STABILITY' },
           { text: 'Contributing', link: '/CONTRIBUTING' },
         ]
       },

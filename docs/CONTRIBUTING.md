@@ -175,9 +175,9 @@ Releases are fully automated via CI. **Never manually bump `Cargo.toml` versions
 
 To create a release:
 1. Ensure all changes are merged to `main` and CI is green
-2. The release workflow triggers on version tags (`v*`)
+2. Trigger the release workflow manually: `gh workflow run release.yml -f level=patch|minor|major -f dry_run=false` (or via the Actions tab). It bumps `Cargo.toml`, tags, and pushes.
 3. It builds binaries for Linux x86_64, macOS x86_64, macOS ARM64, Windows x86_64
-4. Creates a GitHub release with binaries and generated release notes
+4. Creates a GitHub release with binaries and generated release notes, and publishes to npm, PyPI, crates.io, and Homebrew
 5. Updates the `v1` floating tag pointer
 
 **Rolling back:** delete the release and tag with `gh release delete vX.Y.Z --yes` and `git push origin :refs/tags/vX.Y.Z`. Create a new patch release with the fix.

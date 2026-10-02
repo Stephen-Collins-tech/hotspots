@@ -108,20 +108,81 @@ hotspots diff main HEAD
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
-### PR risk score
+### PR risk score, and the better-evidenced number next to it
 
-Every `diff` collapses all function-level changes into a single `pr_risk_score`
+Every `diff` collapses all function-level changes into `pr_risk_score`
 (net LRS delta across the whole diff — new functions add their LRS, deleted
 functions subtract theirs, modified functions add their ΔLRS) plus a `band`
 (the highest risk band reached by any new or modified function). Text output
 prints it under the summary line; JSON/JSONL expose it at
 `aggregates.pr_summary`; the HTML report shows it as a summary card.
 
+**Read `pr_risk_score` as a structural signal (what's the worst code in this
+diff), not a validated risk estimate.** hotspots-research tested it directly
+against the real compiled binary and found it does not beat a simple size
+measure at predicting which PRs later need a defect fix. The better-evidenced
+number sits right next to it: `fn_changed_lines` — diff-changed lines that
+fall inside a touched function — confirmed the strongest tested predictor in
+that same research. `size_band` (`small`/`medium`/`large`/`very_large`)
+buckets it for a quick glance across PRs; unlike `fn_changed_lines` itself,
+the band's cutoffs are a display convenience, not a research finding —
+override them via `.hotspotsrc.json`'s `change_size_thresholds` if the
+defaults don't fit your repo (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+
 ```
 3 modified, 1 new, 0 deleted
-PR risk score: +7.50 (band: critical)
+Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk — hotspots-research F132/F159/F161; ...)
+PR risk score: +7.50 (band: critical) — structural signal, not validated as beating the line-count measure above
 ====================================================================================================
 ```
+
+## `hotspots coordinate`
+
+Before starting work on a set of files — your own, or a set an AI coding agent is about
+to touch — check whether they're entangled with other in-flight work:
+
+```bash
+hotspots coordinate . --files src/api.ts,src/db.ts
+hotspots coordinate . --staged                    # from `git diff --cached --name-only`
+git diff main | hotspots coordinate . --diff       # derive the file set from a unified diff on stdin
+```
+
+Output (JSON only today):
+
+```json
+{
+  "schema_version": 1,
+  "input_files": ["src/api.ts", "src/db.ts"],
+  "within_set": [
+    { "file_a": "src/api.ts", "file_b": "src/db.ts", "coupling_ratio": 0.67 }
+  ],
+  "hidden_dependencies": [
+    { "file": "src/session.ts", "coupled_to": "src/api.ts", "coupling_ratio": 0.81 }
+  ],
+  "ownership": [
+    { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
+  ],
+  "recommendation": "parallel_safe"
+}
+```
+
+- **`within_set`** — co-change coupling (`coupling_ratio`, share of one file's commits that
+  also touched the other) between pairs *inside* your file set.
+- **`hidden_dependencies`** — files *outside* your set that are tightly coupled to one you're
+  about to touch (coupling_ratio ≥ 0.7 by default) — the ones you'd only find out about after
+  a merge conflict.
+- **`ownership`** — `author_count`, `author_entropy` (0 = one owner, higher = more diffuse),
+  `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
+  a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
+  `"diffuse"` value today).
+- **`recommendation`** — `"serialize"` or `"parallel_safe"`. Read this hedge, not just the
+  label: hotspots-research (META-26) found the underlying `coupling_ratio` threshold fails
+  every direct test of its predictive validity as a `"serialize"` trigger on its own. The one
+  refinement that *is* validated (META-27, F155) is the downgrade you see above — when every
+  file in your set has `knowledge_mode: "concentrated"`, `recommendation` is forced to
+  `"parallel_safe"` regardless of coupling, because concentrated-ownership files show
+  substantially lower real collision rates. Outside that specific case, treat `"serialize"` as
+  a prompt to look closer, not a validated verdict.
 
 ## Policy Engine
 
