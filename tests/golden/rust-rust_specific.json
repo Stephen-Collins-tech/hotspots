@@ -212,9 +212,9 @@
   {
     "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
-    "function": "with_panic",
+    "function": "multiple_unwraps",
     "language": "Rust",
-    "line": 30,
+    "line": 26,
     "lrs": 1.6,
     "metrics": {
       "cc": 1,
@@ -233,20 +233,20 @@
   {
     "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
-    "function": "multiple_unwraps",
+    "function": "with_panic",
     "language": "Rust",
-    "line": 26,
-    "lrs": 1.0,
+    "line": 30,
+    "lrs": 1.6,
     "metrics": {
       "cc": 1,
-      "fo": 0,
+      "fo": 1,
       "loc": 3,
       "nd": 0,
       "ns": 0
     },
     "risk": {
       "r_cc": 1.0,
-      "r_fo": 0.0,
+      "r_fo": 1.0,
       "r_nd": 0.0,
       "r_ns": 0.0
     }

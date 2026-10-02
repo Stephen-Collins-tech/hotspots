@@ -1212,7 +1212,7 @@ fn rust_nesting_depth(block: &syn::Block) -> usize {
 /// Returns the deduplicated, sorted set of called function/method/macro names.
 fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
     use std::collections::HashSet;
-    use syn::{Expr, ExprCall, ExprMethodCall, Stmt};
+    use syn::{Expr, ExprBinary, ExprCall, ExprMethodCall, Stmt};
 
     fn count_calls(stmts: &[Stmt], calls: &mut HashSet<String>) {
         for stmt in stmts {
@@ -1292,6 +1292,10 @@ fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
             }
             Expr::Block(expr_block) => {
                 count_calls(&expr_block.block.stmts, calls);
+            }
+            Expr::Binary(ExprBinary { left, right, .. }) => {
+                expr_calls(left, calls);
+                expr_calls(right, calls);
             }
             _ => {}
         }
@@ -1918,6 +1922,23 @@ func withDefer() {
             m.callee_names
         );
         assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_binary_expr() {
+        // Regression for #227: calls combined via binary operators were invisible.
+        let source = r#"fn calls_five() -> i32 { callee1() + callee2() + callee3() + callee4() + callee5() }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        for name in ["callee1", "callee2", "callee3", "callee4", "callee5"] {
+            assert!(
+                m.callee_names.contains(&name.to_string()),
+                "expected {} in callee_names: {:?}",
+                name,
+                m.callee_names
+            );
+        }
+        assert_eq!(m.fo, 5, "fan-out must count all calls in binary chain");
     }
 
     #[test]
