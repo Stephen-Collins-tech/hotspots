@@ -164,7 +164,7 @@ enum Commands {
         #[arg(long)]
         unreachable: bool,
 
-        /// Only prune commits older than this many days
+        /// Only prune commits older than this many days (requires --unreachable)
         #[arg(long)]
         older_than: Option<u64>,
 

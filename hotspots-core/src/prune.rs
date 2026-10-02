@@ -51,6 +51,12 @@ pub struct PruneResult {
     pub reachable_count: usize,
     /// Number of snapshots that are unreachable but not pruned (due to age filter)
     pub unreachable_kept_count: usize,
+    /// Of `pruned_count`, how many referenced a commit SHA that no longer
+    /// exists in the repository's git history at all (e.g. after a rebase or
+    /// force-push rewrote history). These are always eligible for pruning
+    /// regardless of `--older-than`, since they can never become reachable
+    /// again. See #226.
+    pub orphaned_count: usize,
 }
 
 /// Environment variables git uses to locate a repository, bypassing normal
@@ -169,44 +175,110 @@ fn compute_cutoff_timestamp(older_than_days: Option<u64>) -> Option<i64> {
     })
 }
 
-/// Classify index entries into pruned / reachable / unreachable-kept buckets
+/// Returns true if `sha` identifies a commit object that actually exists in
+/// the repository's object database — false if history was rewritten (e.g.
+/// rebase, force-push) and the commit is gone entirely, not merely
+/// unreachable from tracked refs.
+fn commit_exists(repo_path: &Path, sha: &str) -> bool {
+    let mut command = Command::new("git");
+    command
+        .current_dir(repo_path)
+        .args(["cat-file", "-e", &format!("{sha}^{{commit}}")])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    for var in GIT_ENV_VARS_TO_CLEAR {
+        command.env_remove(var);
+    }
+    command.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// Discover every SHA that has a snapshot on disk, whether or not it's
+/// recorded in `index.json`. A file can exist without an index entry if the
+/// index was manually edited/recovered, or a snapshot file was placed
+/// directly — such orphaned entries would otherwise be invisible to pruning
+/// since classification only ever walked `index.commits`. See #226.
+fn discover_all_snapshot_shas(repo_path: &Path, index: &Index) -> HashSet<String> {
+    let mut shas: HashSet<String> = index.commits.iter().map(|e| e.sha.clone()).collect();
+
+    let dir = snapshot::snapshots_dir(repo_path);
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if let Some(sha) = name
+                .strip_suffix(".delta.json.zst")
+                .or_else(|| name.strip_suffix(".json.zst"))
+                .or_else(|| name.strip_suffix(".json"))
+            {
+                shas.insert(sha.to_string());
+            }
+        }
+    }
+
+    shas
+}
+
+/// Classify every known snapshot SHA into pruned / reachable / unreachable-kept
+/// buckets. `all_shas` is the union of index entries and on-disk snapshot
+/// files, so orphaned files with no index entry are still considered.
 fn classify_snapshots(
     repo_path: &Path,
-    index: &Index,
+    all_shas: &HashSet<String>,
     reachable_shas: &HashSet<String>,
     cutoff_timestamp: Option<i64>,
-) -> (Vec<String>, usize, usize) {
+) -> (Vec<String>, usize, usize, usize) {
     let mut pruned_shas = Vec::new();
     let mut reachable_count = 0;
     let mut unreachable_kept_count = 0;
+    let mut orphaned_count = 0;
 
-    for entry in &index.commits {
-        let sha = &entry.sha;
-        if snapshot::snapshot_path_existing(repo_path, sha).is_none() {
+    let mut shas: Vec<&String> = all_shas.iter().collect();
+    shas.sort();
+
+    for sha in shas {
+        let has_full = snapshot::snapshot_path_existing(repo_path, sha).is_some();
+        let has_delta = snapshot::delta_snapshot_path(repo_path, sha).exists();
+        if !has_full && !has_delta {
             continue;
         }
 
         if reachable_shas.contains(sha) {
             reachable_count += 1;
-        } else {
-            let should_prune = if let Some(cutoff) = cutoff_timestamp {
-                match get_commit_timestamp(repo_path, sha) {
-                    Ok(timestamp) => timestamp < cutoff,
-                    Err(_) => false,
-                }
-            } else {
-                true
-            };
+            continue;
+        }
 
-            if should_prune {
-                pruned_shas.push(sha.clone());
-            } else {
-                unreachable_kept_count += 1;
+        // A commit absent from the repository's history entirely (rebase,
+        // force-push, history rewrite) is unreachable by definition and can
+        // never become reachable again — always eligible for pruning,
+        // regardless of --older-than.
+        if !commit_exists(repo_path, sha) {
+            pruned_shas.push(sha.clone());
+            orphaned_count += 1;
+            continue;
+        }
+
+        let should_prune = if let Some(cutoff) = cutoff_timestamp {
+            match get_commit_timestamp(repo_path, sha) {
+                Ok(timestamp) => timestamp < cutoff,
+                Err(_) => false,
             }
+        } else {
+            true
+        };
+
+        if should_prune {
+            pruned_shas.push(sha.clone());
+        } else {
+            unreachable_kept_count += 1;
         }
     }
 
-    (pruned_shas, reachable_count, unreachable_kept_count)
+    (
+        pruned_shas,
+        reachable_count,
+        unreachable_kept_count,
+        orphaned_count,
+    )
 }
 
 /// Delete snapshot files and update the index for pruned SHAs
@@ -220,6 +292,12 @@ fn delete_pruned_snapshots(
         if let Some(path) = snapshot::snapshot_path_existing(repo_path, sha) {
             std::fs::remove_file(&path)
                 .with_context(|| format!("failed to remove snapshot: {}", path.display()))?;
+        }
+        let delta_path = snapshot::delta_snapshot_path(repo_path, sha);
+        if delta_path.exists() {
+            std::fs::remove_file(&delta_path).with_context(|| {
+                format!("failed to remove delta snapshot: {}", delta_path.display())
+            })?;
         }
     }
     for sha in pruned_shas {
@@ -257,8 +335,9 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
         .context("failed to compute reachable commits")?;
     let cutoff_timestamp = compute_cutoff_timestamp(options.older_than_days);
 
-    let (pruned_shas, reachable_count, unreachable_kept_count) =
-        classify_snapshots(repo_path, &index, &reachable_shas, cutoff_timestamp);
+    let all_shas = discover_all_snapshot_shas(repo_path, &index);
+    let (pruned_shas, reachable_count, unreachable_kept_count, orphaned_count) =
+        classify_snapshots(repo_path, &all_shas, &reachable_shas, cutoff_timestamp);
 
     if !options.dry_run {
         delete_pruned_snapshots(repo_path, &pruned_shas, &mut index, &index_path)?;
@@ -269,6 +348,7 @@ pub fn prune_unreachable(repo_path: &Path, options: PruneOptions) -> Result<Prun
         pruned_shas,
         reachable_count,
         unreachable_kept_count,
+        orphaned_count,
     })
 }
 
@@ -418,5 +498,83 @@ mod tests {
         );
         assert_eq!(result.reachable_count, 1);
         assert!(snapshot_path.exists());
+    }
+
+    /// Regression test for #226: a snapshot whose filename/index entry
+    /// references a commit SHA that no longer exists anywhere in the
+    /// repository's git history (simulating a rebase/force-push) must be
+    /// treated as unreachable and pruned by `--unreachable`, not silently
+    /// kept forever.
+    #[test]
+    fn test_prune_unreachable_removes_snapshot_for_nonexistent_commit() {
+        let (dir, real_sha) = repo_with_tag_only_commit();
+        let repo_path = dir.path();
+
+        // A bogus SHA that was never a real commit in this repo (simulating
+        // a snapshot recorded before a rebase/force-push rewrote history).
+        let bogus_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
+        let real_snapshot_path = snapshot::snapshot_path(repo_path, &real_sha);
+        std::fs::create_dir_all(real_snapshot_path.parent().unwrap()).unwrap();
+        std::fs::write(&real_snapshot_path, "{}").unwrap();
+
+        let bogus_snapshot_path = snapshot::snapshot_path(repo_path, bogus_sha);
+        std::fs::write(&bogus_snapshot_path, "{}").unwrap();
+
+        let mut index = Index::new();
+        index.add_commit(snapshot::IndexEntry {
+            sha: real_sha.clone(),
+            parents: Vec::new(),
+            timestamp: 0,
+        });
+        index.add_commit(snapshot::IndexEntry {
+            sha: bogus_sha.to_string(),
+            parents: Vec::new(),
+            timestamp: 0,
+        });
+        let index_json = index.to_json().unwrap();
+        snapshot::atomic_write(&snapshot::index_path(repo_path), &index_json).unwrap();
+
+        let result = prune_unreachable(repo_path, PruneOptions::default()).unwrap();
+
+        assert_eq!(result.pruned_count, 1, "only the bogus sha should prune");
+        assert!(result.pruned_shas.contains(&bogus_sha.to_string()));
+        assert_eq!(result.orphaned_count, 1);
+        assert_eq!(result.reachable_count, 1, "tag-only commit stays reachable");
+        assert!(
+            !bogus_snapshot_path.exists(),
+            "snapshot for nonexistent commit must be deleted"
+        );
+        assert!(
+            real_snapshot_path.exists(),
+            "snapshot for the real, tag-reachable commit must survive"
+        );
+    }
+
+    /// A snapshot file that exists on disk but has no corresponding entry in
+    /// index.json must still be discovered and classified (see #226) rather
+    /// than being invisible to pruning entirely.
+    #[test]
+    fn test_prune_discovers_orphan_snapshot_file_with_no_index_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path();
+        git_at(repo_path, &["init", "-q"]).unwrap();
+        git_at(repo_path, &["config", "user.email", "test@example.com"]).unwrap();
+        git_at(repo_path, &["config", "user.name", "Test"]).unwrap();
+        std::fs::write(repo_path.join("file.txt"), "hello").unwrap();
+        git_at(repo_path, &["add", "file.txt"]).unwrap();
+        git_at(repo_path, &["commit", "-q", "-m", "initial"]).unwrap();
+
+        let bogus_sha = "feedfacefeedfacefeedfacefeedfacefeedface";
+        let bogus_snapshot_path = snapshot::snapshot_path(repo_path, bogus_sha);
+        std::fs::create_dir_all(bogus_snapshot_path.parent().unwrap()).unwrap();
+        std::fs::write(&bogus_snapshot_path, "{}").unwrap();
+        // Deliberately no index.json entry for bogus_sha.
+
+        let result = prune_unreachable(repo_path, PruneOptions::default()).unwrap();
+
+        assert_eq!(result.pruned_count, 1);
+        assert_eq!(result.orphaned_count, 1);
+        assert!(!bogus_snapshot_path.exists());
     }
 }
