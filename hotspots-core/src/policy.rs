@@ -301,6 +301,21 @@ fn evaluate_excessive_risk_regression(
         PolicyMode::Off => unreachable!("handled above"),
     };
 
+    // This is a flat absolute threshold, unlike the sibling RapidGrowth policy's
+    // relative one (`(delta_lrs / before_lrs) * 100 >= 50`). hotspots-research F105
+    // derived that this asymmetry is mechanistically real — the required relative
+    // growth to hit `Δlrs = 1.0` is `100 / before_lrs`%, which shrinks as functions
+    // get larger, so a flat threshold is easier to trip on large functions and
+    // harder on small ones. F105 attempted to measure whether this matters in
+    // practice (precision against real future fixes) but could not: borrowing
+    // RapidGrowth's exact 50% value produced only 4 disagreement events across 1200
+    // sampled modifications on 4 repos, far below the pre-registered 20-event floor
+    // needed to test the hypothesis at all. F105's explicit conclusion was "do not
+    // write a promotion brief" — this is not a confirmed-safe threshold, nor a
+    // confirmed-miscalibrated one; the question remains open pending a differently-
+    // tuned relative threshold (F105 suggests 15-25%) that would actually generate
+    // enough disagreement volume to test against. See
+    // hotspots-research/docs/findings/F105-lrs-regression-threshold-calibration.md.
     const REGRESSION_THRESHOLD: f64 = 1.0;
 
     for entry in active_deltas(deltas) {

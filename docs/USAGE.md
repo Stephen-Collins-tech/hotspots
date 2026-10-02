@@ -129,7 +129,11 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
 
 **Blocking by default (exit code 1) — severity configurable, see below:**
 - `critical-introduction` — new or existing function crosses LRS ≥ 9.0
-- `excessive-risk-regression` — LRS increases by ≥ 1.0 on a modified function
+- `excessive-risk-regression` — LRS increases by ≥ 1.0 on a modified function. This
+  is a flat absolute threshold, not size-relative — hotspots-research F105 found
+  this mechanically favors flagging large functions over small ones, but couldn't
+  gather enough evidence to say whether that miscalibration matters in practice
+  (see the doc comment on `REGRESSION_THRESHOLD` in `hotspots-core/src/policy.rs`).
 
 **Warnings (exit code 0, informational):**
 - `watch-threshold` — function entering watch range (default LRS 2.5–3.0)
