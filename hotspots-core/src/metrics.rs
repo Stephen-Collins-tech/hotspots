@@ -1803,6 +1803,25 @@ func withDefer() {
     }
 
     #[test]
+    fn test_extract_python_if_else_no_spurious_edge() {
+        // Regression for #228: a single two-way if/else must give cc == 2, not
+        // an inflated value from a spurious condition->join edge.
+        let source = r#"def classify(x):
+    if x > 0:
+        return "positive"
+    else:
+        return "non-positive"
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(
+            m.cc, 2,
+            "single two-way if/else must have cc == 2, got {}",
+            m.cc
+        );
+    }
+
+    #[test]
     fn test_extract_python_callee_names_and_fanout() {
         let source = r#"def do_work():
     foo()

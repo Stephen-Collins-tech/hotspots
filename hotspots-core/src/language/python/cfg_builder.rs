@@ -143,6 +143,7 @@ impl PythonCfgBuilderState {
         let join_node = self.cfg.add_node(NodeKind::Join);
         let mut last_condition = condition_node;
         let mut branch_ends = vec![then_end];
+        let mut has_else = false;
 
         // Process elif clauses
         let mut cursor = node.walk();
@@ -163,6 +164,7 @@ impl PythonCfgBuilderState {
 
                 last_condition = elif_condition;
             } else if child.kind() == "else_clause" {
+                has_else = true;
                 // Else branch
                 if let Some(else_body) = find_child_by_kind(child, "block") {
                     let else_start = self.cfg.add_node(NodeKind::Statement);
@@ -174,8 +176,13 @@ impl PythonCfgBuilderState {
             }
         }
 
-        // If no else clause, last condition can go directly to join
-        self.cfg.add_edge(last_condition, join_node);
+        // If no else clause, the last condition can fall through directly to join.
+        // When an else branch exists, that path is already covered by the
+        // condition->else_start edge above, so adding this would be a spurious
+        // extra edge.
+        if !has_else {
+            self.cfg.add_edge(last_condition, join_node);
+        }
 
         // Connect all branch ends to join
         for end in branch_ends {
