@@ -293,6 +293,8 @@ enum Commands {
         screen: bool,
 
         /// Skip the confirmation prompt before training (non-interactive / CI use).
+        /// Only has an effect when the repo has more than 1000 functions —
+        /// that's the only case a confirmation prompt is shown at all.
         #[arg(long, short = 'y', default_value = "false")]
         yes: bool,
 
@@ -527,4 +529,53 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod help_text_tests {
+    use super::Cli;
+    use clap::CommandFactory;
+
+    /// Regression test for #229: `train -y/--yes` only has an effect above
+    /// 1000 functions; that threshold must be disclosed in --help, not just
+    /// discoverable by reading source.
+    #[test]
+    fn train_yes_help_discloses_threshold() {
+        let cmd = Cli::command();
+        let train = cmd
+            .get_subcommands()
+            .find(|c| c.get_name() == "train")
+            .expect("train subcommand must exist");
+        let yes_help = train
+            .get_arguments()
+            .find(|a| a.get_id() == "yes")
+            .and_then(|a| a.get_help())
+            .map(|h| h.to_string())
+            .unwrap_or_default();
+        assert!(
+            yes_help.contains("1000"),
+            "train --yes help should disclose the 1000-function threshold, got: {yes_help:?}"
+        );
+    }
+
+    /// Regression test for #226: `prune --older-than` requires `--unreachable`
+    /// to also be set; that dependency must be disclosed in --help.
+    #[test]
+    fn prune_older_than_help_discloses_unreachable_dependency() {
+        let cmd = Cli::command();
+        let prune = cmd
+            .get_subcommands()
+            .find(|c| c.get_name() == "prune")
+            .expect("prune subcommand must exist");
+        let older_than_help = prune
+            .get_arguments()
+            .find(|a| a.get_id() == "older_than")
+            .and_then(|a| a.get_help())
+            .map(|h| h.to_string())
+            .unwrap_or_default();
+        assert!(
+            older_than_help.contains("--unreachable"),
+            "prune --older-than help should disclose its dependency on --unreachable, got: {older_than_help:?}"
+        );
+    }
 }
