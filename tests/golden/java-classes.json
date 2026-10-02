@@ -1,86 +1,86 @@
 [
   {
-    "file": "tests/fixtures/java/Classes.java",
-    "function": "Classes",
-    "line": 4,
-    "language": "Java",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 0,
-      "ns": 0,
-      "loc": 3
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 0.0,
-      "r_ns": 0.0
-    },
-    "lrs": 2.0,
-    "band": "low"
-  },
-  {
+    "band": "low",
     "file": "tests/fixtures/java/Classes.java",
     "function": "instanceMethod",
-    "line": 8,
     "language": "Java",
+    "line": 8,
+    "lrs": 1.7,
     "metrics": {
       "cc": 1,
-      "nd": 0,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
       "r_cc": 1.0,
-      "r_nd": 0.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 1.7,
-    "band": "low"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/java/Classes.java",
     "function": "staticMethod",
-    "line": 12,
     "language": "Java",
+    "line": 12,
+    "lrs": 1.7,
     "metrics": {
       "cc": 1,
-      "nd": 0,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
       "r_cc": 1.0,
-      "r_nd": 0.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 1.7,
-    "band": "low"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/java/Classes.java",
     "function": "innerMethod",
-    "line": 17,
     "language": "Java",
+    "line": 17,
+    "lrs": 1.7,
     "metrics": {
       "cc": 1,
-      "nd": 0,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
       "r_cc": 1.0,
-      "r_nd": 0.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/java/Classes.java",
+    "function": "Classes",
+    "language": "Java",
+    "line": 4,
+    "lrs": 1.0,
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
     },
-    "lrs": 1.7,
-    "band": "low"
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
   }
 ]

@@ -1,65 +1,65 @@
 [
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/simple.py",
     "function": "multiple_returns",
+    "language": "Python",
     "line": 13,
-    "language": "Python",
-    "metrics": {
-      "cc": 5,
-      "nd": 1,
-      "fo": 0,
-      "ns": 3,
-      "loc": 7
-    },
-    "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
-      "r_fo": 0.0,
-      "r_ns": 3.0
-    },
-    "lrs": 5.4849625007211555,
-    "band": "moderate"
-  },
-  {
-    "file": "tests/fixtures/python/simple.py",
-    "function": "with_early_return",
-    "line": 6,
-    "language": "Python",
-    "metrics": {
-      "cc": 4,
-      "nd": 1,
-      "fo": 0,
-      "ns": 2,
-      "loc": 5
-    },
-    "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 1.0,
-      "r_fo": 0.0,
-      "r_ns": 2.0
-    },
-    "lrs": 4.521928094887363,
-    "band": "moderate"
-  },
-  {
-    "file": "tests/fixtures/python/simple.py",
-    "function": "simple_function",
-    "line": 1,
-    "language": "Python",
+    "lrs": 4.8999999999999995,
     "metrics": {
       "cc": 3,
-      "nd": 0,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 7,
+      "nd": 1,
+      "ns": 3
     },
     "risk": {
       "r_cc": 2.0,
-      "r_nd": 0.0,
       "r_fo": 0.0,
-      "r_ns": 1.0
+      "r_nd": 1.0,
+      "r_ns": 3.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/python/simple.py",
+    "function": "with_early_return",
+    "language": "Python",
+    "line": 6,
+    "lrs": 3.784962500721156,
+    "metrics": {
+      "cc": 2,
+      "fo": 0,
+      "loc": 5,
+      "nd": 1,
+      "ns": 2
     },
-    "lrs": 2.7,
-    "band": "low"
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 2.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/python/simple.py",
+    "function": "simple_function",
+    "language": "Python",
+    "line": 1,
+    "lrs": 1.7,
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 1.0
+    }
   }
 ]

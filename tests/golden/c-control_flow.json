@@ -5,37 +5,37 @@
     "function": "nested_ifs",
     "language": "C",
     "line": 40,
-    "lrs": 7.207354922057604,
+    "lrs": 6.721928094887362,
     "metrics": {
-      "cc": 6,
+      "cc": 4,
       "fo": 0,
       "loc": 15,
       "nd": 2,
       "ns": 4
     },
     "risk": {
-      "r_cc": 2.807354922057604,
+      "r_cc": 2.321928094887362,
       "r_fo": 0.0,
       "r_nd": 2.0,
       "r_ns": 4.0
     }
   },
   {
-    "band": "high",
+    "band": "moderate",
     "file": "tests/fixtures/c/control_flow.c",
     "function": "classify",
     "language": "C",
     "line": 1,
-    "lrs": 6.284962500721155,
+    "lrs": 5.699999999999999,
     "metrics": {
-      "cc": 5,
+      "cc": 3,
       "fo": 0,
       "loc": 9,
       "nd": 2,
       "ns": 3
     },
     "risk": {
-      "r_cc": 2.584962500721156,
+      "r_cc": 2.0,
       "r_fo": 0.0,
       "r_nd": 2.0,
       "r_ns": 3.0
@@ -47,16 +47,16 @@
     "function": "boolean_ops",
     "language": "C",
     "line": 30,
-    "lrs": 5.8999999999999995,
+    "lrs": 5.4849625007211555,
     "metrics": {
-      "cc": 7,
+      "cc": 5,
       "fo": 0,
       "loc": 9,
       "nd": 1,
       "ns": 3
     },
     "risk": {
-      "r_cc": 3.0,
+      "r_cc": 2.584962500721156,
       "r_fo": 0.0,
       "r_nd": 1.0,
       "r_ns": 3.0
@@ -68,16 +68,16 @@
     "function": "switch_days",
     "language": "C",
     "line": 18,
-    "lrs": 5.707354922057604,
+    "lrs": 5.221928094887362,
     "metrics": {
-      "cc": 6,
+      "cc": 4,
       "fo": 0,
       "loc": 7,
       "nd": 1,
       "ns": 3
     },
     "risk": {
-      "r_cc": 2.807354922057604,
+      "r_cc": 2.321928094887362,
       "r_fo": 0.0,
       "r_nd": 1.0,
       "r_ns": 3.0
@@ -89,16 +89,16 @@
     "function": "braceless_if",
     "language": "C",
     "line": 11,
-    "lrs": 4.521928094887363,
+    "lrs": 3.784962500721156,
     "metrics": {
-      "cc": 4,
+      "cc": 2,
       "fo": 0,
       "loc": 6,
       "nd": 1,
       "ns": 2
     },
     "risk": {
-      "r_cc": 2.321928094887362,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
       "r_nd": 1.0,
       "r_ns": 2.0

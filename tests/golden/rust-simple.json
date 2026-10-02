@@ -1,149 +1,149 @@
 [
   {
+    "band": "moderate",
     "file": "tests/fixtures/rust/simple.rs",
     "function": "nested_if",
-    "line": 35,
     "language": "Rust",
+    "line": 35,
+    "lrs": 3.6,
     "metrics": {
-      "cc": 5,
-      "nd": 2,
+      "cc": 3,
       "fo": 0,
-      "ns": 0,
-      "loc": 11
+      "loc": 11,
+      "nd": 2,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 2.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 2.0,
       "r_ns": 0.0
-    },
-    "lrs": 4.184962500721156,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/rust/simple.rs",
     "function": "with_early_return",
-    "line": 12,
     "language": "Rust",
+    "line": 12,
+    "lrs": 3.5,
     "metrics": {
-      "cc": 5,
-      "nd": 1,
+      "cc": 3,
       "fo": 0,
-      "ns": 1,
-      "loc": 6
+      "loc": 6,
+      "nd": 1,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 1.0
-    },
-    "lrs": 4.084962500721156,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/simple.rs",
     "function": "with_if_else",
-    "line": 27,
     "language": "Rust",
+    "line": 27,
+    "lrs": 2.384962500721156,
     "metrics": {
-      "cc": 4,
-      "nd": 1,
+      "cc": 2,
       "fo": 0,
-      "ns": 0,
-      "loc": 7
+      "loc": 7,
+      "nd": 1,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 1.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 0.0
-    },
-    "lrs": 3.1219280948873624,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/simple.rs",
     "function": "multiple_statements",
+    "language": "Rust",
     "line": 19,
-    "language": "Rust",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 1,
-      "ns": 0,
-      "loc": 7
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 1.0,
-      "r_ns": 0.0
-    },
-    "lrs": 2.6,
-    "band": "low"
-  },
-  {
-    "file": "tests/fixtures/rust/simple.rs",
-    "function": "async_function",
-    "line": 47,
-    "language": "Rust",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 1,
-      "ns": 0,
-      "loc": 3
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 1.0,
-      "r_ns": 0.0
-    },
-    "lrs": 2.6,
-    "band": "low"
-  },
-  {
-    "file": "tests/fixtures/rust/simple.rs",
-    "function": "simple_calculation",
-    "line": 7,
-    "language": "Rust",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 0,
-      "ns": 0,
-      "loc": 4
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 0.0,
-      "r_ns": 0.0
-    },
-    "lrs": 2.0,
-    "band": "low"
-  },
-  {
-    "file": "tests/fixtures/rust/simple.rs",
-    "function": "empty_function",
-    "line": 3,
-    "language": "Rust",
+    "lrs": 1.6,
     "metrics": {
       "cc": 1,
+      "fo": 1,
+      "loc": 7,
       "nd": 0,
-      "fo": 0,
-      "ns": 0,
-      "loc": 3
+      "ns": 0
     },
     "risk": {
       "r_cc": 1.0,
+      "r_fo": 1.0,
       "r_nd": 0.0,
-      "r_fo": 0.0,
       "r_ns": 0.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/rust/simple.rs",
+    "function": "async_function",
+    "language": "Rust",
+    "line": 47,
+    "lrs": 1.6,
+    "metrics": {
+      "cc": 1,
+      "fo": 1,
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
     },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 1.0,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/rust/simple.rs",
+    "function": "empty_function",
+    "language": "Rust",
+    "line": 3,
     "lrs": 1.0,
-    "band": "low"
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/rust/simple.rs",
+    "function": "simple_calculation",
+    "language": "Rust",
+    "line": 7,
+    "lrs": 1.0,
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 4,
+      "nd": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
   }
 ]

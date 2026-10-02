@@ -88,14 +88,10 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
 /// Used for languages where we don't yet have full AST metrics
 fn calculate_cc_from_cfg(cfg: &Cfg) -> usize {
     // Base formula: CC = E - N + 2
-    if cfg.edge_count() > 0 && cfg.node_count() > 2 {
+    if cfg.edge_count() > 0 && cfg.node_count() > 0 {
         let e = cfg.edge_count();
-        let n = cfg.node_count() - 2; // Exclude entry and exit
-        if n > 0 {
-            e.saturating_sub(n).saturating_add(2)
-        } else {
-            1
-        }
+        let n = cfg.node_count();
+        e.saturating_add(2).saturating_sub(n).max(1)
     } else {
         1
     }
@@ -109,17 +105,11 @@ fn calculate_cc_from_cfg(cfg: &Cfg) -> usize {
 /// - Each catch clause
 fn cyclomatic_complexity(cfg: &Cfg, body: &BlockStmt) -> usize {
     // Base formula: CC = E - N + 2
-    let base_cc = if cfg.edge_count() > 0 && cfg.node_count() > 2 {
-        // Exclude entry and exit nodes for calculation
-        // E = number of edges
-        // N = number of nodes (excluding entry/exit which are structural)
+    let base_cc = if cfg.edge_count() > 0 && cfg.node_count() > 0 {
+        // E = number of edges, N = number of nodes (including entry/exit)
         let e = cfg.edge_count();
-        let n = cfg.node_count() - 2; // Exclude entry and exit
-        if n > 0 {
-            e.saturating_sub(n).saturating_add(2)
-        } else {
-            1 // Minimum CC for any function
-        }
+        let n = cfg.node_count();
+        e.saturating_add(2).saturating_sub(n).max(1)
     } else {
         1 // Empty function has CC = 1
     };
@@ -1565,6 +1555,27 @@ func hello() {
         assert!(m.loc >= 3, "at least 3 lines");
         assert!(m.callee_names.contains(&"println".to_string()));
         assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_zero_branch_function_cc_is_one() {
+        // Regression for #221: CC baseline was off by +2 for every function.
+        let go_source = r#"package main
+func hello() {
+    println("hi")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(go_source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "zero-branch Go function must have cc == 1");
+
+        let rust_source = r#"fn hello() {
+    println!("hi");
+}
+"#;
+        let (func, cfg) = rust_function_and_cfg(rust_source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "zero-branch Rust function must have cc == 1");
     }
 
     #[test]

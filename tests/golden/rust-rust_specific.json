@@ -1,254 +1,254 @@
 [
   {
+    "band": "moderate",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "mixed_error_handling",
+    "language": "Rust",
     "line": 49,
-    "language": "Rust",
+    "lrs": 4.984962500721156,
     "metrics": {
-      "cc": 4,
-      "nd": 1,
+      "cc": 2,
       "fo": 3,
-      "ns": 2,
-      "loc": 8
+      "loc": 8,
+      "nd": 1,
+      "ns": 2
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 1.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 2.0,
+      "r_nd": 1.0,
       "r_ns": 2.0
-    },
-    "lrs": 5.721928094887362,
-    "band": "moderate"
+    }
   },
   {
-    "file": "tests/fixtures/rust/rust_specific.rs",
-    "function": "multiple_question_operators",
-    "line": 8,
-    "language": "Rust",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 1,
-      "ns": 2,
-      "loc": 5
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 1.0,
-      "r_ns": 2.0
-    },
-    "lrs": 4.0,
-    "band": "moderate"
-  },
-  {
-    "file": "tests/fixtures/rust/rust_specific.rs",
-    "function": "chained_question",
-    "line": 63,
-    "language": "Rust",
-    "metrics": {
-      "cc": 3,
-      "nd": 0,
-      "fo": 1,
-      "ns": 2,
-      "loc": 5
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 1.0,
-      "r_ns": 2.0
-    },
-    "lrs": 4.0,
-    "band": "moderate"
-  },
-  {
+    "band": "moderate",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "multiple_panics",
-    "line": 40,
     "language": "Rust",
+    "line": 40,
+    "lrs": 3.4,
     "metrics": {
-      "cc": 5,
-      "nd": 1,
+      "cc": 3,
       "fo": 1,
-      "ns": 0,
-      "loc": 8
+      "loc": 8,
+      "nd": 1,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
+      "r_cc": 2.0,
       "r_fo": 1.0,
+      "r_nd": 1.0,
       "r_ns": 0.0
-    },
-    "lrs": 3.984962500721156,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
+    "file": "tests/fixtures/rust/rust_specific.rs",
+    "function": "multiple_question_operators",
+    "language": "Rust",
+    "line": 8,
+    "lrs": 3.0,
+    "metrics": {
+      "cc": 1,
+      "fo": 1,
+      "loc": 5,
+      "nd": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 1.0,
+      "r_nd": 0.0,
+      "r_ns": 2.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/rust/rust_specific.rs",
+    "function": "chained_question",
+    "language": "Rust",
+    "line": 63,
+    "lrs": 3.0,
+    "metrics": {
+      "cc": 1,
+      "fo": 1,
+      "loc": 5,
+      "nd": 0,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 1.0,
+      "r_nd": 0.0,
+      "r_ns": 2.0
+    }
+  },
+  {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "conditional_panic",
-    "line": 34,
     "language": "Rust",
+    "line": 34,
+    "lrs": 2.984962500721156,
     "metrics": {
-      "cc": 4,
-      "nd": 1,
+      "cc": 2,
       "fo": 1,
-      "ns": 0,
-      "loc": 5
+      "loc": 5,
+      "nd": 1,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 1.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 1.0,
+      "r_nd": 1.0,
       "r_ns": 0.0
-    },
-    "lrs": 3.7219280948873625,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_question_operator",
-    "line": 3,
     "language": "Rust",
+    "line": 3,
+    "lrs": 2.3,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 1,
-      "loc": 4
+      "loc": 4,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.3,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_unwrap",
-    "line": 18,
     "language": "Rust",
+    "line": 18,
+    "lrs": 2.3,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.3,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_expect",
-    "line": 22,
     "language": "Rust",
+    "line": 22,
+    "lrs": 2.3,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.3,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "result_with_question",
-    "line": 58,
     "language": "Rust",
+    "line": 58,
+    "lrs": 2.3,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 1,
-      "loc": 4
+      "loc": 4,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.3,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "question_in_expression",
-    "line": 14,
     "language": "Rust",
+    "line": 14,
+    "lrs": 1.6,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 0,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 0.0
-    },
-    "lrs": 2.6,
-    "band": "low"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "with_panic",
-    "line": 30,
     "language": "Rust",
+    "line": 30,
+    "lrs": 1.6,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 1,
-      "ns": 0,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 1.0,
+      "r_nd": 0.0,
       "r_ns": 0.0
-    },
-    "lrs": 2.6,
-    "band": "low"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/rust/rust_specific.rs",
     "function": "multiple_unwraps",
-    "line": 26,
     "language": "Rust",
+    "line": 26,
+    "lrs": 1.0,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 0,
-      "ns": 0,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 0
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 0.0
-    },
-    "lrs": 2.0,
-    "band": "low"
+    }
   }
 ]
