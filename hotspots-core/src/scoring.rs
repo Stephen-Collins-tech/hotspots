@@ -116,12 +116,24 @@ pub fn compute_activity_risk(
     let fan_in_score = 0.0;
     let scc_score = 0.0;
 
-    // Depth penalty: min(dependency_depth / 3, 5.0)
-    let depth_score = if let Some(depth) = input.dependency_depth {
-        ((depth as f64 / 3.0).min(5.0)) * weights.depth
-    } else {
-        0.0
-    };
+    // Depth penalty: removed from the live composite score per hotspots-research
+    // F167 (scoped 6-repo pre-registered gate, 5 gate-passing): depth_score's
+    // Shapley share of the 4-term reconstruction's rho is -2.1% (mean), its
+    // leave-one-out effect is sign-inconsistent across repos (hurts in 2/5,
+    // helps in 3/5), and dropping it is non-inferior within the pre-registered
+    // margin (d_rho -0.00058 [-0.00156,+0.00007], d_P@10 -0.0031 [-0.0115,+0.0023]
+    // — both CIs comfortably inside the ±0.02/±0.03 non-inferiority bar).
+    // Root cause: `dependency_depth` is non-null for only 0.5%-20% of functions
+    // across the repos studied, because `compute_dependency_depth`'s BFS
+    // (`callgraph.rs::compute_dependency_depth`) only reaches functions
+    // downstream of a small, name-heuristic set of "entry points"
+    // (`callgraph.rs::is_entry_point`) — most functions are simply unreachable
+    // and get `None`, not a real "zero depth". Following the same pattern
+    // already used for `fan_in`/`scc` (F160) and `burst_score`: the field is
+    // still computed/populated/stored for other consumers, just zeroed out of
+    // the live ranking score, not deleted. `RiskFactors.depth` below is always
+    // 0.0 now, matching `.fan_in`/`.cyclic_dependency`/`.burst`.
+    let depth_score = 0.0;
 
     // Neighbor churn factor: neighbor_churn / 500
     let neighbor_churn_score = if let Some(nc) = input.neighbor_churn {
@@ -240,17 +252,55 @@ mod tests {
         // fan_in, scc: removed from the live composite per F160 (hotspots-research,
         // confirmed non-inferior V1 variant) — always 0.0 regardless of input, see
         // compute_activity_risk's doc comment on fan_in_score/scc_score.
-        // depth: min(9/3, 5.0) * 0.1 = 3.0 * 0.1 = 0.3
+        // depth: removed from the live composite per F167 (hotspots-research) —
+        // always 0.0 regardless of input, see the doc comment on depth_score.
         // neighbor_churn: 1000/500 * 0.2 = 2.0 * 0.2 = 0.4
-        // total ≈ 10.0 + 0.5 + 0.6 + 0.971 + 0.0 + 0.0 + 0.3 + 0.4 ≈ 12.77
+        // total ≈ 10.0 + 0.5 + 0.6 + 0.971 + 0.0 + 0.0 + 0.0 + 0.4 ≈ 12.47
 
         assert!(risk > 12.0); // Should be higher than base LRS from the un-removed terms
-        assert!(risk < 13.5); // ...but not as high as before F160 removed fan_in/scc
+        assert!(risk < 13.5); // ...but not as high as before F160/F167 removed fan_in/scc/depth
         assert_eq!(factors.complexity, 10.0);
         assert_eq!(factors.churn, 0.5);
         assert_eq!(factors.activity, 0.6);
         assert_eq!(factors.fan_in, 0.0);
         assert_eq!(factors.cyclic_dependency, 0.0);
+        assert_eq!(factors.depth, 0.0);
+    }
+
+    #[test]
+    fn test_compute_activity_risk_depth_does_not_affect_score() {
+        let (risk_none, factors_none) = compute_activity_risk(
+            &ActivityRiskInput {
+                lrs: 5.0,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                fan_in: None,
+                scc_size: None,
+                dependency_depth: None,
+                neighbor_churn: None,
+                burst_score: None,
+            },
+            &ScoringWeights::default(),
+        );
+        let (risk_deep, factors_deep) = compute_activity_risk(
+            &ActivityRiskInput {
+                lrs: 5.0,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                fan_in: None,
+                scc_size: None,
+                dependency_depth: Some(9),
+                neighbor_churn: None,
+                burst_score: None,
+            },
+            &ScoringWeights::default(),
+        );
+
+        assert_eq!(risk_none, risk_deep);
+        assert_eq!(factors_none.depth, 0.0);
+        assert_eq!(factors_deep.depth, 0.0);
     }
 
     #[test]
