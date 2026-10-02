@@ -1540,12 +1540,12 @@ fn populate_explanations(snapshot: &mut Snapshot) {
     }
 
     // Extract feature vectors for all functions up front.
-    let feature_vecs: Vec<[f64; 10]> = snapshot.functions.iter().map(extract_features).collect();
+    let feature_vecs: Vec<[f64; 9]> = snapshot.functions.iter().map(extract_features).collect();
 
     // For each feature column, build a sorted copy for percentile lookups.
     // Feature indices: 0=lrs, 1=cc, 2=nd, 3=loc, 4=fo, 5=fan_in,
     //                  6=total_churn, 7=authors_90d, 8=directed_coupling
-    let mut sorted: Vec<Vec<f64>> = (0..10usize).map(|_| Vec::with_capacity(n)).collect();
+    let mut sorted: Vec<Vec<f64>> = (0..9usize).map(|_| Vec::with_capacity(n)).collect();
     for fv in &feature_vecs {
         for (j, &v) in fv.iter().enumerate() {
             sorted[j].push(v);
