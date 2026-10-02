@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clean up docs.hotspots.dev site for accuracy and completeness
 - Align site design with hotspots.dev, replace marketing hero with docs home
 - Match hotspots.dev's lowercase wordmark exactly
+- Match hotspots.dev font stack
+- Set prose in Merriweather to match hotspots.dev
 
 ## [1.42.0] - 2026-09-28
 
