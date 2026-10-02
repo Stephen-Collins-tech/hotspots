@@ -37,17 +37,28 @@ pub(crate) fn handle_compact(level: u32, dry_run: bool) -> anyhow::Result<()> {
     let prefix = if dry_run { "Dry-run: would " } else { "" };
 
     if level == 1 {
-        if result.converted_count == 0 {
+        if result.converted_count == 0 && result.skipped_no_benefit == 0 {
             println!("Nothing to compact (all intermediate snapshots are already deltas).");
         } else {
-            println!(
-                "{prefix}convert {} snapshot(s) to delta encoding",
-                result.converted_count
-            );
-            if result.bytes_freed > 0 {
+            if result.converted_count > 0 {
                 println!(
-                    "Estimated storage reduction: {}",
-                    format_bytes(result.bytes_freed)
+                    "{prefix}convert {} snapshot(s) to delta encoding",
+                    result.converted_count
+                );
+                if result.bytes_freed > 0 {
+                    let label = if dry_run {
+                        "Estimated storage reduction"
+                    } else {
+                        "Storage reduction"
+                    };
+                    println!("{label}: {}", format_bytes(result.bytes_freed));
+                }
+            }
+            if result.skipped_no_benefit > 0 {
+                println!(
+                    "warning: skipped {} snapshot(s) where delta encoding would not reduce storage \
+                     (delta + metadata overhead outweighs the savings at this scale)",
+                    result.skipped_no_benefit
                 );
             }
         }
