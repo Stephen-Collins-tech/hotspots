@@ -66,3 +66,30 @@ function highComplexityFunction(x, y, z) {
     t = read_json(trends)
     assert set(["velocities", "hotspots", "refactors"]).issubset(t.keys())
 
+
+def test_snapshot_mode_format_error_does_not_persist(tmp_path: Path):
+    # Regression test for #222: `--mode snapshot` without `--format json`/
+    # `--explain` must error out (exit 1) *and* leave no durable state behind
+    # (no .hotspots/index.json, no .hotspots/snapshots/, no gate_history.json).
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(
+        repo,
+        """
+function simpleFunction() { return 42; }
+""".strip(),
+    )
+
+    assert not (repo / ".hotspots").exists()
+
+    proc = r.run(["analyze", "--mode", "snapshot", "--force", "src/main.ts"], repo)
+    assert proc.returncode == 1
+    assert "text format without --explain is not supported" in proc.stderr
+
+    assert not (repo / ".hotspots" / "index.json").exists()
+    assert not (repo / ".hotspots" / "snapshots").exists()
+    assert not (repo / ".hotspots" / "gate_history.json").exists()
+

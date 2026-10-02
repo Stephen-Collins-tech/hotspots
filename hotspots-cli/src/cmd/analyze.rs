@@ -938,6 +938,19 @@ fn handle_snapshot_mode(
         output,
         ..
     } = opts;
+
+    // Validate output-format compatibility before any persistence side effects
+    // (snapshot::persist_snapshot / append_to_index below), so a command that's
+    // going to bail out with an error leaves no durable state behind. See #222.
+    if matches!(format, OutputFormat::Text)
+        && !explain
+        && !matches!(level, Some(OutputLevel::File) | Some(OutputLevel::Module))
+    {
+        anyhow::bail!(
+            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+        );
+    }
+
     let mut snapshot = build_snapshot_via_db(
         repo_root,
         resolved_config,
