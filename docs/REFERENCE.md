@@ -399,7 +399,6 @@ Activity Risk = LRS
   + (lines_added + lines_deleted) / 100 × 0.5   # churn
   + min(touch_count_30d / 10, 5.0) × 0.3         # touch frequency (see note below on the window)
   + max(0, 5.0 − days_since_change / 7) × 0.2    # recency
-  + min(dependency_depth / 3, 5.0) × 0.1         # depth from entrypoints
   + neighbor_churn / 500 × 0.2                    # churn in callees
 ```
 
@@ -417,6 +416,21 @@ place for `burst_score` below. The `fan_in`/`scc` weights (`ScoringWeights.fan_i
 defaults `0.4`/`0.3`) and the `RiskFactors.fan_in`/`.cyclic_dependency` fields are kept in
 place, unused (both are always `0.0` in `RiskFactors`), for the same forward-compatibility
 reason as `burst`.
+
+`dependency_depth` (depth from entrypoints) no longer contributes to the live Activity
+Risk / composite score, per hotspots-research F167 (scoped 6-repo pre-registered gate,
+5 gate-passing): the term's Shapley share of rho was -2.1% (mean) and its leave-one-out
+effect was sign-inconsistent across repos, with dropping it non-inferior within the
+pre-registered margin. The underlying field is sparse by construction — `dependency_depth`
+is only computed via BFS from a small, name-heuristic set of "entry points"
+(`callgraph.rs::is_entry_point`), so most functions in most repos never get a real depth
+value at all. `dependency_depth` is still computed, populated, and stored on the
+snapshot — only the live Activity Risk sum no longer includes it, following the same
+pattern as `fan_in`/`scc` above. The `ScoringWeights.depth` weight (default `0.1`) and
+the `RiskFactors.depth` field are kept in place, unused (`RiskFactors.depth` is always
+`0.0`), for the same forward-compatibility reason as `burst`. See
+`hotspots-research/docs/findings/F167-depth-score-decomposition.md` and
+`hotspots-research/docs/promotion-briefs/depth-score-remove-from-live-score.md`.
 
 `burst_score` no longer contributes to the live Activity Risk / composite score. It is
 computed and stored on the snapshot (and still used by `trainer::cold_start_features`
