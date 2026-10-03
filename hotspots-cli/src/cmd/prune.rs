@@ -46,6 +46,13 @@ pub(crate) fn handle_prune(
             result.unreachable_kept_count
         );
     }
+    if result.orphaned_count > 0 {
+        let verb = if dry_run { "would be" } else { "were" };
+        println!(
+            "Orphaned snapshots ({verb} pruned; referenced a commit no longer in git history): {}",
+            result.orphaned_count
+        );
+    }
 
     Ok(())
 }

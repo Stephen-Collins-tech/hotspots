@@ -243,7 +243,11 @@ fn top_k_functions(snapshot: &Snapshot, k: usize) -> Vec<String> {
 ///
 /// Identifies top K functions per snapshot and computes overlap ratio.
 pub fn compute_hotspot_stability(snapshots: &[Snapshot], top_k: usize) -> Vec<HotspotAnalysis> {
-    if snapshots.is_empty() {
+    // A single snapshot trivially satisfies the "stable" formula (100%
+    // overlap with itself) but that's misleading — stability implies
+    // consistency across history that doesn't exist yet with one data
+    // point. Mirror `compute_risk_velocities`'s n<2 guard. See #229.
+    if snapshots.len() < 2 {
         return Vec::new();
     }
 
@@ -863,5 +867,66 @@ mod tests {
         assert_eq!(hotspots[0].function_id, "src/foo.ts::func1");
         assert_eq!(hotspots[0].stability, HotspotStability::Stable);
         assert_eq!(hotspots[0].overlap_ratio, 1.0);
+    }
+
+    /// Regression test for #229: with only a single snapshot, every function
+    /// trivially has overlap_ratio 1.0 by formula, but labeling it "stable"
+    /// is misleading — there's no history to be stable across yet. Mirrors
+    /// `compute_risk_velocities`'s n<2 guard, which stays empty at n=1.
+    #[test]
+    fn test_hotspot_stability_empty_with_single_snapshot() {
+        let snapshots = vec![create_test_snapshot(
+            "sha1",
+            "sha0",
+            vec![FunctionSnapshot {
+                function_id: "src/foo.ts::func1".to_string(),
+                file: "src/foo.ts".to_string(),
+                line: 1,
+                language: crate::language::Language::TypeScript,
+                metrics: MetricsReport {
+                    cc: 12,
+                    nd: 6,
+                    fo: 4,
+                    ns: 2,
+                    loc: 25,
+                },
+                lrs: 18.0,
+                band: crate::risk::RiskBand::High,
+                suppression_reason: None,
+                churn: None,
+                touch_count_30d: None,
+                days_since_last_change: None,
+                callgraph: None,
+                activity_risk: None,
+                risk_factors: None,
+                percentile: None,
+                driver: None,
+                driver_detail: None,
+                quadrant: None,
+                patterns: vec![],
+                pattern_details: None,
+                subsystem: None,
+                authors_90d: None,
+                directed_coupling: None,
+                jaccard_label_stability: None,
+                convention_bug_fix_count: None,
+                burst_score: None,
+                commit_count: None,
+                author_count: None,
+                author_entropy: None,
+                isolation_rate: None,
+                age_days: None,
+                last_touch_days: None,
+                newcomer_rate: None,
+                explanation: None,
+            }],
+        )];
+
+        let hotspots = compute_hotspot_stability(&snapshots, 1);
+        assert!(
+            hotspots.is_empty(),
+            "a single snapshot must not produce 'stable' labels: {:?}",
+            hotspots
+        );
     }
 }

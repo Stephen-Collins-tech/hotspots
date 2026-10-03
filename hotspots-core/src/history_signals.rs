@@ -106,13 +106,21 @@ fn author_entropy(authors: &[&str]) -> f64 {
     if total == 0.0 {
         return 0.0;
     }
-    -counts
+    let entropy = -counts
         .values()
         .map(|&c| {
             let p = c as f64 / total;
             p * p.log2()
         })
-        .sum::<f64>()
+        .sum::<f64>();
+    // A single author yields -1 * log2(1) = -0.0, which `serde_json` renders
+    // literally as "-0.0" in output. Normalize to +0.0 so JSON output never
+    // shows a confusing negative-zero entropy. See #229.
+    if entropy == 0.0 {
+        0.0
+    } else {
+        entropy
+    }
 }
 
 /// Sliding 30-day-window max/mean commit ratio (F93). Moved from `snapshot.rs`
@@ -308,7 +316,14 @@ mod tests {
     #[test]
     fn author_entropy_single_author_is_zero() {
         let authors = vec!["alice", "alice", "alice"];
-        assert_eq!(author_entropy(&authors), 0.0);
+        let h = author_entropy(&authors);
+        assert_eq!(h, 0.0);
+        // Regression guard for #229: must be positive zero, not -0.0, so
+        // `serde_json` never serializes it as the confusing "-0.0" literal.
+        assert!(
+            h.is_sign_positive(),
+            "author_entropy for a single author must normalize -0.0 to 0.0"
+        );
     }
 
     #[test]
