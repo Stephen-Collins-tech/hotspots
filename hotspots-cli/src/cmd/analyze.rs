@@ -751,7 +751,11 @@ fn handle_axes(
         (HotspotAxis::Risk, "Risk Hotspots", "risk"),
         (HotspotAxis::Coupling, "Coupling Hotspots", "coupling"),
         (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
-        (HotspotAxis::Centrality, "Centrality Hotspots", "centrality"),
+        (
+            HotspotAxis::Centrality,
+            "Centrality Hotspots (experimental — no promotion brief validates this as a defect-risk signal)",
+            "centrality",
+        ),
     ];
 
     if matches!(format, OutputFormat::Json) {

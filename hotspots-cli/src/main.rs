@@ -152,9 +152,12 @@ enum Commands {
         #[arg(long)]
         cold_start: bool,
 
-        /// Print three independent ranked sections — Risk, Coupling, Ownership —
-        /// instead of a single merged list. Files may appear in more than one
-        /// section; overlap is not deduplicated. Use --top to control section size.
+        /// Print four independent ranked sections — Risk, Coupling, Ownership,
+        /// Centrality — instead of a single merged list. Files may appear in
+        /// more than one section; overlap is not deduplicated. Use --top to
+        /// control section size. Centrality (pagerank-based) has no promotion
+        /// brief validating it as a defect-risk signal — treat it as
+        /// experimental, unlike the other three sections.
         #[arg(long)]
         axes: bool,
     },
