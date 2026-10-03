@@ -391,9 +391,22 @@ impl PythonCfgBuilderState {
             }
         }
 
+        // A branch ending in `break`/`continue` has already been routed to the
+        // enclosing loop's join/header by `visit_break`/`visit_continue` — like
+        // a branch ending in `return`/`raise` (routed to `self.cfg.exit`), it's
+        // a non-local jump, not a normal fallthrough. Treating it as a regular
+        // branch end here added a spurious direct edge from the loop's
+        // header/join into this try's own join node, inflating cyclomatic
+        // complexity by one per such branch with no corresponding real control
+        // flow (hotspots#231).
+        let loop_escape_targets: Vec<NodeId> = self
+            .loop_stack
+            .last()
+            .map(|ctx| vec![ctx.break_target, ctx.continue_target])
+            .unwrap_or_default();
         let non_exit: Vec<_> = branch_ends
             .into_iter()
-            .filter(|&end| end != self.cfg.exit)
+            .filter(|end| *end != self.cfg.exit && !loop_escape_targets.contains(end))
             .collect();
         if !non_exit.is_empty() {
             let join_node = self.cfg.add_node(NodeKind::Join);
@@ -895,5 +908,48 @@ def request(self, method, timeout=60.0):
             cfg.validate().is_ok(),
             "CFG should be valid when try+except both return and finally is present"
         );
+    }
+
+    #[test]
+    fn test_try_except_continue_inside_for_does_not_inflate_cc_hotspots_231() {
+        // Regression for #231: an except clause ending in `continue` had
+        // already been routed to the loop header by `visit_continue`, but
+        // `visit_try`'s join-wiring treated that redirected node as a normal
+        // branch end anyway, adding a spurious loop_header -> try_join edge.
+        // One `for` + one `except` = 2 decision points, so cc = 1 + 2 = 3.
+        let source = r#"
+def test_func(items):
+    total = 0
+    for item in items:
+        try:
+            total += item
+        except ValueError:
+            continue
+    return total
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 3);
+    }
+
+    #[test]
+    fn test_try_except_break_inside_for_does_not_inflate_cc_hotspots_231() {
+        // Same bug, via `break` instead of `continue` (routes to the loop's
+        // break_target/join rather than continue_target/header).
+        let source = r#"
+def test_func(items):
+    total = 0
+    for item in items:
+        try:
+            total += item
+        except ValueError:
+            break
+    return total
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 3);
     }
 }
