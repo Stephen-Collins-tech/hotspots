@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove depth_score from live composite score (#217)
 - Drop convention_bug_fix_count from trained ranker (#182) (#218)
 - Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
+- 4 utility-command bugs found by dogfooding (prune/compact/snapshot/trends) (#233)
 
 
 ### Documentation
