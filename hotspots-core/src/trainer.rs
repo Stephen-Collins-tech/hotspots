@@ -1,6 +1,6 @@
 //! `hotspots train` — fit a local RandomForest ranker from git history.
 //!
-//! # Feature set (10 features, index-stable — model_version = 5)
+//! # Feature set (9 features, index-stable — model_version = 6)
 //!
 //! 0  lrs                        composite complexity score
 //! 1  cc                         cyclomatic complexity
@@ -11,9 +11,17 @@
 //! 6  total_churn                lifetime lines added + deleted (non-windowed structural signal)
 //! 7  authors_90d                distinct commit authors in last 90 days (ownership diversity)
 //! 8  directed_coupling          co-change weighted by partner defect score (F37/F38/F39)
-//! 9  convention_bug_fix_count   full-history count of fix-keyword commits per file (F54)
 //!
 //! Deliberately excluded:
+//! - `convention_bug_fix_count` — removed in model_version 6 (F168, hotspots#182):
+//!   a full-history cumulative count with no decay/window, it propagated as a
+//!   one-way ratchet in the trained ranker in both model classes (99.3%/100%
+//!   monotonic non-decrease on RandomForest, consistently positive Ridge
+//!   coefficient on all 3 Ridge repos tested) — the same shape of bug already
+//!   fixed for `burst_score` in the live composite score. The raw
+//!   `FunctionSnapshot.convention_bug_fix_count` field and its `--explain`/report
+//!   consumers are unaffected; only this feature vector stopped reading it. See
+//!   `docs/promotion-briefs/ratchet-182-convention-fix-count-removal.md`.
 //! - `touch_count_30d`, `days_since_last_change` — windowed activity signals that
 //!   correlate tautologically with labels when the training window overlaps the label
 //!   scan window (temporal leakage; see research Finding 15 and Finding 31).
@@ -85,7 +93,7 @@ pub fn repo_prefixes(repo_root: &Path) -> (String, String) {
 
 // ── Feature extraction ────────────────────────────────────────────────────────
 
-pub const FEATURE_NAMES: [&str; 10] = [
+pub const FEATURE_NAMES: [&str; 9] = [
     "lrs",
     "cc",
     "nd",
@@ -95,10 +103,9 @@ pub const FEATURE_NAMES: [&str; 10] = [
     "total_churn",
     "authors_90d",
     "directed_coupling",
-    "convention_bug_fix_count",
 ];
 
-pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
+pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
     let cg = func.callgraph.as_ref();
     let total_churn = func
         .churn
@@ -115,11 +122,10 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 10] {
         total_churn,
         func.authors_90d.unwrap_or(0) as f64,
         func.directed_coupling.unwrap_or(0.0),
-        func.convention_bug_fix_count.unwrap_or(0) as f64,
     ]
 }
 
-/// Cold-start feature vector (F62/F63) — distinct from `extract_features()`'s 10
+/// Cold-start feature vector (F62/F63) — distinct from `extract_features()`'s 9
 /// structural/activity features. Order: commit_count, author_count, author_entropy,
 /// burst_score, isolation_rate, age_days, last_touch_days, authors_90d. All fields
 /// default to `0.0` via `.unwrap_or(0.0)` — never panics on `None`.
@@ -437,7 +443,7 @@ pub fn train(
     snapshot.populate_history_signals(repo_root);
 
     // Build (features, label) pairs from snapshot functions
-    let mut rows: Vec<([f64; 10], bool)> = Vec::new();
+    let mut rows: Vec<([f64; 9], bool)> = Vec::new();
 
     if cfg.blame_labels {
         let fix_funcs = collect_fix_functions(
@@ -513,7 +519,7 @@ pub fn train(
             regime_delta,
         };
         return Ok(Some(RankerModel {
-            model_version: 5,
+            model_version: 6,
             trees: vec![],
             meta,
             model_class: ModelClass::Ridge,
@@ -571,7 +577,7 @@ pub fn train(
     };
 
     Ok(Some(RankerModel {
-        model_version: 5,
+        model_version: 6,
         trees,
         meta,
         model_class: ModelClass::RandomForest,
@@ -1152,7 +1158,7 @@ pub fn regime_screen(x: &Array2<f64>, y: &Array1<bool>) -> (RegimeVerdict, f64) 
         if !cv_trees.is_empty() {
             let tree_preds: Vec<f64> = (0..n_test)
                 .map(|r| {
-                    let mut feats_arr = [0.0f64; 10];
+                    let mut feats_arr = [0.0f64; 9];
                     for c in 0..n_feats.min(10) {
                         feats_arr[c] = x_test[[r, c]];
                     }
@@ -1258,7 +1264,7 @@ pub fn score(model: &RankerModel, func: &FunctionSnapshot) -> f64 {
     }
 }
 
-fn vote(tree: &SerializedTree, feats: &[f64; 10]) -> bool {
+fn vote(tree: &SerializedTree, feats: &[f64; 9]) -> bool {
     let nodes = &tree.nodes;
     if nodes.is_empty() {
         return false;
@@ -1334,7 +1340,7 @@ impl RankerModel {
     pub fn load(path: &Path) -> Result<Self> {
         let json = std::fs::read_to_string(path).context("read model file")?;
         let model: Self = serde_json::from_str(&json).context("deserialize model")?;
-        if model.model_version < 5 {
+        if model.model_version < 6 {
             bail!(
                 "{} was trained with an older feature set (model_version={}). \
                  Run `hotspots train` to retrain with the current feature set.",
@@ -1449,8 +1455,11 @@ mod tests {
 
     #[test]
     fn feature_names_count_matches_array() {
-        assert_eq!(FEATURE_NAMES.len(), 10);
-        assert!(FEATURE_NAMES.contains(&"convention_bug_fix_count"));
+        assert_eq!(FEATURE_NAMES.len(), 9);
+        assert!(
+            !FEATURE_NAMES.contains(&"convention_bug_fix_count"),
+            "convention_bug_fix_count ratchets the trained ranker (F168) — removed in model_version 6"
+        );
     }
 
     #[test]
@@ -1705,7 +1714,7 @@ mod tests {
     }
 
     #[test]
-    fn load_v5_model_succeeds() {
+    fn load_v5_model_returns_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("ranker.json");
         std::fs::write(
@@ -1713,8 +1722,24 @@ mod tests {
             r#"{"model_version":5,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
         )
         .unwrap();
+        let err = RankerModel::load(&path).unwrap_err().to_string();
+        assert!(
+            err.contains("retrain") || err.contains("model_version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn load_v6_model_succeeds() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("ranker.json");
+        std::fs::write(
+            &path,
+            r#"{"model_version":6,"trees":[],"meta":{"n_samples":100,"n_pos":50,"n_neg":50,"label_window_days":365,"n_estimators":10,"max_depth":3}}"#,
+        )
+        .unwrap();
         let model = RankerModel::load(&path).expect("should load");
-        assert_eq!(model.model_version, 5);
+        assert_eq!(model.model_version, 6);
     }
 
     // ── cold-start routing (F62/F63) ────────────────────────────────────────────
