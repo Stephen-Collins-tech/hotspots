@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Remove depth_score from live composite score (#217)
 - Drop convention_bug_fix_count from trained ranker (#182) (#218)
+- Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
 
 
 ### Documentation
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Match hotspots.dev's lowercase wordmark exactly
 - Match hotspots.dev font stack
 - Set prose in Merriweather to match hotspots.dev
+- F105 threshold note + runlog convention (#219)
 
 ## [1.42.0] - 2026-09-28
 
