@@ -1,191 +1,191 @@
 [
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "complex_boolean",
+    "language": "Python",
     "line": 22,
-    "language": "Python",
+    "lrs": 5.8999999999999995,
     "metrics": {
-      "cc": 9,
-      "nd": 1,
+      "cc": 7,
       "fo": 0,
-      "ns": 3,
-      "loc": 7
-    },
-    "risk": {
-      "r_cc": 3.321928094887362,
-      "r_nd": 1.0,
-      "r_fo": 0.0,
-      "r_ns": 3.0
-    },
-    "lrs": 6.221928094887362,
-    "band": "high"
-  },
-  {
-    "file": "tests/fixtures/python/boolean_ops.py",
-    "function": "walrus_operator",
-    "line": 52,
-    "language": "Python",
-    "metrics": {
-      "cc": 4,
+      "loc": 7,
       "nd": 1,
-      "fo": 1,
-      "ns": 2,
-      "loc": 5
+      "ns": 3
     },
     "risk": {
-      "r_cc": 2.321928094887362,
+      "r_cc": 3.0,
+      "r_fo": 0.0,
       "r_nd": 1.0,
-      "r_fo": 1.0,
-      "r_ns": 2.0
-    },
-    "lrs": 5.1219280948873624,
-    "band": "moderate"
+      "r_ns": 3.0
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_and_or",
-    "line": 15,
     "language": "Python",
+    "line": 15,
+    "lrs": 4.521928094887363,
     "metrics": {
-      "cc": 6,
-      "nd": 1,
+      "cc": 4,
       "fo": 0,
-      "ns": 2,
-      "loc": 5
+      "loc": 5,
+      "nd": 1,
+      "ns": 2
     },
     "risk": {
-      "r_cc": 2.807354922057604,
-      "r_nd": 1.0,
+      "r_cc": 2.321928094887362,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 2.0
-    },
-    "lrs": 5.007354922057605,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
+    "file": "tests/fixtures/python/boolean_ops.py",
+    "function": "walrus_operator",
+    "language": "Python",
+    "line": 52,
+    "lrs": 4.384962500721156,
+    "metrics": {
+      "cc": 2,
+      "fo": 1,
+      "loc": 5,
+      "nd": 1,
+      "ns": 2
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_fo": 1.0,
+      "r_nd": 1.0,
+      "r_ns": 2.0
+    }
+  },
+  {
+    "band": "moderate",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_and",
-    "line": 1,
     "language": "Python",
+    "line": 1,
+    "lrs": 4.199999999999999,
     "metrics": {
-      "cc": 5,
-      "nd": 1,
+      "cc": 3,
       "fo": 0,
-      "ns": 2,
-      "loc": 5
+      "loc": 5,
+      "nd": 1,
+      "ns": 2
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 2.0
-    },
-    "lrs": 4.784962500721155,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_or",
-    "line": 8,
     "language": "Python",
+    "line": 8,
+    "lrs": 4.199999999999999,
     "metrics": {
-      "cc": 5,
-      "nd": 1,
+      "cc": 3,
       "fo": 0,
-      "ns": 2,
-      "loc": 5
+      "loc": 5,
+      "nd": 1,
+      "ns": 2
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 1.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 2.0
-    },
-    "lrs": 4.784962500721155,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "nested_ternary",
-    "line": 36,
     "language": "Python",
+    "line": 36,
+    "lrs": 2.7,
     "metrics": {
-      "cc": 5,
-      "nd": 0,
+      "cc": 3,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 0.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.2849625007211563,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "boolean_in_return",
-    "line": 47,
     "language": "Python",
+    "line": 47,
+    "lrs": 2.7,
     "metrics": {
-      "cc": 5,
-      "nd": 0,
+      "cc": 3,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.584962500721156,
-      "r_nd": 0.0,
+      "r_cc": 2.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.2849625007211563,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "ternary_expression",
-    "line": 31,
     "language": "Python",
+    "line": 31,
+    "lrs": 2.2849625007211563,
     "metrics": {
-      "cc": 4,
-      "nd": 0,
+      "cc": 2,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 0.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.021928094887362,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/boolean_ops.py",
     "function": "ternary_in_assignment",
-    "line": 41,
     "language": "Python",
+    "line": 41,
+    "lrs": 2.2849625007211563,
     "metrics": {
-      "cc": 4,
-      "nd": 0,
+      "cc": 2,
       "fo": 0,
-      "ns": 1,
-      "loc": 4
+      "loc": 4,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 0.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.021928094887362,
-    "band": "moderate"
+    }
   }
 ]

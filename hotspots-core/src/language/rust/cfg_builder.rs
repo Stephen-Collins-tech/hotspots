@@ -83,11 +83,16 @@ fn build_stmt_cfg(
 ) -> Result<NodeId> {
     match stmt {
         Stmt::Expr(expr, _) => build_expr_cfg(cfg, expr, entry, exit, depth),
-        Stmt::Local(_) => {
-            // Variable declaration
-            let node = cfg.add_node(NodeKind::Statement);
-            cfg.add_edge(entry, node);
-            Ok(node)
+        Stmt::Local(local) => {
+            // Variable declaration — recurse into the initializer expression so
+            // if/if-let used as a let-initializer still builds its branch CFG.
+            if let Some(init) = &local.init {
+                build_expr_cfg(cfg, &init.expr, entry, exit, depth)
+            } else {
+                let node = cfg.add_node(NodeKind::Statement);
+                cfg.add_edge(entry, node);
+                Ok(node)
+            }
         }
         Stmt::Item(_) => {
             // Nested item (function, struct, etc.) - treat as statement

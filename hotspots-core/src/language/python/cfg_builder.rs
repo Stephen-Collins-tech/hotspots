@@ -62,16 +62,18 @@ impl PythonCfgBuilderState {
         }
     }
 
-    /// Build CFG from a block node
+    /// Build CFG from the *function's top-level* body block: walks its
+    /// statements, then wires the last node to the function's exit if nothing
+    /// already routes there. Only call this for the outermost function body —
+    /// nested blocks (if/elif/else/while/for/try/match bodies) must use
+    /// [`Self::build_block_statements`] instead, which skips the exit-wiring
+    /// step. Wiring every nested block's tail to the function exit directly
+    /// (instead of to that construct's own join/loop-header node) added a
+    /// spurious extra edge per branch, inflating cyclomatic complexity by +1
+    /// per branch regardless of whether the branch actually returned early —
+    /// see hotspots#230.
     fn build_from_block(&mut self, block: &Node, source: &str) {
-        let mut cursor = block.walk();
-
-        for child in block.children(&mut cursor) {
-            // Skip structural nodes, process only named children
-            if child.is_named() {
-                self.visit_node(&child, source);
-            }
-        }
+        self.build_block_statements(block, source);
 
         // Connect last node to exit
         if let Some(last_node) = self.current_node {
@@ -85,6 +87,22 @@ impl PythonCfgBuilderState {
                 if !has_exit_edge {
                     self.cfg.add_edge(last_node, self.cfg.exit);
                 }
+            }
+        }
+    }
+
+    /// Walk a block's statements without wiring the tail to the function
+    /// exit. Use this for any nested block (if/elif/else/while/for/try/match
+    /// bodies) — the caller is responsible for wiring the resulting
+    /// `current_node` to that construct's own join/loop-header node, the same
+    /// way `visit_if`/`visit_while`/etc. already do for their branch ends.
+    fn build_block_statements(&mut self, block: &Node, source: &str) {
+        let mut cursor = block.walk();
+
+        for child in block.children(&mut cursor) {
+            // Skip structural nodes, process only named children
+            if child.is_named() {
+                self.visit_node(&child, source);
             }
         }
     }
@@ -106,7 +124,7 @@ impl PythonCfgBuilderState {
             "expression_statement" => self.visit_expression_statement(node, source),
             "assignment" => self.visit_simple_statement(),
             "augmented_assignment" => self.visit_simple_statement(),
-            "block" => self.build_from_block(node, source),
+            "block" => self.build_block_statements(node, source),
             _ => {
                 // Regular statement - add node and continue
                 self.visit_simple_statement();
@@ -135,7 +153,7 @@ impl PythonCfgBuilderState {
 
         if let Some(consequence) = find_child_by_kind(*node, "block") {
             self.current_node = Some(then_start);
-            self.build_from_block(&consequence, source);
+            self.build_block_statements(&consequence, source);
         }
         let then_end = self.current_node.unwrap_or(then_start);
 
@@ -143,6 +161,7 @@ impl PythonCfgBuilderState {
         let join_node = self.cfg.add_node(NodeKind::Join);
         let mut last_condition = condition_node;
         let mut branch_ends = vec![then_end];
+        let mut has_else = false;
 
         // Process elif clauses
         let mut cursor = node.walk();
@@ -157,25 +176,31 @@ impl PythonCfgBuilderState {
                     let elif_start = self.cfg.add_node(NodeKind::Statement);
                     self.cfg.add_edge(elif_condition, elif_start);
                     self.current_node = Some(elif_start);
-                    self.build_from_block(&elif_body, source);
+                    self.build_block_statements(&elif_body, source);
                     branch_ends.push(self.current_node.unwrap_or(elif_start));
                 }
 
                 last_condition = elif_condition;
             } else if child.kind() == "else_clause" {
+                has_else = true;
                 // Else branch
                 if let Some(else_body) = find_child_by_kind(child, "block") {
                     let else_start = self.cfg.add_node(NodeKind::Statement);
                     self.cfg.add_edge(last_condition, else_start);
                     self.current_node = Some(else_start);
-                    self.build_from_block(&else_body, source);
+                    self.build_block_statements(&else_body, source);
                     branch_ends.push(self.current_node.unwrap_or(else_start));
                 }
             }
         }
 
-        // If no else clause, last condition can go directly to join
-        self.cfg.add_edge(last_condition, join_node);
+        // If no else clause, the last condition can fall through directly to join.
+        // When an else branch exists, that path is already covered by the
+        // condition->else_start edge above, so adding this would be a spurious
+        // extra edge.
+        if !has_else {
+            self.cfg.add_edge(last_condition, join_node);
+        }
 
         // Connect all branch ends to join
         for end in branch_ends {
@@ -210,7 +235,7 @@ impl PythonCfgBuilderState {
         // Visit loop body
         if let Some(body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(body_start);
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
 
             // Back edge to loop header
             if let Some(body_end) = self.current_node {
@@ -252,7 +277,7 @@ impl PythonCfgBuilderState {
         // Visit loop body
         if let Some(body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(body_start);
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
 
             // Back edge to loop header
             if let Some(body_end) = self.current_node {
@@ -281,7 +306,7 @@ impl PythonCfgBuilderState {
         self.cfg.add_edge(from_node, try_start);
         if let Some(body) = find_child_by_kind(*node, "block") {
             self.current_node = Some(try_start);
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
         }
         let try_end = self.current_node.unwrap_or(try_start);
         (try_start, try_end)
@@ -294,7 +319,7 @@ impl PythonCfgBuilderState {
         self.cfg.add_edge(except_condition, except_start);
         self.current_node = Some(except_start);
         if let Some(body) = find_child_by_kind(child, "block") {
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
         }
         self.current_node.unwrap_or(except_start)
     }
@@ -309,7 +334,7 @@ impl PythonCfgBuilderState {
         let else_start = self.cfg.add_node(NodeKind::Statement);
         self.cfg.add_edge(try_end, else_start);
         self.current_node = Some(else_start);
-        self.build_from_block(&else_body, source);
+        self.build_block_statements(&else_body, source);
         Some(self.current_node.unwrap_or(else_start))
     }
 
@@ -337,7 +362,7 @@ impl PythonCfgBuilderState {
         }
         if let Some(body) = find_child_by_kind(child, "block") {
             self.current_node = Some(finally_node);
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
         }
         self.current_node.unwrap_or(finally_node)
     }
@@ -366,9 +391,22 @@ impl PythonCfgBuilderState {
             }
         }
 
+        // A branch ending in `break`/`continue` has already been routed to the
+        // enclosing loop's join/header by `visit_break`/`visit_continue` — like
+        // a branch ending in `return`/`raise` (routed to `self.cfg.exit`), it's
+        // a non-local jump, not a normal fallthrough. Treating it as a regular
+        // branch end here added a spurious direct edge from the loop's
+        // header/join into this try's own join node, inflating cyclomatic
+        // complexity by one per such branch with no corresponding real control
+        // flow (hotspots#231).
+        let loop_escape_targets: Vec<NodeId> = self
+            .loop_stack
+            .last()
+            .map(|ctx| vec![ctx.break_target, ctx.continue_target])
+            .unwrap_or_default();
         let non_exit: Vec<_> = branch_ends
             .into_iter()
-            .filter(|&end| end != self.cfg.exit)
+            .filter(|end| *end != self.cfg.exit && !loop_escape_targets.contains(end))
             .collect();
         if !non_exit.is_empty() {
             let join_node = self.cfg.add_node(NodeKind::Join);
@@ -387,7 +425,7 @@ impl PythonCfgBuilderState {
         self.visit_simple_statement();
 
         if let Some(body) = find_child_by_kind(*node, "block") {
-            self.build_from_block(&body, source);
+            self.build_block_statements(&body, source);
         }
     }
 
@@ -431,7 +469,7 @@ impl PythonCfgBuilderState {
                     let case_start = self.cfg.add_node(NodeKind::Statement);
                     self.cfg.add_edge(last_condition, case_start);
                     self.current_node = Some(case_start);
-                    self.build_from_block(&consequence, source);
+                    self.build_block_statements(&consequence, source);
                     branch_ends.push(self.current_node.unwrap_or(case_start));
                 }
                 break;
@@ -444,7 +482,7 @@ impl PythonCfgBuilderState {
                 let case_start = self.cfg.add_node(NodeKind::Statement);
                 self.cfg.add_edge(case_condition, case_start);
                 self.current_node = Some(case_start);
-                self.build_from_block(&consequence, source);
+                self.build_block_statements(&consequence, source);
                 branch_ends.push(self.current_node.unwrap_or(case_start));
             }
 
@@ -667,6 +705,51 @@ def test_func(x):
         assert!(cfg.edge_count() > 4);
     }
 
+    /// McCabe cyclomatic complexity = E - N + 2, consistent with the fix in
+    /// `metrics.rs`'s `calculate_cc_from_cfg` (both N and E now count the
+    /// full graph including entry/exit).
+    fn mccabe_cc(cfg: &Cfg) -> i64 {
+        cfg.edge_count() as i64 - cfg.node_count() as i64 + 2
+    }
+
+    #[test]
+    fn test_if_no_else_does_not_inflate_cc_hotspots_230() {
+        // Regression for #230: `build_from_block` used to wire every nested
+        // block's tail directly to the function exit, adding a spurious extra
+        // edge even for a branch with no `else` at all (not touched by #228's
+        // fix, which only addressed the `has_else` fallthrough edge). One
+        // decision point (the `if`) should give cc = 1 + 1 = 2, not 3.
+        let source = r#"
+def test_func(x):
+    if x > 0:
+        y = 1
+    return y
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 2);
+    }
+
+    #[test]
+    fn test_if_else_does_not_inflate_cc_hotspots_230() {
+        // Regression for #230: a two-way if/else is one decision point, so
+        // cc = 1 + 1 = 2 — not 4, which is what two spurious direct-to-exit
+        // edges (one per branch) would produce.
+        let source = r#"
+def test_func(x):
+    if x > 0:
+        y = 1
+    else:
+        y = 2
+    return y
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 2);
+    }
+
     #[test]
     fn test_while_loop() {
         let source = r#"
@@ -825,5 +908,48 @@ def request(self, method, timeout=60.0):
             cfg.validate().is_ok(),
             "CFG should be valid when try+except both return and finally is present"
         );
+    }
+
+    #[test]
+    fn test_try_except_continue_inside_for_does_not_inflate_cc_hotspots_231() {
+        // Regression for #231: an except clause ending in `continue` had
+        // already been routed to the loop header by `visit_continue`, but
+        // `visit_try`'s join-wiring treated that redirected node as a normal
+        // branch end anyway, adding a spurious loop_header -> try_join edge.
+        // One `for` + one `except` = 2 decision points, so cc = 1 + 2 = 3.
+        let source = r#"
+def test_func(items):
+    total = 0
+    for item in items:
+        try:
+            total += item
+        except ValueError:
+            continue
+    return total
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 3);
+    }
+
+    #[test]
+    fn test_try_except_break_inside_for_does_not_inflate_cc_hotspots_231() {
+        // Same bug, via `break` instead of `continue` (routes to the loop's
+        // break_target/join rather than continue_target/header).
+        let source = r#"
+def test_func(items):
+    total = 0
+    for item in items:
+        try:
+            total += item
+        except ValueError:
+            break
+    return total
+"#;
+        let function = make_python_function(source);
+        let builder = PythonCfgBuilder;
+        let cfg = builder.build(&function);
+        assert_eq!(mccabe_cc(&cfg), 3);
     }
 }

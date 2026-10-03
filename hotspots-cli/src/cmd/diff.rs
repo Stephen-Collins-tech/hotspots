@@ -281,10 +281,15 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
 
     let mut out = String::new();
 
+    // Exclude pure renames (identical before/after, linked via `rename_hint`) from
+    // new/deleted counts, matching `aggregates.rs`'s `compute_pr_risk_summary` — see
+    // `pure_rename_function_ids`'s doc comment. Without this, this text summary
+    // disagreed with the aggregate/risk-score surface, which already nets these out.
+    let pure_renames = hotspots_core::delta::pure_rename_function_ids(&delta_val.deltas);
     let new_count = delta_val
         .deltas
         .iter()
-        .filter(|e| e.status == FunctionStatus::New)
+        .filter(|e| e.status == FunctionStatus::New && !pure_renames.contains(&e.function_id))
         .count();
     let modified_count = delta_val
         .deltas
@@ -294,7 +299,7 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     let deleted_count = delta_val
         .deltas
         .iter()
-        .filter(|e| e.status == FunctionStatus::Deleted)
+        .filter(|e| e.status == FunctionStatus::Deleted && !pure_renames.contains(&e.function_id))
         .count();
 
     writeln!(
@@ -393,4 +398,77 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hotspots_core::delta::{
+        DeltaCommitInfo, FunctionDeltaEntry, FunctionState, FunctionStatus,
+    };
+    use hotspots_core::report::MetricsReport;
+    use hotspots_core::risk::RiskBand;
+
+    fn state() -> FunctionState {
+        FunctionState {
+            metrics: MetricsReport {
+                cc: 1,
+                nd: 1,
+                fo: 1,
+                ns: 1,
+                loc: 5,
+            },
+            lrs: 5.4,
+            band: RiskBand::Moderate,
+        }
+    }
+
+    #[test]
+    fn test_render_diff_text_nets_out_pure_rename_from_headline_counts() {
+        // Regression for #223: the headline "N modified, N new, N deleted" line
+        // is computed independently from `aggregates.rs`'s PR-risk-summary path
+        // (which already nets out pure renames) — without applying the same
+        // `pure_rename_function_ids` filter here, this line disagreed with the
+        // aggregate/risk-score surface for the exact same delta.
+        let mut deleted = FunctionDeltaEntry {
+            function_id: "old/path.go::Foo".to_string(),
+            status: FunctionStatus::Deleted,
+            before: Some(state()),
+            after: None,
+            delta: None,
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: Some("new/path.go::Foo".to_string()),
+        };
+        deleted.before = Some(state());
+
+        let created = FunctionDeltaEntry {
+            function_id: "new/path.go::Foo".to_string(),
+            status: FunctionStatus::New,
+            before: None,
+            after: Some(state()),
+            delta: None,
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: None,
+        };
+
+        let delta_val = Delta {
+            schema_version: 1,
+            commit: DeltaCommitInfo {
+                sha: "head".to_string(),
+                parent: "base".to_string(),
+            },
+            baseline: false,
+            deltas: vec![deleted, created],
+            policy: None,
+            aggregates: None,
+        };
+
+        let text = render_diff_text(&delta_val, false).expect("render");
+        assert!(
+            text.starts_with("0 modified, 0 new, 0 deleted"),
+            "pure rename should net to zero, got: {text}"
+        );
+    }
 }

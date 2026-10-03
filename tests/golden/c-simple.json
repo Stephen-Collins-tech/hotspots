@@ -5,40 +5,19 @@
     "function": "absolute_value",
     "language": "C",
     "line": 13,
-    "lrs": 4.521928094887363,
+    "lrs": 3.784962500721156,
     "metrics": {
-      "cc": 4,
+      "cc": 2,
       "fo": 0,
       "loc": 6,
       "nd": 1,
       "ns": 2
     },
     "risk": {
-      "r_cc": 2.321928094887362,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
       "r_nd": 1.0,
       "r_ns": 2.0
-    }
-  },
-  {
-    "band": "low",
-    "file": "tests/fixtures/c/simple.c",
-    "function": "multiply",
-    "language": "C",
-    "line": 5,
-    "lrs": 2.7,
-    "metrics": {
-      "cc": 3,
-      "fo": 0,
-      "loc": 4,
-      "nd": 0,
-      "ns": 1
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_fo": 0.0,
-      "r_nd": 0.0,
-      "r_ns": 1.0
     }
   },
   {
@@ -52,6 +31,27 @@
       "cc": 1,
       "fo": 0,
       "loc": 3,
+      "nd": 0,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 1.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/c/simple.c",
+    "function": "multiply",
+    "language": "C",
+    "line": 5,
+    "lrs": 1.7,
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 4,
       "nd": 0,
       "ns": 1
     },

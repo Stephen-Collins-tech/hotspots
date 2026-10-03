@@ -1,170 +1,170 @@
 [
   {
+    "band": "high",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "match_statement",
-    "line": 39,
     "language": "Python",
+    "line": 39,
+    "lrs": 6.184962500721156,
     "metrics": {
-      "cc": 7,
-      "nd": 1,
+      "cc": 5,
       "fo": 0,
-      "ns": 4,
-      "loc": 11
+      "loc": 11,
+      "nd": 1,
+      "ns": 4
     },
     "risk": {
-      "r_cc": 3.0,
-      "r_nd": 1.0,
+      "r_cc": 2.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 4.0
-    },
-    "lrs": 6.6,
-    "band": "high"
+    }
   },
   {
+    "band": "high",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "match_with_guard",
-    "line": 52,
     "language": "Python",
+    "line": 52,
+    "lrs": 6.184962500721156,
     "metrics": {
-      "cc": 7,
-      "nd": 1,
+      "cc": 5,
       "fo": 0,
-      "ns": 4,
-      "loc": 11
+      "loc": 11,
+      "nd": 1,
+      "ns": 4
     },
     "risk": {
-      "r_cc": 3.0,
-      "r_nd": 1.0,
+      "r_cc": 2.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 1.0,
       "r_ns": 4.0
-    },
-    "lrs": 6.6,
-    "band": "high"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "async_for_with_filter",
-    "line": 30,
     "language": "Python",
+    "line": 30,
+    "lrs": 4.9,
     "metrics": {
-      "cc": 7,
-      "nd": 2,
+      "cc": 3,
       "fo": 1,
-      "ns": 1,
-      "loc": 7
+      "loc": 7,
+      "nd": 2,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 3.0,
-      "r_nd": 2.0,
+      "r_cc": 2.0,
       "r_fo": 1.0,
+      "r_nd": 2.0,
       "r_ns": 1.0
-    },
-    "lrs": 5.8999999999999995,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "nested_context_managers",
-    "line": 7,
     "language": "Python",
+    "line": 7,
+    "lrs": 4.5,
     "metrics": {
-      "cc": 3,
-      "nd": 2,
+      "cc": 1,
       "fo": 3,
-      "ns": 1,
-      "loc": 5
+      "loc": 5,
+      "nd": 2,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 2.0,
+      "r_cc": 1.0,
       "r_fo": 2.0,
+      "r_nd": 2.0,
       "r_ns": 1.0
-    },
-    "lrs": 5.5,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "with_context_manager",
-    "line": 1,
     "language": "Python",
+    "line": 1,
+    "lrs": 3.4509775004326935,
     "metrics": {
-      "cc": 3,
-      "nd": 1,
+      "cc": 1,
       "fo": 2,
-      "ns": 1,
-      "loc": 4
+      "loc": 4,
+      "nd": 1,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 1.0,
+      "r_cc": 1.0,
       "r_fo": 1.584962500721156,
+      "r_nd": 1.0,
       "r_ns": 1.0
-    },
-    "lrs": 4.4509775004326935,
-    "band": "moderate"
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "async_function",
-    "line": 24,
     "language": "Python",
+    "line": 24,
+    "lrs": 3.4509775004326935,
     "metrics": {
-      "cc": 3,
-      "nd": 1,
+      "cc": 1,
       "fo": 2,
-      "ns": 1,
-      "loc": 4
+      "loc": 4,
+      "nd": 1,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 1.0,
+      "r_cc": 1.0,
       "r_fo": 1.584962500721156,
+      "r_nd": 1.0,
       "r_ns": 1.0
-    },
-    "lrs": 4.4509775004326935,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "list_comprehension_filtered",
-    "line": 14,
     "language": "Python",
+    "line": 14,
+    "lrs": 2.2849625007211563,
     "metrics": {
-      "cc": 4,
-      "nd": 0,
+      "cc": 2,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.321928094887362,
-      "r_nd": 0.0,
+      "r_cc": 1.584962500721156,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 3.021928094887362,
-    "band": "moderate"
+    }
   },
   {
+    "band": "low",
     "file": "tests/fixtures/python/python_specific.py",
     "function": "list_comprehension_no_filter",
-    "line": 19,
     "language": "Python",
+    "line": 19,
+    "lrs": 1.7,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 0,
-      "ns": 1,
-      "loc": 3
+      "loc": 3,
+      "nd": 0,
+      "ns": 1
     },
     "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
+      "r_cc": 1.0,
       "r_fo": 0.0,
+      "r_nd": 0.0,
       "r_ns": 1.0
-    },
-    "lrs": 2.7,
-    "band": "low"
+    }
   }
 ]

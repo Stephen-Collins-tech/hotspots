@@ -1,127 +1,127 @@
 [
   {
+    "band": "critical",
     "file": "tests/fixtures/patterns_tier1.ts",
     "function": "allFiveTier1",
-    "line": 148,
     "language": "TypeScript",
+    "line": 148,
+    "lrs": 15.467976393961138,
     "metrics": {
-      "cc": 22,
-      "nd": 6,
+      "cc": 20,
       "fo": 10,
-      "ns": 10,
-      "loc": 83
+      "loc": 83,
+      "nd": 6,
+      "ns": 10
     },
-    "risk": {
-      "r_cc": 4.523561956057013,
-      "r_nd": 6.0,
-      "r_fo": 3.4594316186372973,
-      "r_ns": 6.0
-    },
-    "lrs": 15.59922092723939,
-    "band": "critical",
     "patterns": [
       "complex_branching",
       "deeply_nested",
       "exit_heavy",
       "god_function",
       "long_function"
-    ]
+    ],
+    "risk": {
+      "r_cc": 4.392317422778761,
+      "r_fo": 3.4594316186372973,
+      "r_nd": 6.0,
+      "r_ns": 6.0
+    }
   },
   {
+    "band": "high",
     "file": "tests/fixtures/patterns_tier1.ts",
     "function": "exitHeavy",
-    "line": 137,
     "language": "TypeScript",
+    "line": 137,
+    "lrs": 7.107354922057604,
     "metrics": {
-      "cc": 8,
-      "nd": 1,
+      "cc": 6,
       "fo": 0,
-      "ns": 5,
-      "loc": 8
+      "loc": 8,
+      "nd": 1,
+      "ns": 5
     },
-    "risk": {
-      "r_cc": 3.169925001442312,
-      "r_nd": 1.0,
-      "r_fo": 0.0,
-      "r_ns": 5.0
-    },
-    "lrs": 7.469925001442312,
-    "band": "high",
     "patterns": [
       "exit_heavy"
-    ]
+    ],
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 5.0
+    }
   },
   {
+    "band": "high",
     "file": "tests/fixtures/patterns_tier1.ts",
     "function": "complexBranching",
-    "line": 99,
     "language": "TypeScript",
+    "line": 99,
+    "lrs": 7.007354922057605,
     "metrics": {
-      "cc": 15,
-      "nd": 4,
+      "cc": 13,
       "fo": 0,
-      "ns": 0,
-      "loc": 19
+      "loc": 19,
+      "nd": 4,
+      "ns": 0
     },
-    "risk": {
-      "r_cc": 4.0,
-      "r_nd": 4.0,
-      "r_fo": 0.0,
-      "r_ns": 0.0
-    },
-    "lrs": 7.2,
-    "band": "high",
     "patterns": [
       "complex_branching"
-    ]
+    ],
+    "risk": {
+      "r_cc": 3.807354922057604,
+      "r_fo": 0.0,
+      "r_nd": 4.0,
+      "r_ns": 0.0
+    }
   },
   {
+    "band": "high",
     "file": "tests/fixtures/patterns_tier1.ts",
     "function": "deeplyNested",
-    "line": 120,
     "language": "TypeScript",
+    "line": 120,
+    "lrs": 6.807354922057604,
     "metrics": {
-      "cc": 8,
-      "nd": 5,
+      "cc": 6,
       "fo": 0,
-      "ns": 0,
-      "loc": 15
+      "loc": 15,
+      "nd": 5,
+      "ns": 0
     },
-    "risk": {
-      "r_cc": 3.169925001442312,
-      "r_nd": 5.0,
-      "r_fo": 0.0,
-      "r_ns": 0.0
-    },
-    "lrs": 7.169925001442312,
-    "band": "high",
     "patterns": [
       "deeply_nested"
-    ]
+    ],
+    "risk": {
+      "r_cc": 2.807354922057604,
+      "r_fo": 0.0,
+      "r_nd": 5.0,
+      "r_ns": 0.0
+    }
   },
   {
+    "band": "moderate",
     "file": "tests/fixtures/patterns_tier1.ts",
     "function": "godAndLong",
-    "line": 16,
     "language": "TypeScript",
+    "line": 16,
+    "lrs": 3.0756589711823783,
     "metrics": {
-      "cc": 3,
-      "nd": 0,
+      "cc": 1,
       "fo": 10,
-      "ns": 0,
-      "loc": 80
+      "loc": 80,
+      "nd": 0,
+      "ns": 0
     },
-    "risk": {
-      "r_cc": 2.0,
-      "r_nd": 0.0,
-      "r_fo": 3.4594316186372973,
-      "r_ns": 0.0
-    },
-    "lrs": 4.075658971182378,
-    "band": "moderate",
     "patterns": [
       "god_function",
       "long_function"
-    ]
+    ],
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 3.4594316186372973,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
   }
 ]

@@ -88,14 +88,10 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
 /// Used for languages where we don't yet have full AST metrics
 fn calculate_cc_from_cfg(cfg: &Cfg) -> usize {
     // Base formula: CC = E - N + 2
-    if cfg.edge_count() > 0 && cfg.node_count() > 2 {
+    if cfg.edge_count() > 0 && cfg.node_count() > 0 {
         let e = cfg.edge_count();
-        let n = cfg.node_count() - 2; // Exclude entry and exit
-        if n > 0 {
-            e.saturating_sub(n).saturating_add(2)
-        } else {
-            1
-        }
+        let n = cfg.node_count();
+        e.saturating_add(2).saturating_sub(n).max(1)
     } else {
         1
     }
@@ -109,17 +105,11 @@ fn calculate_cc_from_cfg(cfg: &Cfg) -> usize {
 /// - Each catch clause
 fn cyclomatic_complexity(cfg: &Cfg, body: &BlockStmt) -> usize {
     // Base formula: CC = E - N + 2
-    let base_cc = if cfg.edge_count() > 0 && cfg.node_count() > 2 {
-        // Exclude entry and exit nodes for calculation
-        // E = number of edges
-        // N = number of nodes (excluding entry/exit which are structural)
+    let base_cc = if cfg.edge_count() > 0 && cfg.node_count() > 0 {
+        // E = number of edges, N = number of nodes (including entry/exit)
         let e = cfg.edge_count();
-        let n = cfg.node_count() - 2; // Exclude entry and exit
-        if n > 0 {
-            e.saturating_sub(n).saturating_add(2)
-        } else {
-            1 // Minimum CC for any function
-        }
+        let n = cfg.node_count();
+        e.saturating_add(2).saturating_sub(n).max(1)
     } else {
         1 // Empty function has CC = 1
     };
@@ -137,7 +127,31 @@ fn cyclomatic_complexity(cfg: &Cfg, body: &BlockStmt) -> usize {
     // Increment for catch clauses
     let catch_count = count_catch_clauses(body);
 
-    base_cc + short_circuit_count + switch_case_count + catch_count
+    // Increment for ternary expressions (CondExpr), e.g. `const y = x > 0 ? 1 : 2;`.
+    // These are decision points that the statement-level CFG builder never sees
+    // since ternaries live in expression position.
+    let ternary_count = count_ternaries(body);
+
+    base_cc + short_circuit_count + switch_case_count + catch_count + ternary_count
+}
+
+/// Count ternary (conditional) expressions in the AST
+fn count_ternaries(body: &BlockStmt) -> usize {
+    let mut count = 0;
+    let mut visitor = TernaryCounter { count: &mut count };
+    body.visit_with(&mut visitor);
+    count
+}
+
+struct TernaryCounter<'a> {
+    count: &'a mut usize,
+}
+
+impl Visit for TernaryCounter<'_> {
+    fn visit_cond_expr(&mut self, cond_expr: &CondExpr) {
+        *self.count += 1;
+        cond_expr.visit_children_with(self);
+    }
 }
 
 /// Visitor to count boolean short-circuit operators
@@ -1222,7 +1236,7 @@ fn rust_nesting_depth(block: &syn::Block) -> usize {
 /// Returns the deduplicated, sorted set of called function/method/macro names.
 fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
     use std::collections::HashSet;
-    use syn::{Expr, ExprCall, ExprMethodCall, Stmt};
+    use syn::{Expr, ExprBinary, ExprCall, ExprMethodCall, Stmt};
 
     fn count_calls(stmts: &[Stmt], calls: &mut HashSet<String>) {
         for stmt in stmts {
@@ -1302,6 +1316,10 @@ fn rust_extract_callees(block: &syn::Block) -> Vec<String> {
             }
             Expr::Block(expr_block) => {
                 count_calls(&expr_block.block.stmts, calls);
+            }
+            Expr::Binary(ExprBinary { left, right, .. }) => {
+                expr_calls(left, calls);
+                expr_calls(right, calls);
             }
             _ => {}
         }
@@ -1568,6 +1586,27 @@ func hello() {
     }
 
     #[test]
+    fn test_zero_branch_function_cc_is_one() {
+        // Regression for #221: CC baseline was off by +2 for every function.
+        let go_source = r#"package main
+func hello() {
+    println("hi")
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(go_source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "zero-branch Go function must have cc == 1");
+
+        let rust_source = r#"fn hello() {
+    println!("hi");
+}
+"#;
+        let (func, cfg) = rust_function_and_cfg(rust_source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.cc, 1, "zero-branch Rust function must have cc == 1");
+    }
+
+    #[test]
     fn test_extract_go_if_increments_cc_and_nd() {
         let source = r#"package main
 func check(x int) string {
@@ -1764,6 +1803,25 @@ func withDefer() {
     }
 
     #[test]
+    fn test_extract_python_if_else_no_spurious_edge() {
+        // Regression for #228: a single two-way if/else must give cc == 2, not
+        // an inflated value from a spurious condition->join edge.
+        let source = r#"def classify(x):
+    if x > 0:
+        return "positive"
+    else:
+        return "non-positive"
+"#;
+        let (func, cfg) = python_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(
+            m.cc, 2,
+            "single two-way if/else must have cc == 2, got {}",
+            m.cc
+        );
+    }
+
+    #[test]
     fn test_extract_python_callee_names_and_fanout() {
         let source = r#"def do_work():
     foo()
@@ -1850,6 +1908,25 @@ func withDefer() {
     }
 
     #[test]
+    fn test_extract_ecmascript_ternary_increments_cc() {
+        // Regression for #224: ternary-as-let-initializer was invisible to CC.
+        let no_ternary_source = r#"function f(x: number) { return x + 1; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(no_ternary_source);
+        let baseline_cc = extract_metrics(&func, &cfg).cc;
+
+        let ternary_source = r#"function f(x: number) { const y = x > 0 ? 1 : 2; return y; }"#;
+        let (func, cfg) = ecmascript_function_and_cfg(ternary_source);
+        let ternary_cc = extract_metrics(&func, &cfg).cc;
+
+        assert!(
+            ternary_cc > baseline_cc,
+            "ternary must increment cc: baseline={}, ternary={}",
+            baseline_cc,
+            ternary_cc
+        );
+    }
+
+    #[test]
     fn test_extract_ecmascript_computed_callee_filtered() {
         // Dynamic calls like arr[0]() produce <computed> — should be filtered
         let source = r#"function dyn(arr: any[]) { arr[0](); }"#;
@@ -1907,6 +1984,50 @@ func withDefer() {
             m.callee_names
         );
         assert_eq!(m.fo, m.callee_names.len());
+    }
+
+    #[test]
+    fn test_extract_rust_callee_names_binary_expr() {
+        // Regression for #227: calls combined via binary operators were invisible.
+        let source = r#"fn calls_five() -> i32 { callee1() + callee2() + callee3() + callee4() + callee5() }"#;
+        let (func, cfg) = rust_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        for name in ["callee1", "callee2", "callee3", "callee4", "callee5"] {
+            assert!(
+                m.callee_names.contains(&name.to_string()),
+                "expected {} in callee_names: {:?}",
+                name,
+                m.callee_names
+            );
+        }
+        assert_eq!(m.fo, 5, "fan-out must count all calls in binary chain");
+    }
+
+    #[test]
+    fn test_extract_rust_if_as_let_initializer_increments_cc() {
+        // Regression for #224: if/if-let used as a let-initializer was invisible to CC.
+        let stmt_source = r#"fn check(cond: bool) -> i32 {
+            if cond { 1 } else { 2 }
+        }"#;
+        let (func, cfg) = rust_function_and_cfg(stmt_source);
+        let stmt_cc = extract_metrics(&func, &cfg).cc;
+
+        let expr_source = r#"fn check(cond: bool) -> i32 {
+            let x = if cond { 1 } else { 2 };
+            x
+        }"#;
+        let (func, cfg) = rust_function_and_cfg(expr_source);
+        let expr_cc = extract_metrics(&func, &cfg).cc;
+
+        assert_eq!(
+            stmt_cc, expr_cc,
+            "if-as-statement and if-as-let-initializer must score the same cc"
+        );
+        assert!(
+            expr_cc > 1,
+            "if-as-let-initializer must be counted as a decision point, got cc={}",
+            expr_cc
+        );
     }
 
     #[test]
