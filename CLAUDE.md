@@ -127,3 +127,15 @@ When implementing features that touch multiple files:
 - Update documentation when adding or modifying features
 - Keep documentation concise and focused on what users need to know
 - Documentation updates should be part of the same commit as the feature
+
+## Long-running commands
+
+For anything that runs more than a minute or so in the background (cloning a
+large repo, `hotspots analyze`/`train` against a real-world corpus, a
+multi-repo benchmark pass) — use `runlog run <label> -- <command>` instead of
+a bare backgrounded shell command. `runlog status <label>` then reports pid
+liveness, heartbeat freshness, and last log output as independently
+checkable facts, instead of you having to self-report "still running" with
+no way for the caller to verify it. See `~/projects/stephencollins.tech-repos/dev-tools/README.md`.
+Especially important across worktrees (`hotspots.worktrees/*`), where a
+stalled job is otherwise invisible until something times out.
