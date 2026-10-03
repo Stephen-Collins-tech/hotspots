@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Remove depth_score from live composite score (#217)
+
+
 ### Documentation
 - Clean up docs.hotspots.dev site for accuracy and completeness
 - Align site design with hotspots.dev, replace marketing hero with docs home
