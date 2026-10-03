@@ -47,16 +47,16 @@
     "function": "async_for_with_filter",
     "language": "Python",
     "line": 30,
-    "lrs": 5.4849625007211555,
+    "lrs": 4.9,
     "metrics": {
-      "cc": 5,
+      "cc": 3,
       "fo": 1,
       "loc": 7,
       "nd": 2,
       "ns": 1
     },
     "risk": {
-      "r_cc": 2.584962500721156,
+      "r_cc": 2.0,
       "r_fo": 1.0,
       "r_nd": 2.0,
       "r_ns": 1.0
