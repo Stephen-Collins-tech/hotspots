@@ -29,9 +29,6 @@ pub(crate) fn print_file_risk_output(
             view.function_count, view.loc, view.max_cc, view.avg_cc
         );
         println!("   Risk Score: {:.2}", view.file_risk_score);
-        if view.file_churn > 0 {
-            println!("   Churn: {} lines changed (30 days)", view.file_churn);
-        }
         if view.critical_count > 0 {
             println!("   Critical functions: {}", view.critical_count);
         }

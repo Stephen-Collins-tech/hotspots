@@ -44,7 +44,7 @@ hotspots analyze . --mode snapshot --format text --level file
 hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_factor×0.1`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. High-complexity + low-instability modules are the priority targets — `module_risk: "high"` fires at `instability < 0.5 && avg_complexity > 5.0` (hotspots-research F170), but flags only ~5.2% of real bug-fix-touched modules even at this recalibrated cutoff; treat it as a narrow, high-precision filter, not a broad detector.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. High-complexity + low-instability modules are the priority targets — `module_risk: "high"` fires at `instability < 0.5 && avg_complexity > 5.0` (hotspots-research F170), but flags only ~5.2% of real bug-fix-touched modules even at this recalibrated cutoff; treat it as a narrow, high-precision filter, not a broad detector.
 
 ## Delta Mode
 
