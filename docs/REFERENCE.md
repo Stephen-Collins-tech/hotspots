@@ -626,6 +626,14 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 }
 ```
 
+**Unvalidated heuristics.** `thresholds` (RiskBand cutoffs), `weights` (base LRS
+composite weights), and `warning_thresholds` (`watch_min`/`watch_max`/`attention_min`/
+`attention_max`/`rapid_growth_percent`) are shipped defaults with no corresponding
+`hotspots-research` finding validating these specific numbers — unlike `lrs`'s
+component metrics or `fn_changed_lines`, which do have research backing (see
+"Field stability" and the delta section below). Treat them as reasonable starting
+points to tune for your repo, not as calibrated thresholds.
+
 **Validation rules:**
 - `moderate < high < critical` (all positive)
 - `watch_min < watch_max ≤ moderate < attention_min < attention_max ≤ high`
@@ -745,6 +753,9 @@ not. See "Field stability" under Metrics above.
 ```
 file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_factor×0.1
 ```
+**Unvalidated heuristic** — these component weights have no `hotspots-research` finding
+behind them, unlike `lrs`/`activity_risk`. Treat `file_risk_score` as a convenience
+ranking, not a calibrated signal.
 
 **`aggregates.co_change`** — file pairs that change together in the same commit:
 ```json
@@ -770,6 +781,13 @@ file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_fact
 }
 ```
 Instability near 0 = everything depends on it (risky to change). Instability near 1 = depends on others (safe to change).
+`module_risk: "high"` fires when `instability < 0.5 && avg_complexity > 5.0`
+(cutoffs recalibrated by hotspots-research F170 — these beat the prior `0.3`/`10.0`
+pair on pooled F1). **Recall caveat:** even at this cutoff, only ~5.2% of real
+bug-fix-touched modules get flagged "high" — this is a narrow, high-precision filter
+(precision 0.775), not a broad detector. 59.5% of modules sit at the undefined-neutral
+`instability == 0.5` default (no cross-directory import edges recorded) and can never
+trigger the strict `< 0.5` condition, regardless of complexity.
 
 **`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
 ```json
