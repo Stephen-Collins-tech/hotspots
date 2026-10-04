@@ -18,7 +18,64 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Schema version for deltas
-const DELTA_SCHEMA_VERSION: u32 = 1;
+const DELTA_SCHEMA_VERSION: u32 = 2;
+
+/// Default epsilon below which an LRS delta is treated as floating-point noise, not a real
+/// change, when building `ChangeRisk`'s scored function set (hotspots#202). Looser than
+/// `functions_differ`'s `f64::EPSILON` by design — this is a separate filter over an
+/// already-computed `deltas[]`, not a change to how `status`/`delta` themselves are computed.
+pub const CHANGE_RISK_NOISE_EPSILON: f64 = 1e-9;
+
+/// Score formula version for `ChangeRisk.score.kind == "sum_positive_delta_lrs"`. Frozen per
+/// hotspots#202's spec — bump only when the formula itself changes, not when inputs do.
+const CHANGE_RISK_SCORE_VERSION: &str = "1.0.0";
+
+/// Change-level (commit- or PR-level) risk score, additive to the per-function `deltas[]`.
+/// See `compute_change_risk` for the scoring definition. `scope.kind` is an open string
+/// (`"commit"`/`"range"` today) rather than an enum, since a hosted API caller may know a
+/// more specific scope (`"pull_request"`/`"release"`) without requiring a CLI schema change.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChangeRisk {
+    pub scope: ChangeRiskScope,
+    pub score: ChangeRiskScoreValue,
+    pub components: ChangeRiskComponents,
+    pub inputs: ChangeRiskInputs,
+    pub tool_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChangeRiskScope {
+    pub kind: String,
+    pub base: String,
+    pub head: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChangeRiskScoreValue {
+    pub kind: String,
+    pub version: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChangeRiskComponents {
+    pub max_delta_lrs: f64,
+    pub sum_positive_delta_lrs: f64,
+    pub new_critical_functions: usize,
+    pub changed_functions: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub struct ChangeRiskInputs {
+    pub functions_scored: usize,
+    pub noise_epsilon: f64,
+    pub overlap_filter_applied: bool,
+}
 
 /// Function change status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -101,6 +158,8 @@ pub struct Delta {
     pub policy: Option<PolicyResults>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::DeltaAggregates>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_risk: Option<ChangeRisk>,
 }
 
 impl Delta {
@@ -176,6 +235,7 @@ impl Delta {
             deltas,
             policy: None,
             aggregates: None,
+            change_risk: None,
         })
     }
 
@@ -262,6 +322,7 @@ fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
         deltas,
         policy: None,
         aggregates: None,
+        change_risk: None,
     }
 }
 
@@ -535,6 +596,109 @@ pub fn pure_rename_function_ids(
         }
     }
     excluded
+}
+
+/// Compute the change-level `ChangeRisk` block (hotspots#202) for a non-baseline delta.
+///
+/// `scope.kind` is `"commit"` for `--mode delta` (parent-relative) or `"range"` for
+/// `hotspots diff <base> <head>` (arbitrary two refs). `diff_lines` is best-effort — an
+/// empty map (shallow clone, failed `git diff`) skips the overlap filter entirely rather
+/// than scoring zero functions, with `inputs.overlap_filter_applied` recording which
+/// happened. Callers should check `delta.baseline` themselves before calling this (baseline
+/// deltas have no base to score against), matching the `fn_changed_lines` call sites'
+/// existing pattern.
+pub fn compute_change_risk(
+    delta: &Delta,
+    head_snapshot: &Snapshot,
+    base_snapshot: &Snapshot,
+    diff_lines: &HashMap<String, crate::git::DiffLineSet>,
+    repo_root: &Path,
+    scope: ChangeRiskScope,
+) -> ChangeRisk {
+    let overlap_filter_applied = !diff_lines.is_empty();
+    let pure_renames = pure_rename_function_ids(&delta.deltas);
+
+    let mut sum_positive_delta_lrs = 0.0_f64;
+    let mut max_delta_lrs = 0.0_f64;
+    let mut new_critical_functions = 0usize;
+    let mut functions_scored = 0usize;
+
+    for entry in &delta.deltas {
+        if pure_renames.contains(&entry.function_id) {
+            continue;
+        }
+        let in_scored_set = match entry.status {
+            FunctionStatus::New | FunctionStatus::Modified | FunctionStatus::Deleted => {
+                let lrs_changed = entry
+                    .delta
+                    .as_ref()
+                    .map(|d| d.lrs.abs() > CHANGE_RISK_NOISE_EPSILON)
+                    .unwrap_or(false);
+                let band_changed = entry.band_transition.is_some();
+                // New/Deleted entries never populate `delta`/`band_transition` (only the
+                // Modified branch in `compute_function_deltas` does) — without this they'd
+                // be unconditionally excluded from the scored set regardless of actual risk,
+                // contradicting the issue spec's "an added function contributes its full
+                // after.lrs." Always include them; the noise-epsilon/band-transition pair is
+                // only meaningful as a filter for Modified entries.
+                let is_new_or_deleted =
+                    matches!(entry.status, FunctionStatus::New | FunctionStatus::Deleted);
+                (lrs_changed || band_changed || is_new_or_deleted)
+                    && (!overlap_filter_applied
+                        || crate::git::function_overlaps_changed_hunk(
+                            entry,
+                            head_snapshot,
+                            base_snapshot,
+                            diff_lines,
+                            repo_root,
+                        ))
+            }
+            FunctionStatus::Unchanged => false,
+        };
+        if !in_scored_set {
+            continue;
+        }
+
+        functions_scored += 1;
+
+        let contribution = match entry.status {
+            FunctionStatus::New => entry.after.as_ref().map(|s| s.lrs).unwrap_or(0.0),
+            FunctionStatus::Modified => entry.delta.as_ref().map(|d| d.lrs.max(0.0)).unwrap_or(0.0),
+            FunctionStatus::Deleted => 0.0,
+            FunctionStatus::Unchanged => 0.0,
+        };
+        sum_positive_delta_lrs += contribution;
+        max_delta_lrs = max_delta_lrs.max(contribution);
+
+        if entry.status == FunctionStatus::New {
+            if let Some(after) = &entry.after {
+                if after.band == RiskBand::Critical {
+                    new_critical_functions += 1;
+                }
+            }
+        }
+    }
+
+    ChangeRisk {
+        scope,
+        score: ChangeRiskScoreValue {
+            kind: "sum_positive_delta_lrs".to_string(),
+            version: CHANGE_RISK_SCORE_VERSION.to_string(),
+            value: sum_positive_delta_lrs,
+        },
+        components: ChangeRiskComponents {
+            max_delta_lrs,
+            sum_positive_delta_lrs,
+            new_critical_functions,
+            changed_functions: functions_scored,
+        },
+        inputs: ChangeRiskInputs {
+            functions_scored,
+            noise_epsilon: CHANGE_RISK_NOISE_EPSILON,
+            overlap_filter_applied,
+        },
+        tool_version: head_snapshot.analysis.tool_version.clone(),
+    }
 }
 
 /// Check if two functions differ (based on metrics, LRS, or band)
@@ -1153,6 +1317,7 @@ mod tests {
             deltas: vec![deleted, created],
             policy: None,
             aggregates: None,
+            change_risk: None,
         };
 
         let summary = compute_pr_risk_summary(&delta, 0, &ChangeSizeThresholds::default());
@@ -1164,6 +1329,193 @@ mod tests {
         assert_eq!(
             summary.pr_risk_score, 0.0,
             "pure rename must contribute zero risk score"
+        );
+    }
+
+    // ── compute_change_risk (hotspots#202) ──────────────────────────────────
+
+    fn test_scope() -> ChangeRiskScope {
+        ChangeRiskScope {
+            kind: "commit".to_string(),
+            base: "parent123".to_string(),
+            head: "current123".to_string(),
+        }
+    }
+
+    #[test]
+    fn change_risk_empty_diff_lines_skips_overlap_filter_and_scores_by_lrs() {
+        let parent = create_test_snapshot("parent123", "grandparent", 4, 3.9, "moderate");
+        let current = create_test_snapshot("current123", "parent123", 6, 6.2, "high");
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &HashMap::new(),
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert!(!cr.inputs.overlap_filter_applied);
+        assert_eq!(cr.components.changed_functions, 1);
+        assert!((cr.components.sum_positive_delta_lrs - 2.3).abs() < 0.01);
+        assert!((cr.components.max_delta_lrs - 2.3).abs() < 0.01);
+        assert_eq!(cr.score.value, cr.components.sum_positive_delta_lrs);
+        assert_eq!(cr.score.kind, "sum_positive_delta_lrs");
+        assert_eq!(cr.score.version, "1.0.0");
+    }
+
+    #[test]
+    fn change_risk_noise_epsilon_excludes_tiny_lrs_change() {
+        // Diff (5e-10) is above functions_differ's f64::EPSILON gate (so status is still
+        // Modified, delta is still populated) but below CHANGE_RISK_NOISE_EPSILON (1e-9) and
+        // the band is unchanged — must be excluded from change_risk's own scored set.
+        let parent = create_test_snapshot("parent123", "grandparent", 4, 3.9, "moderate");
+        let current = create_test_snapshot("current123", "parent123", 4, 3.9 + 5e-10, "moderate");
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+        assert_eq!(delta.deltas[0].status, FunctionStatus::Modified);
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &HashMap::new(),
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert_eq!(cr.components.changed_functions, 0);
+        assert_eq!(cr.score.value, 0.0);
+    }
+
+    #[test]
+    fn change_risk_overlap_filter_excludes_non_overlapping_function() {
+        // create_test_snapshot's function sits at line 42, loc 10 -> span 42..=51.
+        let parent = create_test_snapshot("parent123", "grandparent", 4, 3.9, "moderate");
+        let current = create_test_snapshot("current123", "parent123", 6, 6.2, "high");
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+
+        let mut diff_lines = HashMap::new();
+        diff_lines.insert(
+            "src/foo.ts".to_string(),
+            crate::git::DiffLineSet {
+                old_lines: Default::default(),
+                new_lines: [200u32].into_iter().collect(), // outside the 42..=51 span
+            },
+        );
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &diff_lines,
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert!(cr.inputs.overlap_filter_applied);
+        assert_eq!(
+            cr.components.changed_functions, 0,
+            "band-transitioning function with no line overlap must still be excluded"
+        );
+    }
+
+    #[test]
+    fn change_risk_overlap_filter_includes_overlapping_function() {
+        let parent = create_test_snapshot("parent123", "grandparent", 4, 3.9, "moderate");
+        let current = create_test_snapshot("current123", "parent123", 6, 6.2, "high");
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+
+        let mut diff_lines = HashMap::new();
+        diff_lines.insert(
+            "src/foo.ts".to_string(),
+            crate::git::DiffLineSet {
+                old_lines: Default::default(),
+                new_lines: [45u32].into_iter().collect(), // inside the 42..=51 span
+            },
+        );
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &diff_lines,
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert!(cr.inputs.overlap_filter_applied);
+        assert_eq!(cr.components.changed_functions, 1);
+    }
+
+    #[test]
+    fn change_risk_new_function_contributes_full_after_lrs_and_counts_critical() {
+        let git_context = GitContext {
+            head_sha: "parent123".to_string(),
+            parent_shas: vec![],
+            timestamp: 1705600000,
+            branch: Some("main".to_string()),
+            is_detached: false,
+            message: None,
+            author: None,
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
+        };
+        let parent = Snapshot::new(git_context, vec![]);
+        let current = create_test_snapshot("current123", "parent123", 9, 9.5, "critical");
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+        assert_eq!(delta.deltas[0].status, FunctionStatus::New);
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &HashMap::new(),
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert_eq!(cr.components.new_critical_functions, 1);
+        assert!((cr.score.value - 9.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn change_risk_deleted_function_contributes_zero() {
+        let parent = create_test_snapshot("parent123", "grandparent", 5, 9.5, "critical");
+        let git_context = GitContext {
+            head_sha: "current123".to_string(),
+            parent_shas: vec!["parent123".to_string()],
+            timestamp: 1705600000,
+            branch: Some("main".to_string()),
+            is_detached: false,
+            message: None,
+            author: None,
+            is_fix_commit: Some(false),
+            is_revert_commit: Some(false),
+            ticket_ids: vec![],
+        };
+        let current = Snapshot::new(git_context, vec![]);
+        let delta = Delta::new(&current, Some(&parent)).expect("should create delta");
+        assert_eq!(delta.deltas[0].status, FunctionStatus::Deleted);
+
+        let cr = compute_change_risk(
+            &delta,
+            &current,
+            &parent,
+            &HashMap::new(),
+            Path::new("/repo"),
+            test_scope(),
+        );
+
+        assert_eq!(
+            cr.components.changed_functions, 1,
+            "deleted entries are still scored"
+        );
+        assert_eq!(
+            cr.score.value, 0.0,
+            "removing code must not increase the change-risk score"
         );
     }
 }

@@ -784,11 +784,11 @@ Instability near 0 = everything depends on it (risky to change). Instability nea
 }
 ```
 
-### Delta output (v1)
+### Delta output (v2)
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "commit": { "sha": "abc123", "parent": "def456" },
   "baseline": false,
   "deltas": [{
@@ -817,11 +817,36 @@ Instability near 0 = everything depends on it (risky to change). Instability nea
       "band_upgrades": 1,
       "policy_blocking": true
     }
+  },
+  "change_risk": {
+    "scope": { "kind": "range", "base": "def456", "head": "abc123" },
+    "score": { "kind": "sum_positive_delta_lrs", "version": "1.0.0", "value": 1.4 },
+    "components": {
+      "max_delta_lrs": 1.4,
+      "sum_positive_delta_lrs": 1.4,
+      "new_critical_functions": 0,
+      "changed_functions": 1
+    },
+    "inputs": { "functions_scored": 1, "noise_epsilon": 1e-9, "overlap_filter_applied": true },
+    "tool_version": "1.42.0"
   }
 }
 ```
 
 Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by default).
+
+**`change_risk`** (hotspots#202, `schema_version` 2) — a single change-level risk score,
+additive to `deltas[]`. The scored set is `{new, modified, deleted}` functions whose
+`|delta.lrs| > noise_epsilon` (default `1e-9`, looser than the per-function `modified`
+status's own `f64::EPSILON` gate, to filter out genuinely-noise-sized float wobble) or
+whose band transitioned, AND (when git diff data is available) whose line span overlaps a
+changed hunk — `inputs.overlap_filter_applied` records whether that filter actually ran.
+`sum_positive_delta_lrs` sums `max(0, after.lrs - before.lrs)` across the scored set (an
+added function contributes its full `after.lrs`; a removed function contributes `0` — code
+removal cannot increase risk). `scope.kind` is `"commit"` for `--mode delta` (parent-relative)
+or `"range"` for `hotspots diff <base> <head>` (arbitrary two refs) — an open string, since a
+hosted API caller may know a more specific scope (e.g. `"pull_request"`) without a CLI schema
+change. Omitted entirely on a baseline delta (no base to score against).
 
 **`aggregates.pr_summary`** — collapses every changed function into a single PR-wide
 risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new

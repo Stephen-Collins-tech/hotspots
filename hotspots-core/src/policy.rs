@@ -1065,6 +1065,7 @@ mod tests {
             deltas: vec![],
             policy: None,
             aggregates: None,
+            change_risk: None,
         };
 
         let temp_dir = TempDir::new().unwrap();

@@ -764,6 +764,59 @@ pub fn compute_fn_changed_lines(
     total
 }
 
+/// Whether `entry`'s function overlaps a changed line in `diff_lines` (hotspots#202's
+/// `ChangeRisk` scored-set overlap filter). Mirrors the per-entry overlap test inlined in
+/// `compute_fn_changed_lines` above (same abs->rel path handling, same side-selection by
+/// status), but returns a bool instead of accumulating a line count — kept as a separate
+/// function rather than refactoring `compute_fn_changed_lines` itself, since that function
+/// is already covered by its own tests and this is a different, additive caller.
+pub fn function_overlaps_changed_hunk(
+    entry: &crate::delta::FunctionDeltaEntry,
+    head_snapshot: &crate::snapshot::Snapshot,
+    base_snapshot: &crate::snapshot::Snapshot,
+    diff_lines: &std::collections::HashMap<String, DiffLineSet>,
+    repo_root: &Path,
+) -> bool {
+    use crate::delta::FunctionStatus;
+
+    let rel = |abs: &str| -> String {
+        Path::new(abs)
+            .strip_prefix(repo_root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| abs.to_string())
+    };
+
+    let (func, side_lines) = match entry.status {
+        FunctionStatus::New | FunctionStatus::Modified => {
+            let func = head_snapshot
+                .functions
+                .iter()
+                .find(|f| f.function_id == entry.function_id);
+            let lines = func
+                .and_then(|f| diff_lines.get(&rel(&f.file)))
+                .map(|d| &d.new_lines);
+            (func, lines)
+        }
+        FunctionStatus::Deleted => {
+            let func = base_snapshot
+                .functions
+                .iter()
+                .find(|f| f.function_id == entry.function_id);
+            let lines = func
+                .and_then(|f| diff_lines.get(&rel(&f.file)))
+                .map(|d| &d.old_lines);
+            (func, lines)
+        }
+        FunctionStatus::Unchanged => return false,
+    };
+    let (Some(func), Some(lines)) = (func, side_lines) else {
+        return false;
+    };
+    let start = func.line;
+    let end = start + func.metrics.loc.saturating_sub(1);
+    lines.range(start..=end).next().is_some()
+}
+
 /// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count_30d` /
 /// `days_since_last_change` pair.
 ///

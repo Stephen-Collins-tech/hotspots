@@ -1187,20 +1187,33 @@ fn enrich_delta(
     // hotspots-research F132/F159/F161: fn_changed_lines is the strongest tested predictor of
     // PR defect risk. Best-effort — no parent snapshot (first commit, or an untracked parent)
     // or a failed git diff both degrade to an empty line-set map, giving 0, not an error.
-    let fn_changed_lines = match (&parent_snapshot, &parent_sha) {
+    let (fn_changed_lines, change_risk) = match (&parent_snapshot, &parent_sha) {
         (Some(parent), Some(parent_sha)) => {
             let diff_lines =
                 hotspots_core::git::diff_line_sets_at(repo_root, parent_sha, &snapshot.commit.sha)
                     .unwrap_or_default();
-            hotspots_core::git::compute_fn_changed_lines(
+            let fn_changed_lines = hotspots_core::git::compute_fn_changed_lines(
                 repo_root,
                 &delta_val.deltas,
                 snapshot,
                 parent,
                 &diff_lines,
-            )
+            );
+            let change_risk = hotspots_core::delta::compute_change_risk(
+                &delta_val,
+                snapshot,
+                parent,
+                &diff_lines,
+                repo_root,
+                hotspots_core::delta::ChangeRiskScope {
+                    kind: "commit".to_string(),
+                    base: parent_sha.clone(),
+                    head: snapshot.commit.sha.clone(),
+                },
+            );
+            (fn_changed_lines, Some(change_risk))
         }
-        _ => 0,
+        _ => (0, None),
     };
     enriched.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
         &delta_val,
@@ -1209,6 +1222,7 @@ fn enrich_delta(
         fn_changed_lines,
         &resolved_config.change_size_thresholds,
     ));
+    enriched.change_risk = change_risk;
     Ok(enriched)
 }
 

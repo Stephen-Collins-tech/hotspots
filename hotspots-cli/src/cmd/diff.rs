@@ -119,6 +119,18 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         fn_changed_lines,
         &resolved_config.change_size_thresholds,
     ));
+    delta_val.change_risk = Some(hotspots_core::delta::compute_change_risk(
+        &delta_val,
+        &head_snapshot,
+        &base_snapshot,
+        &diff_lines,
+        &repo_root,
+        hotspots_core::delta::ChangeRiskScope {
+            kind: "range".to_string(),
+            base: base_sha.clone(),
+            head: head_sha.clone(),
+        },
+    ));
 
     // Filter out Unchanged, then optionally keep top N by risk magnitude
     {
@@ -463,6 +475,7 @@ mod tests {
             deltas: vec![deleted, created],
             policy: None,
             aggregates: None,
+            change_risk: None,
         };
 
         let text = render_diff_text(&delta_val, false).expect("render");

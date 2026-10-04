@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+- Add `change_risk` block to delta-mode JSON, schema_version 2 (#202)
+
 ### Bug Fixes
 - Remove depth_score from live composite score (#217)
 - Drop convention_bug_fix_count from trained ranker (#182) (#218)

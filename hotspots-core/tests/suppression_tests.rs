@@ -165,6 +165,7 @@ fn test_suppression_missing_reason_policy() {
         deltas: vec![delta_entry],
         policy: None,
         aggregates: None,
+        change_risk: None,
     };
 
     let git_context = GitContext {
@@ -233,6 +234,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
         deltas: vec![critical_entry],
         policy: None,
         aggregates: None,
+        change_risk: None,
     };
 
     let git_context = GitContext {
@@ -297,6 +299,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
         deltas: vec![critical_entry],
         policy: None,
         aggregates: None,
+        change_risk: None,
     };
 
     let git_context = GitContext {
