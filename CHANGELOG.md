@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Drop convention_bug_fix_count from trained ranker (#182) (#218)
 - Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
 - 4 utility-command bugs found by dogfooding (prune/compact/snapshot/trends) (#233)
-- **Breaking:** remove unvalidated Centrality axis from `--axes` output (#215) — no promotion brief or finding ever validated pagerank as a defect-risk signal; `callgraph.pagerank` is still computed and available elsewhere
+- Remove unvalidated Centrality axis (closes #215) (#235)
 
 
 ### Documentation
