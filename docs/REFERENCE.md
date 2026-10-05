@@ -213,6 +213,24 @@ Two tiers:
 
 Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (directional, not a fitted regression). `--budget-seconds` compares the projection against a caller-supplied wall-clock budget and recommends `per-function`, `hybrid`, or `file`.
 
+### `hotspots coordinate [PATH]`
+
+Reports coupling and ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
+
+```
+hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
+```
+
+The file set comes from `--files` (comma-separated), `--diff` (a unified diff on stdin), or `--staged` (`git diff --cached --name-only`).
+
+Output fields:
+- `within_set`: co-change `coupling_ratio` for file pairs inside the set.
+- `hidden_dependencies`: files outside the set with `coupling_ratio >= 0.7` to a file inside it.
+- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
+- `recommendation`: `"serialize"` or `"parallel_safe"`.
+
+`recommendation` is `"serialize"` when any within-set pair has `coupling_ratio >= 0.7`, unless every input file has `knowledge_mode: "concentrated"`. In that case it is downgraded to `"parallel_safe"`, because concentrated ownership explains most of the collision risk that coupling appears to predict. An empty ownership list never downgrades.
+
 ### `hotspots prune`
 
 Remove unreachable snapshots (after force-push or branch deletion).
