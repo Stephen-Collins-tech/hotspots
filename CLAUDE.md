@@ -139,3 +139,16 @@ checkable facts, instead of you having to self-report "still running" with
 no way for the caller to verify it. See `~/projects/stephencollins.tech-repos/dev-tools/README.md`.
 Especially important across worktrees (`hotspots.worktrees/*`), where a
 stalled job is otherwise invisible until something times out.
+
+## Status (push model)
+
+`PULSE.md` is the committed status record (it replaced `STATUS.md`; old content is under its
+`## Notes`). Do not hand-edit above its notes marker. `TASKS.md` remains the promotion-brief
+task list. Standard and setup: `~/projects/stephencollins.tech-repos/dev-tools/status/SETUP.md`.
+
+- During/after meaningful work: `status push "what changed" --thread <name> --next "next step"`
+  (`--state closed` when a thread is done). Entries are live across all worktrees, no commit needed.
+- Before opening a PR or ending a long session: `status sync`, then commit `PULSE.md` on `main`
+  (or in the PR if it is the only change). Caveats that must persist go under `## Notes`.
+- Never record PR lists, release state, or CI results in `PULSE.md`; the pulse derives them live.
+- Start of session: `/pulse hotspots`, or `status check` + `status show`.

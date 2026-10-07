@@ -1,3 +1,31 @@
+---
+updated: 2026-10-07
+updated_at: ee881f8
+---
+
+# PULSE
+
+> Pushed via `status push`, rendered by `status sync`. Do not hand-edit above the notes marker; put caveats under Notes. PRs, releases and CI are derived live, not recorded here.
+
+## Threads
+
+| Thread | State | Latest | Next concrete step | Updated |
+|---|---|---|---|---|
+| release | open | Next release needs a minor bump: delta JSON schema_version 1->2 (change_risk) plus 5 unreleased fixes since v1.42.0 | Decide whether change_risk ships in the next minor; cut release after PR 236/238 decisions | 2026-10-07 |
+| meta | closed | adopted push-model PULSE.md; STATUS.md (v1.37.0-era) preserved under Notes. TASKS.md stays as the promotion-brief task list |  | 2026-10-07 |
+| change-risk | open | change_risk (PR 238) must not merge as-is: F161/F159 found net_delta_lrs weakest on 4/4 repos | Add the F161 hedge to PR 238 description and CHANGELOG entry (REFERENCE.md caveat already on the branch) before any merge | 2026-10-07 |
+
+## Recent entries
+
+- 2026-10-07 `meta` (hotspots-pulse-skill): adopted push-model PULSE.md; STATUS.md (v1.37.0-era) preserved under Notes. TASKS.md stays as the promotion-brief task list
+- 2026-10-07 `release` (hotspots-pulse-skill): Next release needs a minor bump: delta JSON schema_version 1->2 (change_risk) plus 5 unreleased fixes since v1.42.0
+- 2026-10-07 `change-risk` (hotspots-pulse-skill): change_risk (PR 238) must not merge as-is: F161/F159 found net_delta_lrs weakest on 4/4 repos
+
+<!-- status:data {"threads":{"change-risk":{"state":"open","summary":"change_risk (PR 238) must not merge as-is: F161/F159 found net_delta_lrs weakest on 4/4 repos","next":"Add the F161 hedge to PR 238 description and CHANGELOG entry (REFERENCE.md caveat already on the branch) before any merge","updated":"2026-10-07T14:06:08+00:00"},"release":{"state":"open","summary":"Next release needs a minor bump: delta JSON schema_version 1-\u003e2 (change_risk) plus 5 unreleased fixes since v1.42.0","next":"Decide whether change_risk ships in the next minor; cut release after PR 236/238 decisions","updated":"2026-10-07T14:06:09+00:00"},"meta":{"state":"closed","summary":"adopted push-model PULSE.md; STATUS.md (v1.37.0-era) preserved under Notes. TASKS.md stays as the promotion-brief task list","next":null,"updated":"2026-10-07T14:06:09+00:00"}},"recent":[{"timestamp":"2026-10-07T14:06:08+00:00","worktree":"hotspots-pulse-skill","branch":"docs/hotspots-pulse-skill","thread":"change-risk","state":"open","summary":"change_risk (PR 238) must not merge as-is: F161/F159 found net_delta_lrs weakest on 4/4 repos","next":"Add the F161 hedge to PR 238 description and CHANGELOG entry (REFERENCE.md caveat already on the branch) before any merge"},{"timestamp":"2026-10-07T14:06:09+00:00","worktree":"hotspots-pulse-skill","branch":"docs/hotspots-pulse-skill","thread":"release","state":"open","summary":"Next release needs a minor bump: delta JSON schema_version 1-\u003e2 (change_risk) plus 5 unreleased fixes since v1.42.0","next":"Decide whether change_risk ships in the next minor; cut release after PR 236/238 decisions"},{"timestamp":"2026-10-07T14:06:09+00:00","worktree":"hotspots-pulse-skill","branch":"docs/hotspots-pulse-skill","thread":"meta","state":"closed","summary":"adopted push-model PULSE.md; STATUS.md (v1.37.0-era) preserved under Notes. TASKS.md stays as the promotion-brief task list","next":null}]} -->
+
+<!-- status:notes -->
+## Notes
+
 # hotspots — Work in Progress
 
 Current version: **1.37.0**
