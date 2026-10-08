@@ -2,8 +2,9 @@
 
 This file contains conventions and rules for Claude Code when working on this project.
 
-## Research sync
+## Research sync (maintainers only)
 
+Skip this section unless `../hotspots-research` exists locally; contributors do not need it.
 This CLI is the promotion target for `../hotspots-research`. Before implementing any ranker change,
 new snapshot field, or formula modification, check
 [`../hotspots-research/docs/promotion-tracker.md`](../hotspots-research/docs/promotion-tracker.md)
