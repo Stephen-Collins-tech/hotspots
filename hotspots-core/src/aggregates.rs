@@ -65,12 +65,11 @@ pub struct ModuleInstability {
     pub efferent: usize,
     /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
     pub instability: f64,
-    /// "high" if instability < 0.5 and avg_complexity > 5.0, else "low" (cutoffs
-    /// recalibrated by hotspots-research F170; recall caveat: only ~5.2% of real
-    /// bug-fix-touched modules are flagged "high" even at this cutoff — this is a
-    /// narrow, high-precision filter, not a broad detector, because 59.5% of modules
-    /// sit at the undefined-neutral `instability == 0.5` default and can never
-    /// trigger the strict `< 0.5` condition)
+    /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
+    /// internal validation found combining this with the `instability` metric
+    /// below added no benefit over complexity alone, so `module_risk` does not
+    /// depend on it. `instability`/`afferent`/`efferent` remain informational
+    /// fields only.
     pub module_risk: String,
 }
 
@@ -816,7 +815,7 @@ fn compute_module_instability_from_edges(
             } else {
                 0.0
             };
-            let module_risk = if instability < 0.5 && avg_complexity > 5.0 {
+            let module_risk = if avg_complexity > 5.0 {
                 "high".to_string()
             } else {
                 "low".to_string()

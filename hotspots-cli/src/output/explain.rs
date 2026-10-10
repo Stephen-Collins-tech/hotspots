@@ -92,10 +92,7 @@ pub(crate) fn print_module_output(
         .filter(|m| m.module_risk == "high")
         .count();
     if high_risk_count > 0 {
-        println!(
-            "High-risk modules (low instability + high complexity): {}",
-            high_risk_count
-        );
+        println!("High-risk modules (high complexity): {}", high_risk_count);
     }
 
     Ok(())

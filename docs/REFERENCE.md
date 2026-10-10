@@ -790,13 +790,10 @@ defect-correlation-validated threshold.
 }
 ```
 Instability near 0 = everything depends on it (risky to change). Instability near 1 = depends on others (safe to change).
-`module_risk: "high"` fires when `instability < 0.5 && avg_complexity > 5.0`
-(cutoffs recalibrated by hotspots-research F170 — these beat the prior `0.3`/`10.0`
-pair on pooled F1). **Recall caveat:** even at this cutoff, only ~5.2% of real
-bug-fix-touched modules get flagged "high" — this is a narrow, high-precision filter
-(precision 0.775), not a broad detector. 59.5% of modules sit at the undefined-neutral
-`instability == 0.5` default (no cross-directory import edges recorded) and can never
-trigger the strict `< 0.5` condition, regardless of complexity.
+`module_risk: "high"` fires when `avg_complexity > 5.0` — gated on complexity
+alone. `instability`/`afferent`/`efferent` are informational fields only;
+internal validation found no benefit to combining them with the complexity
+gate, so `module_risk` does not depend on them.
 
 **`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
 ```json
