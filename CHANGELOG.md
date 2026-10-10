@@ -7,21 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Breaking Changes
-- **2.0 Phase 1:** merge the `Snapshot` and `AgentSnapshotOutput` ("agent"/triage,
-  schema_version 4) envelopes into one type and one `SNAPSHOT_SCHEMA_VERSION` (now 5).
-  `analyze --mode snapshot --format json` behavior is unchanged (`--all-functions` still
-  gates full `functions[]`+`aggregates` vs. the default `triage`+`architecture`+`co_change`
-  sections), but anything deserializing the old standalone agent-output shape (schema_version
-  4, no `schema_version`-adjacent `triage`/`architecture`/`co_change` nesting under one
-  envelope) needs updating. Tracked in issue #247 (1 of 6 planned phases toward 2.0.0).
-
 ### Documentation
 - Document hotspots coordinate command (#239)
 
 
 ### Features
 - Convert Rust CFG builder to iterative work-stack walk (#245)
+- Merge Snapshot/AgentSnapshotOutput into one 2.0 envelope (#248)
 
 ## [1.42.1] - 2026-10-10
 
