@@ -7,10 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Bug Fixes
-- Convert Rust CFG builder to an iterative work-stack walk, removing the
-  `MAX_CFG_DEPTH` guard entirely — depth is now bounded by heap, not the
-  calling thread's stack (#160)
+### Features
+- Convert Rust CFG builder to iterative work-stack walk (#245)
 
 ## [1.42.1] - 2026-10-10
 
