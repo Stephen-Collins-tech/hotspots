@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Document hotspots coordinate command (#239)
+
+
 ### Features
 - Convert Rust CFG builder to iterative work-stack walk (#245)
 
