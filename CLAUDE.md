@@ -38,6 +38,12 @@ Rules for consuming a brief:
 
 **ALWAYS create a feature branch before starting any new work.** Never commit directly to `main`.
 
+Enable hooks on a fresh clone: `git config core.hooksPath .githooks`. Pre-commit runs
+fmt/clippy/test; pre-push runs `drift-check` (from dev-tools), which warns — never
+blocks — if this checkout has fallen behind `origin/main`. STATUS.md, TASKS.md, and
+`.claude/skills/*` are read off disk by agent sessions, not fetched, so a stale checkout
+can make a session reason from something already fixed upstream.
+
 - Branch naming: `<type>/<short-description>` — use the same type prefix as the commit
   - `feat/sarif-output`, `fix/cfg-panic-on-dead-code`, `chore/update-deps`, `refactor/simplify-risk-scoring`
 - Create the branch before making any file changes: `git checkout -b <branch-name>`

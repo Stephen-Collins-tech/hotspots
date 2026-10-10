@@ -1,0 +1,6 @@
+#!/bin/sh
+# Warn (never block) if this checkout has fallen behind origin — local CLAUDE.md and
+# .claude/skills are read off disk by agent sessions, not fetched, so drift here can
+# make a session reason from something already fixed upstream.
+command -v drift-check >/dev/null 2>&1 && drift-check
+exit 0
