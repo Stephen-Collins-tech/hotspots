@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.42.1] - 2026-10-10
 
+> Correction (2026-10-10): the two `module_risk`/`file_risk_score` lines below were
+> auto-generated from pre-merge commit messages and described an intermediate,
+> superseded version of the change. Updated here to match what #236 actually shipped.
+
 ### Bug Fixes
 - Remove depth_score from live composite score (#217)
 - Drop convention_bug_fix_count from trained ranker (#182) (#218)
 - Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
 - 4 utility-command bugs found by dogfooding (prune/compact/snapshot/trends) (#233)
 - Remove unvalidated Centrality axis (closes #215) (#235)
-- Recalibrate module_risk cutoffs per F170, doc unvalidated thresholds
-- Drop dead file_churn field, add file_risk_score percentile note
+- Recalibrate `module_risk` to gate on `avg_complexity` alone, dropping the `instability` term entirely, doc unvalidated thresholds (#236)
+- Drop dead file_churn field, add file_risk_score percentile note (#236)
 
 
 ### Documentation
