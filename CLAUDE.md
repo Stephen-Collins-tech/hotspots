@@ -13,6 +13,7 @@
 - **Always create a feature branch before starting work.** Never commit directly to `main`; open a PR.
 - Branch name: `<type>/<short-description>`, same type as the commit (`feat/sarif-output`,
   `fix/cfg-panic-on-dead-code`, `chore/update-deps`, `refactor/...`, `test/...`, `docs/...`).
+- Enable hooks on a fresh clone: `git config core.hooksPath .githooks`.
 - One logical unit of work per branch; split unrelated changes.
 - **Commit messages are a single line under 72 characters**, `<type>: <description>`
   (e.g. `feat: add suppression comments support`). No body unless explicitly requested.
