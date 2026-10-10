@@ -848,6 +848,20 @@ or `"range"` for `hotspots diff <base> <head>` (arbitrary two refs) — an open 
 hosted API caller may know a more specific scope (e.g. `"pull_request"`) without a CLI schema
 change. Omitted entirely on a baseline delta (no base to score against).
 
+**`change_risk.score.value` is not a validated defect predictor — do not present it as one.**
+hotspots-research F161 (`docs/findings/F161-change-risk-vs-size-matched-baseline.md` in
+`../hotspots-research`) benchmarked this exact formula (`net_delta_lrs`, equal to the shipped
+`sum_positive_delta_lrs`/`pr_risk_score`) against a size-matched baseline (`fn_changed_lines` —
+same lines, LRS weight set to 1) on 4 repos (black, iced, fiber, paperless-ngx) predicting
+SZZ-attributed defects. Result: the shipped score was **the weakest candidate on all 4 repos**
+(AUC −0.022 to −0.112 below the size baseline), and a wider sweep of 5 other LRS-weighted
+operators (top-k mean, L2 norm, fan-in weighted, per-file/per-function normalized) also failed
+to beat it (0 of 20 cells). F159 found the same pattern pre-registered (`max_delta_lrs`
+indistinguishable from changed-function count, AUC 0.476 excluding fix/revert PRs). F161's
+explicit CLI implication: expose the structural parts (`components`), do not ship a default
+scalar as calibrated risk. `score.value` here is a structural signal only (worst-LRS-delta in
+the diff) — treat it the same as `pr_risk_score` above, with stronger direct evidence against it.
+
 **`aggregates.pr_summary`** — collapses every changed function into a single PR-wide
 risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new
 functions add `after.lrs`, deleted functions subtract `before.lrs`, modified

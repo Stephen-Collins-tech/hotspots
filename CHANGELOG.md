@@ -8,7 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Features
-- Add `change_risk` block to delta-mode JSON, schema_version 2 (#202)
+- Add `change_risk` block to delta-mode JSON, schema_version 2 (#202). `score.value` is a
+  structural signal only, not a validated defect predictor: benchmarked as the weakest of 6
+  candidates against a size-matched baseline across 4 repos (F161; see also F159). See
+  `docs/REFERENCE.md` for the full caveat.
 
 ### Bug Fixes
 - Remove depth_score from live composite score (#217)
