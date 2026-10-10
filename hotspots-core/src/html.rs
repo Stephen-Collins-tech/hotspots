@@ -1224,12 +1224,9 @@ footer a {
 .driver-cyclic_dep         { background: #fce4ec; color: #880e4f; }
 .driver-composite          { background: #f5f5f5; color: #424242; }
 
-/* Module instability zones (Robert Martin) */
+/* Module risk zones (complexity-gated, hotspots 2.0) */
 .zone-pain             { color: #ef4444; font-weight: 600; }
 .zone-stable           { color: #22c55e; }
-.zone-balanced         { color: #3b82f6; }
-.zone-volatile         { color: #f97316; font-weight: 600; }
-.zone-volatile-complex { color: #ef4444; font-weight: 600; }
 
 /* Module and co-change risk */
 .module-risk-high   { color: #ef4444; font-weight: 600; }
@@ -3352,36 +3349,24 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
         ));
     }
 
-    // 4b. Module Instability Table
+    // 4b. Module Risk Table
     if !aggregates.modules.is_empty() {
         let rows: String = aggregates
             .modules
             .iter()
             .map(|m| {
-                // Classify into Martin's zones using instability + complexity
-                let (zone_label, _zone_class) = if m.instability < 0.3 {
-                    if m.avg_complexity > 8.0 {
-                        ("zone of pain", "zone-pain")
-                    } else {
-                        ("stable", "zone-stable")
-                    }
-                } else if m.instability > 0.7 {
-                    if m.avg_complexity > 8.0 {
-                        ("volatile", "zone-volatile-complex")
-                    } else {
-                        ("volatile", "zone-volatile")
-                    }
+                // hotspots 2.0 removed `instability` (no measured signal, rho≈-0.002) —
+                // zone label now reflects `module_risk` directly (already complexity-gated).
+                let (zone_label, _zone_class) = if m.module_risk == "high" {
+                    ("high complexity", "zone-pain")
                 } else {
-                    ("balanced", "zone-balanced")
+                    ("stable", "zone-stable")
                 };
-                let instability_width = (m.instability * 100.0).clamp(4.0, 100.0);
                 format!(
                     r#"<div class="visual-card">
     <div class="visual-card-title monospace">{module}</div>
     <div class="visual-card-subtitle">{zone_label}</div>
-    <div class="visual-bar"><div class="visual-bar-fill" style="width:{instability_width:.0}%"></div></div>
     <div class="visual-metrics">
-        <div class="visual-metric"><span>Instability</span><strong>{instability:.2}</strong></div>
         <div class="visual-metric"><span>Avg CC</span><strong>{avg_cc:.1}</strong></div>
         <div class="visual-metric"><span>Afferent</span><strong>{afferent}</strong></div>
         <div class="visual-metric"><span>Efferent</span><strong>{efferent}</strong></div>
@@ -3391,8 +3376,6 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
                     avg_cc = m.avg_complexity,
                     afferent = m.afferent,
                     efferent = m.efferent,
-                    instability = m.instability,
-                    instability_width = instability_width,
                     zone_label = zone_label,
                 )
             })
@@ -3400,8 +3383,8 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
 
         sections.push(format!(
             r#"<details class="section">
-    <summary>Risk Concentration: Modules<span class="section-summary-note">Dependency volatility by directory</span></summary>
-    <div class="visual-note">Instability is Ce / (Ca + Ce). Longer bars are more dependency-volatile.</div>
+    <summary>Risk Concentration: Modules<span class="section-summary-note">Complexity concentration by directory</span></summary>
+    <div class="visual-note">Afferent/efferent are coupling counts (external modules depending on this one / this one depends on).</div>
     <div class="visual-grid">{rows}</div>
 </details>"#,
             rows = rows,

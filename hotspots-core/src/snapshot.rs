@@ -137,15 +137,17 @@ pub struct PercentileFlags {
 #[serde(rename_all = "snake_case")]
 pub struct CallGraphMetrics {
     pub fan_in: usize,
-    pub fan_out: usize,
     pub pagerank: f64,
-    pub betweenness: f64,
-    pub scc_id: usize,
+    /// Size of this function's strongly-connected component (1 if not in a
+    /// cycle). Kept despite `cyclic_dependency`'s removal from the live
+    /// composite score (F160) — it's a direct input to the `cyclic_hub`
+    /// pattern detector (`patterns.rs`), not just a reported-but-dead value.
     pub scc_size: usize,
+    /// Kept for the same reason as `scc_size`: a direct input to the
+    /// `middle_man`/`neighbor_risk` pattern detectors, which suppress their
+    /// own patterns when a function is an entry point.
     #[serde(default)]
     pub is_entrypoint: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dependency_depth: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub neighbor_churn: Option<usize>,
 }
@@ -305,12 +307,6 @@ pub struct BandStats {
 pub struct CallGraphStats {
     pub total_edges: usize,
     pub avg_fan_in: f64,
-    pub scc_count: usize,
-    pub largest_scc_size: usize,
-    /// True when betweenness was computed via k-source approximation rather than
-    /// exact Brandes. Consumers can use this to annotate displayed values.
-    #[serde(default)]
-    pub betweenness_approximate: bool,
 }
 
 /// Repo-level summary statistics
@@ -1147,30 +1143,31 @@ impl Snapshot {
 
     /// Populate call graph metrics
     ///
-    /// Populate call graph metrics (PageRank, betweenness, fan-in, SCC, depth, neighbor churn).
+    /// Populate call graph metrics (PageRank, fan-in, SCC, neighbor churn).
+    /// `fan_out`/`betweenness`/`scc_id`/`dependency_depth` were dropped from
+    /// `CallGraphMetrics` in hotspots 2.0 (unused reported fields, distinct from
+    /// `scc_size`/`is_entrypoint`, which remain real pattern-detector inputs);
+    /// `betweenness_centrality`/`compute_dependency_depth` are no longer called
+    /// here since nothing downstream consumes their output.
     ///
-    /// Betweenness is computed exactly when `call_graph.nodes.len() <= exact_threshold`,
-    /// and via k-source approximation otherwise. Returns `true` if approximation was used.
+    /// `exact_threshold`/`approx_k` no longer affect this method's own work (they
+    /// controlled the now-removed betweenness computation) but are kept as
+    /// parameters, and `exact_threshold` still determines the returned
+    /// `approximate` bool, to avoid a public API signature change for this phase.
     pub fn populate_callgraph(
         &mut self,
         call_graph: &crate::callgraph::CallGraph,
         exact_threshold: usize,
-        approx_k: usize,
+        _approx_k: usize,
     ) -> bool {
         use std::collections::HashMap;
 
         let n = call_graph.node_count();
         let approximate = n > exact_threshold;
 
-        // Compute global metrics once
+        // Compute global metrics once.
         let pagerank_scores = call_graph.pagerank(0.85, 30, 1e-6);
-        let betweenness_scores = if approximate {
-            call_graph.betweenness_centrality_approx(approx_k)
-        } else {
-            call_graph.betweenness_centrality()
-        };
         let scc_info = call_graph.find_strongly_connected_components();
-        let dependency_depths = call_graph.compute_dependency_depth();
         // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls below
         let fan_in_map = call_graph.build_fan_in_map();
 
@@ -1189,8 +1186,7 @@ impl Snapshot {
 
             // Only populate if function is in the call graph
             if call_graph.contains(function_id) {
-                let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
-                let dependency_depth = dependency_depths.get(function_id).copied().flatten();
+                let (_scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
 
                 // Compute neighbor churn: sum of churn for all callees
                 let neighbor_churn = if let Some(callees) = call_graph.callees_of(function_id) {
@@ -1208,13 +1204,9 @@ impl Snapshot {
 
                 function.callgraph = Some(CallGraphMetrics {
                     fan_in: fan_in_map.get(function_id).copied().unwrap_or(0),
-                    fan_out: call_graph.fan_out(function_id),
                     pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
-                    betweenness: betweenness_scores.get(function_id).copied().unwrap_or(0.0),
-                    scc_id,
                     scc_size,
                     is_entrypoint: call_graph.is_entry_point(function_id),
-                    dependency_depth,
                     neighbor_churn,
                 });
             }
@@ -1243,18 +1235,16 @@ impl Snapshot {
                 .as_ref()
                 .map(|c| (c.lines_added, c.lines_deleted));
 
-            // Extract call graph data
-            let (fan_in, scc_size, dependency_depth, neighbor_churn) =
-                if let Some(ref cg) = function.callgraph {
-                    (
-                        Some(cg.fan_in),
-                        Some(cg.scc_size),
-                        cg.dependency_depth,
-                        cg.neighbor_churn,
-                    )
-                } else {
-                    (None, None, None, None)
-                };
+            // Extract call graph data. `dependency_depth` is always `None` now:
+            // `CallGraphMetrics` dropped the field in hotspots 2.0 (F167 already
+            // zeroed its contribution to `activity_risk` before this), kept as a
+            // literal `None` here rather than removing `ActivityRiskInput.dependency_depth`
+            // itself, which `compute_activity_risk` no longer reads either way.
+            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
+                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
+            } else {
+                (None, None, None)
+            };
 
             // Compute activity risk
             let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
@@ -1265,7 +1255,7 @@ impl Snapshot {
                     days_since_last_change: function.days_since_last_change,
                     fan_in,
                     scc_size,
-                    dependency_depth,
+                    dependency_depth: None,
                     neighbor_churn,
                     burst_score: function.burst_score,
                 },
@@ -1412,7 +1402,7 @@ impl Snapshot {
         let mut sorted_fo: Vec<usize> = self
             .functions
             .iter()
-            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
+            .map(|f| f.metrics.fo as usize)
             .collect();
         let mut sorted_fi: Vec<usize> = self
             .functions
@@ -1499,7 +1489,11 @@ impl Snapshot {
     /// Compute repo-level summary statistics
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
-    pub fn compute_summary(&mut self, betweenness_approximate: bool) {
+    ///
+    /// `betweenness_approximate` is accepted but unused since hotspots 2.0 dropped
+    /// `CallGraphStats.betweenness_approximate` (no consumer) — kept as a parameter
+    /// to avoid a public API signature change for this phase.
+    pub fn compute_summary(&mut self, _betweenness_approximate: bool) {
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -1532,7 +1526,7 @@ impl Snapshot {
             top_5_pct_share,
             top_10_pct_share,
             by_band: compute_band_distribution(&self.functions),
-            call_graph: compute_call_graph_stats(&self.functions, n, betweenness_approximate),
+            call_graph: compute_call_graph_stats(&self.functions, n),
         });
     }
 
@@ -1652,38 +1646,21 @@ fn compute_band_distribution(
 }
 
 /// Computes call-graph-level summary statistics, or None if no call graph data.
-fn compute_call_graph_stats(
-    functions: &[FunctionSnapshot],
-    n: usize,
-    betweenness_approximate: bool,
-) -> Option<CallGraphStats> {
+fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
     if !functions.iter().any(|f| f.callgraph.is_some()) {
         return None;
     }
-    let total_edges: usize = functions
-        .iter()
-        .filter_map(|f| f.callgraph.as_ref())
-        .map(|cg| cg.fan_out)
-        .sum();
     let total_fan_in: usize = functions
         .iter()
         .filter_map(|f| f.callgraph.as_ref())
         .map(|cg| cg.fan_in)
         .sum();
-    let mut scc_sizes: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-    for func in functions {
-        if let Some(ref cg) = func.callgraph {
-            if cg.scc_size > 1 {
-                scc_sizes.insert(cg.scc_id, cg.scc_size);
-            }
-        }
-    }
+    // Every edge contributes exactly one fan_in (and, before `fan_out`'s removal
+    // in hotspots 2.0, exactly one fan_out) across the graph, so summed fan_in
+    // alone is still the exact total edge count — no separate fan_out field needed.
     Some(CallGraphStats {
-        total_edges,
+        total_edges: total_fan_in,
         avg_fan_in: total_fan_in as f64 / n as f64,
-        scc_count: scc_sizes.len(),
-        largest_scc_size: scc_sizes.values().copied().max().unwrap_or(0),
-        betweenness_approximate,
     })
 }
 
@@ -1734,10 +1711,10 @@ pub fn compute_dimension_thresholds(
     nd_vals.sort_unstable();
     let nd_high = nd_vals[percentile_idx(p)];
 
-    let mut fo_vals: Vec<usize> = functions
-        .iter()
-        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0))
-        .collect();
+    // Uses the AST-derived `metrics.fo` (always present), not the now-removed
+    // graph-level `CallGraphMetrics.fan_out` — same "how many functions does
+    // this one call" concept, just not call-graph-derived.
+    let mut fo_vals: Vec<usize> = functions.iter().map(|f| f.metrics.fo as usize).collect();
     fo_vals.sort_unstable();
     let fan_out_high = fo_vals[percentile_idx(p)];
 
@@ -1829,7 +1806,7 @@ pub fn driving_dimension_label(
         .as_ref()
         .map(|cg| cg.scc_size > 1)
         .unwrap_or(false);
-    let fan_out = func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0);
+    let fan_out = func.metrics.fo as usize;
     let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let touch_count = func.touch_count_30d.unwrap_or(0);
     let cc = func.metrics.cc as usize;
@@ -1875,13 +1852,7 @@ fn compute_near_miss_detail(
     let mut near: Vec<(&str, u8)> = vec![
         ("cc", pct_rank(func.metrics.cc as usize, sorted_cc)),
         ("nd", pct_rank(func.metrics.nd as usize, sorted_nd)),
-        (
-            "fan_out",
-            pct_rank(
-                func.callgraph.as_ref().map(|cg| cg.fan_out).unwrap_or(0),
-                sorted_fo,
-            ),
-        ),
+        ("fan_out", pct_rank(func.metrics.fo as usize, sorted_fo)),
         (
             "fan_in",
             pct_rank(

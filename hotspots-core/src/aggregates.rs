@@ -63,13 +63,12 @@ pub struct ModuleInstability {
     pub afferent: usize,
     /// Efferent coupling: modules this one depends on externally
     pub efferent: usize,
-    /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
-    pub instability: f64,
     /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
-    /// internal validation found combining this with the `instability` metric
-    /// below added no benefit over complexity alone, so `module_risk` does not
-    /// depend on it. `instability`/`afferent`/`efferent` remain informational
-    /// fields only.
+    /// internal validation found combining this with instability
+    /// (efferent / (afferent + efferent)) added no benefit over complexity
+    /// alone, so `module_risk` never depended on it. hotspots 2.0 removed the
+    /// `instability` field entirely (it carried no measured signal, rho≈-0.002)
+    /// -- `afferent`/`efferent` remain as descriptive facts only.
     pub module_risk: String,
 }
 
@@ -779,11 +778,6 @@ fn compute_module_instability_from_edges(
             let stats = dir_stats.get(&dir)?;
             let eff = *efferent.get(&dir).unwrap_or(&0);
             let aff = *afferent.get(&dir).unwrap_or(&0);
-            let instability = if eff + aff == 0 {
-                0.5 // undefined — treat as neutral
-            } else {
-                eff as f64 / (eff + aff) as f64
-            };
             let avg_complexity = if stats.function_count > 0 {
                 stats.sum_cc as f64 / stats.function_count as f64
             } else {
@@ -801,21 +795,16 @@ fn compute_module_instability_from_edges(
                 avg_complexity: (avg_complexity * 100.0).round() / 100.0,
                 afferent: aff,
                 efferent: eff,
-                instability: (instability * 1000.0).round() / 1000.0,
                 module_risk,
             })
         })
         .collect();
 
-    // Sort: high-risk first, then by instability ascending (most stable / highest-risk first)
+    // Sort: high-risk first, then by module name (the instability-based
+    // secondary sort was removed along with the field in hotspots 2.0).
     modules.sort_by(|a, b| {
         b.module_risk
             .cmp(&a.module_risk) // "high" > "low"
-            .then(
-                a.instability
-                    .partial_cmp(&b.instability)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
             .then(a.module.cmp(&b.module))
     });
 

@@ -195,14 +195,14 @@ fn snapshot_aggregates_modules_shape() {
     let json = build_test_snapshot();
     let aggregates = &json["aggregates"];
 
-    // modules: module-level instability/risk view. module_risk gates on
-    // avg_complexity alone as of 1.42.1 (F170) -- instability/afferent/efferent
-    // remain informational fields for now; `instability` itself is slated for
-    // removal in a later 2.0 phase, tracked in issue #247, not this change.
-    // This fixture has no real import edges, so modules may be empty -- only assert shape when
-    // present; a separate, repo-root-with-real-imports test would be needed
-    // to guarantee non-empty modules, which is out of scope for a pure shape
-    // check.
+    // modules: module-level risk view. module_risk gates on avg_complexity alone
+    // as of 1.42.1 (F170); `instability` carried no measured signal (rho≈-0.002)
+    // and was removed entirely in hotspots 2.0 (issue #247) -- its absence here
+    // is a regression guard, not an oversight. `afferent`/`efferent` remain as
+    // descriptive facts. This fixture has no real import edges, so modules may
+    // be empty -- only assert shape when present; a separate,
+    // repo-root-with-real-imports test would be needed to guarantee non-empty
+    // modules, which is out of scope for a pure shape check.
     if let Some(modules) = aggregates.get("modules").and_then(|m| m.as_array()) {
         if let Some(first) = modules.first() {
             let expected_module: BTreeSet<String> = [
@@ -212,7 +212,6 @@ fn snapshot_aggregates_modules_shape() {
                 "avg_complexity",
                 "afferent",
                 "efferent",
-                "instability",
                 "module_risk",
             ]
             .into_iter()

@@ -151,13 +151,9 @@ fn extract_features_with_churn_and_callgraph() {
     });
     func.callgraph = Some(CallGraphMetrics {
         fan_in: 5,
-        fan_out: 2,
         pagerank: 0.0,
-        betweenness: 0.0,
-        scc_id: 0,
         scc_size: 1,
         is_entrypoint: false,
-        dependency_depth: None,
         neighbor_churn: None,
     });
     func.activity_risk = Some(3.5);

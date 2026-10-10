@@ -36,7 +36,16 @@ impl Default for ScoringWeights {
     }
 }
 
-/// Breakdown of risk score components
+/// Breakdown of risk score components.
+///
+/// `fan_in`/`cyclic_dependency` (F160), `depth` (F167), and `burst` were removed
+/// in hotspots 2.0 — each was already hardcoded to always report `0.0` (dropped
+/// from the live composite score per their respective validated non-inferiority
+/// findings), kept only for schema compatibility until this cut. `churn` is
+/// deliberately NOT included in that list: it is still a live, weighted
+/// contributor to `activity_risk` (the heaviest weight in `ScoringWeights`), with
+/// no equivalent non-inferiority finding for removing it — carved out of this
+/// removal pass rather than bundled in by analogy to the others.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct RiskFactors {
@@ -44,11 +53,7 @@ pub struct RiskFactors {
     pub churn: f64,
     pub activity: f64,
     pub recency: f64,
-    pub fan_in: f64,
-    pub cyclic_dependency: f64,
-    pub depth: f64,
     pub neighbor_churn: f64,
-    pub burst: f64,
 }
 
 /// Input metrics for activity risk computation
@@ -100,40 +105,17 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Fan-in and SCC-penalty terms: removed from the live composite score per
-    // hotspots-research F160 (confirmed, 17-repo pre-registered gate, "V1" variant):
-    // together they carry ~5% Shapley share of the composite's rho (fan_in 4%, scc 1%,
-    // both individually "no measurable contribution"), and dropping both from the sum
-    // is non-inferior within the pre-registered margin (d_rho -0.0006 [-0.0055,+0.0033],
-    // d_P@10 -0.0004 [-0.0077,+0.0060] — both CIs comfortably inside the ±0.02/±0.03
-    // non-inferiority bar). Following the same pattern already used for `burst_score`
-    // (see below): both fields are still computed/populated/stored for other consumers
-    // (e.g. `--axes coupling`, `trainer::extract_features`'s `fan_in` column, on the raw
-    // `FunctionSnapshot`, not this struct), just zeroed out of the live ranking score,
-    // not deleted. `RiskFactors.fan_in`/`.cyclic_dependency` below are always 0.0 now
-    // (they report what fed the score, not the raw magnitude), matching how `.burst`
-    // is already reported as 0.0.
-    let fan_in_score = 0.0;
-    let scc_score = 0.0;
-
-    // Depth penalty: removed from the live composite score per hotspots-research
-    // F167 (scoped 6-repo pre-registered gate, 5 gate-passing): depth_score's
-    // Shapley share of the 4-term reconstruction's rho is -2.1% (mean), its
-    // leave-one-out effect is sign-inconsistent across repos (hurts in 2/5,
-    // helps in 3/5), and dropping it is non-inferior within the pre-registered
-    // margin (d_rho -0.00058 [-0.00156,+0.00007], d_P@10 -0.0031 [-0.0115,+0.0023]
-    // — both CIs comfortably inside the ±0.02/±0.03 non-inferiority bar).
-    // Root cause: `dependency_depth` is non-null for only 0.5%-20% of functions
-    // across the repos studied, because `compute_dependency_depth`'s BFS
-    // (`callgraph.rs::compute_dependency_depth`) only reaches functions
-    // downstream of a small, name-heuristic set of "entry points"
-    // (`callgraph.rs::is_entry_point`) — most functions are simply unreachable
-    // and get `None`, not a real "zero depth". Following the same pattern
-    // already used for `fan_in`/`scc` (F160) and `burst_score`: the field is
-    // still computed/populated/stored for other consumers, just zeroed out of
-    // the live ranking score, not deleted. `RiskFactors.depth` below is always
-    // 0.0 now, matching `.fan_in`/`.cyclic_dependency`/`.burst`.
-    let depth_score = 0.0;
+    // Fan-in/SCC (F160) and depth (F167) terms, and the separate burst term,
+    // were already dropped from the live composite score (each individually
+    // non-inferior per its own pre-registered finding) and reported as hardcoded
+    // 0.0 in `RiskFactors` for schema compatibility only. hotspots 2.0 removes
+    // those now-always-0.0 fields (`fan_in`, `cyclic_dependency`, `depth`,
+    // `burst`) from `RiskFactors` entirely, so there is nothing left to compute
+    // or report here — the underlying raw values (`fan_in`, `scc_size`,
+    // `dependency_depth`) are still computed/populated/stored on the raw
+    // `FunctionSnapshot`/`CallGraphMetrics` for other consumers (e.g.
+    // `trainer::extract_features`'s `fan_in` column, pattern detection's
+    // `scc_size`/`is_entrypoint`), this struct just no longer echoes them.
 
     // Neighbor churn factor: neighbor_churn / 500
     let neighbor_churn_score = if let Some(nc) = input.neighbor_churn {
@@ -154,25 +136,15 @@ pub fn compute_activity_risk(
     // `trainer::cold_start_features`.
 
     // Total activity risk
-    let activity_risk = complexity_score
-        + churn_score
-        + touch_score
-        + recency_score
-        + fan_in_score
-        + scc_score
-        + depth_score
-        + neighbor_churn_score;
+    let activity_risk =
+        complexity_score + churn_score + touch_score + recency_score + neighbor_churn_score;
 
     let risk_factors = RiskFactors {
         complexity: complexity_score,
         churn: churn_score,
         activity: touch_score,
         recency: recency_score,
-        fan_in: fan_in_score,
-        cyclic_dependency: scc_score,
-        depth: depth_score,
         neighbor_churn: neighbor_churn_score,
-        burst: 0.0,
     };
 
     (activity_risk, risk_factors)
@@ -249,22 +221,18 @@ mod tests {
         // churn: (100/100) * 0.5 = 0.5
         // touch: min(20/10, 5.0) * 0.3 = 2.0 * 0.3 = 0.6
         // recency: max(0, 5.0 - 1/7) * 0.2 ≈ 4.857 * 0.2 ≈ 0.971
-        // fan_in, scc: removed from the live composite per F160 (hotspots-research,
-        // confirmed non-inferior V1 variant) — always 0.0 regardless of input, see
-        // compute_activity_risk's doc comment on fan_in_score/scc_score.
-        // depth: removed from the live composite per F167 (hotspots-research) —
-        // always 0.0 regardless of input, see the doc comment on depth_score.
+        // fan_in, scc (F160), and depth (F167) were already dropped from the live
+        // composite before this struct's 2.0 field removal; `fan_in`/`scc_size`/
+        // `dependency_depth` inputs here are accepted (other callers still pass
+        // them for other consumers) but contribute nothing to `risk` or `factors`.
         // neighbor_churn: 1000/500 * 0.2 = 2.0 * 0.2 = 0.4
-        // total ≈ 10.0 + 0.5 + 0.6 + 0.971 + 0.0 + 0.0 + 0.0 + 0.4 ≈ 12.47
+        // total ≈ 10.0 + 0.5 + 0.6 + 0.971 + 0.4 ≈ 12.47
 
         assert!(risk > 12.0); // Should be higher than base LRS from the un-removed terms
-        assert!(risk < 13.5); // ...but not as high as before F160/F167 removed fan_in/scc/depth
+        assert!(risk < 13.5); // ...but not as high as if fan_in/scc/depth still contributed
         assert_eq!(factors.complexity, 10.0);
         assert_eq!(factors.churn, 0.5);
         assert_eq!(factors.activity, 0.6);
-        assert_eq!(factors.fan_in, 0.0);
-        assert_eq!(factors.cyclic_dependency, 0.0);
-        assert_eq!(factors.depth, 0.0);
     }
 
     #[test]
@@ -299,8 +267,7 @@ mod tests {
         );
 
         assert_eq!(risk_none, risk_deep);
-        assert_eq!(factors_none.depth, 0.0);
-        assert_eq!(factors_deep.depth, 0.0);
+        assert_eq!(factors_none, factors_deep);
     }
 
     #[test]
@@ -330,9 +297,8 @@ mod tests {
 
         // burst_score no longer contributes to activity_risk: a file with a
         // historical burst (burst_score: Some(4.0)) scores identically to
-        // one without, and RiskFactors.burst is always 0.0.
+        // one without.
         assert_eq!(risk_with_burst, risk_without_burst);
-        assert_eq!(factors_without_burst.burst, 0.0);
-        assert_eq!(factors_with_burst.burst, 0.0);
+        assert_eq!(factors_without_burst, factors_with_burst);
     }
 }
