@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
 - 4 utility-command bugs found by dogfooding (prune/compact/snapshot/trends) (#233)
 - Remove unvalidated Centrality axis (closes #215) (#235)
-- Recalibrate `module_risk` to gate on `avg_complexity` alone, remove dead `file_churn`/`churn_factor` term from `file_risk_score`, document unvalidated thresholds (closes #211, #212, #213, #214) (#236)
+- Recalibrate module_risk cutoffs per F170, doc unvalidated thresholds
+- Drop dead file_churn field, add file_risk_score percentile note
 
 
 ### Documentation
