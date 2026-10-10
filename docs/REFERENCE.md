@@ -626,6 +626,14 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 }
 ```
 
+**Unvalidated heuristics.** `thresholds` (RiskBand cutoffs), `weights` (base LRS
+composite weights), and `warning_thresholds` (`watch_min`/`watch_max`/`attention_min`/
+`attention_max`/`rapid_growth_percent`) are shipped defaults with no corresponding
+`hotspots-research` finding validating these specific numbers — unlike `lrs`'s
+component metrics or `fn_changed_lines`, which do have research backing (see
+"Field stability" and the delta section below). Treat them as reasonable starting
+points to tune for your repo, not as calibrated thresholds.
+
 **Validation rules:**
 - `moderate < high < critical` (all positive)
 - `watch_min < watch_max ≤ moderate < attention_min < attention_max ≤ high`
@@ -743,8 +751,20 @@ not. See "Field stability" under Metrics above.
 
 **`aggregates.file_risk`** — per-file ranked by `file_risk_score`:
 ```
-file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_factor×0.1
+file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2
 ```
+**Unvalidated heuristic** — these component weights have no `hotspots-research` finding
+behind them, unlike `lrs`/`activity_risk`. Treat `file_risk_score` as a convenience
+ranking, not a calibrated signal. (The formula previously included a `churn_factor×0.1`
+term and a `file_churn` field; both were removed — `file_churn` was always 0 in
+practice due to a file-path-matching bug in `populate_churn`'s lookup, confirmed via
+hotspots-research F170 and a direct smoke test against this repo.)
+
+No "refactor soon" cutoff is officially recommended for `file_risk_score` in this doc.
+If you want a rough high-risk marker, F170's 16-repo/82,574-file empirical
+distribution puts the 90th percentile at approximately 7.0 (p50 ≈ 2.9, p95 ≈ 9.6) —
+this is a percentile convenience marker from the real score distribution, not a
+defect-correlation-validated threshold.
 
 **`aggregates.co_change`** — file pairs that change together in the same commit:
 ```json
@@ -770,6 +790,10 @@ file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_fact
 }
 ```
 Instability near 0 = everything depends on it (risky to change). Instability near 1 = depends on others (safe to change).
+`module_risk: "high"` fires when `avg_complexity > 5.0` — gated on complexity
+alone. `instability`/`afferent`/`efferent` are informational fields only;
+internal validation found no benefit to combining them with the complexity
+gate, so `module_risk` does not depend on them.
 
 **`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
 ```json

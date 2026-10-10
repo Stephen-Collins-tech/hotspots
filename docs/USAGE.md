@@ -44,7 +44,7 @@ hotspots analyze . --mode snapshot --format text --level file
 hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2 + churn_factor×0.1`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. High-complexity + low-instability modules are the priority targets.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone; `instability` is reported alongside it as an informational field, not a gating condition.
 
 ## Delta Mode
 

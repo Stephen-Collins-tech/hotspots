@@ -29,9 +29,6 @@ pub(crate) fn print_file_risk_output(
             view.function_count, view.loc, view.max_cc, view.avg_cc
         );
         println!("   Risk Score: {:.2}", view.file_risk_score);
-        if view.file_churn > 0 {
-            println!("   Churn: {} lines changed (30 days)", view.file_churn);
-        }
         if view.critical_count > 0 {
             println!("   Critical functions: {}", view.critical_count);
         }
@@ -95,10 +92,7 @@ pub(crate) fn print_module_output(
         .filter(|m| m.module_risk == "high")
         .count();
     if high_risk_count > 0 {
-        println!(
-            "High-risk modules (low instability + high complexity): {}",
-            high_risk_count
-        );
+        println!("High-risk modules (high complexity): {}", high_risk_count);
     }
 
     Ok(())
