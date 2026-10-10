@@ -41,7 +41,14 @@ pub enum TouchMode {
 /// Schema version for snapshots.
 /// v1: LRS + basic metrics only
 /// v2: adds LOC, git churn/touch, call graph, activity risk, percentiles, summary
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+/// v5 (hotspots 2.0): merges the formerly-separate "agent-optimized" v4 envelope
+/// (`triage`/`architecture`/`co_change`) into this struct as optional sections,
+/// so there is one schema_version and one Rust type for every `analyze --mode
+/// snapshot` JSON shape instead of two independently-versioned structs that
+/// shared no serde-level relationship. v3/v4 never existed on this type (v4 was
+/// the now-merged agent envelope's own counter) — the jump from 2 to 5 reflects
+/// that merge, not three skipped revisions of this struct.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
 /// Version of the scoring formula (default `ScoringWeights`, `LrsWeights`,
@@ -328,11 +335,26 @@ pub struct Snapshot {
     pub schema_version: u32,
     pub commit: CommitInfo,
     pub analysis: AnalysisInfo,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub functions: Vec<FunctionSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<SnapshotSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
+    /// Functions grouped by triage quadrant (fire/debt/watch/ok), top-N per
+    /// quadrant. Populated only for the slimmed default `analyze --mode
+    /// snapshot --format json` output (i.e. without `--all-functions`), in
+    /// which case `functions` above is empty and this carries the agent-sized
+    /// view instead. Mutually exclusive with a populated `functions`/`aggregates`
+    /// in practice, though nothing enforces that at the type level.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub triage: Option<crate::aggregates::TriageView>,
+    /// File/module-level risk rollup for the same slimmed default output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<crate::aggregates::AgentArchitectureView>,
+    /// Hidden-coupling co-change summary for the same slimmed default output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub co_change: Option<crate::aggregates::AgentCoChangeView>,
 }
 
 /// Index entry for a commit
@@ -548,6 +570,9 @@ impl Snapshot {
             functions,
             summary: None,
             aggregates: None, // Aggregates are computed on-demand, not stored
+            triage: None,
+            architecture: None,
+            co_change: None,
         }
     }
 
@@ -2207,6 +2232,9 @@ pub fn apply_delta(base: Snapshot, delta: DeltaSnapshot) -> Snapshot {
         functions: result,
         summary: delta.summary,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     }
 }
 
@@ -2564,7 +2592,7 @@ mod tests {
 
         // Serialize
         let json = snapshot.to_json().expect("should serialize");
-        assert!(json.contains("\"schema_version\": 2"));
+        assert!(json.contains(&format!("\"schema_version\": {SNAPSHOT_SCHEMA_VERSION}")));
         assert!(json.contains("\"sha\": \"abc123\""));
         assert!(json.contains("\"function_id\""));
 

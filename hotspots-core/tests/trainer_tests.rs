@@ -119,6 +119,9 @@ fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
         functions,
         summary: None,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     }
 }
 

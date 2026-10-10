@@ -1317,15 +1317,19 @@ fn emit_json_output(
     );
     if all_functions {
         snapshot.aggregates = Some(aggregates);
-        write_json_snapshot(snapshot, output)
     } else {
-        let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
-            snapshot,
-            &aggregates,
-            repo_root,
-        );
-        write_json_agent(&agent_output, output)
+        let (triage, architecture, co_change) =
+            hotspots_core::aggregates::compute_agent_sections(snapshot, &aggregates, repo_root);
+        // The slimmed default output never carried a full `functions[]` array
+        // (the merged-away `AgentSnapshotOutput` had no such field) — clear it
+        // here so the unified `Snapshot` continues to omit it in this mode,
+        // matching behavior prior to the envelope merge.
+        snapshot.functions.clear();
+        snapshot.triage = Some(triage);
+        snapshot.architecture = architecture;
+        snapshot.co_change = Some(co_change);
     }
+    write_json_snapshot(snapshot, output)
 }
 
 fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
@@ -1630,27 +1634,6 @@ fn write_json_snapshot(snapshot: &Snapshot, output: Option<PathBuf>) -> anyhow::
     Ok(())
 }
 
-fn write_json_agent(
-    agent_output: &hotspots_core::aggregates::AgentSnapshotOutput,
-    output: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    if let Some(output_path) = output {
-        write_snapshot_json_file(&output_path, |out| {
-            agent_output
-                .write_json_to(out)
-                .context("failed to write agent snapshot JSON")
-        })?;
-        eprintln!("JSON report written to: {}", output_path.display());
-    } else {
-        let stdout = std::io::stdout();
-        let mut out = std::io::BufWriter::new(stdout.lock());
-        agent_output
-            .write_json_to(&mut out)
-            .context("failed to write agent snapshot JSON")?;
-    }
-    Ok(())
-}
-
 /// Returns true if there are blocking policy failures (caller should exit non-zero).
 fn emit_delta_output(
     delta_val: &Delta,
@@ -1849,6 +1832,9 @@ pub(crate) fn build_snapshot_via_db(
         functions,
         summary: None,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     };
 
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).

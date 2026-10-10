@@ -1499,6 +1499,9 @@ index 3333333..4444444 100644
             functions,
             summary: None,
             aggregates: None,
+            triage: None,
+            architecture: None,
+            co_change: None,
         }
     }
 
