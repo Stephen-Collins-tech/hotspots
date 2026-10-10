@@ -182,7 +182,7 @@ const HIDDEN_COUPLING_TOP_N: usize = 20;
 const FILE_RISK_TOP_N: usize = 10;
 
 /// Slim complexity metrics for agent-optimized function view
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentMetrics {
     pub cc: usize,
@@ -191,7 +191,7 @@ pub struct AgentMetrics {
 }
 
 /// Slim function view for agent-optimized triage output
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentFunctionView {
     pub function: String,
@@ -200,7 +200,10 @@ pub struct AgentFunctionView {
     pub band: String,
     pub quadrant: String,
     pub driver: String,
-    pub action: &'static str,
+    // Owned, not `&'static str`: this struct is now a field of `Snapshot`,
+    // which derives `Deserialize` for persisted-snapshot round-tripping, and
+    // `&'static str` cannot round-trip through arbitrary deserialized data.
+    pub action: String,
     pub lrs: f64,
     pub activity_risk: f64,
     pub metrics: AgentMetrics,
@@ -222,16 +225,16 @@ pub struct AgentFunctionView {
 }
 
 /// A triage quadrant with count and top-N functions
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageQuadrant {
     pub count: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub top: Vec<AgentFunctionView>,
 }
 
 /// Triage view grouping functions by quadrant
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageView {
     pub fire: TriageQuadrant,
@@ -244,7 +247,7 @@ pub struct TriageView {
 ///
 /// `hidden_count` reflects only actionable pairs (risk == "high" or "moderate").
 /// Low-risk pairs are excluded to match text output semantics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentCoChangeView {
     pub hidden_coupling: Vec<crate::git::CoChangePair>,
@@ -253,45 +256,15 @@ pub struct AgentCoChangeView {
 }
 
 /// Architecture-oriented aggregate views for agent-optimized output.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentArchitectureView {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub file_risk: Vec<FileRiskView>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub modules: Vec<ModuleInstability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<crate::models::ModelRiskMap>,
-}
-
-pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
-
-/// Agent-optimized snapshot output (schema version 4)
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct AgentSnapshotOutput {
-    pub schema_version: u32,
-    pub commit: crate::snapshot::CommitInfo,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<crate::snapshot::SnapshotSummary>,
-    pub triage: TriageView,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub architecture: Option<AgentArchitectureView>,
-    pub co_change: AgentCoChangeView,
-}
-
-impl AgentSnapshotOutput {
-    /// Serialize to pretty-printed JSON string.
-    pub fn to_json(&self) -> anyhow::Result<String> {
-        serde_json::to_string_pretty(self).map_err(|e| anyhow::anyhow!("{}", e))
-    }
-
-    /// Write pretty-printed JSON directly to `writer` without an intermediate String.
-    pub fn write_json_to<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
-        serde_json::to_writer_pretty(writer as &mut dyn std::io::Write, self)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-        writeln!(writer).map_err(|e| anyhow::anyhow!("{}", e))
-    }
 }
 
 /// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).
@@ -315,7 +288,8 @@ fn to_agent_view(
             let action = crate::snapshot::driver_action_for_quadrant(
                 driver,
                 func.quadrant.as_deref().unwrap_or(""),
-            );
+            )
+            .to_string();
             AgentFunctionView {
                 function: function_name,
                 file,
@@ -342,16 +316,19 @@ fn to_agent_view(
         .collect()
 }
 
-/// Build the agent-optimized v4 JSON output from a fully enriched snapshot and its aggregates.
+/// Build the slimmed triage/architecture/co_change sections of the unified
+/// envelope (`Snapshot.{triage,architecture,co_change}`) from a fully enriched
+/// snapshot and its aggregates — the default `analyze --mode snapshot --format
+/// json` shape (i.e. without `--all-functions`).
 ///
 /// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
 /// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
 /// top 20 by coupling_ratio. File risk is capped at top 10.
-pub fn compute_agent_snapshot_output(
+pub fn compute_agent_sections(
     snapshot: &crate::snapshot::Snapshot,
     aggregates: &SnapshotAggregates,
     repo_root: &std::path::Path,
-) -> AgentSnapshotOutput {
+) -> (TriageView, Option<AgentArchitectureView>, AgentCoChangeView) {
     // Partition functions into quadrant buckets
     let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
     let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
@@ -460,18 +437,15 @@ pub fn compute_agent_snapshot_output(
         })
     };
 
-    AgentSnapshotOutput {
-        schema_version: AGENT_SNAPSHOT_SCHEMA_VERSION,
-        commit: snapshot.commit.clone(),
-        summary: snapshot.summary.clone(),
+    (
         triage,
         architecture,
-        co_change: AgentCoChangeView {
+        AgentCoChangeView {
             hidden_coupling,
             hidden_count,
             total_pairs,
         },
-    }
+    )
 }
 
 fn normalize_model_risk_map(

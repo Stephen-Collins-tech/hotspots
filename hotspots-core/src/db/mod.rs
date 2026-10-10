@@ -858,6 +858,9 @@ impl SnapshotDb {
             functions,
             summary: None,
             aggregates: None,
+            triage: None,
+            architecture: None,
+            co_change: None,
         }))
     }
 
