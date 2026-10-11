@@ -19,6 +19,7 @@
 //! is the point of this test.
 
 use hotspots_core::aggregates::{compute_agent_sections, compute_snapshot_aggregates_with_models};
+use hotspots_core::delta::Delta;
 use hotspots_core::language::Language;
 use hotspots_core::report::MetricsReport;
 use hotspots_core::risk::RiskBand;
@@ -365,4 +366,89 @@ fn snapshot_triage_envelope_shape() {
         "architecture shape changed (this fixture has no model_source_root, so \
          `models` is expected to be absent — skip_serializing_if-omitted when None)"
     );
+}
+
+fn bare_snapshot(sha: &str, parents: Vec<String>, functions: Vec<FunctionSnapshot>) -> Snapshot {
+    Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        commit: CommitInfo {
+            sha: sha.to_string(),
+            parents,
+            timestamp: 0,
+            branch: None,
+            message: None,
+            author: None,
+            is_fix_commit: None,
+            is_revert_commit: None,
+            ticket_ids: vec![],
+        },
+        analysis: AnalysisInfo {
+            scope: "full".to_string(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            formula_version: 1,
+            touch_window_days: 365,
+        },
+        functions,
+        summary: None,
+        aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
+    }
+}
+
+/// Pins `hotspots diff`'s 2.0 master-schema envelope (`DeltaEnvelope`):
+/// `schema_version` unified with `SNAPSHOT_SCHEMA_VERSION`, top-level
+/// `commit` (head only), and the diff itself nested under `delta` — see
+/// `docs/master-schema-spec.md` section 2 ("diff a b" row) and `Delta::to_json`.
+#[test]
+fn delta_envelope_shape() {
+    let parent = bare_snapshot(
+        &"1".repeat(40),
+        vec![],
+        vec![test_function("rust/simple.rs", 1, 3)],
+    );
+    let current = bare_snapshot(
+        &"2".repeat(40),
+        vec!["1".repeat(40)],
+        vec![test_function("rust/simple.rs", 1, 9)],
+    );
+
+    let delta = Delta::new(&current, Some(&parent)).expect("Delta::new should succeed");
+    let json_str = delta.to_json().expect("Delta must serialize to JSON");
+    let json: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
+
+    let expected: BTreeSet<String> = ["schema_version", "commit", "delta"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json),
+        expected,
+        "Delta envelope's top-level keys changed. Update downstream consumers \
+         (hotspots-cloud, the GitHub Action, hotspots-research scripts) in the \
+         same release, then update the expected set here."
+    );
+    assert_eq!(
+        json["schema_version"], SNAPSHOT_SCHEMA_VERSION,
+        "delta envelope schema_version must match the unified SNAPSHOT_SCHEMA_VERSION"
+    );
+    assert_eq!(
+        json["commit"]["sha"], current.commit.sha,
+        "envelope top-level commit.sha must be the head commit"
+    );
+
+    let expected_delta: BTreeSet<String> = ["commit", "baseline", "deltas"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json["delta"]),
+        expected_delta,
+        "delta section shape changed (policy/aggregates are optional and absent here)"
+    );
+
+    // Round-trips through Delta::from_json.
+    let round_tripped = Delta::from_json(&json_str).expect("Delta must deserialize from JSON");
+    assert_eq!(round_tripped, delta);
 }

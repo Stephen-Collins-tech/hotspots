@@ -454,7 +454,6 @@ mod tests {
         };
 
         let delta_val = Delta {
-            schema_version: 1,
             commit: DeltaCommitInfo {
                 sha: "head".to_string(),
                 parent: "base".to_string(),

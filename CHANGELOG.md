@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validated finding supports its sole `"serialize"` trigger (see
   `coordinate-remove-coupling-recommendation.md`). `within_set`/`hidden_dependencies` remain as
   descriptive facts.
+- **2.0 Phase 4:** `hotspots diff`'s JSON/JSONL output is now the unified master-schema
+  envelope (`schema_version: 5`): a top-level `commit` (head only) with the diff itself
+  nested under `delta` (`delta.commit` keeps both head and parent, `delta.deltas`,
+  `delta.policy`, `delta.aggregates` unchanged). `DELTA_SCHEMA_VERSION` (previously `1`)
+  is removed; consumers reading `delta.aggregates.pr_summary` or `policy.failed` at the
+  old top level must add the `delta.` prefix.
 
 ### Documentation
 - Document hotspots coordinate command (#239)

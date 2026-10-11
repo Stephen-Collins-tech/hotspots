@@ -115,7 +115,7 @@ Every `diff` collapses all function-level changes into `pr_risk_score`
 functions subtract theirs, modified functions add their ΔLRS) plus a `band`
 (the highest risk band reached by any new or modified function). Text output
 prints it under the summary line; JSON/JSONL expose it at
-`aggregates.pr_summary`; the HTML report shows it as a summary card.
+`delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
 
 **Read `pr_risk_score` as a structural signal (what's the worst code in this
 diff), not a validated risk estimate.** hotspots-research tested it directly
