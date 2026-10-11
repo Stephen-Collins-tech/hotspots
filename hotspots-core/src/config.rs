@@ -77,9 +77,10 @@ const DEFAULT_EXCLUDES: &[&str] = &[
 
 /// Current schema version for `.hotspotsrc.json` / `hotspots.config.json` files.
 ///
-/// Mirrors `SNAPSHOT_SCHEMA_VERSION` / `DELTA_SCHEMA_VERSION`: bump this when a
-/// breaking change to weight/threshold semantics requires migration or explicit
-/// detection rather than silent reinterpretation.
+/// Mirrors `SNAPSHOT_SCHEMA_VERSION` (the unified master-schema envelope version,
+/// which also covers what used to be the separate `DELTA_SCHEMA_VERSION` before
+/// hotspots 2.0): bump this when a breaking change to weight/threshold semantics
+/// requires migration or explicit detection rather than silent reinterpretation.
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 
 fn default_config_schema_version() -> u32 {
