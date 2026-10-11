@@ -452,3 +452,55 @@ fn delta_envelope_shape() {
     let round_tripped = Delta::from_json(&json_str).expect("Delta must deserialize from JSON");
     assert_eq!(round_tripped, delta);
 }
+
+/// Pins the last of the six pre-2.0 shapes: bare `analyze <path>` (no
+/// `--mode`) JSON output. `render_json_envelope` wraps the per-function array
+/// in `{"schema_version": ..., "functions": [...]}` instead of a bare
+/// top-level array; `golden_tests.rs` still exercises the unwrapped
+/// `render_json` directly for per-function metric comparisons (that function
+/// is unaffected by this phase, only the CLI's own JSON branch now calls
+/// `render_json_envelope` instead).
+#[test]
+fn bare_analyze_envelope_shape() {
+    let reports = vec![hotspots_core::FunctionRiskReport {
+        file: "a.rs".to_string(),
+        function: "f".to_string(),
+        line: 1,
+        language: Language::Rust,
+        metrics: MetricsReport {
+            cc: 3,
+            nd: 2,
+            fo: 1,
+            ns: 1,
+            loc: 20,
+        },
+        risk: hotspots_core::report::RiskReport {
+            r_cc: 1.0,
+            r_nd: 1.0,
+            r_fo: 1.0,
+            r_ns: 1.0,
+        },
+        lrs: 3.0,
+        band: RiskBand::Moderate,
+        suppression_reason: None,
+        patterns: vec![],
+        pattern_details: None,
+        callees: vec![],
+        explanation: None,
+    }];
+
+    let json: serde_json::Value =
+        serde_json::from_str(&hotspots_core::render_json_envelope(&reports)).expect("valid JSON");
+
+    let expected: BTreeSet<String> = ["schema_version", "functions"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json),
+        expected,
+        "Bare analyze envelope's top-level keys changed."
+    );
+    assert_eq!(json["schema_version"], SNAPSHOT_SCHEMA_VERSION);
+    assert_eq!(json["functions"].as_array().unwrap().len(), 1);
+}

@@ -832,7 +832,7 @@ fn handle_default_output(
                 hotspots_core::render_text_grouped(&reports, limit, color)
             );
         }
-        OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
+        OutputFormat::Json => println!("{}", hotspots_core::render_json_envelope(&reports)),
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }

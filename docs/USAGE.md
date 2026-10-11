@@ -381,11 +381,15 @@ No `✦` lines appear without a trained ranker.
 
 ```bash
 hotspots analyze src/ --format json
-hotspots analyze . --mode snapshot --format json --all-functions  # full flat array (schema v2)
+hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
 hotspots analyze . --mode snapshot --format json --include-models  # add model risk map
 ```
 
-Default snapshot JSON uses schema v4 (triage-first structure: `fire`/`debt`/`watch`/`ok` buckets). Use `--all-functions` for the flat `functions` array (schema v2). Always check `schema_version` in tooling.
+Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version
+across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
+`functions` array in favor of the triage-first structure (`fire`/`debt`/`watch`/`ok` buckets);
+use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
+in tooling.
 
 Useful `jq` patterns:
 ```bash

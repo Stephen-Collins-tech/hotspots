@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of a raw, unversioned `{"risk": [...], ...}` map — the last of the six shapes
   with no `schema_version` at all. `rank_by_axis`/`RankedFile` output is unchanged, only
   nested one level deeper under `axes`.
+- **2.0 Phase 6 (final):** plain `hotspots analyze <path>` (no `--mode`) JSON output is
+  now the unified master-schema envelope (`schema_version: 5`), wrapping the per-function
+  array as `{"schema_version": 5, "functions": [...]}` instead of a bare top-level array
+  — the last of the six pre-2.0 shapes. Per-function fields are unchanged. Completes
+  issue #247; all six output shapes now share one `schema_version`.
 
 ### Documentation
 - Document hotspots coordinate command (#239)
