@@ -157,7 +157,7 @@ pub struct HotspotsConfig {
     pub per_function_touches: Option<bool>,
 
     /// Enable hybrid touch mode: file-level for all functions, then per-function
-    /// only for functions in files with touch_count_30d >= this threshold.
+    /// only for functions in files with touch_count >= this threshold.
     /// Overrides per_function_touches when set. Recommended: 3–10.
     #[serde(default)]
     pub hybrid_touch_threshold: Option<usize>,

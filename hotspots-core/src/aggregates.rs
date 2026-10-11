@@ -63,13 +63,12 @@ pub struct ModuleInstability {
     pub afferent: usize,
     /// Efferent coupling: modules this one depends on externally
     pub efferent: usize,
-    /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
-    pub instability: f64,
     /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
-    /// internal validation found combining this with the `instability` metric
-    /// below added no benefit over complexity alone, so `module_risk` does not
-    /// depend on it. `instability`/`afferent`/`efferent` remain informational
-    /// fields only.
+    /// internal validation found combining this with instability
+    /// (efferent / (afferent + efferent)) added no benefit over complexity
+    /// alone, so `module_risk` never depended on it. hotspots 2.0 removed the
+    /// `instability` field entirely (it carried no measured signal, rho≈-0.002)
+    /// -- `afferent`/`efferent` remain as descriptive facts only.
     pub module_risk: String,
 }
 
@@ -207,10 +206,14 @@ pub struct AgentFunctionView {
     pub lrs: f64,
     pub activity_risk: f64,
     pub metrics: AgentMetrics,
+    // hotspots 2.0: renamed from `touches_30d`/`days_since_changed` to match
+    // `FunctionSnapshot`'s names exactly, now that this struct lives inside the
+    // same unified envelope (Phase 1) — these were the "triage-mode spelling"
+    // the master-schema-spec's duplicate-naming audit flagged (section 1).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub touches_30d: Option<usize>,
+    pub touch_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_changed: Option<u32>,
+    pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fan_in: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -305,8 +308,8 @@ fn to_agent_view(
                     nd: func.metrics.nd as usize,
                     fo: func.metrics.fo as usize,
                 },
-                touches_30d: func.touch_count_30d,
-                days_since_changed: func.days_since_last_change,
+                touch_count: func.touch_count,
+                days_since_last_change: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
                 patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
@@ -779,11 +782,6 @@ fn compute_module_instability_from_edges(
             let stats = dir_stats.get(&dir)?;
             let eff = *efferent.get(&dir).unwrap_or(&0);
             let aff = *afferent.get(&dir).unwrap_or(&0);
-            let instability = if eff + aff == 0 {
-                0.5 // undefined — treat as neutral
-            } else {
-                eff as f64 / (eff + aff) as f64
-            };
             let avg_complexity = if stats.function_count > 0 {
                 stats.sum_cc as f64 / stats.function_count as f64
             } else {
@@ -801,21 +799,16 @@ fn compute_module_instability_from_edges(
                 avg_complexity: (avg_complexity * 100.0).round() / 100.0,
                 afferent: aff,
                 efferent: eff,
-                instability: (instability * 1000.0).round() / 1000.0,
                 module_risk,
             })
         })
         .collect();
 
-    // Sort: high-risk first, then by instability ascending (most stable / highest-risk first)
+    // Sort: high-risk first, then by module name (the instability-based
+    // secondary sort was removed along with the field in hotspots 2.0).
     modules.sort_by(|a, b| {
         b.module_risk
             .cmp(&a.module_risk) // "high" > "low"
-            .then(
-                a.instability
-                    .partial_cmp(&b.instability)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
             .then(a.module.cmp(&b.module))
     });
 
@@ -1277,7 +1270,7 @@ mod tests {
             band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,

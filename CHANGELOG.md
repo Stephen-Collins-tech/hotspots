@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **2.0 Phase 2:** remove `risk_factors.{fan_in,cyclic_dependency,depth,burst}`,
+  `callgraph.{fan_out,betweenness,scc_id,dependency_depth}`, and `modules[].instability`
+  — all either already hardcoded to `0.0`/dead or carried no measured signal (`risk_factors.churn`
+  carved out: still a live, weighted score contributor with no non-inferiority finding to justify
+  removing it). Gate `patterns[]` behind `--explain-patterns` (was previously always present).
+  Rename `touch_count_30d`/`touches_30d` → `touch_count` and `days_since_changed` →
+  `days_since_last_change` everywhere (the field never actually covered a 30-day window — it's
+  365 days per F165); add top-level `analysis.touch_window_days`. Tracked in issue #247
+  (2 of 6 planned phases toward 2.0.0, following #248).
+
 ### Documentation
 - Document hotspots coordinate command (#239)
 

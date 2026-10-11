@@ -56,7 +56,7 @@ pub struct FileChurn {
 #[derive(Debug, Clone)]
 pub struct BatchedTouchMetrics {
     /// Number of commits touching each file in the 30-day window, keyed by relative path.
-    pub touch_count_30d: std::collections::HashMap<String, usize>,
+    pub touch_count: std::collections::HashMap<String, usize>,
     /// Days since last change for each file, keyed by relative path.
     pub days_since_last_change: std::collections::HashMap<String, u32>,
 }
@@ -764,7 +764,7 @@ pub fn compute_fn_changed_lines(
     total
 }
 
-/// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count_30d` /
+/// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count` /
 /// `days_since_last_change` pair.
 ///
 /// Widened from 30 to 365 per hotspots-research F165 (confirmed, pre-registered,
@@ -772,7 +772,7 @@ pub fn compute_fn_changed_lines(
 /// mean rho by +0.029 and mean P@10% by +0.015 with both bootstrap CI lower bounds
 /// positive, monotonically across the whole tested grid with no peak — and a paired
 /// size-confound check (partial correlation controlling for loc) found the gain is
-/// not just "counting more commits." The `touch_count_30d` field/struct names are kept
+/// not just "counting more commits." The `touch_count` field/struct names are kept
 /// as-is for JSON/schema compatibility with existing consumers (dashboards, `--compare`,
 /// hotspots-cloud) even though they now measure a 365-day window — see F165's own note
 /// that this cost was not separately measured (the git walk here is still one process
@@ -787,7 +787,7 @@ pub const TOUCH_WINDOW_DAYS: i64 = 365;
 /// # Algorithm
 ///
 /// Call 1: `git log --format="COMMIT %ct" --name-only --since=X --until=Y`
-///   → builds `touch_count_30d` (a `TOUCH_WINDOW_DAYS`-wide window, see its doc
+///   → builds `touch_count` (a `TOUCH_WINDOW_DAYS`-wide window, see its doc
 ///   comment) and finds last-change timestamp for files in window.
 ///
 /// Call 2 (fallback): for any file not seen in call 1, a single `git log -1 --format=%ct`
@@ -841,7 +841,7 @@ pub fn batch_touch_metrics_at(
         .collect();
 
     Ok(BatchedTouchMetrics {
-        touch_count_30d: touch_count,
+        touch_count,
         days_since_last_change: days_since,
     })
 }
@@ -898,7 +898,7 @@ pub fn batch_last_touch_for_files(
 
 /// Per-function touch metrics using `git log -L start,end:file`.
 ///
-/// Returns `(touch_count_30d, days_since_last_change)` for the specific line range.
+/// Returns `(touch_count, days_since_last_change)` for the specific line range.
 /// More accurate than file-level metrics but ~50× slower per function.
 ///
 /// # Arguments
@@ -1447,7 +1447,7 @@ index 3333333..4444444 100644
             band: crate::risk::RiskBand::Low,
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,
@@ -1495,6 +1495,7 @@ index 3333333..4444444 100644
                 scope: "full".to_string(),
                 tool_version: "test".to_string(),
                 formula_version: 1,
+                touch_window_days: 365,
             },
             functions,
             summary: None,

@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS functions (
     callees                 TEXT,
     churn_added             INTEGER,
     churn_deleted           INTEGER,
-    touch_count_30d         INTEGER,
+    touch_count         INTEGER,
     days_since_last_change  INTEGER,
     fan_in                  INTEGER,
     fan_out                 INTEGER,
@@ -126,7 +126,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             commit_sha, function_id, file, line, language,
             cc, nd, fo, ns, loc, lrs, band, suppression_reason,
             churn_added, churn_deleted,
-            touch_count_30d, days_since_last_change,
+            touch_count, days_since_last_change,
             fan_in, fan_out, pagerank, betweenness,
             scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
             activity_risk, risk_factors,
@@ -158,6 +158,10 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             .map(|c| (Some(c.lines_added as i64), Some(c.lines_deleted as i64)))
             .unwrap_or((None, None));
 
+        // `fan_out`/`betweenness`/`scc_id`/`dep_depth` are no longer on
+        // `CallGraphMetrics` (hotspots 2.0 field removal) and always write
+        // `None` now; their SQLite columns are kept as-is (no migration) since
+        // this DB is a local, rebuildable cache, not a durable store.
         let (
             fan_in,
             fan_out,
@@ -174,13 +178,13 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             .map(|cg| {
                 (
                     Some(cg.fan_in as i64),
-                    Some(cg.fan_out as i64),
+                    None::<i64>,
                     Some(cg.pagerank),
-                    Some(cg.betweenness),
-                    Some(cg.scc_id as i64),
+                    None::<f64>,
+                    None::<i64>,
                     Some(cg.scc_size as i64),
                     Some(cg.is_entrypoint as i64),
-                    cg.dependency_depth.map(|d| d as i64),
+                    None::<i64>,
                     cg.neighbor_churn.map(|n| n as i64),
                 )
             })
@@ -214,7 +218,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             func.suppression_reason,
             churn_added,
             churn_deleted,
-            func.touch_count_30d.map(|n| n as i64),
+            func.touch_count.map(|n| n as i64),
             func.days_since_last_change.map(|n| n as i64),
             fan_in,
             fan_out,
@@ -249,7 +253,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
         "SELECT function_id, file, line, language,
                 cc, nd, fo, ns, loc, lrs, band, suppression_reason,
                 churn_added, churn_deleted,
-                touch_count_30d, days_since_last_change,
+                touch_count, days_since_last_change,
                 fan_in, fan_out, pagerank, betweenness,
                 scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
                 activity_risk, risk_factors,
@@ -260,108 +264,103 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
          ORDER BY function_id",
     )?;
 
-    let rows = stmt.query_map([sha], |row| {
-        let function_id: String = row.get(0)?;
-        let file: String = row.get(1)?;
-        let line: i64 = row.get(2)?;
-        let language: String = row.get(3)?;
-        let cc: i64 = row.get(4)?;
-        let nd: i64 = row.get(5)?;
-        let fo: i64 = row.get(6)?;
-        let ns: i64 = row.get(7)?;
-        let loc: i64 = row.get(8)?;
-        let lrs: f64 = row.get(9)?;
-        let band: String = row.get(10)?;
-        let suppression_reason: Option<String> = row.get(11)?;
+    let rows =
+        stmt.query_map([sha], |row| {
+            let function_id: String = row.get(0)?;
+            let file: String = row.get(1)?;
+            let line: i64 = row.get(2)?;
+            let language: String = row.get(3)?;
+            let cc: i64 = row.get(4)?;
+            let nd: i64 = row.get(5)?;
+            let fo: i64 = row.get(6)?;
+            let ns: i64 = row.get(7)?;
+            let loc: i64 = row.get(8)?;
+            let lrs: f64 = row.get(9)?;
+            let band: String = row.get(10)?;
+            let suppression_reason: Option<String> = row.get(11)?;
 
-        let churn_added: Option<i64> = row.get(12)?;
-        let churn_deleted: Option<i64> = row.get(13)?;
-        let churn = churn_added.zip(churn_deleted).map(|(a, d)| {
-            let net = a - d;
-            ChurnMetrics {
-                lines_added: a as usize,
-                lines_deleted: d as usize,
-                net_change: net,
-            }
-        });
-
-        let touch_count_30d: Option<i64> = row.get(14)?;
-        let days_since_last_change: Option<i64> = row.get(15)?;
-
-        let fan_in: Option<i64> = row.get(16)?;
-        let fan_out: Option<i64> = row.get(17)?;
-        let pagerank: Option<f64> = row.get(18)?;
-        let betweenness: Option<f64> = row.get(19)?;
-        let scc_id: Option<i64> = row.get(20)?;
-        let scc_size: Option<i64> = row.get(21)?;
-        let is_entrypoint: Option<i64> = row.get(22)?;
-        let dep_depth: Option<i64> = row.get(23)?;
-        let nbr_churn: Option<i64> = row.get(24)?;
-        let callgraph = fan_in
-            .zip(fan_out)
-            .zip(pagerank)
-            .zip(betweenness)
-            .zip(scc_id)
-            .zip(scc_size)
-            .zip(is_entrypoint)
-            .map(|((((((fi, fo), pr), bt), si), ss), ep)| CallGraphMetrics {
-                fan_in: fi as usize,
-                fan_out: fo as usize,
-                pagerank: pr,
-                betweenness: bt,
-                scc_id: si as usize,
-                scc_size: ss as usize,
-                is_entrypoint: ep != 0,
-                dependency_depth: dep_depth.map(|d| d as usize),
-                neighbor_churn: nbr_churn.map(|n| n as usize),
+            let churn_added: Option<i64> = row.get(12)?;
+            let churn_deleted: Option<i64> = row.get(13)?;
+            let churn = churn_added.zip(churn_deleted).map(|(a, d)| {
+                let net = a - d;
+                ChurnMetrics {
+                    lines_added: a as usize,
+                    lines_deleted: d as usize,
+                    net_change: net,
+                }
             });
 
-        let activity_risk: Option<f64> = row.get(25)?;
-        let risk_factors_json: Option<String> = row.get(26)?;
+            let touch_count: Option<i64> = row.get(14)?;
+            let days_since_last_change: Option<i64> = row.get(15)?;
 
-        let top10: Option<i64> = row.get(27)?;
-        let top5: Option<i64> = row.get(28)?;
-        let top1: Option<i64> = row.get(29)?;
-        let percentile = top10
-            .zip(top5)
-            .zip(top1)
-            .map(|((t10, t5), t1)| PercentileFlags {
-                is_top_10_pct: t10 != 0,
-                is_top_5_pct: t5 != 0,
-                is_top_1_pct: t1 != 0,
-            });
+            let fan_in: Option<i64> = row.get(16)?;
+            // Columns 17/19/20/23 (`fan_out`/`betweenness`/`scc_id`/`dep_depth`) are read
+            // for schema stability (no column removal/migration) but no longer mapped
+            // onto `CallGraphMetrics`, which dropped those fields in hotspots 2.0.
+            let _fan_out: Option<i64> = row.get(17)?;
+            let pagerank: Option<f64> = row.get(18)?;
+            let _betweenness: Option<f64> = row.get(19)?;
+            let _scc_id: Option<i64> = row.get(20)?;
+            let scc_size: Option<i64> = row.get(21)?;
+            let is_entrypoint: Option<i64> = row.get(22)?;
+            let _dep_depth: Option<i64> = row.get(23)?;
+            let nbr_churn: Option<i64> = row.get(24)?;
+            let callgraph = fan_in.zip(pagerank).zip(scc_size).zip(is_entrypoint).map(
+                |(((fi, pr), ss), ep)| CallGraphMetrics {
+                    fan_in: fi as usize,
+                    pagerank: pr,
+                    scc_size: ss as usize,
+                    is_entrypoint: ep != 0,
+                    neighbor_churn: nbr_churn.map(|n| n as usize),
+                },
+            );
 
-        let driver: Option<String> = row.get(30)?;
-        let driver_detail: Option<String> = row.get(31)?;
-        let quadrant: Option<String> = row.get(32)?;
-        let patterns_json: Option<String> = row.get(33)?;
+            let activity_risk: Option<f64> = row.get(25)?;
+            let risk_factors_json: Option<String> = row.get(26)?;
 
-        Ok((
-            function_id,
-            file,
-            line,
-            language,
-            cc,
-            nd,
-            fo,
-            ns,
-            loc,
-            lrs,
-            band,
-            suppression_reason,
-            churn,
-            touch_count_30d,
-            days_since_last_change,
-            callgraph,
-            activity_risk,
-            risk_factors_json,
-            percentile,
-            driver,
-            driver_detail,
-            quadrant,
-            patterns_json,
-        ))
-    })?;
+            let top10: Option<i64> = row.get(27)?;
+            let top5: Option<i64> = row.get(28)?;
+            let top1: Option<i64> = row.get(29)?;
+            let percentile = top10
+                .zip(top5)
+                .zip(top1)
+                .map(|((t10, t5), t1)| PercentileFlags {
+                    is_top_10_pct: t10 != 0,
+                    is_top_5_pct: t5 != 0,
+                    is_top_1_pct: t1 != 0,
+                });
+
+            let driver: Option<String> = row.get(30)?;
+            let driver_detail: Option<String> = row.get(31)?;
+            let quadrant: Option<String> = row.get(32)?;
+            let patterns_json: Option<String> = row.get(33)?;
+
+            Ok((
+                function_id,
+                file,
+                line,
+                language,
+                cc,
+                nd,
+                fo,
+                ns,
+                loc,
+                lrs,
+                band,
+                suppression_reason,
+                churn,
+                touch_count,
+                days_since_last_change,
+                callgraph,
+                activity_risk,
+                risk_factors_json,
+                percentile,
+                driver,
+                driver_detail,
+                quadrant,
+                patterns_json,
+            ))
+        })?;
 
     let mut functions = Vec::new();
     for row in rows {
@@ -379,7 +378,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             band,
             suppression_reason,
             churn,
-            touch_count_30d,
+            touch_count,
             days_since_last_change,
             callgraph,
             activity_risk,
@@ -419,7 +418,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             band,
             suppression_reason,
             churn,
-            touch_count_30d: touch_count_30d.map(|n| n as usize),
+            touch_count: touch_count.map(|n| n as usize),
             days_since_last_change: days_since_last_change.map(|n| n as u32),
             callgraph,
             activity_risk,
@@ -854,6 +853,7 @@ impl SnapshotDb {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
                 formula_version: FORMULA_VERSION,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
@@ -1086,17 +1086,13 @@ mod tests {
             lines_deleted: 10,
             net_change: 40,
         });
-        f.touch_count_30d = Some(7);
+        f.touch_count = Some(7);
         f.days_since_last_change = Some(5);
         f.callgraph = Some(CallGraphMetrics {
             fan_in: 3,
-            fan_out: 5,
             pagerank: 0.42,
-            betweenness: 0.15,
-            scc_id: 2,
             scc_size: 4,
             is_entrypoint: true,
-            dependency_depth: Some(2),
             neighbor_churn: Some(12),
         });
         f.activity_risk = Some(9.5);
@@ -1105,11 +1101,7 @@ mod tests {
             churn: 0.5,
             activity: 0.8,
             recency: 0.3,
-            fan_in: 0.2,
-            cyclic_dependency: 0.0,
-            depth: 0.1,
             neighbor_churn: 0.4,
-            burst: 0.0,
         });
         f.percentile = Some(PercentileFlags {
             is_top_10_pct: true,
@@ -1128,18 +1120,14 @@ mod tests {
         assert_eq!(churn.lines_added, 50);
         assert_eq!(churn.lines_deleted, 10);
         assert_eq!(churn.net_change, 40);
-        assert_eq!(lf.touch_count_30d, Some(7));
+        assert_eq!(lf.touch_count, Some(7));
         assert_eq!(lf.days_since_last_change, Some(5));
 
         let cg = lf.callgraph.as_ref().expect("callgraph should be present");
         assert_eq!(cg.fan_in, 3);
-        assert_eq!(cg.fan_out, 5);
         assert!((cg.pagerank - 0.42).abs() < 1e-9);
-        assert!((cg.betweenness - 0.15).abs() < 1e-9);
-        assert_eq!(cg.scc_id, 2);
         assert_eq!(cg.scc_size, 4);
         assert!(cg.is_entrypoint);
-        assert_eq!(cg.dependency_depth, Some(2));
         assert_eq!(cg.neighbor_churn, Some(12));
 
         assert!((lf.activity_risk.unwrap() - 9.5).abs() < 1e-9);

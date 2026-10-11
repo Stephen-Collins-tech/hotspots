@@ -41,7 +41,7 @@ pub(crate) fn print_file_risk_output(
     Ok(())
 }
 
-/// Print ranked module instability table.
+/// Print ranked module risk table.
 pub(crate) fn print_module_output(
     modules: &[hotspots_core::aggregates::ModuleInstability],
     top: Option<usize>,
@@ -54,23 +54,23 @@ pub(crate) fn print_module_output(
     let total = modules.len();
     let display_count = top.map(|n| n.min(total)).unwrap_or(total);
     let title = if display_count < total {
-        format!("Top {} Modules by Instability Risk", display_count)
+        format!("Top {} Modules by Risk", display_count)
     } else {
-        "All Modules by Instability".to_string()
+        "All Modules by Risk".to_string()
     };
 
     println!("{}", title);
     println!("{}", "=".repeat(80));
     println!();
     println!(
-        "{:<3} {:<40} {:>5} {:>5} {:>7} {:>9} {:>9} {:>11} {:>5}",
-        "#", "module", "files", "fns", "avg_cc", "afferent", "efferent", "instability", "risk"
+        "{:<3} {:<40} {:>5} {:>5} {:>7} {:>9} {:>9} {:>5}",
+        "#", "module", "files", "fns", "avg_cc", "afferent", "efferent", "risk"
     );
-    println!("{}", "-".repeat(98));
+    println!("{}", "-".repeat(86));
 
     for (i, m) in modules.iter().take(display_count).enumerate() {
         println!(
-            "{:<3} {:<40} {:>5} {:>5} {:>7.1} {:>9} {:>9} {:>11.3} {:>5}",
+            "{:<3} {:<40} {:>5} {:>5} {:>7.1} {:>9} {:>9} {:>5}",
             i + 1,
             truncate_string(&m.module, 40),
             m.file_count,
@@ -78,12 +78,11 @@ pub(crate) fn print_module_output(
             m.avg_complexity,
             m.afferent,
             m.efferent,
-            m.instability,
             m.module_risk,
         );
     }
 
-    println!("{}", "-".repeat(98));
+    println!("{}", "-".repeat(86));
     println!("Showing {}/{} modules", display_count, total);
 
     let high_risk_count = modules

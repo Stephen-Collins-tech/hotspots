@@ -148,7 +148,7 @@ mod tests {
             band: RiskBand::Low,
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,
