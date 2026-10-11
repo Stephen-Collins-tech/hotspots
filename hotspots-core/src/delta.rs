@@ -100,20 +100,16 @@ pub struct Delta {
     pub aggregates: Option<crate::aggregates::DeltaAggregates>,
 }
 
-/// `commit` section of the envelope (head commit only — `delta.commit` below
-/// carries both head and parent for the diff itself).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EnvelopeCommit {
-    pub sha: String,
-}
-
 /// 2.0 master-schema envelope for `hotspots diff`: `schema_version` unified
-/// with `SNAPSHOT_SCHEMA_VERSION`, top-level `commit` (head), and the diff
-/// itself nested under `delta` — see `docs/master-schema-spec.md` section 2.
+/// with `SNAPSHOT_SCHEMA_VERSION`, diff payload nested under `delta` — see
+/// `docs/master-schema-spec.md` section 2. No top-level `commit` section:
+/// `delta.commit.sha` already carries the head commit, and a second copy at
+/// the envelope's top level would duplicate that exact value under a
+/// different path, which the master schema's governing rule forbids (a field
+/// stays only if it isn't a duplicate of another field's value).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeltaEnvelope {
     pub schema_version: u32,
-    pub commit: EnvelopeCommit,
     pub delta: Delta,
 }
 
@@ -197,9 +193,6 @@ impl Delta {
     pub fn to_json(&self) -> Result<String> {
         let envelope = DeltaEnvelope {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
-            commit: EnvelopeCommit {
-                sha: self.commit.sha.clone(),
-            },
             delta: self.clone(),
         };
         serde_json::to_string_pretty(&envelope).context("failed to serialize delta to JSON")

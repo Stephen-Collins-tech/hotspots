@@ -417,24 +417,28 @@ fn delta_envelope_shape() {
     let json_str = delta.to_json().expect("Delta must serialize to JSON");
     let json: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
 
-    let expected: BTreeSet<String> = ["schema_version", "commit", "delta"]
+    let expected: BTreeSet<String> = ["schema_version", "delta"]
         .into_iter()
         .map(String::from)
         .collect();
     assert_eq!(
         keys_of(&json),
         expected,
-        "Delta envelope's top-level keys changed. Update downstream consumers \
-         (hotspots-cloud, the GitHub Action, hotspots-research scripts) in the \
-         same release, then update the expected set here."
+        "Delta envelope's top-level keys changed. No top-level `commit` by \
+         design: `delta.commit.sha` already carries the head commit, and a \
+         second copy at the top level would duplicate that value under a \
+         different path (the master schema has zero field duplication). \
+         Update downstream consumers (hotspots-cloud, the GitHub Action, \
+         hotspots-research scripts) in the same release, then update the \
+         expected set here."
     );
     assert_eq!(
         json["schema_version"], SNAPSHOT_SCHEMA_VERSION,
         "delta envelope schema_version must match the unified SNAPSHOT_SCHEMA_VERSION"
     );
     assert_eq!(
-        json["commit"]["sha"], current.commit.sha,
-        "envelope top-level commit.sha must be the head commit"
+        json["delta"]["commit"]["sha"], current.commit.sha,
+        "delta.commit.sha must be the head commit"
     );
 
     let expected_delta: BTreeSet<String> = ["commit", "baseline", "deltas"]

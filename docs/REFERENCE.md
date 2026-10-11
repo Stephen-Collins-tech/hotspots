@@ -824,13 +824,14 @@ gate, so `module_risk` does not depend on them.
 ### Delta output
 
 `hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 5`,
-unified with the snapshot schema version): a top-level `commit` (the head commit only)
-and the diff itself nested under `delta`.
+unified with the snapshot schema version): the diff itself nested under `delta`. There
+is no separate top-level `commit` — `delta.commit.sha` already carries the head commit,
+and the master schema has zero field duplication (no value appears twice under
+different paths), so it isn't repeated at the envelope's top level too.
 
 ```json
 {
   "schema_version": 5,
-  "commit": { "sha": "abc123" },
   "delta": {
     "commit": { "sha": "abc123", "parent": "def456" },
     "baseline": false,
