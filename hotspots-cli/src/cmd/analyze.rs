@@ -754,14 +754,18 @@ fn handle_axes(
     ];
 
     if matches!(format, OutputFormat::Json) {
-        let obj: serde_json::Map<String, serde_json::Value> = sections
+        let axes: serde_json::Map<String, serde_json::Value> = sections
             .iter()
             .map(|(axis, _, key)| {
                 let ranked = rank_by_axis(&snapshot.functions, *axis, top_n);
                 (key.to_string(), serde_json::to_value(ranked).unwrap())
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&obj)?);
+        let envelope = serde_json::json!({
+            "schema_version": hotspots_core::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            "axes": axes,
+        });
+        println!("{}", serde_json::to_string_pretty(&envelope)?);
         return Ok(());
     }
 
