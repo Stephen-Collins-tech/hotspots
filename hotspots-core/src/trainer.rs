@@ -22,12 +22,12 @@
 //!   `FunctionSnapshot.convention_bug_fix_count` field and its `--explain`/report
 //!   consumers are unaffected; only this feature vector stopped reading it. See
 //!   `docs/promotion-briefs/ratchet-182-convention-fix-count-removal.md`.
-//! - `touch_count_30d`, `days_since_last_change` — windowed activity signals that
+//! - `touch_count`, `days_since_last_change` — windowed activity signals that
 //!   correlate tautologically with labels when the training window overlaps the label
 //!   scan window (temporal leakage; see research Finding 15 and Finding 31).
 //! - `convention_bug_fix_rate` — fix count divided by total commits; circular with the
 //!   label scan (F48). Only the raw count survives temporal holdout (F54).
-//! - `activity_risk` — a composite of `touch_count_30d` and `days_since_last_change`;
+//! - `activity_risk` — a composite of `touch_count` and `days_since_last_change`;
 //!   including it is indirect temporal leakage of the same windowed signals. It also
 //!   causes the trained ranker to reproduce the heuristic score rather than learning
 //!   from structural features, making `hotspots train` a no-op in practice.
@@ -1465,7 +1465,7 @@ mod tests {
     #[test]
     fn no_leaky_windowed_features() {
         for name in FEATURE_NAMES {
-            assert_ne!(name, "touch_count_30d", "leaky feature still present");
+            assert_ne!(name, "touch_count", "leaky feature still present");
             assert_ne!(
                 name, "days_since_last_change",
                 "leaky feature still present"
@@ -1598,7 +1598,7 @@ mod tests {
                 band: RiskBand::Low,
                 suppression_reason: None,
                 churn: None,
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 callgraph: None,
                 activity_risk: Some(s),
@@ -1643,6 +1643,7 @@ mod tests {
                 scope: "test".into(),
                 tool_version: "0.0.0".into(),
                 formula_version: 1,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
@@ -1794,7 +1795,7 @@ mod tests {
                 band: RiskBand::Low,
                 suppression_reason: None,
                 churn: None,
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 callgraph: None,
                 activity_risk: Some((i as f64) / (counts.len() as f64)),
@@ -1839,6 +1840,7 @@ mod tests {
                 scope: "test".into(),
                 tool_version: "0.0.0".into(),
                 formula_version: 1,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
@@ -1984,7 +1986,7 @@ mod tests {
             band: RiskBand::Low,
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,

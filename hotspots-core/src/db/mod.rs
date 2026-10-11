@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS functions (
     callees                 TEXT,
     churn_added             INTEGER,
     churn_deleted           INTEGER,
-    touch_count_30d         INTEGER,
+    touch_count         INTEGER,
     days_since_last_change  INTEGER,
     fan_in                  INTEGER,
     fan_out                 INTEGER,
@@ -126,7 +126,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             commit_sha, function_id, file, line, language,
             cc, nd, fo, ns, loc, lrs, band, suppression_reason,
             churn_added, churn_deleted,
-            touch_count_30d, days_since_last_change,
+            touch_count, days_since_last_change,
             fan_in, fan_out, pagerank, betweenness,
             scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
             activity_risk, risk_factors,
@@ -218,7 +218,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             func.suppression_reason,
             churn_added,
             churn_deleted,
-            func.touch_count_30d.map(|n| n as i64),
+            func.touch_count.map(|n| n as i64),
             func.days_since_last_change.map(|n| n as i64),
             fan_in,
             fan_out,
@@ -253,7 +253,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
         "SELECT function_id, file, line, language,
                 cc, nd, fo, ns, loc, lrs, band, suppression_reason,
                 churn_added, churn_deleted,
-                touch_count_30d, days_since_last_change,
+                touch_count, days_since_last_change,
                 fan_in, fan_out, pagerank, betweenness,
                 scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
                 activity_risk, risk_factors,
@@ -290,7 +290,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 }
             });
 
-            let touch_count_30d: Option<i64> = row.get(14)?;
+            let touch_count: Option<i64> = row.get(14)?;
             let days_since_last_change: Option<i64> = row.get(15)?;
 
             let fan_in: Option<i64> = row.get(16)?;
@@ -349,7 +349,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 band,
                 suppression_reason,
                 churn,
-                touch_count_30d,
+                touch_count,
                 days_since_last_change,
                 callgraph,
                 activity_risk,
@@ -378,7 +378,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             band,
             suppression_reason,
             churn,
-            touch_count_30d,
+            touch_count,
             days_since_last_change,
             callgraph,
             activity_risk,
@@ -418,7 +418,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             band,
             suppression_reason,
             churn,
-            touch_count_30d: touch_count_30d.map(|n| n as usize),
+            touch_count: touch_count.map(|n| n as usize),
             days_since_last_change: days_since_last_change.map(|n| n as u32),
             callgraph,
             activity_risk,
@@ -853,6 +853,7 @@ impl SnapshotDb {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
                 formula_version: FORMULA_VERSION,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
@@ -1085,7 +1086,7 @@ mod tests {
             lines_deleted: 10,
             net_change: 40,
         });
-        f.touch_count_30d = Some(7);
+        f.touch_count = Some(7);
         f.days_since_last_change = Some(5);
         f.callgraph = Some(CallGraphMetrics {
             fan_in: 3,
@@ -1119,7 +1120,7 @@ mod tests {
         assert_eq!(churn.lines_added, 50);
         assert_eq!(churn.lines_deleted, 10);
         assert_eq!(churn.net_change, 40);
-        assert_eq!(lf.touch_count_30d, Some(7));
+        assert_eq!(lf.touch_count, Some(7));
         assert_eq!(lf.days_since_last_change, Some(5));
 
         let cg = lf.callgraph.as_ref().expect("callgraph should be present");

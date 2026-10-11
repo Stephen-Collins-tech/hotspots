@@ -81,7 +81,7 @@ enum Commands {
         /// Touch metrics mode: `auto` (default — config or hybrid:5), `per-function`
         /// (accurate, O(functions) git calls, cached in .hotspots/touch-cache.json.zst),
         /// `file` (fast file-level batching), `hybrid[:N]` (file-level first,
-        /// per-function only for files with touch_count_30d >= N, default N=5), or
+        /// per-function only for files with touch_count >= N, default N=5), or
         /// `none` (skip touch metrics, directed coupling, and burst_score entirely —
         /// no git log calls; for benchmarking pure analysis + call graph performance).
         #[arg(long, value_parser = cmd::analyze::parse_touch_mode_arg, conflicts_with_all = ["per_function_touches", "no_per_function_touches", "skip_touch_metrics", "hybrid_touches"])]
@@ -141,7 +141,7 @@ enum Commands {
         skip_gate: bool,
 
         /// Deprecated: use `--touch-mode hybrid:N`. Hybrid touch mode: run file-level
-        /// touch first, then per-function only for files with touch_count_30d >= N.
+        /// touch first, then per-function only for files with touch_count >= N.
         #[arg(long, value_name = "N", conflicts_with = "touch_mode")]
         hybrid_touches: Option<usize>,
 

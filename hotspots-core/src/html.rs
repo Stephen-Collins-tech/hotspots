@@ -130,7 +130,7 @@ fn render_trends_section(json: &str) -> String {
 /// Serialize per-function scatter data for the Risk Landscape chart.
 ///
 /// Emits a compact JSON array: `[{"n":"fn","f":"file","x":lrs,"y":churn,"b":"h"},…]`
-/// y = touch_count_30d, falling back to total churn lines, then 0.
+/// y = touch_count, falling back to total churn lines, then 0.
 /// `b` is a single letter: c=critical, h=high, m=moderate, l=low.
 fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
     if functions.is_empty() {
@@ -140,7 +140,7 @@ fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
         .iter()
         .map(|f| {
             let y = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t as f64)
                 .or_else(|| {
                     f.churn
@@ -2576,7 +2576,7 @@ fn render_function_risk_gallery(functions: &[FunctionSnapshot]) -> String {
             let width = ((f.lrs / max_lrs) * 100.0).clamp(4.0, 100.0);
             let activity = f.activity_risk.unwrap_or(f.lrs);
             let touches = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| "—".to_string());
             format!(
@@ -2619,7 +2619,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     let sparse_min = 10usize;
     let has_activity = functions.iter().any(|f| f.activity_risk.is_some());
     let has_churn = functions.iter().filter(|f| f.churn.is_some()).count() >= sparse_min;
-    let has_touches = functions.iter().any(|f| f.touch_count_30d.is_some());
+    let has_touches = functions.iter().any(|f| f.touch_count.is_some());
     let has_recency = functions.iter().any(|f| f.days_since_last_change.is_some());
     let has_fanin = functions.iter().filter(|f| f.callgraph.is_some()).count() >= sparse_min;
     let has_patterns = functions.iter().any(|f| !f.patterns.is_empty());
@@ -2664,7 +2664,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 String::new()
             };
             let touches_cell = if has_touches {
-                match f.touch_count_30d {
+                match f.touch_count {
                     Some(t) => format!("<td>{}</td>", t),
                     None => "<td>—</td>".to_string(),
                 }
@@ -2767,7 +2767,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                     .map(|ar| format!("{:.4}", ar))
                     .unwrap_or_default(),
                 churn = churn_val.map(|c| c.to_string()).unwrap_or_default(),
-                touches = f.touch_count_30d.map(|t| t.to_string()).unwrap_or_default(),
+                touches = f.touch_count.map(|t| t.to_string()).unwrap_or_default(),
                 fanin = f
                     .callgraph
                     .as_ref()
@@ -2928,11 +2928,7 @@ fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
                     .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .then_with(|| {
-                b.touch_count_30d
-                    .unwrap_or(0)
-                    .cmp(&a.touch_count_30d.unwrap_or(0))
-            })
+            .then_with(|| b.touch_count.unwrap_or(0).cmp(&a.touch_count.unwrap_or(0)))
             .then_with(|| {
                 b.lrs
                     .partial_cmp(&a.lrs)
@@ -2977,7 +2973,7 @@ fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
         .unwrap_or(&function.function_id);
     let quadrant = function.quadrant.as_deref().unwrap_or("ok");
     let driver = function.driver.as_deref().unwrap_or("composite");
-    let touches = function.touch_count_30d.unwrap_or(0);
+    let touches = function.touch_count.unwrap_or(0);
     let fan_in = function.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let activity = function.activity_risk.unwrap_or(function.lrs);
     let last_change = function
@@ -3107,7 +3103,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     top_risks.extend(inactive_risks);
     top_risks.truncate(15);
 
-    let show_touches = top_risks.iter().any(|f| f.touch_count_30d.is_some());
+    let show_touches = top_risks.iter().any(|f| f.touch_count.is_some());
     let show_last_change = top_risks.iter().any(|f| f.days_since_last_change.is_some());
     let count = top_risks.len();
 
@@ -3135,7 +3131,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
             };
 
             let _touches_td = if show_touches {
-                let inner = match f.touch_count_30d {
+                let inner = match f.touch_count {
                     Some(t) if t > 5 => {
                         format!(r#"<span class="recency-hot">{}</span>"#, t)
                     }
@@ -3178,7 +3174,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 None => "<td>—</td>".to_string(),
             };
             let touches_value = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| "—".to_string());
             let last_change_value = f

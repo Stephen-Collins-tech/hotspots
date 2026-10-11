@@ -33,7 +33,7 @@ pub enum TouchMode {
     /// O(functions) cold-start cost (~9 ms each) which OOM-kills on large repos.
     PerFunction,
     /// File-level first; per-function only for functions in files whose
-    /// touch_count_30d meets or exceeds `threshold`. Bounds subprocess count to
+    /// touch_count meets or exceeds `threshold`. Bounds subprocess count to
     /// the functions that actually benefit from precision.
     Hybrid { threshold: usize },
 }
@@ -112,6 +112,16 @@ pub struct AnalysisInfo {
     /// See `FORMULA_VERSION`.
     #[serde(default = "default_formula_version")]
     pub formula_version: u32,
+    /// Window, in days, that per-function `touch_count` covers. hotspots 2.0
+    /// renamed `touch_count_30d` to `touch_count` plus this top-level field,
+    /// since the window has actually been `crate::git::TOUCH_WINDOW_DAYS`
+    /// (365 days, per F165) since before the old name was ever accurate.
+    #[serde(default = "default_touch_window_days")]
+    pub touch_window_days: u32,
+}
+
+fn default_touch_window_days() -> u32 {
+    crate::git::TOUCH_WINDOW_DAYS as u32
 }
 
 /// Churn metrics for a file/function
@@ -168,7 +178,7 @@ pub struct FunctionSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub churn: Option<ChurnMetrics>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub touch_count_30d: Option<usize>,
+    pub touch_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -217,7 +227,7 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_authors_90d()`.
     /// Used as a training feature in `hotspots train` — author diversity is a
     /// non-windowed ownership signal that doesn't share the temporal leakage
-    /// of touch_count_30d.
+    /// of touch_count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authors_90d: Option<u32>,
     /// Directed coupling score for this file.
@@ -237,7 +247,13 @@ pub struct FunctionSnapshot {
     /// Full-history count (no time window) — avoids temporal leakage when used as a
     /// training feature with a post-cutoff label window (F54).
     /// File-level (shared by all functions in the same file).
-    /// Populated by `Snapshot::populate_convention_bug_fix_count()`.
+    /// Populated only by `Snapshot::populate_convention_bug_fix_count()`, which is called
+    /// solely inside `trainer::train()`'s own internal snapshot clone for feature
+    /// extraction (`hotspots train`) — never during `analyze`/`--mode snapshot`. This
+    /// field is therefore already always `None` (and so already absent, via
+    /// `skip_serializing_if` below) in every snapshot `analyze` actually outputs; the
+    /// hotspots 2.0 Decide-table item "move behind `--explain`, remove from default
+    /// output" needs no code change here — that's already the real behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub convention_bug_fix_count: Option<u32>,
     /// Sliding 30-day-window max/mean commit ratio for this file (F93).
@@ -522,8 +538,8 @@ impl Snapshot {
                     lrs: report.lrs,
                     band: report.band,
                     suppression_reason: report.suppression_reason,
-                    churn: None, // Churn will be populated separately if available
-                    touch_count_30d: None, // Touch count will be populated separately if available
+                    churn: None,       // Churn will be populated separately if available
+                    touch_count: None, // Touch count will be populated separately if available
                     days_since_last_change: None, // Days since last change will be populated separately if available
                     callgraph: None, // Call graph metrics will be populated separately if available
                     activity_risk: None,
@@ -562,6 +578,7 @@ impl Snapshot {
                 scope: "full".to_string(),
                 tool_version: env!("CARGO_PKG_VERSION").to_string(),
                 formula_version: FORMULA_VERSION,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
@@ -901,7 +918,7 @@ impl Snapshot {
                     (start_line + function.metrics.loc.saturating_sub(1)).max(start_line);
                 let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
                 if let Some(&(count, days)) = cache.get(&key) {
-                    self.functions[i].touch_count_30d = Some(count);
+                    self.functions[i].touch_count = Some(count);
                     self.functions[i].days_since_last_change = days;
                     completed += 1;
                 } else {
@@ -935,7 +952,7 @@ impl Snapshot {
 
             // Phase C: apply this chunk's results and update the cache.
             for (idx, key, (count, days)) in results {
-                self.functions[idx].touch_count_30d = Some(count);
+                self.functions[idx].touch_count = Some(count);
                 self.functions[idx].days_since_last_change = days;
                 cache.insert(key, (count, days));
                 completed += 1;
@@ -997,7 +1014,7 @@ impl Snapshot {
         let batched =
             crate::git::batch_touch_metrics_at(repo_root, self.commit.timestamp, window_days)
                 .unwrap_or_else(|_| crate::git::BatchedTouchMetrics {
-                    touch_count_30d: HashMap::new(),
+                    touch_count: HashMap::new(),
                     days_since_last_change: HashMap::new(),
                 });
 
@@ -1020,7 +1037,7 @@ impl Snapshot {
                 .map(|s| s.as_str())
                 .unwrap_or(abs_path);
 
-            let touch_count = batched.touch_count_30d.get(rel).copied().or(Some(0));
+            let touch_count = batched.touch_count.get(rel).copied().or(Some(0));
             let days_since = batched
                 .days_since_last_change
                 .get(rel)
@@ -1028,7 +1045,7 @@ impl Snapshot {
                 .or_else(|| stale_days.get(rel).copied());
 
             for &idx in function_indices {
-                self.functions[idx].touch_count_30d = touch_count;
+                self.functions[idx].touch_count = touch_count;
                 self.functions[idx].days_since_last_change = days_since;
             }
         }
@@ -1039,7 +1056,7 @@ impl Snapshot {
     /// Populate touch count and recency metrics from git data
     ///
     /// For each file (or function when `per_function` is true), computes:
-    /// - touch_count_30d: number of commits in the last `git::TOUCH_WINDOW_DAYS` days (365; F165)
+    /// - touch_count: number of commits in the last `git::TOUCH_WINDOW_DAYS` days (365; F165)
     /// - days_since_last_change: days since last modification
     ///
     pub fn populate_touch_metrics(
@@ -1061,7 +1078,7 @@ impl Snapshot {
     }
 
     /// Hybrid touch: file-level first (cheap), then per-function only for
-    /// functions in files whose touch_count_30d >= threshold.
+    /// functions in files whose touch_count >= threshold.
     fn populate_hybrid_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
@@ -1076,7 +1093,7 @@ impl Snapshot {
             .iter()
             .enumerate()
             .filter_map(|(i, f)| {
-                if f.touch_count_30d.unwrap_or(0) >= threshold {
+                if f.touch_count.unwrap_or(0) >= threshold {
                     Some(i)
                 } else {
                     None
@@ -1251,7 +1268,7 @@ impl Snapshot {
                 &crate::scoring::ActivityRiskInput {
                     lrs: function.lrs,
                     churn,
-                    touch_count_30d: function.touch_count_30d,
+                    touch_count: function.touch_count,
                     days_since_last_change: function.days_since_last_change,
                     fan_in,
                     scc_size,
@@ -1412,7 +1429,7 @@ impl Snapshot {
         let mut sorted_touch: Vec<usize> = self
             .functions
             .iter()
-            .map(|f| f.touch_count_30d.unwrap_or(0))
+            .map(|f| f.touch_count.unwrap_or(0))
             .collect();
         sorted_cc.sort_unstable();
         sorted_nd.sort_unstable();
@@ -1441,7 +1458,7 @@ impl Snapshot {
     /// Compute and populate triage quadrant for all functions.
     ///
     /// Quadrant logic (Option C — combines both signals):
-    ///   is_active = touches_30d > touch_p50 OR days_since_last_change <= 30
+    ///   is_active = touch_count > touch_p50 OR days_since_last_change <= 30
     ///              [+ activity_risk >= 0.7 when ranker_applied]
     ///   fire  = high/critical + is_active
     ///   debt  = high/critical + !is_active
@@ -1461,10 +1478,7 @@ impl Snapshot {
         let touch_p50 = thresholds.touch_med;
 
         for function in &mut self.functions {
-            let touch_above_p50 = function
-                .touch_count_30d
-                .map(|t| t > touch_p50)
-                .unwrap_or(false);
+            let touch_above_p50 = function.touch_count.map(|t| t > touch_p50).unwrap_or(false);
             let recently_changed = function
                 .days_since_last_change
                 .map(|d| d <= 30)
@@ -1727,7 +1741,7 @@ pub fn compute_dimension_thresholds(
 
     let mut touch_vals: Vec<usize> = functions
         .iter()
-        .map(|f| f.touch_count_30d.unwrap_or(0))
+        .map(|f| f.touch_count.unwrap_or(0))
         .collect();
     touch_vals.sort_unstable();
     let touch_high = touch_vals[percentile_idx(p)];
@@ -1808,7 +1822,7 @@ pub fn driving_dimension_label(
         .unwrap_or(false);
     let fan_out = func.metrics.fo as usize;
     let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-    let touch_count = func.touch_count_30d.unwrap_or(0);
+    let touch_count = func.touch_count.unwrap_or(0);
     let cc = func.metrics.cc as usize;
     let nd = func.metrics.nd as usize;
 
@@ -1862,7 +1876,7 @@ fn compute_near_miss_detail(
         ),
         (
             "touch",
-            pct_rank(func.touch_count_30d.unwrap_or(0), sorted_touch),
+            pct_rank(func.touch_count.unwrap_or(0), sorted_touch),
         ),
     ]
     .into_iter()
@@ -2683,7 +2697,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(snapshot.functions[0].touch_count_30d, Some(7));
+        assert_eq!(snapshot.functions[0].touch_count, Some(7));
         assert_eq!(snapshot.functions[0].days_since_last_change, Some(3));
     }
 

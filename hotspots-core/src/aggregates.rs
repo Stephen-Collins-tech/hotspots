@@ -206,10 +206,14 @@ pub struct AgentFunctionView {
     pub lrs: f64,
     pub activity_risk: f64,
     pub metrics: AgentMetrics,
+    // hotspots 2.0: renamed from `touches_30d`/`days_since_changed` to match
+    // `FunctionSnapshot`'s names exactly, now that this struct lives inside the
+    // same unified envelope (Phase 1) — these were the "triage-mode spelling"
+    // the master-schema-spec's duplicate-naming audit flagged (section 1).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub touches_30d: Option<usize>,
+    pub touch_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_changed: Option<u32>,
+    pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fan_in: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -304,8 +308,8 @@ fn to_agent_view(
                     nd: func.metrics.nd as usize,
                     fo: func.metrics.fo as usize,
                 },
-                touches_30d: func.touch_count_30d,
-                days_since_changed: func.days_since_last_change,
+                touch_count: func.touch_count,
+                days_since_last_change: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
                 patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
@@ -1266,7 +1270,7 @@ mod tests {
             band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,

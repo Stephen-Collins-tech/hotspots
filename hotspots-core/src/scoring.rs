@@ -61,7 +61,7 @@ pub struct ActivityRiskInput {
     pub lrs: f64,
     /// Lines added/deleted (optional)
     pub churn: Option<(usize, usize)>,
-    pub touch_count_30d: Option<usize>,
+    pub touch_count: Option<usize>,
     pub days_since_last_change: Option<u32>,
     pub fan_in: Option<usize>,
     pub scc_size: Option<usize>,
@@ -89,10 +89,10 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Touch factor: min(touch_count_30d / 10, 5.0). Despite the field name (kept for
-    // JSON/schema compatibility), the window is now 365 days per F165 (see
-    // hotspots-core::git::TOUCH_WINDOW_DAYS's doc comment).
-    let touch_score = if let Some(touches) = input.touch_count_30d {
+    // Touch factor: min(touch_count / 10, 5.0). The window is
+    // `crate::git::TOUCH_WINDOW_DAYS` (365 days, per F165) — the field was
+    // renamed from `touch_count_30d` in hotspots 2.0 to stop implying 30 days.
+    let touch_score = if let Some(touches) = input.touch_count {
         ((touches as f64 / 10.0).min(5.0)) * weights.touch
     } else {
         0.0
@@ -160,7 +160,7 @@ mod tests {
             &ActivityRiskInput {
                 lrs: 10.0,
                 churn: None,
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 fan_in: None,
                 scc_size: None,
@@ -183,7 +183,7 @@ mod tests {
             &ActivityRiskInput {
                 lrs: 10.0,
                 churn: Some((50, 50)), // 100 lines changed
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 fan_in: None,
                 scc_size: None,
@@ -205,7 +205,7 @@ mod tests {
             &ActivityRiskInput {
                 lrs: 10.0,
                 churn: Some((50, 50)),           // 100 lines changed
-                touch_count_30d: Some(20),       // 20 commits in 30d
+                touch_count: Some(20),           // 20 commits in 30d
                 days_since_last_change: Some(1), // changed 1 day ago
                 fan_in: Some(25),                // 25 callers
                 scc_size: Some(3),               // in a 3-node cycle
@@ -241,7 +241,7 @@ mod tests {
             &ActivityRiskInput {
                 lrs: 5.0,
                 churn: None,
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 fan_in: None,
                 scc_size: None,
@@ -255,7 +255,7 @@ mod tests {
             &ActivityRiskInput {
                 lrs: 5.0,
                 churn: None,
-                touch_count_30d: None,
+                touch_count: None,
                 days_since_last_change: None,
                 fan_in: None,
                 scc_size: None,
@@ -275,7 +275,7 @@ mod tests {
         let base_input = ActivityRiskInput {
             lrs: 10.0,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             fan_in: None,
             scc_size: None,
