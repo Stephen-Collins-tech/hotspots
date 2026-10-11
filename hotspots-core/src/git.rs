@@ -1461,7 +1461,6 @@ index 3333333..4444444 100644
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
-            jaccard_label_stability: None,
             convention_bug_fix_count: None,
             burst_score: None,
             commit_count: None,

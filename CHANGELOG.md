@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `days_since_last_change` everywhere (the field never actually covered a 30-day window — it's
   365 days per F165); add top-level `analysis.touch_window_days`. Tracked in issue #247
   (2 of 6 planned phases toward 2.0.0, following #248).
+- **2.0, "proven to work" bar:** remove `risk_factors.neighbor_churn`/`callgraph`'s
+  contribution to it (live-scored but only "consistent with META-02" — never
+  independently validated; `callgraph.neighbor_churn` itself stays, since the
+  `neighbor_risk`/`middle_man` pattern detectors still consume it as a structural
+  fact) and `FunctionSnapshot.jaccard_label_stability` (an internal F38 screener
+  diagnostic, never an output-worthy signal — the screener itself keeps running
+  internally, this only removes its echo into the schema). `ScoringWeights.neighbor_churn`
+  and the corresponding `.hotspotsrc.json` `scoring.neighbor_churn` config key are
+  also removed (config files setting it will now fail validation).
 
 ### Documentation
 - Document hotspots coordinate command (#239)

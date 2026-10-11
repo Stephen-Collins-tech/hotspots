@@ -83,7 +83,6 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
-        jaccard_label_stability: None,
         convention_bug_fix_count: None,
         burst_score: None,
         commit_count: None,

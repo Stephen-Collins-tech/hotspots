@@ -432,7 +432,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
-            jaccard_label_stability: None,
             convention_bug_fix_count: None,
             burst_score: None,
             commit_count: None,
@@ -1101,7 +1100,6 @@ mod tests {
             churn: 0.5,
             activity: 0.8,
             recency: 0.3,
-            neighbor_churn: 0.4,
         });
         f.percentile = Some(PercentileFlags {
             is_top_10_pct: true,

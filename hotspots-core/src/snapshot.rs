@@ -238,11 +238,6 @@ pub struct FunctionSnapshot {
     /// Populated by `Snapshot::populate_directed_coupling()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directed_coupling: Option<f64>,
-    /// Jaccard label stability score for this repo (F38 screener).
-    /// Overlap of top-20% defect files between train and holdout windows.
-    /// Repo-level: same value for all functions. None when DC was not computed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub jaccard_label_stability: Option<f64>,
     /// Count of commits touching this file whose message matches fix-keyword conventions.
     /// Full-history count (no time window) — avoids temporal leakage when used as a
     /// training feature with a post-cutoff label window (F54).
@@ -553,7 +548,6 @@ impl Snapshot {
                     subsystem: None,
                     authors_90d: None,
                     directed_coupling: None,
-                    jaccard_label_stability: None,
                     convention_bug_fix_count: None,
                     burst_score: None,
                     commit_count: None,
@@ -795,16 +789,21 @@ impl Snapshot {
         }
     }
 
-    /// Populate `directed_coupling` and `jaccard_label_stability` for every function.
+    /// Populate `directed_coupling` for every function.
     ///
     /// Calls `crate::coupling::compute_directed_coupling_for_repo` which:
     /// 1. Loads full commit history via git log.
-    /// 2. Computes Jaccard label stability to select dc_full vs dc_365d.
+    /// 2. Computes Jaccard label stability (F38 screener) to select dc_full vs
+    ///    dc_365d — purely an internal routing decision; hotspots 2.0 removed
+    ///    the `jaccard_label_stability` output field once the stricter "only
+    ///    fields proven to work" bar was adopted, since it was an internal
+    ///    screener diagnostic, not an independently validated signal. The
+    ///    returned `dc_scores` already reflect whichever variant the screener
+    ///    picked, so nothing downstream needs the raw Jaccard value itself.
     /// 3. Computes directed coupling scores keyed by file path.
     ///
     /// All functions in the same file receive the same file-level DC score.
     /// Functions in files with no co-change history receive `directed_coupling = None`.
-    /// `jaccard_label_stability` is set repo-wide (same value for all functions).
     ///
     /// `partner_scores` is typically `file → hotspots_score` from the snapshot itself
     /// (built before calling this method, or passed in from cheap_signals.csv).
@@ -813,7 +812,7 @@ impl Snapshot {
         repo_root: &Path,
         partner_scores: &std::collections::HashMap<String, f64>,
     ) {
-        let (dc_scores, jaccard) =
+        let (dc_scores, _jaccard) =
             crate::coupling::compute_directed_coupling_for_repo(repo_root, partner_scores);
 
         // Build file → function-indices map
@@ -832,7 +831,6 @@ impl Snapshot {
             let score = dc_scores.get(rel_path).copied();
             for &i in indices {
                 self.functions[i].directed_coupling = score;
-                self.functions[i].jaccard_label_stability = jaccard;
             }
         }
     }
@@ -1257,10 +1255,10 @@ impl Snapshot {
             // zeroed its contribution to `activity_risk` before this), kept as a
             // literal `None` here rather than removing `ActivityRiskInput.dependency_depth`
             // itself, which `compute_activity_risk` no longer reads either way.
-            let (fan_in, scc_size, neighbor_churn) = if let Some(ref cg) = function.callgraph {
-                (Some(cg.fan_in), Some(cg.scc_size), cg.neighbor_churn)
+            let (fan_in, scc_size) = if let Some(ref cg) = function.callgraph {
+                (Some(cg.fan_in), Some(cg.scc_size))
             } else {
-                (None, None, None)
+                (None, None)
             };
 
             // Compute activity risk
@@ -1273,7 +1271,6 @@ impl Snapshot {
                     fan_in,
                     scc_size,
                     dependency_depth: None,
-                    neighbor_churn,
                     burst_score: function.burst_score,
                 },
                 weights,

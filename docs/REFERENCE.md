@@ -415,54 +415,42 @@ Extends LRS with git history and call graph signals:
 ```
 Activity Risk = LRS
   + (lines_added + lines_deleted) / 100 × 0.5   # churn
-  + min(touch_count_30d / 10, 5.0) × 0.3         # touch frequency (see note below on the window)
-  + max(0, 5.0 − days_since_change / 7) × 0.2    # recency
-  + neighbor_churn / 500 × 0.2                    # churn in callees
+  + min(touch_count / 10, 5.0) × 0.3             # touch frequency (see note below on the window)
+  + max(0, 5.0 − days_since_last_change / 7) × 0.2  # recency
 ```
 
-`touch_count_30d`'s field name is kept for compatibility, but the window it measures is
-**365 days by default**, not 30 — see the touch-window note below the formula.
+`fan_in`, `scc` (cyclic dependency), `dependency_depth`, `burst`, and `neighbor_churn` do
+not contribute to the live Activity Risk / composite score, and — as of hotspots 2.0 —
+none of them have a corresponding field on `RiskFactors` either (the struct now has
+exactly `{complexity, churn, activity, recency}`). `fan_in`/`scc` were dropped per
+hotspots-research F160 (confirmed, 17-repo pre-registered gate: fan_in 4% Shapley share
+of rho, scc 1%, both non-inferior to drop within a pre-registered margin); `depth` per
+F167 (scoped 6-repo gate, Shapley share -2.1% mean, sign-inconsistent across repos); and
+`burst` because `burst_score` is a full-history, effectively monotonic non-decreasing
+value — folding it into the live score made Activity Risk a one-way ratchet (see
+`hotspots-research/docs/burst-score-non-decaying-issue.md`). `neighbor_churn` was removed
+once hotspots 2.0 adopted a stricter "only fields proven to work" bar: its only citation
+was "consistent with META-02," never an independent finding of its own, unlike
+`complexity`/`activity`/`recency` (which META-02/F160 do validate) or `churn` (no
+non-inferiority finding *against* it, so it stayed).
 
-`fan_in` and `scc` (cyclic dependency) no longer contribute to the live Activity Risk /
-composite score, per hotspots-research F160 (confirmed, 17-repo pre-registered gate):
-both terms individually showed "no measurable contribution" to ranking quality (fan_in 4%
-Shapley share of rho, scc 1%), and dropping both is non-inferior within a pre-registered
-margin. Both values are still computed and reported elsewhere — `--axes coupling`,
-CSV/HTML output, and as features 5 and 8 of `hotspots train`'s 10-feature set — only the
-live Activity Risk sum no longer includes them, following the same pattern already in
-place for `burst_score` below. The `fan_in`/`scc` weights (`ScoringWeights.fan_in`/`.scc`,
-defaults `0.4`/`0.3`) and the `RiskFactors.fan_in`/`.cyclic_dependency` fields are kept in
-place, unused (both are always `0.0` in `RiskFactors`), for the same forward-compatibility
-reason as `burst`.
+The underlying raw values these dropped terms were computed from are still
+computed/stored where another consumer needs them: `fan_in` and `pagerank` on
+`callgraph` (trainer feature, `--axes coupling`/centrality), `scc_size`/`is_entrypoint`
+on `callgraph` (pattern detectors), `callgraph.neighbor_churn` (same pattern detectors —
+`neighbor_risk`/`middle_man`), and `burst_score` at the function level (`trainer`'s
+cold-start features). `dependency_depth` was removed outright — it had no other
+consumer. See `hotspots-research/docs/findings/F167-depth-score-decomposition.md` and
+`hotspots-research/docs/promotion-briefs/depth-score-remove-from-live-score.md` for the
+depth removal, and `hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md`
+for the burst removal.
 
-`dependency_depth` (depth from entrypoints) no longer contributes to the live Activity
-Risk / composite score, per hotspots-research F167 (scoped 6-repo pre-registered gate,
-5 gate-passing): the term's Shapley share of rho was -2.1% (mean) and its leave-one-out
-effect was sign-inconsistent across repos, with dropping it non-inferior within the
-pre-registered margin. The underlying field is sparse by construction — `dependency_depth`
-is only computed via BFS from a small, name-heuristic set of "entry points"
-(`callgraph.rs::is_entry_point`), so most functions in most repos never get a real depth
-value at all. `dependency_depth` is still computed, populated, and stored on the
-snapshot — only the live Activity Risk sum no longer includes it, following the same
-pattern as `fan_in`/`scc` above. The `ScoringWeights.depth` weight (default `0.1`) and
-the `RiskFactors.depth` field are kept in place, unused (`RiskFactors.depth` is always
-`0.0`), for the same forward-compatibility reason as `burst`. See
-`hotspots-research/docs/findings/F167-depth-score-decomposition.md` and
-`hotspots-research/docs/promotion-briefs/depth-score-remove-from-live-score.md`.
-
-`burst_score` no longer contributes to the live Activity Risk / composite score. It is
-computed and stored on the snapshot (and still used by `trainer::cold_start_features`
-for offline model training), but `compute_activity_risk` in `scoring.rs` does not read
-it: `burst_score` is a full-history value that is effectively monotonic non-decreasing,
-so folding it into the live score made Activity Risk a one-way ratchet — a file with
-any historical burst, however old, could never leave the CRITICAL tier on this term
-alone even after the code had long since stabilized. See
-`hotspots-research/docs/burst-score-non-decaying-issue.md` for the full diagnosis and
-`hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md` for this
-change; a trailing-window or decayed replacement for the live score is tracked as
-follow-on research. The `burst` weight (`ScoringWeights.burst`, default `0.3`) and the
-`RiskFactors.burst` field are both kept in place, unused (`RiskFactors.burst` is always
-`0.0`), so a future replacement can reuse them without a renaming exercise.
+`burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
+higher means commits cluster into frantic bursts rather than steady, spread-out
+changes). For each commit touching a file, it counts how many of that file's commits
+fall within the following 30 days, then divides the largest such count by the mean —
+a file with 5 commits crammed into one week scores higher than one with 5 commits
+spread evenly across a year, even though both have `commit_count = 5`.
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
@@ -483,8 +471,9 @@ CVE/OSV-linked-file logistic regression (largest standardized coefficient of 5
 candidate signals, positive across all leave-one-repo-out folds tested) — see
 `hotspots-research` findings F67 and F93 for the full cross-repo evaluation.
 
-**Touch window:** the git-log window behind `touch_count_30d` (and
-`days_since_last_change`) is 365 days by default (`git::TOUCH_WINDOW_DAYS`), per
+**Touch window:** the git-log window behind `touch_count` (renamed from `touch_count_30d`
+in hotspots 2.0 — the name was always wrong, see the field's rename note) and
+`days_since_last_change` is 365 days by default (`git::TOUCH_WINDOW_DAYS`), per
 hotspots-research F165 (confirmed, pre-registered, 13-repo cutoff-safe gate) — 365 days
 gave the strongest, monotonic gain of every window tested, with a size-confound check
 ruling out "it's just counting more commits." On a high-commit-velocity repo this is a
@@ -495,10 +484,9 @@ override it with `touch_window_days` in `.hotspotsrc.json` (any positive integer
 
 Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
 
-All activity-risk weights in the formula above (`churn`, `touch`, `recency`, `depth`,
-`neighbor_churn`) are overridable via the `scoring` key in `.hotspotsrc.json`. `fan_in`,
-`scc`, and `burst` are also accepted for forward compatibility, but currently have no
-effect since none of the three is read by the live formula:
+The three live weights (`churn`, `touch`, `recency`) are overridable via the `scoring`
+key in `.hotspotsrc.json`. `fan_in`, `scc`, `depth`, and `burst` are also still accepted
+for forward compatibility (none of the four is read by the live formula):
 
 ```json
 {
@@ -508,17 +496,21 @@ effect since none of the three is read by the live formula:
 }
 ```
 
-Unset weights fall back to the defaults shown in the formula above. Same validation
-as the LRS `weights` block: non-negative, at most 10.0.
+`neighbor_churn` is **not** accepted — removed along with the field itself; a config
+file setting it now fails validation. Unset weights fall back to the defaults shown in
+the formula above. Same validation as the LRS `weights` block: non-negative, at most 10.0.
 
 ### Call graph metrics (snapshot mode)
 
 - **Fan-in** — functions that call this function (blast radius)
 - **PageRank** — importance/centrality based on call graph topology
-- **Betweenness centrality** — fraction of shortest paths that pass through this function (hub detection); exact for graphs < 2000 nodes, approximate (k=256 pivots) for larger
-- **SCC size** — strongly connected component size; > 1 = part of a dependency cycle
-- **Dependency depth** — longest acyclic path from entrypoints to this function
-- **Neighbor churn** — sum of churn in directly-called functions
+- **SCC size** — strongly connected component size; > 1 = part of a dependency cycle (feeds the `cyclic_hub` pattern detector)
+- **Is entrypoint** — whether call-graph entry-point detection marked this function as one (suppresses `middle_man`/`neighbor_risk` patterns)
+- **Neighbor churn** — sum of churn in directly-called functions (feeds the `neighbor_risk`/`middle_man` pattern detectors; no longer contributes to the live Activity Risk score)
+
+`betweenness` centrality and `dependency_depth` were removed from `callgraph` entirely in
+hotspots 2.0 (F160/F167 — no validated consumer once their live-score contribution was
+dropped).
 
 ### Quadrant assignment
 
