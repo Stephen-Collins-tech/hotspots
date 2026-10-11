@@ -27,12 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the corresponding `.hotspotsrc.json` `scoring.neighbor_churn` config key are
   also removed (config files setting it will now fail validation).
 - **2.0 Phase 3:** `hotspots coordinate` now emits the unified master-schema envelope
-  (`schema_version: 5`) with `within_set`/`hidden_dependencies`/`ownership` nested under a
-  `coordinate` section, instead of a standalone `schema_version: 1` struct. Removed the
-  coupling-triggered `recommendation` field and `compute_recommendation` entirely — no
-  validated finding supports its sole `"serialize"` trigger (see
-  `coordinate-remove-coupling-recommendation.md`). `within_set`/`hidden_dependencies` remain as
-  descriptive facts.
+  (`schema_version: 5`) with `ownership` nested under a `coordinate` section, instead of
+  a standalone `schema_version: 1` struct. Removed the coupling-triggered `recommendation`
+  field and `compute_recommendation` entirely — no validated finding supports its sole
+  `"serialize"` trigger (see `coordinate-remove-coupling-recommendation.md`).
+- **2.0, "proven to work" bar (coordinate):** removed `within_set`/`hidden_dependencies`
+  entirely — they'd shipped as descriptive facts after the Phase 3 `recommendation`
+  removal, but under the stricter bar even that doesn't hold: F150 found
+  `coupling_ratio >= 0.7` pairs collide *less* than churn-matched baselines, and F156
+  found coupling adds nothing once ownership is controlled for. `ownership`/
+  `knowledge_mode` stays (F146/F155/F157). `compute_raw_coupling_for_repo` (its sole
+  caller) removed from `hotspots-core::coupling` as dead code.
 
 ### Documentation
 - Document hotspots coordinate command (#239)

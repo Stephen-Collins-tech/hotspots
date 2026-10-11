@@ -1,12 +1,10 @@
-//! `hotspots coordinate` — coupling and ownership risk for a caller-specified
-//! file set, before work starts.
+//! `hotspots coordinate` — ownership risk for a caller-specified file set,
+//! before work starts.
 //!
 //! v1 minimal baseline (`hotspots-research/docs/promotion-briefs/coordinate-v1-minimal.md`):
-//! given an explicit `--files` list, reports raw co-change coupling within the
-//! set, files outside the set strongly coupled to something inside it
-//! ("hidden dependencies"), and per-file ownership signals. Deliberately does
-//! not depend on any snapshot or AST/CFG analysis — this command only needs
-//! git log.
+//! given an explicit `--files` list, reports per-file ownership signals.
+//! Deliberately does not depend on any snapshot or AST/CFG analysis — this
+//! command only needs git log.
 //!
 //! `knowledge_mode` (`hotspots-research/docs/promotion-briefs/coordinate-knowledge-mode.md`):
 //! `FileOwnership.knowledge_mode` fires `"concentrated"` for narrow-ownership
@@ -22,19 +20,21 @@
 //! trigger — see the brief), and the output is now the `coordinate` section
 //! of the unified master-schema envelope instead of a standalone
 //! `schema_version: 1` struct.
+//!
+//! hotspots 2.0, "only fields proven to work": `within_set`/`hidden_dependencies`
+//! (raw co-change coupling facts, with no recommendation derived from them)
+//! were removed entirely once this stricter bar was adopted — they shipped on
+//! *negative* evidence: F150 found `coupling_ratio >= 0.7` pairs collide
+//! *less* than churn-matched baselines, and F156 found coupling adds nothing
+//! once ownership is controlled for. `ownership`/`knowledge_mode` stays — that
+//! one has real positive backing (F146 → F155 → F157).
 
 use anyhow::{bail, Context, Result};
-use hotspots_core::coupling::compute_raw_coupling_for_repo;
 use hotspots_core::history_signals::compute_history_signals_for_repo;
 use hotspots_core::snapshot::SNAPSHOT_SCHEMA_VERSION;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-/// Files outside `--files` with coupling_ratio >= this to any input file are
-/// reported as hidden dependencies.
-const HIDDEN_DEP_THRESHOLD: f64 = 0.7;
 
 /// `knowledge_mode` fires "concentrated" when a file's ownership is this
 /// narrow. Values from `coordinate-knowledge-mode.md` (F146) — 100%
@@ -52,20 +52,6 @@ pub(crate) struct CoordinateArgs {
 }
 
 #[derive(Debug, Serialize)]
-struct CouplingPair {
-    file_a: String,
-    file_b: String,
-    coupling_ratio: f64,
-}
-
-#[derive(Debug, Serialize)]
-struct HiddenDependency {
-    file: String,
-    coupled_to: String,
-    coupling_ratio: f64,
-}
-
-#[derive(Debug, Serialize)]
 struct FileOwnership {
     file: String,
     author_count: u32,
@@ -77,8 +63,6 @@ struct FileOwnership {
 #[derive(Debug, Serialize)]
 struct CoordinateSection {
     input_files: Vec<String>,
-    within_set: Vec<CouplingPair>,
-    hidden_dependencies: Vec<HiddenDependency>,
     ownership: Vec<FileOwnership>,
 }
 
@@ -183,86 +167,11 @@ fn resolve_input_files(args: &CoordinateArgs, repo_root: &Path) -> Result<Vec<St
     }
 }
 
-/// Classifies raw pairwise coupling against the input file set: pairs fully
-/// inside the set go to `within_set`; pairs with exactly one endpoint inside
-/// the set, at or above `HIDDEN_DEP_THRESHOLD`, go to `hidden_dependencies`
-/// (one entry per outside file, kept against its strongest coupling
-/// partner). Pure classification logic split out from `handle_coordinate`
-/// so it's unit-testable without a real repo or git history.
-fn classify_coupling(
-    coupling: &HashMap<(String, String), f64>,
-    input_files: &[String],
-) -> (Vec<CouplingPair>, Vec<HiddenDependency>) {
-    let input_set: HashSet<&str> = input_files.iter().map(|s| s.as_str()).collect();
-
-    let mut within_set = Vec::new();
-    // Track the max coupling_ratio seen for each hidden-dep candidate so a
-    // file coupled to multiple input files is reported once, against its
-    // strongest coupling partner.
-    let mut hidden_dep_best: HashMap<String, HiddenDependency> = HashMap::new();
-
-    for ((file_a, file_b), ratio) in coupling {
-        let a_in = input_set.contains(file_a.as_str());
-        let b_in = input_set.contains(file_b.as_str());
-
-        if a_in && b_in {
-            within_set.push(CouplingPair {
-                file_a: file_a.clone(),
-                file_b: file_b.clone(),
-                coupling_ratio: *ratio,
-            });
-        } else if *ratio >= HIDDEN_DEP_THRESHOLD && (a_in || b_in) {
-            let (outside, inside) = if a_in {
-                (file_b.clone(), file_a.clone())
-            } else {
-                (file_a.clone(), file_b.clone())
-            };
-            // Tie-break deterministically on `inside` (the input-set file
-            // this hidden dep would be reported against): iteration order
-            // over `coupling` (a HashMap) is not stable across runs, so a
-            // strict `>` alone let a coupling_ratio tie resolve to whichever
-            // candidate happened to be visited first — non-deterministic
-            // output on identical input, found by running the same binary
-            // on the same input repeatedly and diffing.
-            let better = hidden_dep_best
-                .get(&outside)
-                .map(|existing| {
-                    *ratio > existing.coupling_ratio
-                        || (*ratio == existing.coupling_ratio && inside < existing.coupled_to)
-                })
-                .unwrap_or(true);
-            if better {
-                hidden_dep_best.insert(
-                    outside.clone(),
-                    HiddenDependency {
-                        file: outside,
-                        coupled_to: inside,
-                        coupling_ratio: *ratio,
-                    },
-                );
-            }
-        }
-    }
-
-    let mut hidden_dependencies: Vec<HiddenDependency> = hidden_dep_best.into_values().collect();
-    hidden_dependencies.sort_by(|a, b| a.file.cmp(&b.file));
-    within_set.sort_by(|a, b| {
-        a.file_a
-            .cmp(&b.file_a)
-            .then_with(|| a.file_b.cmp(&b.file_b))
-    });
-
-    (within_set, hidden_dependencies)
-}
-
 pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
     let repo_root = args.path.canonicalize().context("resolve repo path")?;
     let input_files = resolve_input_files(&args, &repo_root)?;
 
-    let coupling = compute_raw_coupling_for_repo(&repo_root);
     let ownership_signals = compute_history_signals_for_repo(&repo_root);
-
-    let (within_set, hidden_dependencies) = classify_coupling(&coupling, &input_files);
 
     let ownership: Vec<FileOwnership> = input_files
         .iter()
@@ -284,8 +193,6 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         coordinate: CoordinateSection {
             input_files,
-            within_set,
-            hidden_dependencies,
             ownership,
         },
     };
@@ -436,95 +343,6 @@ mod tests {
         let args = args_with(None, None, false);
         let err = resolve_input_files(&args, Path::new(".")).unwrap_err();
         assert!(err.to_string().contains("required"));
-    }
-
-    // -- classify_coupling (v1-minimal.md — previously only covered by
-    // CLI-level smoke testing, not a Rust unit test) --
-
-    fn pair(a: &str, b: &str, ratio: f64) -> ((String, String), f64) {
-        ((a.to_string(), b.to_string()), ratio)
-    }
-
-    #[test]
-    fn classify_coupling_within_set_pair() {
-        let coupling = HashMap::from([pair("a.rs", "b.rs", 0.9)]);
-        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
-        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
-        assert_eq!(within_set.len(), 1);
-        assert_eq!(within_set[0].coupling_ratio, 0.9);
-        assert!(hidden_deps.is_empty());
-    }
-
-    #[test]
-    fn classify_coupling_hidden_dependency_above_threshold() {
-        let coupling = HashMap::from([pair("a.rs", "outside.rs", 0.8)]);
-        let input_files = vec!["a.rs".to_string()];
-        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
-        assert!(within_set.is_empty());
-        assert_eq!(hidden_deps.len(), 1);
-        assert_eq!(hidden_deps[0].file, "outside.rs");
-        assert_eq!(hidden_deps[0].coupled_to, "a.rs");
-    }
-
-    #[test]
-    fn classify_coupling_below_threshold_is_not_hidden_dependency() {
-        let coupling = HashMap::from([pair("a.rs", "outside.rs", 0.5)]);
-        let input_files = vec!["a.rs".to_string()];
-        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
-        assert!(within_set.is_empty());
-        assert!(hidden_deps.is_empty());
-    }
-
-    #[test]
-    fn classify_coupling_pair_entirely_outside_set_is_ignored() {
-        let coupling = HashMap::from([pair("outside_a.rs", "outside_b.rs", 1.0)]);
-        let input_files = vec!["a.rs".to_string()];
-        let (within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
-        assert!(within_set.is_empty());
-        assert!(hidden_deps.is_empty());
-    }
-
-    #[test]
-    fn classify_coupling_keeps_strongest_partner_for_outside_file() {
-        // outside.rs is coupled to two input files at different ratios;
-        // it must be reported once, against the stronger of the two.
-        let coupling = HashMap::from([
-            pair("a.rs", "outside.rs", 0.75),
-            pair("outside.rs", "b.rs", 0.95),
-        ]);
-        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
-        let (_within_set, hidden_deps) = classify_coupling(&coupling, &input_files);
-        assert_eq!(hidden_deps.len(), 1);
-        assert_eq!(hidden_deps[0].coupling_ratio, 0.95);
-        assert_eq!(hidden_deps[0].coupled_to, "b.rs");
-    }
-
-    #[test]
-    fn classify_coupling_tied_ratio_resolves_deterministically() {
-        // outside.rs is coupled to both a.rs and b.rs at the exact same
-        // ratio. Which one "wins" must not depend on HashMap iteration
-        // order (found via manual testing: the same binary on the same
-        // input flipped its answer run to run before this fix). Regardless
-        // of insertion order, the lexicographically smaller `coupled_to`
-        // must win -- construct the map both ways and assert both agree.
-        let input_files = vec!["a.rs".to_string(), "b.rs".to_string()];
-
-        let coupling_a_first = HashMap::from([
-            pair("a.rs", "outside.rs", 0.9),
-            pair("outside.rs", "b.rs", 0.9),
-        ]);
-        let coupling_b_first = HashMap::from([
-            pair("outside.rs", "b.rs", 0.9),
-            pair("a.rs", "outside.rs", 0.9),
-        ]);
-
-        let (_, hidden_a) = classify_coupling(&coupling_a_first, &input_files);
-        let (_, hidden_b) = classify_coupling(&coupling_b_first, &input_files);
-
-        assert_eq!(hidden_a.len(), 1);
-        assert_eq!(hidden_b.len(), 1);
-        assert_eq!(hidden_a[0].coupled_to, "a.rs");
-        assert_eq!(hidden_b[0].coupled_to, "a.rs");
     }
 
     // -- staged_files (coordinate-diff-mode.md, acceptance criterion 3 —

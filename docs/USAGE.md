@@ -154,12 +154,6 @@ Output (JSON only today):
   "schema_version": 5,
   "coordinate": {
     "input_files": ["src/api.ts", "src/db.ts"],
-    "within_set": [
-      { "file_a": "src/api.ts", "file_b": "src/db.ts", "coupling_ratio": 0.67 }
-    ],
-    "hidden_dependencies": [
-      { "file": "src/session.ts", "coupled_to": "src/api.ts", "coupling_ratio": 0.81 }
-    ],
     "ownership": [
       { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
     ]
@@ -167,21 +161,17 @@ Output (JSON only today):
 }
 ```
 
-- **`within_set`** — co-change coupling (`coupling_ratio`, share of one file's commits that
-  also touched the other) between pairs *inside* your file set.
-- **`hidden_dependencies`** — files *outside* your set that are tightly coupled to one you're
-  about to touch (coupling_ratio ≥ 0.7 by default) — the ones you'd only find out about after
-  a merge conflict.
 - **`ownership`** — `author_count`, `author_entropy` (0 = one owner, higher = more diffuse),
   `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
   a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
   `"diffuse"` value today).
 
-`within_set` and `hidden_dependencies` are descriptive co-change facts, not a collision
-predictor: hotspots-research (META-26) found the `coupling_ratio` threshold fails every direct
-test of its predictive validity as a serialize/parallel-safe trigger, so hotspots 2.0 removed
-the `recommendation` field computed from it rather than ship an unsupported verdict. Use
-`knowledge_mode` and your own judgment instead.
+Earlier versions also reported raw co-change coupling facts (`within_set`, `hidden_dependencies`)
+as descriptive data with no recommendation attached. Hotspots 2.0 removed them too, once the bar
+for shipping a field became "proven to work, not just not-yet-refuted": hotspots-research
+actively tested them and found `coupling_ratio` predicts *less* coordination friction, not more,
+and adds nothing once ownership is controlled for — the opposite of the evidence `ownership`
+has. Use `knowledge_mode` and your own judgment instead.
 
 ## Policy Engine
 

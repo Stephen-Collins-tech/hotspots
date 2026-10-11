@@ -232,7 +232,7 @@ Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (
 
 ### `hotspots coordinate [PATH]`
 
-Reports coupling and ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
+Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
 
 ```
 hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
@@ -241,13 +241,16 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 The file set comes from `--files` (comma-separated), `--diff` (a unified diff on stdin), or `--staged` (`git diff --cached --name-only`).
 
 Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
-- `within_set`: co-change `coupling_ratio` for file pairs inside the set.
-- `hidden_dependencies`: files outside the set with `coupling_ratio >= 0.7` to a file inside it.
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
 
 There is no `recommendation` field: hotspots-research found no validated trigger for a
 serialize/parallel-safe verdict derived from `coupling_ratio`, so hotspots 2.0 removed it
-rather than ship an unsupported recommendation.
+rather than ship an unsupported recommendation. `within_set`/`hidden_dependencies` (the raw
+co-change coupling facts that fed it) are gone too, for the same reason one level up: once
+"only fields proven to work" became the bar, their only backing was *negative* evidence
+(coupling predicts less coordination friction, not more, and adds nothing once ownership is
+controlled for) — they survived the `recommendation` cut on "descriptive fact" grounds, but
+not this stricter one.
 
 ### `hotspots prune`
 
