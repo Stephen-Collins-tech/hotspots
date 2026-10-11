@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `days_since_last_change` everywhere (the field never actually covered a 30-day window — it's
   365 days per F165); add top-level `analysis.touch_window_days`. Tracked in issue #247
   (2 of 6 planned phases toward 2.0.0, following #248).
+- **2.0 Phase 3:** `hotspots coordinate` now emits the unified master-schema envelope
+  (`schema_version: 5`) with `within_set`/`hidden_dependencies`/`ownership` nested under a
+  `coordinate` section, instead of a standalone `schema_version: 1` struct. Removed the
+  coupling-triggered `recommendation` field and `compute_recommendation` entirely — no
+  validated finding supports its sole `"serialize"` trigger (see
+  `coordinate-remove-coupling-recommendation.md`). `within_set`/`hidden_dependencies` remain as
+  descriptive facts.
 
 ### Documentation
 - Document hotspots coordinate command (#239)
