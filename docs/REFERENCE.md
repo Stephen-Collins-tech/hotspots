@@ -826,38 +826,45 @@ gate, so `module_risk` does not depend on them.
 }
 ```
 
-### Delta output (v1)
+### Delta output
+
+`hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 5`,
+unified with the snapshot schema version): a top-level `commit` (the head commit only)
+and the diff itself nested under `delta`.
 
 ```json
 {
-  "schema_version": 1,
-  "commit": { "sha": "abc123", "parent": "def456" },
-  "baseline": false,
-  "deltas": [{
-    "function_id": "src/api/billing.ts::processPlanUpgrade",
-    "status": "modified",
-    "before": { "lrs": 11.0, "band": "high", "metrics": { "cc": 13, "nd": 3, "fo": 7, "ns": 2 } },
-    "after":  { "lrs": 12.4, "band": "critical", "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 } },
-    "delta": { "cc": 2, "nd": 1, "fo": 1, "ns": 1, "lrs": 1.4 },
-    "band_transition": { "from": "high", "to": "critical" }
-  }],
-  "policy": {
-    "failed": [{ "id": "critical-introduction", "severity": "blocking", "message": "..." }],
-    "warnings": []
-  },
-  "aggregates": {
-    "pr_summary": {
-      "pr_risk_score": 1.4,
-      "fn_changed_lines": 23,
-      "size_band": "small",
-      "band": "critical",
-      "new_count": 0,
-      "modified_count": 1,
-      "deleted_count": 0,
-      "regression_count": 1,
-      "improvement_count": 0,
-      "band_upgrades": 1,
-      "policy_blocking": true
+  "schema_version": 5,
+  "commit": { "sha": "abc123" },
+  "delta": {
+    "commit": { "sha": "abc123", "parent": "def456" },
+    "baseline": false,
+    "deltas": [{
+      "function_id": "src/api/billing.ts::processPlanUpgrade",
+      "status": "modified",
+      "before": { "lrs": 11.0, "band": "high", "metrics": { "cc": 13, "nd": 3, "fo": 7, "ns": 2 } },
+      "after":  { "lrs": 12.4, "band": "critical", "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 } },
+      "delta": { "cc": 2, "nd": 1, "fo": 1, "ns": 1, "lrs": 1.4 },
+      "band_transition": { "from": "high", "to": "critical" }
+    }],
+    "policy": {
+      "failed": [{ "id": "critical-introduction", "severity": "blocking", "message": "..." }],
+      "warnings": []
+    },
+    "aggregates": {
+      "pr_summary": {
+        "pr_risk_score": 1.4,
+        "fn_changed_lines": 23,
+        "size_band": "small",
+        "band": "critical",
+        "new_count": 0,
+        "modified_count": 1,
+        "deleted_count": 0,
+        "regression_count": 1,
+        "improvement_count": 0,
+        "band_upgrades": 1,
+        "policy_blocking": true
+      }
     }
   }
 }
@@ -865,7 +872,7 @@ gate, so `module_risk` does not depend on them.
 
 Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by default).
 
-**`aggregates.pr_summary`** — collapses every changed function into a single PR-wide
+**`delta.aggregates.pr_summary`** — collapses every changed function into a single PR-wide
 risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new
 functions add `after.lrs`, deleted functions subtract `before.lrs`, modified
 functions add `delta.lrs`); `band` is the highest risk band reached by any
