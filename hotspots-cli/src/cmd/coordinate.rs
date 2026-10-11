@@ -4,9 +4,9 @@
 //! v1 minimal baseline (`hotspots-research/docs/promotion-briefs/coordinate-v1-minimal.md`):
 //! given an explicit `--files` list, reports raw co-change coupling within the
 //! set, files outside the set strongly coupled to something inside it
-//! ("hidden dependencies"), per-file ownership signals, and a single
-//! parallel-safety recommendation. Deliberately does not depend on any
-//! snapshot or AST/CFG analysis — this command only needs git log.
+//! ("hidden dependencies"), and per-file ownership signals. Deliberately does
+//! not depend on any snapshot or AST/CFG analysis — this command only needs
+//! git log.
 //!
 //! `knowledge_mode` (`hotspots-research/docs/promotion-briefs/coordinate-knowledge-mode.md`):
 //! `FileOwnership.knowledge_mode` fires `"concentrated"` for narrow-ownership
@@ -15,10 +15,18 @@
 //! `--diff`/`--staged` (`hotspots-research/docs/promotion-briefs/coordinate-diff-mode.md`):
 //! alternate ways to derive the file set instead of `--files` — a unified
 //! diff on stdin, or the current git staging area.
+//!
+//! hotspots 2.0 (`docs/promotion-briefs/coordinate-remove-coupling-recommendation.md`,
+//! folded into `docs/master-schema-spec.md`): the coupling-triggered
+//! `recommendation` field was removed (no validated finding supports its sole
+//! trigger — see the brief), and the output is now the `coordinate` section
+//! of the unified master-schema envelope instead of a standalone
+//! `schema_version: 1` struct.
 
 use anyhow::{bail, Context, Result};
 use hotspots_core::coupling::compute_raw_coupling_for_repo;
 use hotspots_core::history_signals::compute_history_signals_for_repo;
+use hotspots_core::snapshot::SNAPSHOT_SCHEMA_VERSION;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -27,10 +35,6 @@ use std::process::Command;
 /// Files outside `--files` with coupling_ratio >= this to any input file are
 /// reported as hidden dependencies.
 const HIDDEN_DEP_THRESHOLD: f64 = 0.7;
-
-/// Any within-set pair at or above this coupling_ratio makes the whole set
-/// unsafe to parallelize.
-const SERIALIZE_THRESHOLD: f64 = 0.7;
 
 /// `knowledge_mode` fires "concentrated" when a file's ownership is this
 /// narrow. Values from `coordinate-knowledge-mode.md` (F146) — 100%
@@ -71,13 +75,17 @@ struct FileOwnership {
 }
 
 #[derive(Debug, Serialize)]
-struct CoordinateOutput {
-    schema_version: u32,
+struct CoordinateSection {
     input_files: Vec<String>,
     within_set: Vec<CouplingPair>,
     hidden_dependencies: Vec<HiddenDependency>,
     ownership: Vec<FileOwnership>,
-    recommendation: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CoordinateEnvelope {
+    schema_version: u32,
+    coordinate: CoordinateSection,
 }
 
 /// `knowledge_mode` classifier (F146) — fires "concentrated" only. "diffuse"
@@ -247,38 +255,6 @@ fn classify_coupling(
     (within_set, hidden_dependencies)
 }
 
-/// Recommendation logic split out from `handle_coordinate` so it's
-/// unit-testable without a real repo or git history. `coupling_ratio` is
-/// the sole escalation trigger for `"serialize"`; ownership concentration
-/// only ever downgrades toward `"parallel_safe"` when every input file is
-/// `knowledge_mode: "concentrated"` (hotspots-research F155/META-27 —
-/// concentrated-owned files show 3-6x lower cross-author collision rates
-/// than churn-matched not-concentrated files, and F151/F153 found
-/// ownership concentration explains most of `coupling_ratio`'s own
-/// apparent effect, making a coupling-triggered `"serialize"` on an
-/// all-concentrated set disproportionately likely to be a false positive).
-fn compute_recommendation(
-    within_set: &[CouplingPair],
-    ownership: &[FileOwnership],
-) -> &'static str {
-    let coupling_triggers_serialize = within_set
-        .iter()
-        .any(|p| p.coupling_ratio >= SERIALIZE_THRESHOLD);
-
-    let all_concentrated = !ownership.is_empty()
-        && ownership
-            .iter()
-            .all(|o| o.knowledge_mode == Some("concentrated"));
-
-    if all_concentrated {
-        "parallel_safe"
-    } else if coupling_triggers_serialize {
-        "serialize"
-    } else {
-        "parallel_safe"
-    }
-}
-
 pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
     let repo_root = args.path.canonicalize().context("resolve repo path")?;
     let input_files = resolve_input_files(&args, &repo_root)?;
@@ -304,15 +280,14 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
         })
         .collect();
 
-    let recommendation = compute_recommendation(&within_set, &ownership);
-
-    let output = CoordinateOutput {
-        schema_version: 1,
-        input_files,
-        within_set,
-        hidden_dependencies,
-        ownership,
-        recommendation: recommendation.to_string(),
+    let output = CoordinateEnvelope {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        coordinate: CoordinateSection {
+            input_files,
+            within_set,
+            hidden_dependencies,
+            ownership,
+        },
     };
 
     println!("{}", serde_json::to_string_pretty(&output)?);
@@ -550,81 +525,6 @@ mod tests {
         assert_eq!(hidden_b.len(), 1);
         assert_eq!(hidden_a[0].coupled_to, "a.rs");
         assert_eq!(hidden_b[0].coupled_to, "a.rs");
-    }
-
-    // -- compute_recommendation (coordinate-ownership-recommendation-downgrade.md) --
-
-    fn ownership_entry(file: &str, knowledge_mode: Option<&'static str>) -> FileOwnership {
-        FileOwnership {
-            file: file.to_string(),
-            author_count: 0,
-            author_entropy: 0.0,
-            newcomer_rate: None,
-            knowledge_mode,
-        }
-    }
-
-    #[test]
-    fn recommendation_downgrades_when_all_files_concentrated() {
-        let within_set = vec![CouplingPair {
-            file_a: "a.rs".to_string(),
-            file_b: "b.rs".to_string(),
-            coupling_ratio: 0.9,
-        }];
-        let ownership = vec![
-            ownership_entry("a.rs", Some("concentrated")),
-            ownership_entry("b.rs", Some("concentrated")),
-        ];
-
-        assert_eq!(
-            compute_recommendation(&within_set, &ownership),
-            "parallel_safe"
-        );
-    }
-
-    #[test]
-    fn recommendation_stays_serialize_when_not_all_concentrated() {
-        let within_set = vec![CouplingPair {
-            file_a: "a.rs".to_string(),
-            file_b: "b.rs".to_string(),
-            coupling_ratio: 0.9,
-        }];
-        let ownership = vec![
-            ownership_entry("a.rs", Some("concentrated")),
-            ownership_entry("b.rs", None),
-        ];
-
-        assert_eq!(compute_recommendation(&within_set, &ownership), "serialize");
-    }
-
-    #[test]
-    fn recommendation_unaffected_when_coupling_below_threshold() {
-        let within_set = vec![CouplingPair {
-            file_a: "a.rs".to_string(),
-            file_b: "b.rs".to_string(),
-            coupling_ratio: 0.2,
-        }];
-        let ownership = vec![
-            ownership_entry("a.rs", Some("concentrated")),
-            ownership_entry("b.rs", Some("concentrated")),
-        ];
-
-        assert_eq!(
-            compute_recommendation(&within_set, &ownership),
-            "parallel_safe"
-        );
-    }
-
-    #[test]
-    fn recommendation_empty_ownership_does_not_downgrade() {
-        let within_set = vec![CouplingPair {
-            file_a: "a.rs".to_string(),
-            file_b: "b.rs".to_string(),
-            coupling_ratio: 0.9,
-        }];
-        let ownership: Vec<FileOwnership> = vec![];
-
-        assert_eq!(compute_recommendation(&within_set, &ownership), "serialize");
     }
 
     // -- staged_files (coordinate-diff-mode.md, acceptance criterion 3 —
