@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `delta.policy`, `delta.aggregates` unchanged). `DELTA_SCHEMA_VERSION` (previously `1`)
   is removed; consumers reading `delta.aggregates.pr_summary` or `policy.failed` at the
   old top level must add the `delta.` prefix.
+- **2.0 Phase 5:** `hotspots analyze --axes --format json` now emits
+  `{"schema_version": 5, "axes": {"risk": [...], "coupling": [...], "ownership": [...]}}`
+  instead of a raw, unversioned `{"risk": [...], ...}` map — the last of the six shapes
+  with no `schema_version` at all. `rank_by_axis`/`RankedFile` output is unchanged, only
+  nested one level deeper under `axes`.
 
 ### Documentation
 - Document hotspots coordinate command (#239)
