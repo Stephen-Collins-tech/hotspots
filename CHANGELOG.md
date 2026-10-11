@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found coupling adds nothing once ownership is controlled for. `ownership`/
   `knowledge_mode` stays (F146/F155/F157). `compute_raw_coupling_for_repo` (its sole
   caller) removed from `hotspots-core::coupling` as dead code.
+- **2.0 Phase 4:** `hotspots diff`'s JSON/JSONL output is now the unified master-schema
+  envelope (`schema_version: 5`): a top-level `commit` (head only) with the diff itself
+  nested under `delta` (`delta.commit` keeps both head and parent, `delta.deltas`,
+  `delta.policy`, `delta.aggregates` unchanged). `DELTA_SCHEMA_VERSION` (previously `1`)
+  is removed; consumers reading `delta.aggregates.pr_summary` or `policy.failed` at the
+  old top level must add the `delta.` prefix.
 
 ### Documentation
 - Document hotspots coordinate command (#239)

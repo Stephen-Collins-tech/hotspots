@@ -11,14 +11,11 @@
 use crate::policy::PolicyResults;
 use crate::report::MetricsReport;
 use crate::risk::RiskBand;
-use crate::snapshot::{FunctionSnapshot, Snapshot};
+use crate::snapshot::{FunctionSnapshot, Snapshot, SNAPSHOT_SCHEMA_VERSION};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-
-/// Schema version for deltas
-const DELTA_SCHEMA_VERSION: u32 = 1;
 
 /// Function change status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,12 +85,12 @@ pub struct DeltaCommitInfo {
     pub parent: String,
 }
 
-/// Complete delta between two snapshots
+/// Complete delta between two snapshots. This is the `delta` section of the
+/// 2.0 master-schema envelope (see `DeltaEnvelope`), not a standalone document
+/// — it carries no `schema_version` of its own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct Delta {
-    #[serde(rename = "schema_version")]
-    pub schema_version: u32,
     pub commit: DeltaCommitInfo,
     pub baseline: bool,
     pub deltas: Vec<FunctionDeltaEntry>,
@@ -101,6 +98,23 @@ pub struct Delta {
     pub policy: Option<PolicyResults>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::DeltaAggregates>,
+}
+
+/// `commit` section of the envelope (head commit only — `delta.commit` below
+/// carries both head and parent for the diff itself).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnvelopeCommit {
+    pub sha: String,
+}
+
+/// 2.0 master-schema envelope for `hotspots diff`: `schema_version` unified
+/// with `SNAPSHOT_SCHEMA_VERSION`, top-level `commit` (head), and the diff
+/// itself nested under `delta` — see `docs/master-schema-spec.md` section 2.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeltaEnvelope {
+    pub schema_version: u32,
+    pub commit: EnvelopeCommit,
+    pub delta: Delta,
 }
 
 impl Delta {
@@ -167,7 +181,6 @@ impl Delta {
         let mut deltas = compute_function_deltas(&all_rel_ids, &parent_by_rel, &current_by_rel);
         apply_rename_hints(&mut deltas, &parent_funcs, &current_funcs);
         Ok(Delta {
-            schema_version: DELTA_SCHEMA_VERSION,
             commit: DeltaCommitInfo {
                 sha: current.commit.sha.clone(),
                 parent: parent_sha,
@@ -179,9 +192,17 @@ impl Delta {
         })
     }
 
-    /// Serialize delta to JSON string (deterministic ordering)
+    /// Serialize delta to JSON string (deterministic ordering), wrapped in
+    /// the 2.0 master-schema envelope.
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(self).context("failed to serialize delta to JSON")
+        let envelope = DeltaEnvelope {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            commit: EnvelopeCommit {
+                sha: self.commit.sha.clone(),
+            },
+            delta: self.clone(),
+        };
+        serde_json::to_string_pretty(&envelope).context("failed to serialize delta to JSON")
     }
 
     /// Serialize delta entries as newline-delimited JSON (one entry per line).
@@ -195,21 +216,20 @@ impl Delta {
         Ok(lines.join("\n"))
     }
 
-    /// Deserialize delta from JSON string
+    /// Deserialize delta from the envelope JSON produced by `to_json`.
     pub fn from_json(json: &str) -> Result<Self> {
-        let delta: Delta =
+        let envelope: DeltaEnvelope =
             serde_json::from_str(json).context("failed to deserialize delta from JSON")?;
 
-        // Validate schema version
-        if delta.schema_version != DELTA_SCHEMA_VERSION {
+        if envelope.schema_version != SNAPSHOT_SCHEMA_VERSION {
             anyhow::bail!(
                 "delta schema version mismatch: expected {}, got {}",
-                DELTA_SCHEMA_VERSION,
-                delta.schema_version
+                SNAPSHOT_SCHEMA_VERSION,
+                envelope.schema_version
             );
         }
 
-        Ok(delta)
+        Ok(envelope.delta)
     }
 }
 
@@ -253,7 +273,6 @@ fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
         })
         .collect();
     Delta {
-        schema_version: DELTA_SCHEMA_VERSION,
         commit: DeltaCommitInfo {
             sha: current.commit.sha.clone(),
             parent: parent_sha,
@@ -1144,7 +1163,6 @@ mod tests {
         created.after = Some(state);
 
         let delta = Delta {
-            schema_version: DELTA_SCHEMA_VERSION,
             commit: DeltaCommitInfo {
                 sha: "sha".to_string(),
                 parent: "parent".to_string(),

@@ -1056,7 +1056,6 @@ mod tests {
     #[test]
     fn test_baseline_delta_skips_policies() {
         let delta = Delta {
-            schema_version: 1,
             commit: DeltaCommitInfo {
                 sha: "abc123".to_string(),
                 parent: "".to_string(),
