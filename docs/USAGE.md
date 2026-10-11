@@ -151,18 +151,19 @@ Output (JSON only today):
 
 ```json
 {
-  "schema_version": 1,
-  "input_files": ["src/api.ts", "src/db.ts"],
-  "within_set": [
-    { "file_a": "src/api.ts", "file_b": "src/db.ts", "coupling_ratio": 0.67 }
-  ],
-  "hidden_dependencies": [
-    { "file": "src/session.ts", "coupled_to": "src/api.ts", "coupling_ratio": 0.81 }
-  ],
-  "ownership": [
-    { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
-  ],
-  "recommendation": "parallel_safe"
+  "schema_version": 5,
+  "coordinate": {
+    "input_files": ["src/api.ts", "src/db.ts"],
+    "within_set": [
+      { "file_a": "src/api.ts", "file_b": "src/db.ts", "coupling_ratio": 0.67 }
+    ],
+    "hidden_dependencies": [
+      { "file": "src/session.ts", "coupled_to": "src/api.ts", "coupling_ratio": 0.81 }
+    ],
+    "ownership": [
+      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
+    ]
+  }
 }
 ```
 
@@ -175,14 +176,12 @@ Output (JSON only today):
   `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
   a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
   `"diffuse"` value today).
-- **`recommendation`** — `"serialize"` or `"parallel_safe"`. Read this hedge, not just the
-  label: hotspots-research (META-26) found the underlying `coupling_ratio` threshold fails
-  every direct test of its predictive validity as a `"serialize"` trigger on its own. The one
-  refinement that *is* validated (META-27, F155) is the downgrade you see above — when every
-  file in your set has `knowledge_mode: "concentrated"`, `recommendation` is forced to
-  `"parallel_safe"` regardless of coupling, because concentrated-ownership files show
-  substantially lower real collision rates. Outside that specific case, treat `"serialize"` as
-  a prompt to look closer, not a validated verdict.
+
+`within_set` and `hidden_dependencies` are descriptive co-change facts, not a collision
+predictor: hotspots-research (META-26) found the `coupling_ratio` threshold fails every direct
+test of its predictive validity as a serialize/parallel-safe trigger, so hotspots 2.0 removed
+the `recommendation` field computed from it rather than ship an unsupported verdict. Use
+`knowledge_mode` and your own judgment instead.
 
 ## Policy Engine
 

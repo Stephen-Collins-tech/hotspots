@@ -95,8 +95,7 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 ### `hotspots coordinate [PATH]`
 
 Coupling and ownership risk for a set of files, before starting work on them. See
-[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings, including
-the honest caveat on `recommendation`.
+[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings.
 
 ```
 hotspots coordinate [PATH] [OPTIONS]
@@ -241,13 +240,14 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 
 The file set comes from `--files` (comma-separated), `--diff` (a unified diff on stdin), or `--staged` (`git diff --cached --name-only`).
 
-Output fields:
+Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
 - `within_set`: co-change `coupling_ratio` for file pairs inside the set.
 - `hidden_dependencies`: files outside the set with `coupling_ratio >= 0.7` to a file inside it.
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
-- `recommendation`: `"serialize"` or `"parallel_safe"`.
 
-`recommendation` is `"serialize"` when any within-set pair has `coupling_ratio >= 0.7`, unless every input file has `knowledge_mode: "concentrated"`. In that case it is downgraded to `"parallel_safe"`, because concentrated ownership explains most of the collision risk that coupling appears to predict. An empty ownership list never downgrades.
+There is no `recommendation` field: hotspots-research found no validated trigger for a
+serialize/parallel-safe verdict derived from `coupling_ratio`, so hotspots 2.0 removed it
+rather than ship an unsupported recommendation.
 
 ### `hotspots prune`
 
