@@ -97,7 +97,7 @@ Hotspots computes a **Local Risk Score (LRS)** per function from four structural
 LRS = 1.0×R_cc + 0.8×R_nd + 0.6×R_fo + 0.7×R_ns
 ```
 
-where each component is log-scaled and capped to prevent outliers from dominating.
+where each component is log-scaled and capped to prevent outliers from dominating ([full formula, caps, and weight rationale](docs/REFERENCE.md#lrs-formula)).
 
 In **snapshot mode**, LRS is combined with git history (churn, touch frequency, recency) and call graph metrics (fan-in, PageRank, SCC membership) to compute an **Activity Risk Score** and place each function in a triage quadrant:
 

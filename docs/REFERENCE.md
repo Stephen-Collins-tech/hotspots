@@ -92,23 +92,6 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
 
-### `hotspots coordinate [PATH]`
-
-Coupling and ownership risk for a set of files, before starting work on them. See
-[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings.
-
-```
-hotspots coordinate [PATH] [OPTIONS]
-```
-
-| Flag | Description |
-|---|---|
-| `--files <FILES>` | Comma-separated file paths to analyze |
-| `--diff` | Derive the file set from a unified diff read on stdin |
-| `--staged` | Derive the file set from `git diff --cached --name-only` |
-
-JSON output only today. `PATH` defaults to `.`.
-
 ### `hotspots train [PATH]`
 
 Fit a ranker from fix-commit history. Model saved to `.hotspots/ranker.json` and auto-loaded by `hotspots analyze`.
@@ -154,7 +137,7 @@ Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 
 Requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
-The trained model (`model_version 5`) uses 10 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`, `convention_bug_fix_count`. Models trained with an older version are rejected on load with a retrain message.
+The trained model (`model_version 6`) uses 9 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`. (`convention_bug_fix_count` was removed in `model_version 6` — F168 found it ratchets the trained ranker monotonically, never improving once a function is flagged.) Models trained with an older version are rejected on load with a retrain message.
 
 `hotspots analyze` prints which model class the loaded ranker uses:
 
@@ -232,25 +215,27 @@ Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (
 
 ### `hotspots coordinate [PATH]`
 
-Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
+Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON. See
+[USAGE.md](USAGE.md#hotspots-coordinate) for a longer walkthrough.
 
 ```
 hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 ```
 
-The file set comes from `--files` (comma-separated), `--diff` (a unified diff on stdin), or `--staged` (`git diff --cached --name-only`).
+| Flag | Description |
+|---|---|
+| `--files <FILES>` | Comma-separated file paths to analyze |
+| `--diff` | Derive the file set from a unified diff read on stdin |
+| `--staged` | Derive the file set from `git diff --cached --name-only` |
+
+JSON output only today. `PATH` defaults to `.`.
 
 Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
 
-There is no `recommendation` field: hotspots-research found no validated trigger for a
-serialize/parallel-safe verdict derived from `coupling_ratio`, so hotspots 2.0 removed it
-rather than ship an unsupported recommendation. `within_set`/`hidden_dependencies` (the raw
-co-change coupling facts that fed it) are gone too, for the same reason one level up: once
-"only fields proven to work" became the bar, their only backing was *negative* evidence
-(coupling predicts less coordination friction, not more, and adds nothing once ownership is
-controlled for) — they survived the `recommendation` cut on "descriptive fact" grounds, but
-not this stricter one.
+There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
+facts either — both removed in hotspots 2.0 for lack of validated evidence. See
+[USAGE.md](USAGE.md#hotspots-coordinate) for the full rationale and an example walkthrough.
 
 ### `hotspots prune`
 
@@ -447,13 +432,6 @@ consumer. See `hotspots-research/docs/findings/F167-depth-score-decomposition.md
 `hotspots-research/docs/promotion-briefs/depth-score-remove-from-live-score.md` for the
 depth removal, and `hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md`
 for the burst removal.
-
-`burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
-higher means commits cluster into frantic bursts rather than steady, spread-out
-changes). For each commit touching a file, it counts how many of that file's commits
-fall within the following 30 days, then divides the largest such count by the mean —
-a file with 5 commits crammed into one week scores higher than one with 5 commits
-spread evenly across a year, even though both have `commit_count = 5`.
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
@@ -691,13 +669,30 @@ workflow file can remove a required check — but it does mean the change can't 
 
 ### Schema versions
 
-| Version | Structure | When |
-|---|---|---|
-| v4 (default snapshot JSON) | `fire`/`debt`/`watch`/`ok` triage buckets + per-function `action` + `architecture` aggregates | `hotspots analyze --mode snapshot` |
-| v2 (full snapshot) | Flat `functions` array + enriched `aggregates` | `--all-functions` |
-| v1 (delta) | `deltas` array with before/after | `--mode delta` |
+As of hotspots 2.0, every JSON-emitting command shares **one envelope and one
+`schema_version` (currently `5`)** — the pre-2.0 model of separate version
+constants per command (`AGENT_SNAPSHOT_SCHEMA_VERSION`, `DELTA_SCHEMA_VERSION`,
+a bare unversioned `--axes` map, etc.) was unified in the 2.0 master-schema cut.
+The envelope always carries `schema_version`, `commit`, and `analysis`; everything
+else is an **optional section**, present only when that command/flag computed it:
 
-Always check `schema_version` before consuming output in tooling.
+| Section | Present when | Contents |
+|---|---|---|
+| `functions` | always | Full per-function array (`FunctionSnapshot`) |
+| `summary` | always | Population-level aggregate stats |
+| `triage` | `--mode snapshot`, not `--all-functions` | `fire`/`debt`/`watch`/`ok` buckets, each with a per-function `action` |
+| `architecture` | `--all-functions` | `file_risk`/`modules` aggregates |
+| `co_change` | `--all-functions` | File co-change pairs |
+| `coordinate` | `hotspots coordinate` | Ownership/knowledge-mode facts for a file set |
+| `delta` | `hotspots diff` | `deltas` array + PR-wide aggregates |
+| `axes` | `--axes` | Risk/Coupling/Ownership/Centrality per-axis rankings |
+
+`--all-functions` toggles which sections a snapshot-mode run populates (full
+`architecture`/`co_change` instead of the triage buckets) — it is not a
+different schema version, just a different set of sections inside the same
+envelope. Always check `schema_version` before consuming output in tooling, and
+check for a section's presence (`Option`/possibly-absent key) rather than
+assuming it's always there.
 
 `analysis.formula_version` is a separate integer that tracks the scoring
 formula (default `ScoringWeights`, `LrsWeights`, `RiskThresholds`), bumped
@@ -721,7 +716,7 @@ covers default-value changes, not changes to the scoring formula's structure
 (e.g. adding/removing a term from `compute_activity_risk`) — a structural change
 is not guaranteed to bump it.
 
-### Function fields (v2 / `--all-functions`)
+### Function fields (`functions[]`, `FunctionSnapshot`)
 
 ```json
 {
@@ -729,29 +724,48 @@ is not guaranteed to bump it.
   "file": "src/api/billing.ts",
   "line": 142,
   "language": "TypeScript",
+  "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3, "loc": 48 },
   "lrs": 12.4,
   "band": "critical",
-  "quadrant": "fire",
-  "driver": "high_complexity",
-  "driver_detail": null,
-  "metrics": { "cc": 15, "nd": 4, "fo": 8, "ns": 3 },
-  "risk": { "r_cc": 4.0, "r_nd": 4.0, "r_fo": 3.0, "r_ns": 3.0 },
-  "patterns": ["complex_branching", "churn_magnet"],
-  "pattern_details": null,
   "suppression_reason": null,
   "churn": { "lines_added": 156, "lines_deleted": 89, "net_change": 67 },
-  "touch_count_30d": 12,
+  "touch_count": 12,
   "days_since_last_change": 3,
-  "activity_risk": 18.5,
   "callgraph": {
-    "fan_in": 8, "fan_out": 8,
-    "pagerank": 0.0042, "betweenness": 127.3,
-    "scc_id": 0, "scc_size": 1, "dependency_depth": 5
-  }
+    "fan_in": 8, "pagerank": 0.0042,
+    "scc_size": 1, "is_entrypoint": false, "neighbor_churn": 23
+  },
+  "activity_risk": 18.5,
+  "risk_factors": { "complexity": 6.0, "churn": 1.2, "activity": 0.8, "recency": 0.0 },
+  "driver": "high_complexity",
+  "driver_detail": null,
+  "quadrant": "fire",
+  "patterns": ["complex_branching", "churn_magnet"],
+  "pattern_details": null,
+  "subsystem": "",
+  "authors_90d": 2,
+  "directed_coupling": 0.31
 }
 ```
 
-`pattern_details` is populated only with `--explain-patterns`. `suppression_reason` is omitted (not null) when no suppression is present.
+This is the full per-function shape in `functions[]` — present on every `--mode
+snapshot` run, with or without `--all-functions`. `pattern_details`,
+`pattern_details`-adjacent explanations, and `patterns` itself are populated only
+with `--explain`/`--explain-patterns`; omitted (empty array for `patterns`, absent
+key for `pattern_details`) otherwise. `suppression_reason` is omitted (not null)
+when no suppression is present. `risk_factors` is the `{complexity, churn,
+activity, recency}` breakdown that sums into `activity_risk` (see Activity Risk
+above) — `fan_in`/`cyclic_dependency`/`depth`/`burst` have no field here; they were
+removed from `RiskFactors` in hotspots 2.0.
+
+**This is distinct from the triage view's per-function entries** (`triage.{fire,debt,watch}.top[]`,
+present only on `--mode snapshot` *without* `--all-functions`): those use a
+slimmer shape (`function`, `file`, `line`, `band`, `quadrant`, `driver`, `action`,
+`lrs`, `activity_risk`, `metrics`, `touch_count`, `days_since_last_change`,
+`fan_in`, `patterns`) that adds a human-readable `action` string but omits
+`risk_factors`/`callgraph`'s other fields/`suppression_reason`/`subsystem`/
+`authors_90d`/`directed_coupling`. Don't assume the two shapes are interchangeable
+when writing a consumer against this schema.
 
 `lrs`, `activity_risk`, and `band` are absolute — stable across runs unless the
 function's own metrics/history change. `quadrant`, `driver`, `driver_detail`, and
@@ -805,21 +819,25 @@ defect-correlation-validated threshold.
 ```
 `risk: "expected"` = a static import exists; co-change is explained.
 
-**`aggregates.modules`** — directory-level instability:
+**`architecture.modules`** — directory-level coupling (`ModuleInstability`):
 ```json
 {
   "module": "hotspots-core/src",
+  "file_count": 12,
+  "function_count": 340,
+  "avg_complexity": 6.1,
   "afferent": 8,
   "efferent": 3,
-  "instability": 0.27,
   "module_risk": "high"
 }
 ```
-Instability near 0 = everything depends on it (risky to change). Instability near 1 = depends on others (safe to change).
 `module_risk: "high"` fires when `avg_complexity > 5.0` — gated on complexity
-alone. `instability`/`afferent`/`efferent` are informational fields only;
-internal validation found no benefit to combining them with the complexity
-gate, so `module_risk` does not depend on them.
+alone. `afferent`/`efferent` (external modules that depend on this one / that this
+one depends on) are descriptive facts only — `module_risk` does not depend on
+them. **`instability` (efferent / (afferent + efferent)) was removed entirely in
+hotspots 2.0** (F170: carried no measured signal, ρ≈-0.002, and combining it with
+the complexity gate added no benefit over complexity alone) — do not expect this
+field in current output.
 
 **`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
 ```json
@@ -935,6 +953,6 @@ All languages have full parity across all metrics and features.
 
 ## Scoring Changelog
 
-All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature was introduced in a later release; the current model is `model_version 5` (10 features). Check `CHANGELOG.md` for version-specific details.
+All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature was introduced in a later release; the current model is `model_version 6` (9 features). Check `CHANGELOG.md` for version-specific details.
 
 - The `authors_90d` and `directed_coupling` `--explain` phrases were reworded from directive to descriptive language (e.g. "no clear owner" → "no single frequent owner in recent history") after four independent tests found no outcome benefit from acting on the ownership/coupling diagnosis. See `META-12-observational-prescription-tests-fail.md` and `F103-review-hotspots-interventional.md` in `hotspots-research`.

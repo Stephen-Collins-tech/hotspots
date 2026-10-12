@@ -66,10 +66,13 @@ export default defineConfig({
     },
   },
 
-  // Ignore internal docs from site
-  srcExclude: ['.internal/**'],
+  // Ignore internal/planning docs from the published site (not linked from
+  // nav/sidebar, but would otherwise still build as orphan pages at a guessable URL).
+  srcExclude: ['.internal/**', 'requirements/**'],
 
   // Some docs pages link to root-level files (CLAUDE.md, CONTRIBUTING, etc.) not
-  // included in the docs build. Suppress the dead-link build failure for those.
-  ignoreDeadLinks: true
+  // included in the docs build. Narrowed to that known pattern (rather than a
+  // blanket `true`) so genuine in-body anchor/link drift — e.g. a duplicated
+  // heading or a renamed section — still fails the build instead of being silenced.
+  ignoreDeadLinks: [/\/(CLAUDE|CONTRIBUTING|SECURITY|TASKS|STATUS)\.md$/]
 })
