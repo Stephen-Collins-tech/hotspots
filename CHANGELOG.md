@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove within_set/hidden_dependencies from coordinate
 - Fold diff/delta into 2.0 master-schema envelope
 - Fold --axes JSON output into 2.0 envelope
+- Wrap bare analyze JSON output in 2.0 envelope
 
 ## [1.42.1] - 2026-10-10
 
