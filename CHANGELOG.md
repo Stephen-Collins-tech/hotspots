@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changelog entry for 2.0 Phase 2 field removals
 - Fix stale DELTA_SCHEMA_VERSION reference in config.rs
 - Hedge file_risk_score for within-diff triage only (F173)
+- Fix post-2.0 drift in REFERENCE/USAGE/ARCHITECTURE/RISK_STABILITY
+- Dedupe LRS formula and coordinate rationale restatements
 
 
 ### Features
