@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove dead RiskFactors/CallGraphMetrics fields, module instability
 - Gate patterns[] behind --explain-patterns, rename touch_count_30d
 - Remove neighbor_churn score + jaccard_label_stability field
+- Fold coordinate into 2.0 master-schema envelope
+- Remove within_set/hidden_dependencies from coordinate
 
 ## [1.42.1] - 2026-10-10
 
