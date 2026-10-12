@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Document hotspots coordinate command (#239)
 - Changelog entry for 2.0 Phase 2 field removals
 - Fix stale DELTA_SCHEMA_VERSION reference in config.rs
+- Hedge file_risk_score for within-diff triage only (F173)
 
 
 ### Features
