@@ -40,11 +40,11 @@ Snapshots are stored as `.hotspots/snapshots/<commit-sha>.json.zst` and are immu
 # File-level risk table (ranked by composite file_risk_score)
 hotspots analyze . --mode snapshot --format text --level file
 
-# Module instability (Robert Martin's metric at directory level)
+# Module-level complexity/coupling view (directory level)
 hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone; `instability` is reported alongside it as an informational field, not a gating condition.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal (F170) and is no longer computed or reported.
 
 ## Delta Mode
 

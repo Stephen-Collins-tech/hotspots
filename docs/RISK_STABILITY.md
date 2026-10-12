@@ -148,20 +148,22 @@ a historical activity spike would keep a function looking "Critical"
 forever — and removed from the live composite score, with the field kept
 as a documented no-op for output-schema compatibility. Similarly,
 `trainer.rs` documents features deliberately excluded from training
-(`touch_count_30d`, `days_since_last_change`, `activity_risk`,
+(`touch_count`, `days_since_last_change`, `activity_risk`,
 `convention_bug_fix_rate`) because of temporal leakage that would make the
-ranker unstable or circular.
+ranker unstable or circular. `convention_bug_fix_count` (the raw, non-rate
+count) was also removed from the trained feature set entirely in
+`model_version 6` — F168 found it ratchets monotonically in both model classes,
+the same failure mode already fixed for `burst_score` in the live score.
 
 ### B. Where predictability is weaker than it looks
 
-- **No formula version surfaced in output.** Snapshots record a
-  `tool_version`, but scoring weights and thresholds can change between
-  releases with nothing tying that change to the snapshot. A score delta
-  across a tool upgrade is currently indistinguishable from a delta caused
-  by a real code change.
-- **No config schema version.** Config validation is strict about unknown
-  keys, but there's no `schema_version` field to migrate or flag a future
-  breaking change in weight/threshold semantics.
+- **Both gaps below are resolved as of hotspots 2.0** — `analysis.formula_version`
+  (separate from `analysis.tool_version`, bumped only when a default weight or
+  threshold changes — see REFERENCE.md's "JSON Schema" section) now lets tooling
+  tell a score delta caused by a tool upgrade apart from one caused by a real
+  code change, and config files carry their own `schema_version` for future
+  weight/threshold-semantics migrations. Kept here as a historical note of what
+  this doc previously flagged as missing, not as a current gap.
 - **Population-relative labels sit right next to an absolute score.**
   Driver/quadrant/percentile labels are *designed* to move when the rest of
   the repo changes — but users diffing output commit-to-commit may not
