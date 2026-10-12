@@ -56,8 +56,9 @@ function highComplexityFunction(x, y, z) {
     proc = r.run(["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"], repo, out=delta)
     assert proc.returncode in (0, 1)  # policy may fail with exit 1
     d = read_json(delta)
-    assert "deltas" in d and isinstance(d["deltas"], list)
-    assert d.get("aggregates") is not None
+    delta_section = d["delta"]
+    assert "deltas" in delta_section and isinstance(delta_section["deltas"], list)
+    assert delta_section.get("aggregates") is not None
 
     # Trends JSON
     trends = repo / "trends.json"
