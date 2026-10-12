@@ -7,53 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Breaking Changes
-- **2.0 Phase 2:** remove `risk_factors.{fan_in,cyclic_dependency,depth,burst}`,
-  `callgraph.{fan_out,betweenness,scc_id,dependency_depth}`, and `modules[].instability`
-  — all either already hardcoded to `0.0`/dead or carried no measured signal (`risk_factors.churn`
-  carved out: still a live, weighted score contributor with no non-inferiority finding to justify
-  removing it). Gate `patterns[]` behind `--explain-patterns` (was previously always present).
-  Rename `touch_count_30d`/`touches_30d` → `touch_count` and `days_since_changed` →
-  `days_since_last_change` everywhere (the field never actually covered a 30-day window — it's
-  365 days per F165); add top-level `analysis.touch_window_days`. Tracked in issue #247
-  (2 of 6 planned phases toward 2.0.0, following #248).
-- **2.0, "proven to work" bar:** remove `risk_factors.neighbor_churn`/`callgraph`'s
-  contribution to it (live-scored but only "consistent with META-02" — never
-  independently validated; `callgraph.neighbor_churn` itself stays, since the
-  `neighbor_risk`/`middle_man` pattern detectors still consume it as a structural
-  fact) and `FunctionSnapshot.jaccard_label_stability` (an internal F38 screener
-  diagnostic, never an output-worthy signal — the screener itself keeps running
-  internally, this only removes its echo into the schema). `ScoringWeights.neighbor_churn`
-  and the corresponding `.hotspotsrc.json` `scoring.neighbor_churn` config key are
-  also removed (config files setting it will now fail validation).
-- **2.0 Phase 3:** `hotspots coordinate` now emits the unified master-schema envelope
-  (`schema_version: 5`) with `ownership` nested under a `coordinate` section, instead of
-  a standalone `schema_version: 1` struct. Removed the coupling-triggered `recommendation`
-  field and `compute_recommendation` entirely — no validated finding supports its sole
-  `"serialize"` trigger (see `coordinate-remove-coupling-recommendation.md`).
-- **2.0, "proven to work" bar (coordinate):** removed `within_set`/`hidden_dependencies`
-  entirely — they'd shipped as descriptive facts after the Phase 3 `recommendation`
-  removal, but under the stricter bar even that doesn't hold: F150 found
-  `coupling_ratio >= 0.7` pairs collide *less* than churn-matched baselines, and F156
-  found coupling adds nothing once ownership is controlled for. `ownership`/
-  `knowledge_mode` stays (F146/F155/F157). `compute_raw_coupling_for_repo` (its sole
-  caller) removed from `hotspots-core::coupling` as dead code.
-- **2.0 Phase 4:** `hotspots diff`'s JSON/JSONL output is now the unified master-schema
-  envelope (`schema_version: 5`): the diff itself nested under `delta` (`delta.commit`
-  keeps both head and parent, `delta.deltas`, `delta.policy`, `delta.aggregates`
-  unchanged). No top-level `commit` section — `delta.commit.sha` already carries the
-  head commit, and the master schema has zero field duplication, so it isn't exposed
-  twice. `DELTA_SCHEMA_VERSION` (previously `1`) is removed; consumers reading
-  `delta.aggregates.pr_summary` or `policy.failed` at the old top level must add the
-  `delta.` prefix.
-
 ### Documentation
 - Document hotspots coordinate command (#239)
+- Changelog entry for 2.0 Phase 2 field removals
 
 
 ### Features
 - Convert Rust CFG builder to iterative work-stack walk (#245)
 - Merge Snapshot/AgentSnapshotOutput into one 2.0 envelope (#248)
+- Remove dead RiskFactors/CallGraphMetrics fields, module instability
+- Gate patterns[] behind --explain-patterns, rename touch_count_30d
+- Remove neighbor_churn score + jaccard_label_stability field
+- Fold coordinate into 2.0 master-schema envelope
+- Remove within_set/hidden_dependencies from coordinate
 
 ## [1.42.1] - 2026-10-10
 
