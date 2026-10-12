@@ -95,8 +95,7 @@ Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snaps
 ### `hotspots coordinate [PATH]`
 
 Coupling and ownership risk for a set of files, before starting work on them. See
-[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings, including
-the honest caveat on `recommendation`.
+[USAGE.md](USAGE.md#hotspots-coordinate) for the full JSON schema and field meanings.
 
 ```
 hotspots coordinate [PATH] [OPTIONS]
@@ -233,7 +232,7 @@ Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (
 
 ### `hotspots coordinate [PATH]`
 
-Reports coupling and ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
+Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON.
 
 ```
 hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
@@ -241,13 +240,17 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 
 The file set comes from `--files` (comma-separated), `--diff` (a unified diff on stdin), or `--staged` (`git diff --cached --name-only`).
 
-Output fields:
-- `within_set`: co-change `coupling_ratio` for file pairs inside the set.
-- `hidden_dependencies`: files outside the set with `coupling_ratio >= 0.7` to a file inside it.
+Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
-- `recommendation`: `"serialize"` or `"parallel_safe"`.
 
-`recommendation` is `"serialize"` when any within-set pair has `coupling_ratio >= 0.7`, unless every input file has `knowledge_mode: "concentrated"`. In that case it is downgraded to `"parallel_safe"`, because concentrated ownership explains most of the collision risk that coupling appears to predict. An empty ownership list never downgrades.
+There is no `recommendation` field: hotspots-research found no validated trigger for a
+serialize/parallel-safe verdict derived from `coupling_ratio`, so hotspots 2.0 removed it
+rather than ship an unsupported recommendation. `within_set`/`hidden_dependencies` (the raw
+co-change coupling facts that fed it) are gone too, for the same reason one level up: once
+"only fields proven to work" became the bar, their only backing was *negative* evidence
+(coupling predicts less coordination friction, not more, and adds nothing once ownership is
+controlled for) — they survived the `recommendation` cut on "descriptive fact" grounds, but
+not this stricter one.
 
 ### `hotspots prune`
 

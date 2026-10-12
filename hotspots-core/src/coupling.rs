@@ -364,26 +364,6 @@ pub fn compute_raw_coupling_ratios(
         .collect()
 }
 
-/// High-level entry point: load commits from `repo_root` and compute raw
-/// (unweighted) pairwise coupling ratios, full history, no minimum-appearances
-/// filter (`min_appearances = 1`) — `hotspots coordinate` operates on a small,
-/// caller-specified file set, not a repo-wide ranking, so the noise floor that
-/// matters for [`compute_directed_coupling_for_repo`]'s repo-wide scoring
-/// doesn't apply here.
-pub fn compute_raw_coupling_for_repo(repo_root: &Path) -> HashMap<(String, String), f64> {
-    let gd = git_dir(repo_root);
-    if !gd.exists() {
-        return HashMap::new();
-    }
-
-    let commits = load_commits(&gd);
-    if commits.is_empty() {
-        return HashMap::new();
-    }
-
-    compute_raw_coupling_ratios(&commits, 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,11 +535,5 @@ mod tests {
         ];
         let ratios = compute_raw_coupling_ratios(&commits, 2);
         assert!(!ratios.contains_key(&("a.rs".to_string(), "b.rs".to_string())));
-    }
-
-    #[test]
-    fn raw_coupling_for_repo_missing_git_dir_returns_empty() {
-        let ratios = compute_raw_coupling_for_repo(Path::new("/nonexistent/repo/path"));
-        assert!(ratios.is_empty());
     }
 }
