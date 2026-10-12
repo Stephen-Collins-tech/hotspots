@@ -778,6 +778,19 @@ term and a `file_churn` field; both were removed — `file_churn` was always 0 i
 practice due to a file-path-matching bug in `populate_churn`'s lookup, confirmed via
 hotspots-research F170 and a direct smoke test against this repo.)
 
+**Validated for within-diff review triage, not for finding a bug repo-wide.**
+hotspots-research F173 tested `file_risk_score` two different ways. Given a bounded
+diff a reviewer is already looking at (e.g. a PR's changed files), ranking those files
+by `file_risk_score` put the file that later needed a fix in the #1 slot 48.9% of the
+time (22/45 real fix-commit instances, 6 repos/3 languages), vs. 13.3% for a raw
+lines-changed baseline — sign-consistent on 5/6 repos tested. Given the whole repo with
+no bounded diff, three separate attempts (an LLM agent with `hotspots` as an optional
+tool, the same with an instance-aware prompt, and the triage view handed over as static
+context) all converged on the same low hit rate as plain investigation with no tool at
+all. Read `file_risk_score` as *"of the files already in front of you, which deserves
+the closest look,"* not as a tool for finding which file in an entire repository has a
+bug. (n=45, not pre-registered — see F173 for caveats.)
+
 No "refactor soon" cutoff is officially recommended for `file_risk_score` in this doc.
 If you want a rough high-risk marker, F170's 16-repo/82,574-file empirical
 distribution puts the 90th percentile at approximately 7.0 (p50 ≈ 2.9, p95 ≈ 9.6) —
