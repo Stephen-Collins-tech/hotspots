@@ -156,7 +156,6 @@ fn test_suppression_missing_reason_policy() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
@@ -224,7 +223,6 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
@@ -288,7 +286,6 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
