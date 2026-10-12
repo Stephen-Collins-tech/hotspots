@@ -233,14 +233,9 @@ JSON output only today. `PATH` defaults to `.`.
 Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
 
-There is no `recommendation` field: hotspots-research found no validated trigger for a
-serialize/parallel-safe verdict derived from `coupling_ratio`, so hotspots 2.0 removed it
-rather than ship an unsupported recommendation. `within_set`/`hidden_dependencies` (the raw
-co-change coupling facts that fed it) are gone too, for the same reason one level up: once
-"only fields proven to work" became the bar, their only backing was *negative* evidence
-(coupling predicts less coordination friction, not more, and adds nothing once ownership is
-controlled for) — they survived the `recommendation` cut on "descriptive fact" grounds, but
-not this stricter one.
+There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
+facts either — both removed in hotspots 2.0 for lack of validated evidence. See
+[USAGE.md](USAGE.md#hotspots-coordinate) for the full rationale and an example walkthrough.
 
 ### `hotspots prune`
 
