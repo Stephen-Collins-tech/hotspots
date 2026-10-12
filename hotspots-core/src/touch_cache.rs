@@ -1,7 +1,7 @@
 //! On-disk cache for per-function git touch metrics.
 //!
 //! Cache key: `"{sha}:{file}:{start}:{end}"` where file is a repo-relative path
-//! and start/end are 1-based line numbers. Value: `(touch_count_30d, days_since_last_change)`.
+//! and start/end are 1-based line numbers. Value: `(touch_count, days_since_last_change)`.
 //!
 //! **Line range shift behavior:** If surrounding code changes and a function's line
 //! range moves, the cache key will not match (start/end differ) — it is a miss.
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// In-memory touch cache: maps key to `(touch_count_30d, days_since_last_change)`.
+/// In-memory touch cache: maps key to `(touch_count, days_since_last_change)`.
 pub type TouchCache = HashMap<String, (usize, Option<u32>)>;
 
 /// Maximum number of distinct commit SHAs to retain in the cache.

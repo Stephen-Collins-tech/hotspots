@@ -812,6 +812,12 @@ fn handle_default_output(
 
     if explain_patterns {
         populate_pattern_details(&mut reports, resolved_config);
+    } else {
+        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` in this
+        // bare (no-git-context) path too, for consistency with snapshot mode.
+        for report in &mut reports {
+            report.patterns.clear();
+        }
     }
 
     match format {
@@ -963,6 +969,16 @@ fn handle_snapshot_mode(
     snapshot.populate_patterns(&resolved_config.pattern_thresholds);
     if explain_patterns {
         snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
+    } else {
+        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` (no
+        // validating finding for it as a standalone default-output signal).
+        // `populate_patterns` above also refreshes Tier-1 patterns already
+        // carried from the initial analysis pass onto `function.patterns`, so
+        // clearing here (rather than skipping the call) is what actually
+        // removes it from default output, not just withholding the Tier-2 add-on.
+        for function in &mut snapshot.functions {
+            function.patterns.clear();
+        }
     }
 
     // Populate DC before persisting so the snapshot on disk includes the values,
@@ -1828,6 +1844,7 @@ pub(crate) fn build_snapshot_via_db(
             scope: "full".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             formula_version: FORMULA_VERSION,
+            touch_window_days: 365,
         },
         functions,
         summary: None,

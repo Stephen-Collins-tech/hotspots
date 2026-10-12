@@ -157,7 +157,7 @@ pub struct HotspotsConfig {
     pub per_function_touches: Option<bool>,
 
     /// Enable hybrid touch mode: file-level for all functions, then per-function
-    /// only for functions in files with touch_count_30d >= this threshold.
+    /// only for functions in files with touch_count >= this threshold.
     /// Overrides per_function_touches when set. Recommended: 3–10.
     #[serde(default)]
     pub hybrid_touch_threshold: Option<usize>,
@@ -350,8 +350,6 @@ pub struct ScoringWeightsConfig {
     pub scc: Option<f64>,
     /// Weight for dependency depth penalty (default: 0.1)
     pub depth: Option<f64>,
-    /// Weight for neighbor churn factor (default: 0.2)
-    pub neighbor_churn: Option<f64>,
     /// Weight for commit-timing burstiness factor (default: 0.3)
     pub burst: Option<f64>,
 }
@@ -730,7 +728,6 @@ fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
         ("fan_in", s.fan_in),
         ("scc", s.scc),
         ("depth", s.depth),
-        ("neighbor_churn", s.neighbor_churn),
         ("burst", s.burst),
     ] {
         if let Some(v) = val {
@@ -855,7 +852,6 @@ impl HotspotsConfig {
                     fan_in: s.fan_in.unwrap_or(defaults.fan_in),
                     scc: s.scc.unwrap_or(defaults.scc),
                     depth: s.depth.unwrap_or(defaults.depth),
-                    neighbor_churn: s.neighbor_churn.unwrap_or(defaults.neighbor_churn),
                     burst: s.burst.unwrap_or(defaults.burst),
                 }
             }
@@ -1551,10 +1547,6 @@ mod tests {
         assert_eq!(resolved.scoring_weights.fan_in, defaults.fan_in);
         assert_eq!(resolved.scoring_weights.scc, defaults.scc);
         assert_eq!(resolved.scoring_weights.depth, defaults.depth);
-        assert_eq!(
-            resolved.scoring_weights.neighbor_churn,
-            defaults.neighbor_churn
-        );
     }
 
     #[test]
