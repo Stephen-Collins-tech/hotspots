@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Drop duplicate top-level commit from delta envelope
+- Update integration test for delta envelope shape (phase 4)
+
+
 ### Documentation
 - Document hotspots coordinate command (#239)
 - Changelog entry for 2.0 Phase 2 field removals
+- Fix stale DELTA_SCHEMA_VERSION reference in config.rs
 
 
 ### Features
@@ -20,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove neighbor_churn score + jaccard_label_stability field
 - Fold coordinate into 2.0 master-schema envelope
 - Remove within_set/hidden_dependencies from coordinate
+- Fold diff/delta into 2.0 master-schema envelope
 
 ## [1.42.1] - 2026-10-10
 
