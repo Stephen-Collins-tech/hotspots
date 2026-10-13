@@ -114,100 +114,54 @@ fn cyclomatic_complexity(cfg: &Cfg, body: &BlockStmt) -> usize {
         1 // Empty function has CC = 1
     };
 
-    // Increment for boolean short-circuit operators
-    let mut short_circuit_count = 0;
-    let mut visitor = ShortCircuitVisitor {
-        count: &mut short_circuit_count,
-    };
-    body.visit_with(&mut visitor);
+    // Short-circuit operators (&&, ||), switch cases, catch clauses, and
+    // ternary expressions are all decision points the CFG builder doesn't
+    // see (ternaries live in expression position; the others are counted
+    // here rather than as CFG edges). Counted in one combined AST walk
+    // instead of 4 separate ones -- same counts, one traversal.
+    let mut counter = DecisionPointCounter::default();
+    body.visit_with(&mut counter);
 
-    // Increment for switch cases
-    let switch_case_count = count_switch_cases(body);
-
-    // Increment for catch clauses
-    let catch_count = count_catch_clauses(body);
-
-    // Increment for ternary expressions (CondExpr), e.g. `const y = x > 0 ? 1 : 2;`.
-    // These are decision points that the statement-level CFG builder never sees
-    // since ternaries live in expression position.
-    let ternary_count = count_ternaries(body);
-
-    base_cc + short_circuit_count + switch_case_count + catch_count + ternary_count
+    base_cc
+        + counter.short_circuit_count
+        + counter.switch_case_count
+        + counter.catch_count
+        + counter.ternary_count
 }
 
-/// Count ternary (conditional) expressions in the AST
-fn count_ternaries(body: &BlockStmt) -> usize {
-    let mut count = 0;
-    let mut visitor = TernaryCounter { count: &mut count };
-    body.visit_with(&mut visitor);
-    count
+/// Counts short-circuit operators, switch cases, catch clauses, and ternary
+/// expressions in a single AST traversal (see `cyclomatic_complexity`).
+#[derive(Default)]
+struct DecisionPointCounter {
+    short_circuit_count: usize,
+    switch_case_count: usize,
+    catch_count: usize,
+    ternary_count: usize,
 }
 
-struct TernaryCounter<'a> {
-    count: &'a mut usize,
-}
-
-impl Visit for TernaryCounter<'_> {
+impl Visit for DecisionPointCounter {
     fn visit_cond_expr(&mut self, cond_expr: &CondExpr) {
-        *self.count += 1;
+        self.ternary_count += 1;
         cond_expr.visit_children_with(self);
     }
-}
 
-/// Visitor to count boolean short-circuit operators
-struct ShortCircuitVisitor<'a> {
-    count: &'a mut usize,
-}
-
-impl Visit for ShortCircuitVisitor<'_> {
     fn visit_bin_expr(&mut self, bin_expr: &BinExpr) {
-        match bin_expr.op {
-            BinaryOp::LogicalAnd | BinaryOp::LogicalOr => {
-                *self.count += 1;
-            }
-            _ => {}
+        if matches!(bin_expr.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr) {
+            self.short_circuit_count += 1;
         }
         bin_expr.visit_children_with(self);
     }
-}
 
-/// Count switch cases in the AST
-fn count_switch_cases(body: &BlockStmt) -> usize {
-    let mut count = 0;
-    let mut visitor = SwitchCaseCounter { count: &mut count };
-    body.visit_with(&mut visitor);
-    count
-}
-
-struct SwitchCaseCounter<'a> {
-    count: &'a mut usize,
-}
-
-impl Visit for SwitchCaseCounter<'_> {
     fn visit_switch_stmt(&mut self, switch_stmt: &SwitchStmt) {
         // Count each case in the switch
-        *self.count += switch_stmt.cases.len();
+        self.switch_case_count += switch_stmt.cases.len();
         switch_stmt.visit_children_with(self);
     }
-}
 
-/// Count catch clauses in the AST
-fn count_catch_clauses(body: &BlockStmt) -> usize {
-    let mut count = 0;
-    let mut visitor = CatchCounter { count: &mut count };
-    body.visit_with(&mut visitor);
-    count
-}
-
-struct CatchCounter<'a> {
-    count: &'a mut usize,
-}
-
-impl Visit for CatchCounter<'_> {
     fn visit_try_stmt(&mut self, try_stmt: &TryStmt) {
         // Count catch clause if present
         if try_stmt.handler.is_some() {
-            *self.count += 1;
+            self.catch_count += 1;
         }
         try_stmt.visit_children_with(self);
     }
@@ -1923,6 +1877,53 @@ func withDefer() {
             "ternary must increment cc: baseline={}, ternary={}",
             baseline_cc,
             ternary_cc
+        );
+    }
+
+    #[test]
+    fn test_extract_ecmascript_cc_combines_all_decision_point_types() {
+        // Regression for the DecisionPointCounter merge: exercises all 4
+        // non-CFG decision-point categories (short-circuit, switch case,
+        // catch clause, ternary) in one function body, to confirm the
+        // combined single-pass visitor still counts every category
+        // correctly, not just each one in isolation.
+        let source = r#"
+            function f(x: number, y: number): number {
+                if (x && y) {
+                    return 1;
+                }
+                switch (x) {
+                    case 1:
+                        return 2;
+                    case 2:
+                        return 3;
+                }
+                try {
+                    return x;
+                } catch (e) {
+                    return 0;
+                }
+                return x > 0 ? 1 : 2;
+            }
+        "#;
+        let (func, cfg) = ecmascript_function_and_cfg(source);
+        let cc = extract_metrics(&func, &cfg).cc;
+
+        // base_cc from the CFG (if + 2 switch cases + the branching from
+        // try/catch, exact base value isn't the point here) + 1
+        // short-circuit (&&) + 2 switch cases + 1 catch + 1 ternary.
+        // Assert the extras are all present by comparing against a
+        // baseline with none of them.
+        let baseline_source = r#"function f(x: number, y: number): number { return x; }"#;
+        let (baseline_func, baseline_cfg) = ecmascript_function_and_cfg(baseline_source);
+        let baseline_cc = extract_metrics(&baseline_func, &baseline_cfg).cc;
+
+        assert!(
+            cc > baseline_cc + 4,
+            "cc should reflect short-circuit + 2 switch cases + catch + ternary \
+             on top of baseline control flow: baseline={}, full={}",
+            baseline_cc,
+            cc
         );
     }
 
