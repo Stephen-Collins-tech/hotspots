@@ -31,6 +31,7 @@ pub mod imports;
 pub mod isolation_forest;
 pub mod language;
 pub mod metrics;
+pub mod metrics_cache;
 pub mod models;
 pub mod parser;
 pub mod patterns;
@@ -224,6 +225,10 @@ pub fn analyze_with_progress(
     if skipped_files > 0 {
         eprintln!("Skipped {} file(s) due to analysis errors", skipped_files);
     }
+
+    // Flush the per-file RawMetrics cache (populated via metrics_cache::get_or_compute
+    // inside analysis::analyze_function) to disk once per run, rather than once per file.
+    metrics_cache::flush_all();
 
     Ok(final_reports)
 }

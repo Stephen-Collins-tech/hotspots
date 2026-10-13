@@ -10,7 +10,7 @@ use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitWith};
 
 /// Raw metrics for a function
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RawMetrics {
     pub cc: usize,
     pub nd: usize,

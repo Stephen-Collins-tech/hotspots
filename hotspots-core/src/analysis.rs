@@ -3,6 +3,7 @@
 use crate::ast::FunctionNode;
 use crate::language::{self, Language, LanguageParser};
 use crate::metrics;
+use crate::metrics_cache;
 use crate::report;
 use crate::risk;
 use anyhow::{Context, Result};
@@ -100,9 +101,15 @@ pub fn analyze_file_with_config(
         pattern_thresholds: pt,
         source_map,
     };
+    // Hashed once per file (not per function): `RawMetrics` depends only on
+    // file content, so this is the key into the on-disk metrics cache (see
+    // metrics_cache.rs). Any change anywhere in the file invalidates every
+    // function's cached metrics in it — see metrics_cache.rs's doc comment
+    // for why whole-file hashing was chosen over a per-function slice hash.
+    let content_hash = metrics_cache::hash_content(&src);
     let mut reports = Vec::new();
     for function in &functions {
-        if let Some(report) = analyze_function(function, path, language, &func_cfg) {
+        if let Some(report) = analyze_function(function, path, language, &func_cfg, &content_hash) {
             reports.push(report);
         }
     }
@@ -190,29 +197,65 @@ struct FunctionAnalysisConfig<'a> {
 
 /// Builds CFG, extracts metrics, computes risk and patterns for one function.
 /// Returns None if the CFG is invalid or the function is filtered by min_lrs.
+///
+/// `content_hash` is the hash of the whole file's source text (see
+/// `metrics_cache::hash_content`), used together with the function's own line
+/// span as the cache key. On a cache hit, CFG construction and
+/// `metrics::extract_metrics` are both skipped — see `metrics_cache.rs`'s doc
+/// comment for why skipping CFG validation on a hit is safe: a hit only
+/// exists for a (hash, span) pair that previously built and validated
+/// successfully, and both are deterministic functions of file content.
 fn analyze_function(
     function: &FunctionNode,
     path: &Path,
     language: Language,
     config: &FunctionAnalysisConfig<'_>,
+    content_hash: &str,
 ) -> Option<report::FunctionRiskReport> {
     let w = config.weights;
     let t = config.thresholds;
     let pt = config.pattern_thresholds;
     let options = config.options;
     let source_map = config.source_map;
-    let cfg = language::get_builder_for_function(function).build(function);
-    if let Err(e) = cfg.validate() {
-        eprintln!(
-            "warning: skipping function '{}' in {}: invalid CFG: {}",
-            function.name.as_deref().unwrap_or("<anonymous>"),
-            path.display(),
-            e
-        );
+
+    let start_line = function.span.start_line;
+    let end_line = function.span.end_line;
+    let cache_key = metrics_cache::cache_key(content_hash, start_line, end_line);
+    let mut cfg_invalid = false;
+    let raw_metrics = {
+        // Load (or lazily populate) this file's slot in the process-wide cache,
+        // checking for a hit before doing any CFG/metrics work.
+        if let Some(cached) = metrics_cache::peek(path, content_hash, &cache_key) {
+            cached
+        } else {
+            let cfg = language::get_builder_for_function(function).build(function);
+            if let Err(e) = cfg.validate() {
+                eprintln!(
+                    "warning: skipping function '{}' in {}: invalid CFG: {}",
+                    function.name.as_deref().unwrap_or("<anonymous>"),
+                    path.display(),
+                    e
+                );
+                cfg_invalid = true;
+                metrics::RawMetrics {
+                    cc: 0,
+                    nd: 0,
+                    fo: 0,
+                    ns: 0,
+                    loc: 0,
+                    callee_names: Vec::new(),
+                }
+            } else {
+                let computed = metrics::extract_metrics(function, &cfg);
+                metrics_cache::insert(path, content_hash, &cache_key, computed.clone());
+                computed
+            }
+        }
+    };
+    if cfg_invalid {
         return None;
     }
 
-    let raw_metrics = metrics::extract_metrics(function, &cfg);
     let (risk_components, lrs, band) = risk::analyze_risk_with_config(&raw_metrics, w, t);
 
     if options.min_lrs.is_some_and(|min| lrs < min) {
@@ -249,4 +292,108 @@ fn analyze_function(
         },
         source_map,
     ))
+}
+
+#[cfg(test)]
+mod metrics_cache_correctness_tests {
+    use super::*;
+    use crate::AnalysisOptions;
+
+    fn options() -> AnalysisOptions {
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        }
+    }
+
+    /// Runs `analyze_file_with_config` twice on the same file content. The
+    /// first run is a cache miss (cold); the second hits the process-wide
+    /// metrics cache populated by the first run (warm — no disk round-trip
+    /// needed since both calls share the same process). Cached output must
+    /// be bit-for-bit identical to the freshly computed one, proving the
+    /// cache lookup never returns stale or wrong data.
+    fn assert_cache_hit_matches_fresh(ext: &str, src: &str) {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join(format!("sample.{ext}"));
+        std::fs::write(&file_path, src).unwrap();
+
+        let cm: Lrc<SourceMap> = Default::default();
+        let cold = analyze_file_with_config(&file_path, &cm, 0, &options(), None, None, None)
+            .expect("cold run should succeed");
+        let cm2: Lrc<SourceMap> = Default::default();
+        let warm = analyze_file_with_config(&file_path, &cm2, 0, &options(), None, None, None)
+            .expect("warm run should succeed");
+
+        assert_eq!(
+            cold.len(),
+            warm.len(),
+            "cache hit must report the same number of functions as a fresh run"
+        );
+        for (c, w) in cold.iter().zip(warm.iter()) {
+            assert_eq!(
+                c.metrics, w.metrics,
+                "cached RawMetrics-derived report must match a fresh (uncached) one"
+            );
+        }
+    }
+
+    #[test]
+    fn ecmascript_cache_hit_matches_fresh_extraction() {
+        assert_cache_hit_matches_fresh(
+            "ts",
+            "export function add(a: number, b: number): number {\n  if (a > 0) {\n    return a + b;\n  }\n  return b;\n}\n",
+        );
+    }
+
+    #[test]
+    fn python_cache_hit_matches_fresh_extraction() {
+        assert_cache_hit_matches_fresh(
+            "py",
+            "def add(a, b):\n    if a > 0:\n        return a + b\n    return b\n",
+        );
+    }
+
+    #[test]
+    fn go_cache_hit_matches_fresh_extraction() {
+        assert_cache_hit_matches_fresh(
+            "go",
+            "package main\n\nfunc add(a int, b int) int {\n\tif a > 0 {\n\t\treturn a + b\n\t}\n\treturn b\n}\n",
+        );
+    }
+
+    /// Changing a file's content must change its content hash and produce a
+    /// fresh, correct computation on the next analysis — never a stale hit
+    /// from the previous content's cache entry.
+    #[test]
+    fn content_change_invalidates_cache_and_recomputes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("sample.ts");
+
+        std::fs::write(
+            &file_path,
+            "export function f(a: number): number {\n  return a;\n}\n",
+        )
+        .unwrap();
+        let cm: Lrc<SourceMap> = Default::default();
+        let before = analyze_file_with_config(&file_path, &cm, 0, &options(), None, None, None)
+            .expect("first run should succeed");
+
+        std::fs::write(
+            &file_path,
+            "export function f(a: number): number {\n  if (a > 0) {\n    return a;\n  }\n  return -a;\n}\n",
+        )
+        .unwrap();
+        let cm2: Lrc<SourceMap> = Default::default();
+        let after = analyze_file_with_config(&file_path, &cm2, 0, &options(), None, None, None)
+            .expect("second run (changed content) should succeed");
+
+        assert_eq!(before.len(), 1);
+        assert_eq!(after.len(), 1);
+        assert_ne!(
+            before[0].metrics, after[0].metrics,
+            "changed content must produce fresh (different) metrics, not a stale cache hit"
+        );
+        // cc should have gone up: an unconditional return became an if/else branch.
+        assert!(after[0].metrics.cc > before[0].metrics.cc);
+    }
 }
