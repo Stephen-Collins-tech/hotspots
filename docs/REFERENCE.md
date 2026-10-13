@@ -790,15 +790,20 @@ hotspots-research F170 and a direct smoke test against this repo.)
 **Validated for within-diff review triage, not for finding a bug repo-wide.**
 hotspots-research F173 tested `file_risk_score` two different ways. Given a bounded
 diff a reviewer is already looking at (e.g. a PR's changed files), ranking those files
-by `file_risk_score` put the file that later needed a fix in the #1 slot 48.9% of the
-time (22/45 real fix-commit instances, 6 repos/3 languages), vs. 13.3% for a raw
-lines-changed baseline — sign-consistent on 5/6 repos tested. Given the whole repo with
-no bounded diff, three separate attempts (an LLM agent with `hotspots` as an optional
-tool, the same with an instance-aware prompt, and the triage view handed over as static
-context) all converged on the same low hit rate as plain investigation with no tool at
-all. Read `file_risk_score` as *"of the files already in front of you, which deserves
-the closest look,"* not as a tool for finding which file in an entire repository has a
-bug. (n=45, not pre-registered — see F173 for caveats.)
+by `file_risk_score` put the file that later needed a fix in the #1 slot 57.3% of the
+time (134/234 real fix-commit instances, 25 repos/8 languages), vs. 19.7% for a raw
+lines-changed baseline — a real win on 23 of 25 repos, tied on the other 2, losing on
+none (McNemar exact test, p=2.65e-19). A sample-size convergence check confirms the
+result is stable, not an artifact of how much data was collected. Given the whole repo
+with no bounded diff, three separate attempts (an LLM agent with `hotspots` as an
+optional tool, the same with an instance-aware prompt, and the triage view handed over
+as static context) all converged on the same low hit rate as plain investigation with
+no tool at all. Read `file_risk_score` as *"of the files already in front of you, which
+deserves the closest look,"* not as a tool for finding which file in an entire
+repository has a bug. (n=234 across 25 repos; still not formally pre-registered — see
+F173 for the full method and caveats. A follow-up, F174, found `max_cc` alone — the
+single most complex function in the file — carries nearly all of this signal; the other
+two terms add little at the margin, an explainability note, not a formula change.)
 
 No "refactor soon" cutoff is officially recommended for `file_risk_score` in this doc.
 If you want a rough high-risk marker, F170's 16-repo/82,574-file empirical
