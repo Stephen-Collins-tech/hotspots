@@ -143,6 +143,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs: 0.0,
             band: RiskBand::Low,

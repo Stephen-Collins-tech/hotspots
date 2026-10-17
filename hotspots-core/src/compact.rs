@@ -383,6 +383,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 3,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 1.0,

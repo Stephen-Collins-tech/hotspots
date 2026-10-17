@@ -413,6 +413,10 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 fo: fo as u32,
                 ns: ns as u32,
                 loc: loc as u32,
+                // Not persisted in the DB cache schema; this is an
+                // `--explain`-layer diagnostic recomputed fresh each run,
+                // not a stored/scored value.
+                missing_docstring: false,
             },
             lrs,
             band,
@@ -927,6 +931,7 @@ mod tests {
                 fo: 2,
                 ns: 0,
                 loc: 20,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 1.0,
@@ -1061,6 +1066,7 @@ mod tests {
                 fo: 5,
                 ns: 2,
                 loc: 100,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 2.0,
@@ -1185,6 +1191,7 @@ mod tests {
                     fo: 0,
                     ns: 0,
                     loc: 10,
+                    missing_docstring: false,
                 },
                 risk: RiskReport {
                     r_cc: i as f64,

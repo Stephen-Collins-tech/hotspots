@@ -734,6 +734,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 5,
+                missing_docstring: false,
             },
             risk: crate::report::RiskReport {
                 r_cc: 1.0,
@@ -821,6 +822,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             risk: crate::report::RiskReport {
                 r_cc: 2.0,
@@ -999,6 +1001,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 5,
+                missing_docstring: false,
             },
             risk: crate::report::RiskReport {
                 r_cc: 1.0,
@@ -1100,6 +1103,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 5,
+                missing_docstring: false,
             },
             lrs,
             band,

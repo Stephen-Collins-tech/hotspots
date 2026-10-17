@@ -660,6 +660,7 @@ mod tests {
                 fo: 0,
                 ns: 0,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 8.0 {

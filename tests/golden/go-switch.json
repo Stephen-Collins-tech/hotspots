@@ -10,6 +10,7 @@
       "cc": 6,
       "fo": 0,
       "loc": 10,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 3
     },
@@ -31,6 +32,7 @@
       "cc": 9,
       "fo": 0,
       "loc": 13,
+      "missing_docstring": false,
       "nd": 2,
       "ns": 0
     },
@@ -52,6 +54,7 @@
       "cc": 6,
       "fo": 0,
       "loc": 13,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 1
     },
@@ -73,6 +76,7 @@
       "cc": 6,
       "fo": 0,
       "loc": 10,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 0
     },
@@ -94,6 +98,7 @@
       "cc": 5,
       "fo": 0,
       "loc": 8,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 0
     },
@@ -115,6 +120,7 @@
       "cc": 5,
       "fo": 0,
       "loc": 8,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 0
     },
@@ -136,6 +142,7 @@
       "cc": 5,
       "fo": 0,
       "loc": 8,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 0
     },

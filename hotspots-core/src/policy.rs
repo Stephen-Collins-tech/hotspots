@@ -615,6 +615,7 @@ mod tests {
                 fo: 2,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs: 3.9,
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
@@ -627,6 +628,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 15,
+                missing_docstring: false,
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
@@ -1103,6 +1105,7 @@ mod tests {
                 fo: 2,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 9.0 {
@@ -1123,6 +1126,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 15,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 9.0 {

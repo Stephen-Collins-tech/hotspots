@@ -64,6 +64,7 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
             fo: 0,
             ns: 0,
             loc: 10,
+            missing_docstring: false,
         },
         lrs: 1.0,
         band: RiskBand::Low,

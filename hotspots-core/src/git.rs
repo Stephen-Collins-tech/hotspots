@@ -1442,6 +1442,7 @@ index 3333333..4444444 100644
                 fo: 0,
                 ns: 0,
                 loc,
+                missing_docstring: false,
             },
             lrs: 1.0,
             band: crate::risk::RiskBand::Low,
