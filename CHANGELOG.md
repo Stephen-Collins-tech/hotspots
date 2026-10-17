@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Detect C++ content in .h files and skip with a warning (#262)
+
+
 ### Features
 - Add missing_docstring detection signal (#260)
 
