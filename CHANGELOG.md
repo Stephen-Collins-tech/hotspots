@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Detect C++ content in .h files and skip with a warning (#262)
+- Convert JS/TS CFG builder to iterative work-stack walk (#263)
 
 
 ### Features
