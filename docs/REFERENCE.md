@@ -685,7 +685,7 @@ else is an **optional section**, present only when that command/flag computed it
 | `co_change` | `--all-functions` | File co-change pairs |
 | `coordinate` | `hotspots coordinate` | Ownership/knowledge-mode facts for a file set |
 | `delta` | `hotspots diff` | `deltas` array + PR-wide aggregates |
-| `axes` | `--axes` | Risk/Coupling/Ownership/Centrality per-axis rankings |
+| `axes` | `--axes` | Risk/Coupling/Ownership per-axis rankings |
 
 `--all-functions` toggles which sections a snapshot-mode run populates (full
 `architecture`/`co_change` instead of the triage buckets) — it is not a
