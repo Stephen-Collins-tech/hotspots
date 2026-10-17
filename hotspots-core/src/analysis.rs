@@ -60,6 +60,14 @@ pub fn analyze_file_with_config(
 
     let language = Language::from_path(path)
         .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
+
+    if language == Language::CHeader && looks_like_cpp(&src) {
+        return Err(anyhow::anyhow!(
+            "detected C++ content in .h file, C++ parsing not yet supported \
+             — see issue #204 and the C++ support tracking issue for full support"
+        ));
+    }
+
     let parser = create_parser(language, source_map)?;
 
     let parse_result = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -147,6 +155,46 @@ fn looks_vendored(path: &Path) -> bool {
     VENDORED_SEGMENTS.iter().any(|seg| {
         path_str.contains(&format!("/{seg}/")) || path_str.contains(&format!("/{seg}\\"))
     })
+}
+
+/// Returns true if the content of a `.h` file looks like C++ rather than C.
+///
+/// `.h` files are always parsed with the C grammar (`Language::CHeader`), but a large
+/// share of `.h` files in C++ projects are actually C++ (member functions, templates,
+/// range-based `for`, `namespace`, `::`-qualified names). The C grammar either drops
+/// those constructs silently or produces a confusing "invalid CFG" error (see issue
+/// #204), so such files are detected here and skipped with one clear warning instead.
+fn looks_like_cpp(src: &str) -> bool {
+    use regex::Regex;
+
+    const KEYWORD_MARKERS: &[&str] = &[
+        "class ",
+        "template<",
+        "template <",
+        "namespace ",
+        "public:",
+        "private:",
+        "protected:",
+    ];
+    if KEYWORD_MARKERS.iter().any(|kw| src.contains(kw)) {
+        return true;
+    }
+
+    // `::`-qualified names (e.g. `std::vector`, `Foo::bar`) are not valid C.
+    if src.contains("::") {
+        return true;
+    }
+
+    // Range-based for loop: `for (... : ...)` — not recognized by the C grammar,
+    // which is why a `break` inside one has no enclosing loop target (issue #204).
+    static RANGE_FOR_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let range_for_re =
+        RANGE_FOR_RE.get_or_init(|| Regex::new(r"for\s*\([^;()]*:[^;()]*\)").unwrap());
+    if range_for_re.is_match(src) {
+        return true;
+    }
+
+    false
 }
 
 /// Instantiates the correct parser for the given language.
