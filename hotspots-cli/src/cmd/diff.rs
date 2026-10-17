@@ -417,6 +417,7 @@ mod tests {
                 fo: 1,
                 ns: 1,
                 loc: 5,
+                missing_docstring: false,
             },
             lrs: 5.4,
             band: RiskBand::Moderate,

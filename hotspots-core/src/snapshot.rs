@@ -2549,6 +2549,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 2.0,

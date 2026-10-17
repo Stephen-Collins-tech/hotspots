@@ -43,6 +43,7 @@ pub struct MetricsReport {
     pub fo: u32,
     pub ns: u32,
     pub loc: u32,
+    pub missing_docstring: bool,
 }
 
 /// Risk components in report format
@@ -103,6 +104,7 @@ impl FunctionRiskReport {
                 fo: analysis.metrics.fo as u32,
                 ns: analysis.metrics.ns as u32,
                 loc: analysis.metrics.loc as u32,
+                missing_docstring: analysis.metrics.missing_docstring,
             },
             risk: RiskReport {
                 r_cc: analysis.risk.r_cc,
@@ -383,6 +385,7 @@ mod tests {
                 fo: 2,
                 ns: 0,
                 loc: 20,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 1.0,

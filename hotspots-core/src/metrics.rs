@@ -20,6 +20,9 @@ pub struct RawMetrics {
     /// Callee names extracted from AST (for tree-sitter languages).
     /// Empty for ECMAScript/Rust (which retain regex-based call graph extraction).
     pub callee_names: Vec<String>,
+    /// Python-only: true when a public function/method has no docstring.
+    /// Always `false` for non-Python languages.
+    pub missing_docstring: bool,
 }
 
 /// Calculate lines of code (LOC) from source text
@@ -61,6 +64,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ns: non_structured_exits(body),
                 loc: loc as usize,
                 callee_names,
+                missing_docstring: false,
             }
         }
         FunctionBody::Go { .. } => {
@@ -482,6 +486,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ns: go_non_structured_exits(&body_node, source),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
+                missing_docstring: false,
             }
         },
     )
@@ -492,6 +497,7 @@ fn extract_go_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns: 0,
         loc: 0,
         callee_names: vec![],
+        missing_docstring: false,
     })
 }
 
@@ -661,6 +667,7 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
+                missing_docstring: false,
             }
         },
     )
@@ -671,6 +678,7 @@ fn extract_java_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns: 0,
         loc: 0,
         callee_names: vec![],
+        missing_docstring: false,
     })
 }
 
@@ -774,6 +782,7 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
+                missing_docstring: python_missing_docstring(function, &body_node),
             }
         },
     )
@@ -784,7 +793,40 @@ fn extract_python_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns: 0,
         loc: 0,
         callee_names: vec![],
+        missing_docstring: false,
     })
+}
+
+/// A public Python function/method (name does not start with `_`) is missing
+/// a docstring when the `block` node's first child statement is not a bare
+/// string-literal expression (Python's docstring convention).
+fn python_missing_docstring(function: &FunctionNode, body_node: &tree_sitter::Node) -> bool {
+    let is_public = match function.name.as_deref() {
+        Some(name) => !name.starts_with('_'),
+        None => false,
+    };
+    if !is_public {
+        return false;
+    }
+    !python_has_docstring(body_node)
+}
+
+/// True when the first child statement of a Python `block` node is a bare
+/// string-literal expression statement (i.e. a docstring).
+fn python_has_docstring(body_node: &tree_sitter::Node) -> bool {
+    let mut cursor = body_node.walk();
+    let Some(first) = body_node.children(&mut cursor).next() else {
+        return false;
+    };
+    if first.kind() != "expression_statement" {
+        return false;
+    }
+    let mut inner_cursor = first.walk();
+    let only_child = first.children(&mut inner_cursor).next();
+    match only_child {
+        Some(only_child) => only_child.kind() == "string",
+        None => false,
+    }
 }
 
 /// Extract callee names from a Python function body.
@@ -906,6 +948,7 @@ fn extract_csharp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
+                missing_docstring: false,
             }
         },
     )
@@ -916,6 +959,7 @@ fn extract_csharp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns: 0,
         loc: 0,
         callee_names: vec![],
+        missing_docstring: false,
     })
 }
 
@@ -957,6 +1001,7 @@ fn extract_c_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ),
                 loc: calculate_loc_from_node(&func_node),
                 callee_names,
+                missing_docstring: false,
             }
         },
     )
@@ -967,6 +1012,7 @@ fn extract_c_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns: 0,
         loc: 0,
         callee_names: vec![],
+        missing_docstring: false,
     })
 }
 
@@ -1102,6 +1148,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
                 ns: 0,
                 loc: 0,
                 callee_names: vec![],
+                missing_docstring: false,
             };
         }
     };
@@ -1119,6 +1166,7 @@ fn extract_rust_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         ns,
         loc: calculate_loc(source),
         callee_names,
+        missing_docstring: false,
     }
 }
 

@@ -274,6 +274,7 @@ mod tests {
                 fo: 0,
                 ns: 0,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),

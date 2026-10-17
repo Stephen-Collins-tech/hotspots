@@ -56,6 +56,7 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
             fo: 1,
             ns: 1,
             loc: 20,
+            missing_docstring: false,
         },
         lrs: cc as f64,
         band: RiskBand::Moderate,
@@ -476,6 +477,7 @@ fn bare_analyze_envelope_shape() {
             fo: 1,
             ns: 1,
             loc: 20,
+            missing_docstring: false,
         },
         risk: hotspots_core::report::RiskReport {
             r_cc: 1.0,

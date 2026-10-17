@@ -1614,6 +1614,14 @@ fn populate_explanations(snapshot: &mut Snapshot) {
             total_churn: pct(6, fv[6]),
             authors_90d: pct(7, fv[7]),
             directed_coupling: pct(8, fv[8]),
+            // Direct, binary, per-function fact read straight off this
+            // function's own metrics — not a repo-relative percentile and
+            // not part of the trained ranker's feature set.
+            missing_docstring: if func.metrics.missing_docstring {
+                1.0
+            } else {
+                0.0
+            },
         };
         let phrase = top_phrases(&fp, 3);
         if !phrase.is_empty() {
