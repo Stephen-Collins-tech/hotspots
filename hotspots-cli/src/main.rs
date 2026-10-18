@@ -157,6 +157,12 @@ enum Commands {
         /// section; overlap is not deduplicated. Use --top to control section size.
         #[arg(long)]
         axes: bool,
+
+        /// Print a per-phase wall-clock timing breakdown (discover, parse, cfg,
+        /// metrics, scoring, aggregate, report) as JSON to stderr after the
+        /// normal output. Diagnostic only — never affects stdout or exit code.
+        #[arg(long)]
+        timing_report: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -404,6 +410,7 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
+            timing_report,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -431,6 +438,7 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
+            timing_report,
         })?,
         Commands::Prune {
             unreachable,
