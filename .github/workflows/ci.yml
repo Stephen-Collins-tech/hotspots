@@ -193,7 +193,7 @@ jobs:
           ./target/release/hotspots diff \
             ${{ github.event.pull_request.base.sha }} \
             ${{ github.sha }} \
-            --format html --output .hotspots/delta-report.html --policy
+            --format html --output .hotspots/delta-report.html --policy --auto-analyze
 
       - name: Generate HTML snapshot report (cold cache fallback)
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit != 'true'
