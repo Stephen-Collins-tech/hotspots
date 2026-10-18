@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Drop stale Centrality axis from schema table (#265)
 
+
+### Features
+- Add Astro (.astro) language support (#276)
+
 ## [2.1.0] - 2026-10-17
 
 ### Bug Fixes
