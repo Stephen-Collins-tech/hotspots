@@ -16,6 +16,11 @@ keywords = [
   "code-quality",
   "lrs",
   "cyclomatic-complexity",
+  "ai-generated-code",
+  "code-review",
+  "llm",
+  "vibe-coding",
+  "technical-debt",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",

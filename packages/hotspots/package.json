@@ -21,7 +21,12 @@
     "typescript",
     "code-quality",
     "lrs",
-    "cyclomatic-complexity"
+    "cyclomatic-complexity",
+    "ai-generated-code",
+    "code-review",
+    "llm",
+    "vibe-coding",
+    "technical-debt"
   ],
   "license": "MIT",
   "repository": {
