@@ -194,7 +194,6 @@ jobs:
             ${{ github.event.pull_request.base.sha }} \
             ${{ github.sha }} \
             --format html --output .hotspots/delta-report.html --policy
-        continue-on-error: true
 
       - name: Generate HTML snapshot report (cold cache fallback)
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit != 'true'
@@ -205,7 +204,7 @@ jobs:
 
       - name: Upload report
         uses: actions/upload-artifact@v4
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         with:
           name: hotspots-report
           path: .hotspots/delta-report.html
