@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 pub use c::{CCfgBuilder, CParser};
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
 pub use csharp::{CSharpCfgBuilder, CSharpParser};
-pub use ecmascript::{ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
+pub use ecmascript::{AstroParser, ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
 pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use java::{JavaCfgBuilder, JavaParser};
@@ -53,6 +53,8 @@ pub enum Language {
     Rust,
     /// Vue Single File Component (.vue)
     Vue,
+    /// Astro component (.astro)
+    Astro,
     /// C# (.cs)
     CSharp,
     /// C (.c)
@@ -123,6 +125,11 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         extensions: &["vue"],
     },
     LanguageSpec {
+        variant: Language::Astro,
+        name: "Astro",
+        extensions: &["astro"],
+    },
+    LanguageSpec {
         variant: Language::CSharp,
         name: "C#",
         extensions: &["cs"],
@@ -155,6 +162,7 @@ fn language_spec_is_exhaustive(lang: Language) {
         | Language::Python
         | Language::Rust
         | Language::Vue
+        | Language::Astro
         | Language::CSharp
         | Language::C
         | Language::CHeader => {}
@@ -415,5 +423,17 @@ mod tests {
         );
         assert_eq!(Language::Go.extensions(), &["go"]);
         assert_eq!(Language::Rust.extensions(), &["rs"]);
+    }
+
+    #[test]
+    fn test_from_extension_astro() {
+        assert_eq!(Language::from_extension("astro"), Some(Language::Astro));
+    }
+
+    #[test]
+    fn test_astro_name_and_extensions() {
+        assert_eq!(Language::Astro.name(), "Astro");
+        assert_eq!(Language::Astro.extensions(), &["astro"]);
+        assert_eq!(Language::from_name("Astro"), Some(Language::Astro));
     }
 }

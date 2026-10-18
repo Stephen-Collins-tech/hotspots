@@ -475,7 +475,10 @@ fn extract_models_from_source(source: &str, language: Language, file: String) ->
         | Language::TypeScriptReact
         | Language::JavaScript
         | Language::JavaScriptReact
-        | Language::Vue => extract_regex_models(source, language, file, ECMASCRIPT_MODEL_PATTERNS),
+        | Language::Vue
+        | Language::Astro => {
+            extract_regex_models(source, language, file, ECMASCRIPT_MODEL_PATTERNS)
+        }
         Language::CSharp => extract_regex_models(source, language, file, CSHARP_MODEL_PATTERNS),
         Language::C | Language::CHeader => vec![], // struct/typedef model detection not implemented
     }

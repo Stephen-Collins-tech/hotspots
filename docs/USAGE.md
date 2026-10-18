@@ -447,7 +447,7 @@ def legacy_billing_logic(): ...
 Rules:
 - Comment must be on the line **immediately before** the function (no blank line between)
 - Format: `// hotspots-ignore: <reason>` — use `#` instead of `//` for Python; every other
-  supported language (Go, Java, C#, Rust, C/C++, TypeScript/JavaScript, Vue) uses `//`
+  supported language (Go, Java, C#, Rust, C/C++, TypeScript/JavaScript, Vue, Astro) uses `//`
 - Reason is required (missing reason triggers a warning, not a hard failure)
 - Suppressed functions still appear in all reports with a `suppression_reason` field
 - Suppressed functions still count toward net repo regression

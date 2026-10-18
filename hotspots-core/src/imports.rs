@@ -25,7 +25,8 @@ pub fn extract_raw_imports(source: &str, language: Language) -> Vec<String> {
         | Language::TypeScriptReact
         | Language::JavaScript
         | Language::JavaScriptReact
-        | Language::Vue => extract_ecmascript_imports(source),
+        | Language::Vue
+        | Language::Astro => extract_ecmascript_imports(source),
         Language::CSharp => extract_csharp_imports(source),
         Language::C | Language::CHeader => vec![], // #include resolution not implemented
     }
@@ -284,7 +285,8 @@ fn resolve_import(
         | Language::TypeScriptReact
         | Language::JavaScript
         | Language::JavaScriptReact
-        | Language::Vue => resolve_ecmascript(raw, importing_file, all_files_set, repo_root),
+        | Language::Vue
+        | Language::Astro => resolve_ecmascript(raw, importing_file, all_files_set, repo_root),
         Language::Rust => resolve_rust(raw, importing_file, all_files_set, repo_root, crate_map),
         Language::Go => resolve_go(raw, all_files_set),
         Language::Python => resolve_python(raw, importing_file, all_files_set, repo_root),

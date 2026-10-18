@@ -949,8 +949,11 @@ your repo's typical change size:
 | C / C headers | `.c`, `.h` |
 | C# | `.cs` |
 | Vue | `.vue` |
+| Astro | `.astro` |
 
-All languages have full parity across all metrics and features.
+All languages have full parity across all metrics and features. Vue and Astro score only the
+`<script>` block / `---` frontmatter fence respectively — template/markup sections are not
+analyzed for complexity.
 
 **JSX note:** `.jsx` and `.tsx` files support JSX syntax. Plain `.js` files also enable JSX parsing (React webpack convention). JSX elements do not add CC; control flow in JSX (`&&`, ternary) does.
 

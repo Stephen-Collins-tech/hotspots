@@ -111,7 +111,8 @@ hotspots-core/src/
 │   ├── rust/
 │   ├── c/
 │   ├── csharp/
-│   └── vue/
+│   ├── vue/
+│   └── astro/
 ├── cfg/
 │   ├── builder.rs      # generic CFG construction traits
 │   └── mod.rs          # CfgNode, CfgEdge, Cfg, validation

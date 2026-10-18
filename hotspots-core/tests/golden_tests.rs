@@ -920,6 +920,136 @@ function add(a: number, b: number): number {
     }
 }
 
+// Astro component golden tests
+
+fn astro_fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("astro")
+        .join(name)
+}
+
+fn test_astro_golden(fixture_name: &str) {
+    let fixture = astro_fixture_path(&format!("{}.astro", fixture_name));
+    let golden = golden_path(&format!("astro-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("astro-{}.json", fixture_name));
+
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for astro-{}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_astro_golden_simple() {
+    test_astro_golden("simple-component");
+}
+
+#[test]
+fn test_astro_golden_no_frontmatter() {
+    test_astro_golden("no-frontmatter");
+}
+
+/// Astro frontmatter metrics must match equivalent TypeScript code
+#[test]
+fn test_astro_metrics_match_typescript() {
+    use hotspots_core::analyze;
+
+    let astro_fixture = astro_fixture_path("simple-component.astro");
+    let ts_source = r#"
+function greet(name: string): string {
+  if (name) {
+    return `Hello, ${name}!`;
+  }
+  return 'Hello!';
+}
+function add(a: number, b: number): number {
+  return a + b;
+}
+"#;
+
+    let ts_fixture = std::env::temp_dir().join("astro_parity_check.ts");
+    std::fs::write(&ts_fixture, ts_source).expect("write temp fixture");
+
+    let astro_reports = analyze(
+        &astro_fixture,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+    )
+    .expect("Astro analysis failed");
+    let ts_reports = analyze(
+        &ts_fixture,
+        AnalysisOptions {
+            min_lrs: None,
+            top_n: None,
+        },
+    )
+    .expect("TS analysis failed");
+
+    assert_eq!(
+        astro_reports.len(),
+        ts_reports.len(),
+        "function count mismatch"
+    );
+
+    for (astro, ts) in astro_reports.iter().zip(ts_reports.iter()) {
+        assert_eq!(
+            astro.metrics.cc, ts.metrics.cc,
+            "CC mismatch for {}",
+            astro.function
+        );
+        assert_eq!(
+            astro.metrics.nd, ts.metrics.nd,
+            "ND mismatch for {}",
+            astro.function
+        );
+        assert_eq!(
+            astro.metrics.fo, ts.metrics.fo,
+            "FO mismatch for {}",
+            astro.function
+        );
+        assert_eq!(
+            astro.metrics.ns, ts.metrics.ns,
+            "NS mismatch for {}",
+            astro.function
+        );
+
+        let lrs_diff = (astro.lrs - ts.lrs).abs();
+        assert!(
+            lrs_diff < 1e-10,
+            "LRS mismatch for {}: Astro={} TS={}",
+            astro.function,
+            astro.lrs,
+            ts.lrs
+        );
+    }
+}
+
 fn test_csharp_golden(fixture_name: &str) {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
