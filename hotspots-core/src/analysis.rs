@@ -218,6 +218,7 @@ fn create_parser(
         }
         Language::Rust => Box::new(language::RustParser),
         Language::Vue => Box::new(language::VueParser::new(source_map.clone())),
+        Language::Astro => Box::new(language::AstroParser::new(source_map.clone())),
         Language::CSharp => {
             Box::new(language::CSharpParser::new().context("Failed to create C# parser")?)
         }

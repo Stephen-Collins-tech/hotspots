@@ -114,9 +114,9 @@ In **snapshot mode**, LRS is combined with git history (churn, touch frequency, 
 
 ## Supported Languages
 
-TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · Vue
+TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · Vue · Astro
 
-All 12 file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.vue`) work out of the box.
+All 13 file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.vue`, `.astro`) work out of the box.
 
 ---
 
