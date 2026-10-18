@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   breakdown (discover, parse, cfg, metrics, scoring, aggregate, report) as
   JSON on stderr (#267)
 
+### Testing
+- Add Criterion micro-benchmarks for the parse/cfg/metrics hot path in
+  hotspots-core, identified via `--timing-report` (#267)
+
 ### Documentation
 - Drop stale Centrality axis from schema table (#265)
 

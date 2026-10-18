@@ -52,6 +52,11 @@ rust_xlsxwriter = "0.100"
 [dev-dependencies]
 tempfile = "3.8"
 walkdir = "2.4"
+criterion = "0.5"
+
+[[bench]]
+name = "hot_path"
+harness = false
 
 [lints]
 workspace = true
