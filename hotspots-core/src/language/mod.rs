@@ -61,6 +61,106 @@ pub enum Language {
     CHeader,
 }
 
+/// Metadata for one supported language: its canonical name and the file
+/// extensions (without the leading dot) that map to it.
+///
+/// This is the single source of truth for name/extension lookups.
+/// `Language::from_extension`, `name()`, `extensions()`, and `from_name()`
+/// all derive from this table instead of each re-typing the mapping.
+struct LanguageSpec {
+    variant: Language,
+    name: &'static str,
+    extensions: &'static [&'static str],
+}
+
+/// One row per `Language` variant. `language_spec_is_exhaustive` below fails
+/// to compile if a variant is ever added here without a match arm, so this
+/// table can't silently fall out of sync with the enum.
+const LANGUAGE_SPECS: &[LanguageSpec] = &[
+    LanguageSpec {
+        variant: Language::TypeScript,
+        name: "TypeScript",
+        extensions: &["ts", "mts", "cts"],
+    },
+    LanguageSpec {
+        variant: Language::TypeScriptReact,
+        name: "TypeScript React",
+        extensions: &["tsx", "mtsx", "ctsx"],
+    },
+    LanguageSpec {
+        variant: Language::JavaScript,
+        name: "JavaScript",
+        extensions: &["js", "mjs", "cjs"],
+    },
+    LanguageSpec {
+        variant: Language::JavaScriptReact,
+        name: "JavaScript React",
+        extensions: &["jsx", "mjsx", "cjsx"],
+    },
+    LanguageSpec {
+        variant: Language::Go,
+        name: "Go",
+        extensions: &["go"],
+    },
+    LanguageSpec {
+        variant: Language::Java,
+        name: "Java",
+        extensions: &["java"],
+    },
+    LanguageSpec {
+        variant: Language::Python,
+        name: "Python",
+        extensions: &["py", "pyw"],
+    },
+    LanguageSpec {
+        variant: Language::Rust,
+        name: "Rust",
+        extensions: &["rs"],
+    },
+    LanguageSpec {
+        variant: Language::Vue,
+        name: "Vue",
+        extensions: &["vue"],
+    },
+    LanguageSpec {
+        variant: Language::CSharp,
+        name: "C#",
+        extensions: &["cs"],
+    },
+    LanguageSpec {
+        variant: Language::C,
+        name: "C",
+        extensions: &["c"],
+    },
+    LanguageSpec {
+        variant: Language::CHeader,
+        name: "C Header",
+        extensions: &["h"],
+    },
+];
+
+/// Exhaustiveness guard: this match has no wildcard arm, so adding a
+/// `Language` variant without a corresponding `LANGUAGE_SPECS` entry is a
+/// compile error here, not a runtime lookup failure. Never called at
+/// runtime — its only job is to fail `cargo check` when it's out of sync.
+#[allow(dead_code)]
+fn language_spec_is_exhaustive(lang: Language) {
+    match lang {
+        Language::TypeScript
+        | Language::TypeScriptReact
+        | Language::JavaScript
+        | Language::JavaScriptReact
+        | Language::Go
+        | Language::Java
+        | Language::Python
+        | Language::Rust
+        | Language::Vue
+        | Language::CSharp
+        | Language::C
+        | Language::CHeader => {}
+    }
+}
+
 impl Language {
     /// Detect language from file extension
     ///
@@ -77,31 +177,10 @@ impl Language {
     /// assert_eq!(Language::from_extension("rs"), Some(Language::Rust));
     /// ```
     pub fn from_extension(ext: &str) -> Option<Self> {
-        match ext {
-            // TypeScript
-            "ts" | "mts" | "cts" => Some(Language::TypeScript),
-            "tsx" | "mtsx" | "ctsx" => Some(Language::TypeScriptReact),
-            // JavaScript
-            "js" | "mjs" | "cjs" => Some(Language::JavaScript),
-            "jsx" | "mjsx" | "cjsx" => Some(Language::JavaScriptReact),
-            // Go
-            "go" => Some(Language::Go),
-            // Java
-            "java" => Some(Language::Java),
-            // Python
-            "py" | "pyw" => Some(Language::Python),
-            // Rust
-            "rs" => Some(Language::Rust),
-            // Vue Single File Component
-            "vue" => Some(Language::Vue),
-            // C#
-            "cs" => Some(Language::CSharp),
-            // C
-            "c" => Some(Language::C),
-            "h" => Some(Language::CHeader),
-            // Unknown
-            _ => None,
-        }
+        LANGUAGE_SPECS
+            .iter()
+            .find(|spec| spec.extensions.contains(&ext))
+            .map(|spec| spec.variant)
     }
 
     /// Line-comment prefix used to recognize `hotspots-ignore` suppression
@@ -158,20 +237,11 @@ impl Language {
     /// assert_eq!(Language::Rust.name(), "Rust");
     /// ```
     pub fn name(&self) -> &'static str {
-        match self {
-            Language::TypeScript => "TypeScript",
-            Language::TypeScriptReact => "TypeScript React",
-            Language::JavaScript => "JavaScript",
-            Language::JavaScriptReact => "JavaScript React",
-            Language::Go => "Go",
-            Language::Java => "Java",
-            Language::Python => "Python",
-            Language::Rust => "Rust",
-            Language::Vue => "Vue",
-            Language::CSharp => "C#",
-            Language::C => "C",
-            Language::CHeader => "C Header",
-        }
+        LANGUAGE_SPECS
+            .iter()
+            .find(|spec| spec.variant == *self)
+            .map(|spec| spec.name)
+            .expect("every Language variant has a LANGUAGE_SPECS entry")
     }
 
     /// Check if this is a TypeScript variant
@@ -193,39 +263,19 @@ impl Language {
     ///
     /// Returns a list of file extensions (without the dot) that this language uses.
     pub fn extensions(&self) -> &[&'static str] {
-        match self {
-            Language::TypeScript => &["ts", "mts", "cts"],
-            Language::TypeScriptReact => &["tsx", "mtsx", "ctsx"],
-            Language::JavaScript => &["js", "mjs", "cjs"],
-            Language::JavaScriptReact => &["jsx", "mjsx", "cjsx"],
-            Language::Go => &["go"],
-            Language::Java => &["java"],
-            Language::Python => &["py", "pyw"],
-            Language::Rust => &["rs"],
-            Language::Vue => &["vue"],
-            Language::CSharp => &["cs"],
-            Language::C => &["c"],
-            Language::CHeader => &["h"],
-        }
+        LANGUAGE_SPECS
+            .iter()
+            .find(|spec| spec.variant == *self)
+            .map(|spec| spec.extensions)
+            .expect("every Language variant has a LANGUAGE_SPECS entry")
     }
 
     /// Parse from canonical name string (as returned by `name()`).
     pub fn from_name(s: &str) -> Option<Self> {
-        match s {
-            "TypeScript" => Some(Language::TypeScript),
-            "TypeScript React" => Some(Language::TypeScriptReact),
-            "JavaScript" => Some(Language::JavaScript),
-            "JavaScript React" => Some(Language::JavaScriptReact),
-            "Go" => Some(Language::Go),
-            "Java" => Some(Language::Java),
-            "Python" => Some(Language::Python),
-            "Rust" => Some(Language::Rust),
-            "Vue" => Some(Language::Vue),
-            "C#" => Some(Language::CSharp),
-            "C" => Some(Language::C),
-            "C Header" => Some(Language::CHeader),
-            _ => None,
-        }
+        LANGUAGE_SPECS
+            .iter()
+            .find(|spec| spec.name == s)
+            .map(|spec| spec.variant)
     }
 }
 
