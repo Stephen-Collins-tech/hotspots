@@ -1,0 +1,61 @@
+name: Perf Regression
+
+# hotspots#267 part 4. Runs the Criterion micro-benchmarks (hotspots#267 part
+# 2, hotspots-core/benches/hot_path.rs) against both the PR head and its
+# merge-base with main, and fails if any benchmark's mean wall-clock time
+# regressed by more than 10%. Does not run the full macro-benchmark
+# (hotspots#267 part 3, benchmarks/perf.py) — that clones and analyzes real
+# multi-thousand-file repos and is too slow for per-PR CI; it runs on a
+# separate schedule/release cadence instead.
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - "hotspots-core/**"
+      - "hotspots-cli/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".github/workflows/perf-regression.yml"
+
+jobs:
+  bench-regression:
+    name: Criterion Regression Gate
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-bench-
+
+      - name: Resolve merge-base with target branch
+        id: merge-base
+        run: |
+          git fetch origin "${{ github.base_ref }}" --quiet
+          base_sha=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Bench merge-base (comparison point)
+        run: |
+          git checkout "${{ steps.merge-base.outputs.sha }}"
+          cargo bench -p hotspots-core --bench hot_path -- --save-baseline pr_base
+          git checkout "${{ github.sha }}"
+
+      - name: Bench PR head (candidate)
+        run: cargo bench -p hotspots-core --bench hot_path -- --save-baseline pr_head
+
+      - name: Check for regressions (>10%)
+        run: python3 scripts/check_bench_regression.py --base pr_base --pr pr_head --threshold 10
