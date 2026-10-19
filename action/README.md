@@ -43,7 +43,7 @@ jobs:
 | Input | Description | Default |
 |-------|-------------|---------|
 | `path` | Path to analyze | `.` (repository root) |
-| `policy` | Policy to enforce | `critical-introduction` |
+| `policy` | Enable the critical-introduction gate (`critical-introduction` or `off`) | `critical-introduction` |
 | `min-lrs` | Minimum LRS threshold (overrides policy) | - |
 | `config` | Path to hotspots config file | - |
 | `fail-on` | When to fail (`error`, `warn`, `never`) | `error` |
@@ -137,12 +137,12 @@ See [docs/json-schema.md](../docs/json-schema.md) for complete documentation and
 - uses: ./action
 ```
 
-### Custom Policy
+### Disable the Policy Gate
 
 ```yaml
 - uses: ./action
   with:
-    policy: strict
+    policy: off
     fail-on: warn
 ```
 

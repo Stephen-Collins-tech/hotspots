@@ -11,7 +11,11 @@ inputs:
     required: false
     default: '.'
   policy:
-    description: 'Policy to enforce (critical-introduction, strict, etc.)'
+    description: >-
+      Enable the critical-introduction policy gate (fails the build when a function is
+      newly introduced into the Critical risk band). This is an on/off switch, not a
+      named preset: 'critical-introduction' turns it on, 'off' turns it off. There is no
+      'strict'/'moderate'/'custom' preset in the hotspots CLI; any other value is rejected.
     required: false
     default: 'critical-introduction'
   min-lrs:
