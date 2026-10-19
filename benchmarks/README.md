@@ -226,6 +226,33 @@ done
 
 ---
 
+---
+
+## Performance benchmark (a different axis)
+
+[RESULTS.md](RESULTS.md) above measures ranking *quality* (does hotspots point at the
+files that actually had bugs?). [PERF.md](PERF.md) measures runtime *performance*
+(wall-clock, peak RSS) for `hotspots analyze` against the same corpus/SHAs, for
+comparability — see [hotspots#267](https://github.com/Stephen-Collins-tech/hotspots/issues/267).
+
+```bash
+# Long-running (clones + analyzes every corpus repo) — run via runlog:
+runlog run perf-bench -- uv run python benchmarks/perf.py --hotspots /path/to/hotspots
+```
+
+Per-phase timing breakdown (discover/parse/cfg/metrics/scoring/aggregate/report, from
+`--timing-report`) is recorded per-repo in `versions/perf-vX.Y.Z.json`, not just the
+total wall-clock shown in PERF.md's table.
+
+Micro-benchmarks for the three phases that dominate (`parse`, `cfg`, `metrics`) live in
+[`../hotspots-core/benches/`](../hotspots-core/benches/README.md) (Criterion), and are
+gated on PRs by `.github/workflows/perf-regression.yml` (fails if any benchmark
+regresses wall-clock time by more than 10% vs. the PR's merge-base). The full
+macro-benchmark above does not run per-PR — it's too slow (real multi-thousand-file
+repos) — and instead runs on a separate schedule/release cadence.
+
+---
+
 ## Corpus design and label protocol
 
 Full specification: [`corpus.json`](corpus.json) and [REQ-004](../docs/requirements/REQ-004-public-benchmarks.md).
