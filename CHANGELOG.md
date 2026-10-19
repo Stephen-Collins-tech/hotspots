@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Add --timing-report per-phase analyze timing (#268)
+- Add perf macro-benchmark + CI regression gate (parts 3-4 of #267) (#277)
 
 ## [2.2.0] - 2026-10-18
 
