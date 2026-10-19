@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.0] - 2026-10-18
 
+### Features
+- Add `--timing-report` to `hotspots analyze`: per-phase wall-clock timing
+  breakdown (discover, parse, cfg, metrics, scoring, aggregate, report) as
+  JSON on stderr (#267)
+
 ### Documentation
 - Drop stale Centrality axis from schema table (#265)
 
