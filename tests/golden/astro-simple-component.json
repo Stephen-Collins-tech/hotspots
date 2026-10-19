@@ -1,0 +1,46 @@
+[
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/astro/simple-component.astro",
+    "function": "greet",
+    "language": "Astro",
+    "line": 2,
+    "lrs": 3.084962500721156,
+    "metrics": {
+      "cc": 2,
+      "fo": 0,
+      "loc": 6,
+      "missing_docstring": false,
+      "nd": 1,
+      "ns": 1
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 1.0
+    }
+  },
+  {
+    "band": "low",
+    "file": "tests/fixtures/astro/simple-component.astro",
+    "function": "add",
+    "language": "Astro",
+    "line": 9,
+    "lrs": 1.0,
+    "metrics": {
+      "cc": 1,
+      "fo": 0,
+      "loc": 3,
+      "missing_docstring": false,
+      "nd": 0,
+      "ns": 0
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_fo": 0.0,
+      "r_nd": 0.0,
+      "r_ns": 0.0
+    }
+  }
+]

@@ -18,13 +18,14 @@ pub struct FeaturePercentiles {
     pub total_churn: f32,
     pub authors_90d: f32,
     pub directed_coupling: f32,
+    pub missing_docstring: f32,
 }
 
 /// Return a phrase string (sentence-cased, ending with `.`) describing the top `n`
 /// elevated features. Checks co-occurrence pairs first; falls back to single-feature
 /// phrases joined with commas. Returns an empty string when no feature is elevated.
 pub fn top_phrases(features: &FeaturePercentiles, n: usize) -> String {
-    let candidates: [(&str, f32); 7] = [
+    let candidates: [(&str, f32); 8] = [
         ("total_churn", features.total_churn),
         ("lrs", features.lrs),
         ("fan_in", features.fan_in),
@@ -32,6 +33,7 @@ pub fn top_phrases(features: &FeaturePercentiles, n: usize) -> String {
         ("directed_coupling", features.directed_coupling),
         ("cc", features.cc),
         ("nd", features.nd),
+        ("missing_docstring", features.missing_docstring),
     ];
 
     let mut elevated: Vec<(&str, f32)> = candidates
@@ -73,6 +75,7 @@ fn single_phrase(name: &str) -> &'static str {
         "directed_coupling" => "frequently changes alongside other hotspots",
         "cc" => "high cyclomatic complexity",
         "nd" => "deeply nested",
+        "missing_docstring" => "missing a docstring",
         _ => "elevated risk signal",
     }
 }
@@ -133,6 +136,7 @@ mod tests {
             total_churn: 0.0,
             authors_90d: 0.0,
             directed_coupling: 0.0,
+            missing_docstring: 0.0,
         }
     }
 
@@ -189,6 +193,26 @@ mod tests {
         };
         let result = top_phrases(&fp, 3);
         assert_eq!(result, "Structurally complex.");
+    }
+
+    #[test]
+    fn test_single_phrase_missing_docstring() {
+        let fp = FeaturePercentiles {
+            missing_docstring: 1.0,
+            ..all_low()
+        };
+        let result = top_phrases(&fp, 3);
+        assert_eq!(result, "Missing a docstring.");
+    }
+
+    #[test]
+    fn test_missing_docstring_zero_does_not_trigger() {
+        let fp = FeaturePercentiles {
+            missing_docstring: 0.0,
+            ..all_low()
+        };
+        let result = top_phrases(&fp, 3);
+        assert_ne!(result, "Missing a docstring.");
     }
 
     #[test]

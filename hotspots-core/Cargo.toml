@@ -47,11 +47,16 @@ rand = { version = "0.8", features = ["small_rng"] }
 ndarray = "0.16"
 tree-sitter-c = "0.24.2"
 csv = "1.3"
-rust_xlsxwriter = "0.79"
+rust_xlsxwriter = "0.100"
 
 [dev-dependencies]
 tempfile = "3.8"
 walkdir = "2.4"
+criterion = "0.5"
+
+[[bench]]
+name = "hot_path"
+harness = false
 
 [lints]
 workspace = true

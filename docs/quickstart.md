@@ -39,7 +39,7 @@ Each function gets a **Local Risk Score (LRS)** computed from four structural me
 | **FO** — Fan-Out | Distinct functions called |
 | **NS** — Non-Structured Exits | Early returns, throws, breaks |
 
-`LRS = 1.0×CC + 0.8×ND + 0.6×FO + 0.7×NS` (log-scaled, then summed)
+LRS combines these four (log-scaled/capped, then weighted-summed) — see [REFERENCE.md](REFERENCE.md#lrs-formula) for the exact formula and weight rationale.
 
 ## Add to CI
 

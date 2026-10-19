@@ -475,7 +475,10 @@ fn extract_models_from_source(source: &str, language: Language, file: String) ->
         | Language::TypeScriptReact
         | Language::JavaScript
         | Language::JavaScriptReact
-        | Language::Vue => extract_regex_models(source, language, file, ECMASCRIPT_MODEL_PATTERNS),
+        | Language::Vue
+        | Language::Astro => {
+            extract_regex_models(source, language, file, ECMASCRIPT_MODEL_PATTERNS)
+        }
         Language::CSharp => extract_regex_models(source, language, file, CSHARP_MODEL_PATTERNS),
         Language::C | Language::CHeader => vec![], // struct/typedef model detection not implemented
     }
@@ -660,6 +663,7 @@ mod tests {
                 fo: 0,
                 ns: 0,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 8.0 {
@@ -669,7 +673,7 @@ mod tests {
             },
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk,
@@ -683,7 +687,6 @@ mod tests {
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
-            jaccard_label_stability: None,
             convention_bug_fix_count: None,
             burst_score: None,
             commit_count: None,
@@ -715,10 +718,14 @@ mod tests {
                 scope: ".".to_string(),
                 tool_version: "test".to_string(),
                 formula_version: crate::snapshot::FORMULA_VERSION,
+                touch_window_days: 365,
             },
             functions,
             summary: None,
             aggregates: None,
+            triage: None,
+            architecture: None,
+            co_change: None,
         }
     }
 

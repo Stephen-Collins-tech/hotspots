@@ -42,6 +42,7 @@ fn make_report(file: &str, func: &str, cc: u32, lrs: f64, band: &str) -> Functio
             fo: 1,
             ns: 1,
             loc: 20,
+            missing_docstring: false,
         },
         risk: RiskReport {
             r_cc: 1.0,

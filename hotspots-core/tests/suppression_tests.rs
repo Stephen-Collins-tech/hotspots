@@ -145,6 +145,7 @@ fn test_suppression_missing_reason_policy() {
                 fo: 0,
                 ns: 0,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs: 1.0,
             band: RiskBand::Low,
@@ -156,7 +157,6 @@ fn test_suppression_missing_reason_policy() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
@@ -213,6 +213,7 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
                 fo: 5,
                 ns: 3,
                 loc: 50,
+                missing_docstring: false,
             },
             lrs: 50.0,
             band: RiskBand::Critical,
@@ -224,7 +225,6 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),
@@ -277,6 +277,7 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
                 fo: 5,
                 ns: 3,
                 loc: 50,
+                missing_docstring: false,
             },
             lrs: 50.0,
             band: RiskBand::Critical,
@@ -288,7 +289,6 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
     };
 
     let delta = Delta {
-        schema_version: 1,
         commit: hotspots_core::delta::DeltaCommitInfo {
             sha: "abc123".to_string(),
             parent: "parent123".to_string(),

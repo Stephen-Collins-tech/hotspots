@@ -10,6 +10,7 @@
       "cc": 7,
       "fo": 0,
       "loc": 14,
+      "missing_docstring": false,
       "nd": 2,
       "ns": 1
     },

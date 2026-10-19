@@ -18,7 +18,8 @@
 //! expected key sets below in the same PR as the schema change — that pairing
 //! is the point of this test.
 
-use hotspots_core::aggregates::compute_snapshot_aggregates_with_models;
+use hotspots_core::aggregates::{compute_agent_sections, compute_snapshot_aggregates_with_models};
+use hotspots_core::delta::Delta;
 use hotspots_core::language::Language;
 use hotspots_core::report::MetricsReport;
 use hotspots_core::risk::RiskBand;
@@ -55,12 +56,13 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
             fo: 1,
             ns: 1,
             loc: 20,
+            missing_docstring: false,
         },
         lrs: cc as f64,
         band: RiskBand::Moderate,
         suppression_reason: None,
         churn: None,
-        touch_count_30d: None,
+        touch_count: None,
         days_since_last_change: None,
         callgraph: None,
         activity_risk: None,
@@ -74,7 +76,6 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
-        jaccard_label_stability: None,
         convention_bug_fix_count: None,
         burst_score: None,
         commit_count: None,
@@ -115,10 +116,14 @@ fn build_test_snapshot() -> serde_json::Value {
             scope: "full".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             formula_version: 1,
+            touch_window_days: 365,
         },
         functions,
         summary: None,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     };
 
     let aggregates = compute_snapshot_aggregates_with_models(&snapshot, &repo_root, 90, 2, None);
@@ -192,14 +197,14 @@ fn snapshot_aggregates_modules_shape() {
     let json = build_test_snapshot();
     let aggregates = &json["aggregates"];
 
-    // modules: module-level instability/risk view. module_risk gates on
-    // avg_complexity alone as of 1.42.1 (F170) -- instability/afferent/efferent
-    // remain informational fields for now (open question for 2.0, see
-    // docs/.internal/master-schema-spec.md's Decide table). This fixture has
-    // no real import edges, so modules may be empty -- only assert shape when
-    // present; a separate, repo-root-with-real-imports test would be needed
-    // to guarantee non-empty modules, which is out of scope for a pure shape
-    // check.
+    // modules: module-level risk view. module_risk gates on avg_complexity alone
+    // as of 1.42.1 (F170); `instability` carried no measured signal (rho≈-0.002)
+    // and was removed entirely in hotspots 2.0 (issue #247) -- its absence here
+    // is a regression guard, not an oversight. `afferent`/`efferent` remain as
+    // descriptive facts. This fixture has no real import edges, so modules may
+    // be empty -- only assert shape when present; a separate,
+    // repo-root-with-real-imports test would be needed to guarantee non-empty
+    // modules, which is out of scope for a pure shape check.
     if let Some(modules) = aggregates.get("modules").and_then(|m| m.as_array()) {
         if let Some(first) = modules.first() {
             let expected_module: BTreeSet<String> = [
@@ -209,7 +214,6 @@ fn snapshot_aggregates_modules_shape() {
                 "avg_complexity",
                 "afferent",
                 "efferent",
-                "instability",
                 "module_risk",
             ]
             .into_iter()
@@ -245,4 +249,263 @@ fn snapshot_aggregates_optional_sections_absent_when_not_requested() {
         aggregates.get("models").is_none(),
         "models were not requested (model_source_root=None); should be absent, not null"
     );
+}
+
+/// Pins the *other* half of the hotspots 2.0 envelope merge: the slimmed
+/// default `analyze --mode snapshot --format json` output (no
+/// `--all-functions`), which used to be an entirely separate struct
+/// (`AgentSnapshotOutput`, schema_version 4) with no serde-level relationship
+/// to `Snapshot`. Both now serialize through the same type and
+/// `SNAPSHOT_SCHEMA_VERSION` — this test is the regression guard for that
+/// merge, mirroring `snapshot_envelope_top_level_shape`'s role for the
+/// `--all-functions` path above.
+#[test]
+fn snapshot_triage_envelope_shape() {
+    let repo_root = fixtures_dir();
+    let functions = vec![
+        test_function("rust/simple.rs", 1, 12),
+        test_function("rust/loops.rs", 1, 3),
+    ];
+
+    let mut snapshot = Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        commit: CommitInfo {
+            sha: "0".repeat(40),
+            parents: vec![],
+            timestamp: 0,
+            branch: None,
+            message: None,
+            author: None,
+            is_fix_commit: None,
+            is_revert_commit: None,
+            ticket_ids: vec![],
+        },
+        analysis: AnalysisInfo {
+            scope: "full".to_string(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            formula_version: 1,
+            touch_window_days: 365,
+        },
+        functions,
+        summary: None,
+        aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
+    };
+
+    let aggregates = compute_snapshot_aggregates_with_models(&snapshot, &repo_root, 90, 2, None);
+    let (triage, architecture, co_change) =
+        compute_agent_sections(&snapshot, &aggregates, &repo_root);
+    // Mirrors `emit_json_output`'s non-`--all-functions` branch in
+    // `hotspots-cli/src/cmd/analyze.rs`: clear `functions`, leave `aggregates`
+    // unset, populate the three agent sections instead.
+    snapshot.functions.clear();
+    snapshot.triage = Some(triage);
+    snapshot.architecture = architecture;
+    snapshot.co_change = Some(co_change);
+
+    let json = serde_json::to_value(&snapshot).expect("Snapshot must serialize to JSON");
+
+    // Both fixture files share a directory (`rust/`), so `aggregates.modules`
+    // is non-empty and `architecture` is present. `functions` and `aggregates`
+    // must still be absent: this is the slimmed shape, not the
+    // `--all-functions` one.
+    let expected: BTreeSet<String> = [
+        "schema_version",
+        "commit",
+        "analysis",
+        "triage",
+        "architecture",
+        "co_change",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+
+    assert_eq!(
+        keys_of(&json),
+        expected,
+        "Triage-path Snapshot envelope's top-level keys changed. This is the \
+         merged counterpart of snapshot_envelope_top_level_shape (the \
+         `--all-functions` path) — update both together on any intentional \
+         schema change, and update the same downstream consumers named in \
+         that test's failure message."
+    );
+
+    let triage_json = &json["triage"];
+    let expected_triage: BTreeSet<String> = ["fire", "debt", "watch", "ok"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(triage_json),
+        expected_triage,
+        "triage shape changed"
+    );
+
+    let co_change_json = &json["co_change"];
+    let expected_co_change: BTreeSet<String> = ["hidden_coupling", "hidden_count", "total_pairs"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(co_change_json),
+        expected_co_change,
+        "co_change shape changed"
+    );
+
+    let architecture_json = &json["architecture"];
+    let expected_architecture: BTreeSet<String> = ["file_risk", "modules"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(architecture_json),
+        expected_architecture,
+        "architecture shape changed (this fixture has no model_source_root, so \
+         `models` is expected to be absent — skip_serializing_if-omitted when None)"
+    );
+}
+
+fn bare_snapshot(sha: &str, parents: Vec<String>, functions: Vec<FunctionSnapshot>) -> Snapshot {
+    Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        commit: CommitInfo {
+            sha: sha.to_string(),
+            parents,
+            timestamp: 0,
+            branch: None,
+            message: None,
+            author: None,
+            is_fix_commit: None,
+            is_revert_commit: None,
+            ticket_ids: vec![],
+        },
+        analysis: AnalysisInfo {
+            scope: "full".to_string(),
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            formula_version: 1,
+            touch_window_days: 365,
+        },
+        functions,
+        summary: None,
+        aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
+    }
+}
+
+/// Pins `hotspots diff`'s 2.0 master-schema envelope (`DeltaEnvelope`):
+/// `schema_version` unified with `SNAPSHOT_SCHEMA_VERSION`, top-level
+/// `commit` (head only), and the diff itself nested under `delta` — see
+/// `docs/master-schema-spec.md` section 2 ("diff a b" row) and `Delta::to_json`.
+#[test]
+fn delta_envelope_shape() {
+    let parent = bare_snapshot(
+        &"1".repeat(40),
+        vec![],
+        vec![test_function("rust/simple.rs", 1, 3)],
+    );
+    let current = bare_snapshot(
+        &"2".repeat(40),
+        vec!["1".repeat(40)],
+        vec![test_function("rust/simple.rs", 1, 9)],
+    );
+
+    let delta = Delta::new(&current, Some(&parent)).expect("Delta::new should succeed");
+    let json_str = delta.to_json().expect("Delta must serialize to JSON");
+    let json: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
+
+    let expected: BTreeSet<String> = ["schema_version", "delta"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json),
+        expected,
+        "Delta envelope's top-level keys changed. No top-level `commit` by \
+         design: `delta.commit.sha` already carries the head commit, and a \
+         second copy at the top level would duplicate that value under a \
+         different path (the master schema has zero field duplication). \
+         Update downstream consumers (hotspots-cloud, the GitHub Action, \
+         hotspots-research scripts) in the same release, then update the \
+         expected set here."
+    );
+    assert_eq!(
+        json["schema_version"], SNAPSHOT_SCHEMA_VERSION,
+        "delta envelope schema_version must match the unified SNAPSHOT_SCHEMA_VERSION"
+    );
+    assert_eq!(
+        json["delta"]["commit"]["sha"], current.commit.sha,
+        "delta.commit.sha must be the head commit"
+    );
+
+    let expected_delta: BTreeSet<String> = ["commit", "baseline", "deltas"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json["delta"]),
+        expected_delta,
+        "delta section shape changed (policy/aggregates are optional and absent here)"
+    );
+
+    // Round-trips through Delta::from_json.
+    let round_tripped = Delta::from_json(&json_str).expect("Delta must deserialize from JSON");
+    assert_eq!(round_tripped, delta);
+}
+
+/// Pins the last of the six pre-2.0 shapes: bare `analyze <path>` (no
+/// `--mode`) JSON output. `render_json_envelope` wraps the per-function array
+/// in `{"schema_version": ..., "functions": [...]}` instead of a bare
+/// top-level array; `golden_tests.rs` still exercises the unwrapped
+/// `render_json` directly for per-function metric comparisons (that function
+/// is unaffected by this phase, only the CLI's own JSON branch now calls
+/// `render_json_envelope` instead).
+#[test]
+fn bare_analyze_envelope_shape() {
+    let reports = vec![hotspots_core::FunctionRiskReport {
+        file: "a.rs".to_string(),
+        function: "f".to_string(),
+        line: 1,
+        language: Language::Rust,
+        metrics: MetricsReport {
+            cc: 3,
+            nd: 2,
+            fo: 1,
+            ns: 1,
+            loc: 20,
+            missing_docstring: false,
+        },
+        risk: hotspots_core::report::RiskReport {
+            r_cc: 1.0,
+            r_nd: 1.0,
+            r_fo: 1.0,
+            r_ns: 1.0,
+        },
+        lrs: 3.0,
+        band: RiskBand::Moderate,
+        suppression_reason: None,
+        patterns: vec![],
+        pattern_details: None,
+        callees: vec![],
+        explanation: None,
+    }];
+
+    let json: serde_json::Value =
+        serde_json::from_str(&hotspots_core::render_json_envelope(&reports)).expect("valid JSON");
+
+    let expected: BTreeSet<String> = ["schema_version", "functions"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(
+        keys_of(&json),
+        expected,
+        "Bare analyze envelope's top-level keys changed."
+    );
+    assert_eq!(json["schema_version"], SNAPSHOT_SCHEMA_VERSION);
+    assert_eq!(json["functions"].as_array().unwrap().len(), 1);
 }

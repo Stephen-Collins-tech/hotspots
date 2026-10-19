@@ -8,7 +8,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Features
+- Add --timing-report per-phase analyze timing (#268)
+- Add perf macro-benchmark + CI regression gate (parts 3-4 of #267) (#277)
+
+## [2.2.0] - 2026-10-18
+
+### Documentation
+- Drop stale Centrality axis from schema table (#265)
+
+
+### Features
+- Add Astro (.astro) language support (#276)
+
+## [2.1.0] - 2026-10-17
+
+### Bug Fixes
+- Detect C++ content in .h files and skip with a warning (#262)
+- Convert JS/TS CFG builder to iterative work-stack walk (#263)
+
+
+### Features
+- Add missing_docstring detection signal (#260)
+
+## [2.0.1] - 2026-10-13
+
+### Documentation
+- Update file_risk_score validation to F173's n=234 result (#257)
+
+## [2.0.0] - 2026-10-12
+
+### Bug Fixes
+- Drop duplicate top-level commit from delta envelope
+- Update integration test for delta envelope shape (phase 4)
+
+
+### Documentation
+- Document hotspots coordinate command (#239)
+- Changelog entry for 2.0 Phase 2 field removals
+- Fix stale DELTA_SCHEMA_VERSION reference in config.rs
+- Hedge file_risk_score for within-diff triage only (F173)
+- Fix post-2.0 drift in REFERENCE/USAGE/ARCHITECTURE/RISK_STABILITY
+- Dedupe LRS formula and coordinate rationale restatements
+
+
+### Features
 - Convert Rust CFG builder to iterative work-stack walk (#245)
+- Merge Snapshot/AgentSnapshotOutput into one 2.0 envelope (#248)
+- Remove dead RiskFactors/CallGraphMetrics fields, module instability
+- Gate patterns[] behind --explain-patterns, rename touch_count_30d
+- Remove neighbor_churn score + jaccard_label_stability field
+- Fold coordinate into 2.0 master-schema envelope
+- Remove within_set/hidden_dependencies from coordinate
+- Fold diff/delta into 2.0 master-schema envelope
+- Fold --axes JSON output into 2.0 envelope
+- Wrap bare analyze JSON output in 2.0 envelope
 
 ## [1.42.1] - 2026-10-10
 
@@ -541,6 +594,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[2.2.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.2.0
+[2.1.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.1.0
+[2.0.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.0.1
+[2.0.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.0.0
 [1.42.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.42.1
 [1.42.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.42.0
 [1.41.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v1.41.0

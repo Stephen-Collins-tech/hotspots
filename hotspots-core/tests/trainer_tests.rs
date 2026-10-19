@@ -64,12 +64,13 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
             fo: 0,
             ns: 0,
             loc: 10,
+            missing_docstring: false,
         },
         lrs: 1.0,
         band: RiskBand::Low,
         suppression_reason: None,
         churn: None,
-        touch_count_30d: None,
+        touch_count: None,
         days_since_last_change: None,
         callgraph: None,
         activity_risk: None,
@@ -83,7 +84,6 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
-        jaccard_label_stability: None,
         convention_bug_fix_count: None,
         burst_score: None,
         commit_count: None,
@@ -115,10 +115,14 @@ fn make_snapshot(functions: Vec<FunctionSnapshot>) -> Snapshot {
             scope: "test".to_string(),
             tool_version: "0.0.0".to_string(),
             formula_version: 1,
+            touch_window_days: 365,
         },
         functions,
         summary: None,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     }
 }
 
@@ -148,13 +152,9 @@ fn extract_features_with_churn_and_callgraph() {
     });
     func.callgraph = Some(CallGraphMetrics {
         fan_in: 5,
-        fan_out: 2,
         pagerank: 0.0,
-        betweenness: 0.0,
-        scc_id: 0,
         scc_size: 1,
         is_entrypoint: false,
-        dependency_depth: None,
         neighbor_churn: None,
     });
     func.activity_risk = Some(3.5);

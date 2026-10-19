@@ -10,6 +10,7 @@
       "cc": 6,
       "fo": 3,
       "loc": 17,
+      "missing_docstring": false,
       "nd": 4,
       "ns": 1
     },
@@ -31,6 +32,7 @@
       "cc": 4,
       "fo": 3,
       "loc": 13,
+      "missing_docstring": false,
       "nd": 2,
       "ns": 3
     },
@@ -52,6 +54,7 @@
       "cc": 7,
       "fo": 0,
       "loc": 10,
+      "missing_docstring": false,
       "nd": 1,
       "ns": 3
     },
@@ -73,6 +76,7 @@
       "cc": 1,
       "fo": 0,
       "loc": 1,
+      "missing_docstring": false,
       "nd": 0,
       "ns": 0
     },

@@ -330,7 +330,7 @@ mod tests {
                     "file": file,
                     "line": 1u32,
                     "language": "Rust",
-                    "metrics": {"cc":1,"nd":0,"fo":0,"ns":0,"loc":5},
+                    "metrics": {"cc":1,"nd":0,"fo":0,"ns":0,"loc":5,"missing_docstring":false},
                     "lrs": score,
                     "band": "low",
                     "activity_risk": score,

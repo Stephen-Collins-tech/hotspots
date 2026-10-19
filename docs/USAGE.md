@@ -40,11 +40,11 @@ Snapshots are stored as `.hotspots/snapshots/<commit-sha>.json.zst` and are immu
 # File-level risk table (ranked by composite file_risk_score)
 hotspots analyze . --mode snapshot --format text --level file
 
-# Module instability (Robert Martin's metric at directory level)
+# Module-level complexity/coupling view (directory level)
 hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. Module instability near 0 = everything depends on it (risky to change); near 1 = safe to change. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone; `instability` is reported alongside it as an informational field, not a gating condition.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal (F170) and is no longer computed or reported.
 
 ## Delta Mode
 
@@ -115,7 +115,7 @@ Every `diff` collapses all function-level changes into `pr_risk_score`
 functions subtract theirs, modified functions add their ΔLRS) plus a `band`
 (the highest risk band reached by any new or modified function). Text output
 prints it under the summary line; JSON/JSONL expose it at
-`aggregates.pr_summary`; the HTML report shows it as a summary card.
+`delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
 
 **Read `pr_risk_score` as a structural signal (what's the worst code in this
 diff), not a validated risk estimate.** hotspots-research tested it directly
@@ -151,38 +151,27 @@ Output (JSON only today):
 
 ```json
 {
-  "schema_version": 1,
-  "input_files": ["src/api.ts", "src/db.ts"],
-  "within_set": [
-    { "file_a": "src/api.ts", "file_b": "src/db.ts", "coupling_ratio": 0.67 }
-  ],
-  "hidden_dependencies": [
-    { "file": "src/session.ts", "coupled_to": "src/api.ts", "coupling_ratio": 0.81 }
-  ],
-  "ownership": [
-    { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
-  ],
-  "recommendation": "parallel_safe"
+  "schema_version": 5,
+  "coordinate": {
+    "input_files": ["src/api.ts", "src/db.ts"],
+    "ownership": [
+      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
+    ]
+  }
 }
 ```
 
-- **`within_set`** — co-change coupling (`coupling_ratio`, share of one file's commits that
-  also touched the other) between pairs *inside* your file set.
-- **`hidden_dependencies`** — files *outside* your set that are tightly coupled to one you're
-  about to touch (coupling_ratio ≥ 0.7 by default) — the ones you'd only find out about after
-  a merge conflict.
 - **`ownership`** — `author_count`, `author_entropy` (0 = one owner, higher = more diffuse),
   `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
   a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
   `"diffuse"` value today).
-- **`recommendation`** — `"serialize"` or `"parallel_safe"`. Read this hedge, not just the
-  label: hotspots-research (META-26) found the underlying `coupling_ratio` threshold fails
-  every direct test of its predictive validity as a `"serialize"` trigger on its own. The one
-  refinement that *is* validated (META-27, F155) is the downgrade you see above — when every
-  file in your set has `knowledge_mode: "concentrated"`, `recommendation` is forced to
-  `"parallel_safe"` regardless of coupling, because concentrated-ownership files show
-  substantially lower real collision rates. Outside that specific case, treat `"serialize"` as
-  a prompt to look closer, not a validated verdict.
+
+Earlier versions also reported raw co-change coupling facts (`within_set`, `hidden_dependencies`)
+as descriptive data with no recommendation attached. Hotspots 2.0 removed them too, once the bar
+for shipping a field became "proven to work, not just not-yet-refuted": hotspots-research
+actively tested them and found `coupling_ratio` predicts *less* coordination friction, not more,
+and adds nothing once ownership is controlled for — the opposite of the evidence `ownership`
+has. Use `knowledge_mode` and your own judgment instead.
 
 ## Policy Engine
 
@@ -382,11 +371,15 @@ No `✦` lines appear without a trained ranker.
 
 ```bash
 hotspots analyze src/ --format json
-hotspots analyze . --mode snapshot --format json --all-functions  # full flat array (schema v2)
+hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
 hotspots analyze . --mode snapshot --format json --include-models  # add model risk map
 ```
 
-Default snapshot JSON uses schema v4 (triage-first structure: `fire`/`debt`/`watch`/`ok` buckets). Use `--all-functions` for the flat `functions` array (schema v2). Always check `schema_version` in tooling.
+Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version
+across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
+`functions` array in favor of the triage-first structure (`fire`/`debt`/`watch`/`ok` buckets);
+use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
+in tooling.
 
 Useful `jq` patterns:
 ```bash
@@ -454,7 +447,7 @@ def legacy_billing_logic(): ...
 Rules:
 - Comment must be on the line **immediately before** the function (no blank line between)
 - Format: `// hotspots-ignore: <reason>` — use `#` instead of `//` for Python; every other
-  supported language (Go, Java, C#, Rust, C/C++, TypeScript/JavaScript, Vue) uses `//`
+  supported language (Go, Java, C#, Rust, C/C++, TypeScript/JavaScript, Vue, Astro) uses `//`
 - Reason is required (missing reason triggers a warning, not a hard failure)
 - Suppressed functions still appear in all reports with a `suppression_reason` field
 - Suppressed functions still count toward net repo regression

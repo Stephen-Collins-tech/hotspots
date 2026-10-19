@@ -43,6 +43,7 @@ pub struct MetricsReport {
     pub fo: u32,
     pub ns: u32,
     pub loc: u32,
+    pub missing_docstring: bool,
 }
 
 /// Risk components in report format
@@ -103,6 +104,7 @@ impl FunctionRiskReport {
                 fo: analysis.metrics.fo as u32,
                 ns: analysis.metrics.ns as u32,
                 loc: analysis.metrics.loc as u32,
+                missing_docstring: analysis.metrics.missing_docstring,
             },
             risk: RiskReport {
                 r_cc: analysis.risk.r_cc,
@@ -335,10 +337,25 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: 
     output
 }
 
-/// Render reports as JSON output
+/// Render reports as a bare JSON array (pre-2.0 shape). Kept for
+/// `golden_tests.rs`'s per-function metric comparisons, which don't need the
+/// envelope wrapper; CLI output goes through `render_json_envelope` instead.
 pub fn render_json(reports: &[FunctionRiskReport]) -> String {
     // Use serde_json with sorted keys for deterministic output
     serde_json::to_string_pretty(reports).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Render reports as the 2.0 master-schema envelope: `{"schema_version":
+/// ..., "functions": [...]}` instead of a bare top-level array — the last of
+/// the six pre-2.0 output shapes to be unified (`docs/master-schema-spec.md`,
+/// "analyze <path>" row: "functions (core fields only)").
+pub fn render_json_envelope(reports: &[FunctionRiskReport]) -> String {
+    let envelope = serde_json::json!({
+        "schema_version": crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+        "functions": reports,
+    });
+    serde_json::to_string_pretty(&envelope)
+        .unwrap_or_else(|_| "{\"schema_version\":0,\"functions\":[]}".to_string())
 }
 
 /// Truncate or pad string to fixed width
@@ -368,6 +385,7 @@ mod tests {
                 fo: 2,
                 ns: 0,
                 loc: 20,
+                missing_docstring: false,
             },
             risk: RiskReport {
                 r_cc: 1.0,

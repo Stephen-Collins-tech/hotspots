@@ -63,13 +63,12 @@ pub struct ModuleInstability {
     pub afferent: usize,
     /// Efferent coupling: modules this one depends on externally
     pub efferent: usize,
-    /// instability = efferent / (afferent + efferent); 0.5 if both == 0 (undefined)
-    pub instability: f64,
     /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
-    /// internal validation found combining this with the `instability` metric
-    /// below added no benefit over complexity alone, so `module_risk` does not
-    /// depend on it. `instability`/`afferent`/`efferent` remain informational
-    /// fields only.
+    /// internal validation found combining this with instability
+    /// (efferent / (afferent + efferent)) added no benefit over complexity
+    /// alone, so `module_risk` never depended on it. hotspots 2.0 removed the
+    /// `instability` field entirely (it carried no measured signal, rho≈-0.002)
+    /// -- `afferent`/`efferent` remain as descriptive facts only.
     pub module_risk: String,
 }
 
@@ -182,7 +181,7 @@ const HIDDEN_COUPLING_TOP_N: usize = 20;
 const FILE_RISK_TOP_N: usize = 10;
 
 /// Slim complexity metrics for agent-optimized function view
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentMetrics {
     pub cc: usize,
@@ -191,7 +190,7 @@ pub struct AgentMetrics {
 }
 
 /// Slim function view for agent-optimized triage output
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentFunctionView {
     pub function: String,
@@ -200,14 +199,21 @@ pub struct AgentFunctionView {
     pub band: String,
     pub quadrant: String,
     pub driver: String,
-    pub action: &'static str,
+    // Owned, not `&'static str`: this struct is now a field of `Snapshot`,
+    // which derives `Deserialize` for persisted-snapshot round-tripping, and
+    // `&'static str` cannot round-trip through arbitrary deserialized data.
+    pub action: String,
     pub lrs: f64,
     pub activity_risk: f64,
     pub metrics: AgentMetrics,
+    // hotspots 2.0: renamed from `touches_30d`/`days_since_changed` to match
+    // `FunctionSnapshot`'s names exactly, now that this struct lives inside the
+    // same unified envelope (Phase 1) — these were the "triage-mode spelling"
+    // the master-schema-spec's duplicate-naming audit flagged (section 1).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub touches_30d: Option<usize>,
+    pub touch_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_changed: Option<u32>,
+    pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fan_in: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -222,16 +228,16 @@ pub struct AgentFunctionView {
 }
 
 /// A triage quadrant with count and top-N functions
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageQuadrant {
     pub count: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub top: Vec<AgentFunctionView>,
 }
 
 /// Triage view grouping functions by quadrant
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageView {
     pub fire: TriageQuadrant,
@@ -244,7 +250,7 @@ pub struct TriageView {
 ///
 /// `hidden_count` reflects only actionable pairs (risk == "high" or "moderate").
 /// Low-risk pairs are excluded to match text output semantics.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentCoChangeView {
     pub hidden_coupling: Vec<crate::git::CoChangePair>,
@@ -253,45 +259,15 @@ pub struct AgentCoChangeView {
 }
 
 /// Architecture-oriented aggregate views for agent-optimized output.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AgentArchitectureView {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub file_risk: Vec<FileRiskView>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub modules: Vec<ModuleInstability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<crate::models::ModelRiskMap>,
-}
-
-pub const AGENT_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
-
-/// Agent-optimized snapshot output (schema version 4)
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub struct AgentSnapshotOutput {
-    pub schema_version: u32,
-    pub commit: crate::snapshot::CommitInfo,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<crate::snapshot::SnapshotSummary>,
-    pub triage: TriageView,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub architecture: Option<AgentArchitectureView>,
-    pub co_change: AgentCoChangeView,
-}
-
-impl AgentSnapshotOutput {
-    /// Serialize to pretty-printed JSON string.
-    pub fn to_json(&self) -> anyhow::Result<String> {
-        serde_json::to_string_pretty(self).map_err(|e| anyhow::anyhow!("{}", e))
-    }
-
-    /// Write pretty-printed JSON directly to `writer` without an intermediate String.
-    pub fn write_json_to<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
-        serde_json::to_writer_pretty(writer as &mut dyn std::io::Write, self)
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
-        writeln!(writer).map_err(|e| anyhow::anyhow!("{}", e))
-    }
 }
 
 /// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).
@@ -315,7 +291,8 @@ fn to_agent_view(
             let action = crate::snapshot::driver_action_for_quadrant(
                 driver,
                 func.quadrant.as_deref().unwrap_or(""),
-            );
+            )
+            .to_string();
             AgentFunctionView {
                 function: function_name,
                 file,
@@ -331,8 +308,8 @@ fn to_agent_view(
                     nd: func.metrics.nd as usize,
                     fo: func.metrics.fo as usize,
                 },
-                touches_30d: func.touch_count_30d,
-                days_since_changed: func.days_since_last_change,
+                touch_count: func.touch_count,
+                days_since_last_change: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
                 patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
@@ -342,16 +319,19 @@ fn to_agent_view(
         .collect()
 }
 
-/// Build the agent-optimized v4 JSON output from a fully enriched snapshot and its aggregates.
+/// Build the slimmed triage/architecture/co_change sections of the unified
+/// envelope (`Snapshot.{triage,architecture,co_change}`) from a fully enriched
+/// snapshot and its aggregates — the default `analyze --mode snapshot --format
+/// json` shape (i.e. without `--all-functions`).
 ///
 /// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
 /// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
 /// top 20 by coupling_ratio. File risk is capped at top 10.
-pub fn compute_agent_snapshot_output(
+pub fn compute_agent_sections(
     snapshot: &crate::snapshot::Snapshot,
     aggregates: &SnapshotAggregates,
     repo_root: &std::path::Path,
-) -> AgentSnapshotOutput {
+) -> (TriageView, Option<AgentArchitectureView>, AgentCoChangeView) {
     // Partition functions into quadrant buckets
     let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
     let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
@@ -460,18 +440,15 @@ pub fn compute_agent_snapshot_output(
         })
     };
 
-    AgentSnapshotOutput {
-        schema_version: AGENT_SNAPSHOT_SCHEMA_VERSION,
-        commit: snapshot.commit.clone(),
-        summary: snapshot.summary.clone(),
+    (
         triage,
         architecture,
-        co_change: AgentCoChangeView {
+        AgentCoChangeView {
             hidden_coupling,
             hidden_count,
             total_pairs,
         },
-    }
+    )
 }
 
 fn normalize_model_risk_map(
@@ -805,11 +782,6 @@ fn compute_module_instability_from_edges(
             let stats = dir_stats.get(&dir)?;
             let eff = *efferent.get(&dir).unwrap_or(&0);
             let aff = *afferent.get(&dir).unwrap_or(&0);
-            let instability = if eff + aff == 0 {
-                0.5 // undefined — treat as neutral
-            } else {
-                eff as f64 / (eff + aff) as f64
-            };
             let avg_complexity = if stats.function_count > 0 {
                 stats.sum_cc as f64 / stats.function_count as f64
             } else {
@@ -827,21 +799,16 @@ fn compute_module_instability_from_edges(
                 avg_complexity: (avg_complexity * 100.0).round() / 100.0,
                 afferent: aff,
                 efferent: eff,
-                instability: (instability * 1000.0).round() / 1000.0,
                 module_risk,
             })
         })
         .collect();
 
-    // Sort: high-risk first, then by instability ascending (most stable / highest-risk first)
+    // Sort: high-risk first, then by module name (the instability-based
+    // secondary sort was removed along with the field in hotspots 2.0).
     modules.sort_by(|a, b| {
         b.module_risk
             .cmp(&a.module_risk) // "high" > "low"
-            .then(
-                a.instability
-                    .partial_cmp(&b.instability)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
             .then(a.module.cmp(&b.module))
     });
 
@@ -1298,12 +1265,13 @@ mod tests {
                 fo: 0,
                 ns: 0,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: crate::risk::RiskBand::parse(band).unwrap_or(crate::risk::RiskBand::Low),
             suppression_reason: None,
             churn: None,
-            touch_count_30d: None,
+            touch_count: None,
             days_since_last_change: None,
             callgraph: None,
             activity_risk: None,
@@ -1317,7 +1285,6 @@ mod tests {
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
-            jaccard_label_stability: None,
             convention_bug_fix_count: None,
             burst_score: None,
             commit_count: None,

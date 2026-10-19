@@ -130,7 +130,7 @@ fn render_trends_section(json: &str) -> String {
 /// Serialize per-function scatter data for the Risk Landscape chart.
 ///
 /// Emits a compact JSON array: `[{"n":"fn","f":"file","x":lrs,"y":churn,"b":"h"},…]`
-/// y = touch_count_30d, falling back to total churn lines, then 0.
+/// y = touch_count, falling back to total churn lines, then 0.
 /// `b` is a single letter: c=critical, h=high, m=moderate, l=low.
 fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
     if functions.is_empty() {
@@ -140,7 +140,7 @@ fn render_scatter_json(functions: &[FunctionSnapshot]) -> String {
         .iter()
         .map(|f| {
             let y = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t as f64)
                 .or_else(|| {
                     f.churn
@@ -1224,12 +1224,9 @@ footer a {
 .driver-cyclic_dep         { background: #fce4ec; color: #880e4f; }
 .driver-composite          { background: #f5f5f5; color: #424242; }
 
-/* Module instability zones (Robert Martin) */
+/* Module risk zones (complexity-gated, hotspots 2.0) */
 .zone-pain             { color: #ef4444; font-weight: 600; }
 .zone-stable           { color: #22c55e; }
-.zone-balanced         { color: #3b82f6; }
-.zone-volatile         { color: #f97316; font-weight: 600; }
-.zone-volatile-complex { color: #ef4444; font-weight: 600; }
 
 /* Module and co-change risk */
 .module-risk-high   { color: #ef4444; font-weight: 600; }
@@ -2579,7 +2576,7 @@ fn render_function_risk_gallery(functions: &[FunctionSnapshot]) -> String {
             let width = ((f.lrs / max_lrs) * 100.0).clamp(4.0, 100.0);
             let activity = f.activity_risk.unwrap_or(f.lrs);
             let touches = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| "—".to_string());
             format!(
@@ -2622,7 +2619,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     let sparse_min = 10usize;
     let has_activity = functions.iter().any(|f| f.activity_risk.is_some());
     let has_churn = functions.iter().filter(|f| f.churn.is_some()).count() >= sparse_min;
-    let has_touches = functions.iter().any(|f| f.touch_count_30d.is_some());
+    let has_touches = functions.iter().any(|f| f.touch_count.is_some());
     let has_recency = functions.iter().any(|f| f.days_since_last_change.is_some());
     let has_fanin = functions.iter().filter(|f| f.callgraph.is_some()).count() >= sparse_min;
     let has_patterns = functions.iter().any(|f| !f.patterns.is_empty());
@@ -2667,7 +2664,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 String::new()
             };
             let touches_cell = if has_touches {
-                match f.touch_count_30d {
+                match f.touch_count {
                     Some(t) => format!("<td>{}</td>", t),
                     None => "<td>—</td>".to_string(),
                 }
@@ -2770,7 +2767,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                     .map(|ar| format!("{:.4}", ar))
                     .unwrap_or_default(),
                 churn = churn_val.map(|c| c.to_string()).unwrap_or_default(),
-                touches = f.touch_count_30d.map(|t| t.to_string()).unwrap_or_default(),
+                touches = f.touch_count.map(|t| t.to_string()).unwrap_or_default(),
                 fanin = f
                     .callgraph
                     .as_ref()
@@ -2931,11 +2928,7 @@ fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
                     .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .then_with(|| {
-                b.touch_count_30d
-                    .unwrap_or(0)
-                    .cmp(&a.touch_count_30d.unwrap_or(0))
-            })
+            .then_with(|| b.touch_count.unwrap_or(0).cmp(&a.touch_count.unwrap_or(0)))
             .then_with(|| {
                 b.lrs
                     .partial_cmp(&a.lrs)
@@ -2980,7 +2973,7 @@ fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
         .unwrap_or(&function.function_id);
     let quadrant = function.quadrant.as_deref().unwrap_or("ok");
     let driver = function.driver.as_deref().unwrap_or("composite");
-    let touches = function.touch_count_30d.unwrap_or(0);
+    let touches = function.touch_count.unwrap_or(0);
     let fan_in = function.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let activity = function.activity_risk.unwrap_or(function.lrs);
     let last_change = function
@@ -3110,7 +3103,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     top_risks.extend(inactive_risks);
     top_risks.truncate(15);
 
-    let show_touches = top_risks.iter().any(|f| f.touch_count_30d.is_some());
+    let show_touches = top_risks.iter().any(|f| f.touch_count.is_some());
     let show_last_change = top_risks.iter().any(|f| f.days_since_last_change.is_some());
     let count = top_risks.len();
 
@@ -3138,7 +3131,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
             };
 
             let _touches_td = if show_touches {
-                let inner = match f.touch_count_30d {
+                let inner = match f.touch_count {
                     Some(t) if t > 5 => {
                         format!(r#"<span class="recency-hot">{}</span>"#, t)
                     }
@@ -3181,7 +3174,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 None => "<td>—</td>".to_string(),
             };
             let touches_value = f
-                .touch_count_30d
+                .touch_count
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| "—".to_string());
             let last_change_value = f
@@ -3352,36 +3345,24 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
         ));
     }
 
-    // 4b. Module Instability Table
+    // 4b. Module Risk Table
     if !aggregates.modules.is_empty() {
         let rows: String = aggregates
             .modules
             .iter()
             .map(|m| {
-                // Classify into Martin's zones using instability + complexity
-                let (zone_label, _zone_class) = if m.instability < 0.3 {
-                    if m.avg_complexity > 8.0 {
-                        ("zone of pain", "zone-pain")
-                    } else {
-                        ("stable", "zone-stable")
-                    }
-                } else if m.instability > 0.7 {
-                    if m.avg_complexity > 8.0 {
-                        ("volatile", "zone-volatile-complex")
-                    } else {
-                        ("volatile", "zone-volatile")
-                    }
+                // hotspots 2.0 removed `instability` (no measured signal, rho≈-0.002) —
+                // zone label now reflects `module_risk` directly (already complexity-gated).
+                let (zone_label, _zone_class) = if m.module_risk == "high" {
+                    ("high complexity", "zone-pain")
                 } else {
-                    ("balanced", "zone-balanced")
+                    ("stable", "zone-stable")
                 };
-                let instability_width = (m.instability * 100.0).clamp(4.0, 100.0);
                 format!(
                     r#"<div class="visual-card">
     <div class="visual-card-title monospace">{module}</div>
     <div class="visual-card-subtitle">{zone_label}</div>
-    <div class="visual-bar"><div class="visual-bar-fill" style="width:{instability_width:.0}%"></div></div>
     <div class="visual-metrics">
-        <div class="visual-metric"><span>Instability</span><strong>{instability:.2}</strong></div>
         <div class="visual-metric"><span>Avg CC</span><strong>{avg_cc:.1}</strong></div>
         <div class="visual-metric"><span>Afferent</span><strong>{afferent}</strong></div>
         <div class="visual-metric"><span>Efferent</span><strong>{efferent}</strong></div>
@@ -3391,8 +3372,6 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
                     avg_cc = m.avg_complexity,
                     afferent = m.afferent,
                     efferent = m.efferent,
-                    instability = m.instability,
-                    instability_width = instability_width,
                     zone_label = zone_label,
                 )
             })
@@ -3400,8 +3379,8 @@ fn render_aggregates(aggregates: &SnapshotAggregates) -> String {
 
         sections.push(format!(
             r#"<details class="section">
-    <summary>Risk Concentration: Modules<span class="section-summary-note">Dependency volatility by directory</span></summary>
-    <div class="visual-note">Instability is Ce / (Ca + Ce). Longer bars are more dependency-volatile.</div>
+    <summary>Risk Concentration: Modules<span class="section-summary-note">Complexity concentration by directory</span></summary>
+    <div class="visual-note">Afferent/efferent are coupling counts (external modules depending on this one / this one depends on).</div>
     <div class="visual-grid">{rows}</div>
 </details>"#,
             rows = rows,

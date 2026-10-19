@@ -56,8 +56,8 @@ fn ms_per_function(lang: Language) -> f64 {
         | Language::TypeScript
         | Language::TypeScriptReact
         | Language::Vue => 3.75,
-        // No spike measurement for C#; use the mean of measured languages.
-        Language::CSharp => DEFAULT_MS_PER_FUNCTION,
+        // No spike measurement for C# or Astro; use the mean of measured languages.
+        Language::CSharp | Language::Astro => DEFAULT_MS_PER_FUNCTION,
     }
 }
 
@@ -251,6 +251,7 @@ fn lang_extension_hint(lang_debug_name: &str) -> &'static str {
         "Python" => "py",
         "Rust" => "rs",
         "Vue" => "vue",
+        "Astro" => "astro",
         "CSharp" => "cs",
         "C" => "c",
         "CHeader" => "h",

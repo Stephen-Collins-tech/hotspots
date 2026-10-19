@@ -615,6 +615,7 @@ mod tests {
                 fo: 2,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs: 3.9,
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
@@ -627,6 +628,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 15,
+                missing_docstring: false,
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
@@ -1056,7 +1058,6 @@ mod tests {
     #[test]
     fn test_baseline_delta_skips_policies() {
         let delta = Delta {
-            schema_version: 1,
             commit: DeltaCommitInfo {
                 sha: "abc123".to_string(),
                 parent: "".to_string(),
@@ -1104,6 +1105,7 @@ mod tests {
                 fo: 2,
                 ns: 1,
                 loc: 10,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 9.0 {
@@ -1124,6 +1126,7 @@ mod tests {
                 fo: 3,
                 ns: 1,
                 loc: 15,
+                missing_docstring: false,
             },
             lrs,
             band: if lrs >= 9.0 {

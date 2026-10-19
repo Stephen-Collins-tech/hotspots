@@ -82,7 +82,7 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 **Git history:** `git log` provides per-file or per-function (with `-L`) churn and touch counts. Results cached in `.hotspots/touch-cache.json.zst`. Hybrid mode: file-level for all functions, per-function for files with ≥ N touches in the touch window (365 days by default — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Call graph:** Import resolution builds a cross-file call graph. Fan-in, fan-out, PageRank, betweenness centrality (exact for < 2000 nodes; Brandes algorithm with k=256 pivots for larger), SCC (Tarjan's algorithm), dependency depth (topological sort).
+**Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
 **Pattern classification:** Tier 2 patterns check call graph and git data against thresholds. `volatile_god` is derived (fires only when both `god_function` and `churn_magnet` are true).
 
@@ -111,7 +111,8 @@ hotspots-core/src/
 │   ├── rust/
 │   ├── c/
 │   ├── csharp/
-│   └── vue/
+│   ├── vue/
+│   └── astro/
 ├── cfg/
 │   ├── builder.rs      # generic CFG construction traits
 │   └── mod.rs          # CfgNode, CfgEdge, Cfg, validation
@@ -184,6 +185,6 @@ These are non-negotiable. Any violation is a bug.
 
 **Percentile-relative driver labels.** Absolute thresholds for driver labels would fire on different functions in a 100-function repo vs a 100k-function repo. Percentile-relative checks (default P75) adapt to the codebase's own distribution.
 
-**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank, etc.) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: hotspots-research found both add no measurable ranking value (confirmed, non-inferior to remove). They're still computed and reported (`--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
+**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: hotspots-research found both add no measurable ranking value (confirmed, non-inferior to remove). `fan_in`/`pagerank`/`scc_size` are still computed and reported (`callgraph` output, `--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
 
-**Betweenness centrality approximation above 2000 nodes.** Exact betweenness is O(V·E), which becomes prohibitive on large call graphs. The Brandes approximation with k=256 random pivot nodes is accurate enough for ranking purposes and runs in bounded time.
+**Betweenness centrality / dependency depth no longer computed (hotspots 2.0).** The Brandes k=256-pivot approximation and the topological-sort depth calculation described below are retained in `callgraph.rs` but are no longer called anywhere in the live pipeline — `fan_out`, `betweenness`, `scc_id`, and `dependency_depth` had no consumer once their contribution to the live score was removed (F160/F167), so hotspots 2.0 dropped them from `callgraph` output entirely rather than keep computing values nothing reads.

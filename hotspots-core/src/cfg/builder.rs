@@ -4,6 +4,16 @@
 //! - One CFG per function
 //! - Deterministic node creation order
 //! - Control-relevant statements only
+//!
+//! Walks the `swc` AST iteratively via an explicit heap-allocated work stack
+//! (`Task`, driven by the `run` loop, with results threaded through
+//! `self.current_node`) instead of native function-call recursion between
+//! `visit_*`/`build_*` methods. This removes the depth bound entirely —
+//! nesting depth is now limited by available heap/memory, not by the calling
+//! thread's stack — closing the structural gap tracked in
+//! https://github.com/Stephen-Collins-tech/hotspots/issues/160 for the
+//! shared JS/TS builder (see PR #245 for the equivalent Rust-builder
+//! conversion this follows).
 
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
@@ -15,7 +25,7 @@ pub fn build_cfg(function: &FunctionNode) -> Cfg {
     // Extract ECMAScript body - this will panic if the function is not ECMAScript
     // This is intentional: only ECMAScript is currently supported
     let block_stmt = function.body.as_ecmascript();
-    builder.build_from_body(block_stmt);
+    builder.build_from_body(&block_stmt.stmts);
     builder.cfg
 }
 
@@ -28,6 +38,118 @@ struct BreakableContext {
     break_target: Option<NodeId>,
     /// None for switch (not continuable), Some for loops
     continue_target: Option<NodeId>,
+}
+
+/// Pending unit of work on the explicit stack.
+///
+/// The "visit"-shaped variants (`If`, `While`, `Try`, ...) mirror what the
+/// old recursive `visit_*`/`build_*` methods did on the way down the call
+/// stack; the "After*" variants mirror what they did with the recursive
+/// result on the way back up, now driven by a loop instead of native stack
+/// unwinding. Each variant borrows from the same `'a` AST tree rooted at the
+/// function body, which outlives the whole build. The "result" of whatever
+/// nested work just ran is read from `self.current_node` (exactly as the
+/// recursive methods used it before), so — unlike a typical CPS stack — no
+/// separate result-passing field is needed.
+enum Task<'a> {
+    /// Sequential statement list (block body, case body, ...).
+    Stmts {
+        stmts: &'a [Stmt],
+        idx: usize,
+    },
+    Stmt {
+        stmt: &'a Stmt,
+    },
+    /// Clears `pending_label` after a labeled statement's body has been visited.
+    ClearLabel,
+    /// Function/try/catch/finally body: sequential statements, then force an
+    /// edge to `exit` from the last node if one doesn't already exist.
+    FromBody {
+        stmts: &'a [Stmt],
+    },
+    AfterFromBody,
+    If {
+        if_stmt: &'a IfStmt,
+    },
+    AfterIfThen {
+        condition_node: NodeId,
+        alt: Option<&'a Stmt>,
+    },
+    AfterIfElse {
+        then_end: Option<NodeId>,
+    },
+    While {
+        while_stmt: &'a WhileStmt,
+    },
+    AfterWhileBody {
+        header_node: NodeId,
+        join_node: NodeId,
+        body_start: NodeId,
+    },
+    DoWhile {
+        do_while_stmt: &'a DoWhileStmt,
+    },
+    AfterDoWhileBody {
+        header_node: NodeId,
+        body_start: NodeId,
+    },
+    For {
+        for_stmt: &'a ForStmt,
+    },
+    AfterForBody {
+        for_stmt: &'a ForStmt,
+        header_node: NodeId,
+        body_start: NodeId,
+    },
+    ForIn {
+        for_in_stmt: &'a ForInStmt,
+    },
+    AfterForInBody {
+        header_node: NodeId,
+        join_node: NodeId,
+        body_start: NodeId,
+    },
+    ForOf {
+        for_of_stmt: &'a ForOfStmt,
+    },
+    AfterForOfBody {
+        header_node: NodeId,
+        join_node: NodeId,
+        body_start: NodeId,
+    },
+    Switch {
+        switch_stmt: &'a SwitchStmt,
+    },
+    SwitchCases {
+        switch_node: NodeId,
+        cases: std::slice::Iter<'a, SwitchCase>,
+        prev_case_end: Option<NodeId>,
+    },
+    AfterSwitchCaseBody {
+        switch_node: NodeId,
+        cases: std::slice::Iter<'a, SwitchCase>,
+    },
+    Try {
+        try_stmt: &'a TryStmt,
+    },
+    AfterTryBlock {
+        try_stmt: &'a TryStmt,
+        try_start: NodeId,
+    },
+    AfterCatchBlock {
+        try_stmt: &'a TryStmt,
+        try_start: NodeId,
+        try_end: NodeId,
+        try_completed: bool,
+    },
+    AfterTryCatch {
+        try_stmt: &'a TryStmt,
+        try_start: NodeId,
+        try_end: NodeId,
+        try_completed: bool,
+        catch_end: Option<NodeId>,
+    },
+    AfterFinallyBlock,
 }
 
 /// Builder for constructing CFG from AST
@@ -69,56 +191,616 @@ impl CfgBuilder {
         join_node
     }
 
-    /// Build CFG from a block statement body
-    fn build_from_body(&mut self, body: &BlockStmt) {
-        for stmt in &body.stmts {
-            self.visit_stmt(stmt);
-        }
+    /// Build CFG from a sequential statement list, forcing a trailing edge to
+    /// `exit` from the last node if one doesn't already exist. Used for the
+    /// function body and for try/catch/finally bodies.
+    fn build_from_body(&mut self, stmts: &[Stmt]) {
+        let mut stack: Vec<Task<'_>> = vec![Task::FromBody { stmts }];
+        self.run(&mut stack);
+    }
 
-        // Connect last node to exit (if not already connected)
-        if let Some(last_node) = self.current_node {
-            if last_node != self.cfg.exit {
-                // Check if last node already has an edge to exit
-                let has_exit_edge = self
-                    .cfg
-                    .edges
-                    .iter()
-                    .any(|e| e.from == last_node && e.to == self.cfg.exit);
+    /// Drive the explicit work-stack loop. Pushing a `Task` here replaces what
+    /// used to be a native recursive call; the "After*" variants replace what
+    /// used to run after that recursive call returned.
+    fn run(&mut self, stack: &mut Vec<Task<'_>>) {
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::Stmts { stmts, idx } => {
+                    if idx < stmts.len() {
+                        stack.push(Task::Stmts {
+                            stmts,
+                            idx: idx + 1,
+                        });
+                        stack.push(Task::Stmt { stmt: &stmts[idx] });
+                    }
+                }
+                Task::Stmt { stmt } => self.dispatch_stmt(stmt, stack),
+                Task::ClearLabel => {
+                    self.pending_label = None;
+                }
+                Task::FromBody { stmts } => {
+                    stack.push(Task::AfterFromBody);
+                    stack.push(Task::Stmts { stmts, idx: 0 });
+                }
+                Task::AfterFromBody => {
+                    if let Some(last_node) = self.current_node {
+                        if last_node != self.cfg.exit {
+                            let has_exit_edge = self
+                                .cfg
+                                .edges
+                                .iter()
+                                .any(|e| e.from == last_node && e.to == self.cfg.exit);
+                            if !has_exit_edge {
+                                self.cfg.add_edge(last_node, self.cfg.exit);
+                            }
+                        }
+                    }
+                }
+                Task::If { if_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
 
-                if !has_exit_edge {
-                    self.cfg.add_edge(last_node, self.cfg.exit);
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(from_node, condition_node);
+
+                    let then_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, then_start);
+                    self.current_node = Some(then_start);
+
+                    stack.push(Task::AfterIfThen {
+                        condition_node,
+                        alt: if_stmt.alt.as_deref(),
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &if_stmt.cons,
+                    });
+                }
+                Task::AfterIfThen {
+                    condition_node,
+                    alt,
+                } => {
+                    let then_end = self.current_node;
+
+                    if let Some(alt) = alt {
+                        let else_start = self.cfg.add_node(NodeKind::Statement);
+                        self.cfg.add_edge(condition_node, else_start);
+                        self.current_node = Some(else_start);
+
+                        stack.push(Task::AfterIfElse { then_end });
+                        stack.push(Task::Stmt { stmt: alt });
+                    } else {
+                        // No else: condition false-edge always reaches join
+                        let join_node = self.cfg.add_node(NodeKind::Join);
+                        self.cfg.add_edge(condition_node, join_node);
+                        if let Some(t) = then_end {
+                            self.cfg.add_edge(t, join_node);
+                        }
+                        self.current_node = Some(join_node);
+                    }
+                }
+                Task::AfterIfElse { then_end } => {
+                    let else_end = self.current_node;
+
+                    if then_end.is_some() || else_end.is_some() {
+                        let join_node = self.cfg.add_node(NodeKind::Join);
+                        if let Some(t) = then_end {
+                            self.cfg.add_edge(t, join_node);
+                        }
+                        if let Some(e) = else_end {
+                            self.cfg.add_edge(e, join_node);
+                        }
+                        self.current_node = Some(join_node);
+                    } else {
+                        self.current_node = None; // both branches terminate
+                    }
+                }
+                Task::While { while_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let header_node = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(from_node, header_node);
+
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(header_node, condition_node);
+
+                    // The condition always provides a false-branch edge to join, so
+                    // eager creation is safe — join is always reachable regardless
+                    // of the body.
+                    let join_node = self.cfg.add_node(NodeKind::Join);
+                    self.cfg.add_edge(condition_node, join_node);
+
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: Some(join_node),
+                        continue_target: Some(header_node),
+                    });
+
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, body_start);
+                    self.current_node = Some(body_start);
+
+                    stack.push(Task::AfterWhileBody {
+                        header_node,
+                        join_node,
+                        body_start,
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &while_stmt.body,
+                    });
+                }
+                Task::AfterWhileBody {
+                    header_node,
+                    join_node,
+                    body_start,
+                } => {
+                    let body_end = self.current_node.unwrap_or(body_start);
+                    self.breakable_stack.pop();
+
+                    if self.current_node.is_some() {
+                        self.cfg.add_edge(body_end, header_node);
+                    }
+                    self.current_node = Some(join_node);
+                }
+                Task::DoWhile { do_while_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let header_node = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(from_node, header_node);
+
+                    // Unlike while/for, do-while has no pre-body condition that
+                    // could provide a guaranteed edge to the join node. The join
+                    // is therefore created lazily: only when a `break` or the
+                    // post-body condition needs it.
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: None,
+                        continue_target: Some(header_node),
+                    });
+
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(header_node, body_start);
+                    self.current_node = Some(body_start);
+
+                    stack.push(Task::AfterDoWhileBody {
+                        header_node,
+                        body_start,
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &do_while_stmt.body,
+                    });
+                }
+                Task::AfterDoWhileBody {
+                    header_node,
+                    body_start,
+                } => {
+                    let body_end = self.current_node.unwrap_or(body_start);
+                    let body_completed = self.current_node.is_some();
+
+                    let ctx = self.breakable_stack.pop().unwrap();
+                    let lazy_join = ctx.break_target;
+
+                    if body_completed {
+                        let join_node =
+                            lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
+                        let condition_node = self.cfg.add_node(NodeKind::Condition);
+                        self.cfg.add_edge(body_end, condition_node);
+                        self.cfg.add_edge(condition_node, header_node);
+                        self.cfg.add_edge(condition_node, join_node);
+                        self.current_node = Some(join_node);
+                    } else if let Some(join_node) = lazy_join {
+                        self.current_node = Some(join_node);
+                    } else {
+                        self.current_node = None;
+                    }
+                }
+                Task::For { for_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let init_end = if for_stmt.init.is_some() {
+                        let node = self.cfg.add_node(NodeKind::Statement);
+                        self.cfg.add_edge(from_node, node);
+                        node
+                    } else {
+                        from_node
+                    };
+
+                    let header_node = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(init_end, header_node);
+
+                    let (condition_node, initial_break_target) = if for_stmt.test.is_some() {
+                        let cnode = self.cfg.add_node(NodeKind::Condition);
+                        self.cfg.add_edge(header_node, cnode);
+                        let join = self.cfg.add_node(NodeKind::Join);
+                        self.cfg.add_edge(cnode, join);
+                        (cnode, Some(join))
+                    } else {
+                        (header_node, None)
+                    };
+
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: initial_break_target,
+                        continue_target: Some(header_node),
+                    });
+
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, body_start);
+                    self.current_node = Some(body_start);
+
+                    stack.push(Task::AfterForBody {
+                        for_stmt,
+                        header_node,
+                        body_start,
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &for_stmt.body,
+                    });
+                }
+                Task::AfterForBody {
+                    for_stmt,
+                    header_node,
+                    body_start,
+                } => {
+                    let mut body_end = self.current_node.unwrap_or(body_start);
+                    let ctx = self.breakable_stack.pop().unwrap();
+
+                    if self.current_node.is_some() {
+                        if for_stmt.update.is_some() {
+                            let update_node = self.cfg.add_node(NodeKind::Statement);
+                            self.cfg.add_edge(body_end, update_node);
+                            body_end = update_node;
+                        }
+                        self.cfg.add_edge(body_end, header_node);
+                    }
+
+                    if let Some(join_node) = ctx.break_target {
+                        self.current_node = Some(join_node);
+                    } else {
+                        self.current_node = None;
+                    }
+                }
+                Task::ForIn { for_in_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let header_node = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(from_node, header_node);
+
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(header_node, condition_node);
+
+                    // Create join node BEFORE body so break can target it
+                    let join_node = self.cfg.add_node(NodeKind::Join);
+                    self.cfg.add_edge(condition_node, join_node);
+
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: Some(join_node),
+                        continue_target: Some(header_node),
+                    });
+
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, body_start);
+                    self.current_node = Some(body_start);
+
+                    stack.push(Task::AfterForInBody {
+                        header_node,
+                        join_node,
+                        body_start,
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &for_in_stmt.body,
+                    });
+                }
+                Task::AfterForInBody {
+                    header_node,
+                    join_node,
+                    body_start,
+                } => {
+                    let body_end = self.current_node.unwrap_or(body_start);
+                    self.breakable_stack.pop();
+
+                    if self.current_node.is_some() {
+                        self.cfg.add_edge(body_end, header_node);
+                    }
+                    self.current_node = Some(join_node);
+                }
+                Task::ForOf { for_of_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let header_node = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(from_node, header_node);
+
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(header_node, condition_node);
+
+                    // Create join node BEFORE body so break can target it
+                    let join_node = self.cfg.add_node(NodeKind::Join);
+                    self.cfg.add_edge(condition_node, join_node);
+
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: Some(join_node),
+                        continue_target: Some(header_node),
+                    });
+
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, body_start);
+                    self.current_node = Some(body_start);
+
+                    stack.push(Task::AfterForOfBody {
+                        header_node,
+                        join_node,
+                        body_start,
+                    });
+                    stack.push(Task::Stmt {
+                        stmt: &for_of_stmt.body,
+                    });
+                }
+                Task::AfterForOfBody {
+                    header_node,
+                    join_node,
+                    body_start,
+                } => {
+                    let body_end = self.current_node.unwrap_or(body_start);
+                    self.breakable_stack.pop();
+
+                    if self.current_node.is_some() {
+                        self.cfg.add_edge(body_end, header_node);
+                    }
+                    self.current_node = Some(join_node);
+                }
+                Task::Switch { switch_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+                    let label = self.take_label();
+
+                    let switch_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(from_node, switch_node);
+
+                    // The join node is created lazily: it comes into existence on
+                    // the first `break` statement or when a case falls through
+                    // past the end.
+                    self.breakable_stack.push(BreakableContext {
+                        label,
+                        break_target: None,
+                        continue_target: None, // switch is not continuable
+                    });
+
+                    stack.push(Task::SwitchCases {
+                        switch_node,
+                        cases: switch_stmt.cases.iter(),
+                        prev_case_end: None,
+                    });
+                }
+                Task::SwitchCases {
+                    switch_node,
+                    mut cases,
+                    prev_case_end,
+                } => {
+                    if let Some(case) = cases.next() {
+                        let case_node = self.cfg.add_node(NodeKind::Statement);
+                        self.cfg.add_edge(switch_node, case_node);
+
+                        // Fallthrough from previous case if it didn't break/return/throw
+                        if let Some(prev_end) = prev_case_end {
+                            self.cfg.add_edge(prev_end, case_node);
+                        }
+
+                        self.current_node = Some(case_node);
+                        stack.push(Task::AfterSwitchCaseBody { switch_node, cases });
+                        stack.push(Task::Stmts {
+                            stmts: &case.cons,
+                            idx: 0,
+                        });
+                    } else {
+                        let ctx = self.breakable_stack.pop().unwrap();
+                        let lazy_join = ctx.break_target;
+
+                        if let Some(last_end) = prev_case_end {
+                            // Last case fell through — wire it to the (possibly
+                            // new) join node.
+                            let join_node =
+                                lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
+                            self.cfg.add_edge(last_end, join_node);
+                            self.current_node = Some(join_node);
+                        } else if let Some(join_node) = lazy_join {
+                            self.current_node = Some(join_node);
+                        } else {
+                            // All cases terminated with no break and no
+                            // fallthrough. Code after the switch is dead.
+                            self.current_node = None;
+                        }
+                    }
+                }
+                Task::AfterSwitchCaseBody { switch_node, cases } => {
+                    // Track end of case for fallthrough to next case. If
+                    // current_node is None (break/return/throw), no fallthrough.
+                    let prev_case_end = self.current_node;
+                    stack.push(Task::SwitchCases {
+                        switch_node,
+                        cases,
+                        prev_case_end,
+                    });
+                }
+                Task::Try { try_stmt } => {
+                    let Some(from_node) = self.current_node else {
+                        continue;
+                    };
+
+                    let try_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(from_node, try_start);
+                    self.current_node = Some(try_start);
+
+                    stack.push(Task::AfterTryBlock {
+                        try_stmt,
+                        try_start,
+                    });
+                    stack.push(Task::FromBody {
+                        stmts: &try_stmt.block.stmts,
+                    });
+                }
+                Task::AfterTryBlock {
+                    try_stmt,
+                    try_start,
+                } => {
+                    let try_end = self.current_node.unwrap_or(try_start);
+                    let try_completed = self.current_node.is_some();
+
+                    if let Some(handler) = &try_stmt.handler {
+                        let catch_start = self.cfg.add_node(NodeKind::Statement);
+                        self.cfg.add_edge(try_start, catch_start);
+                        self.current_node = Some(catch_start);
+
+                        stack.push(Task::AfterCatchBlock {
+                            try_stmt,
+                            try_start,
+                            try_end,
+                            try_completed,
+                        });
+                        stack.push(Task::FromBody {
+                            stmts: &handler.body.stmts,
+                        });
+                    } else {
+                        stack.push(Task::AfterTryCatch {
+                            try_stmt,
+                            try_start,
+                            try_end,
+                            try_completed,
+                            catch_end: None,
+                        });
+                    }
+                }
+                Task::AfterCatchBlock {
+                    try_stmt,
+                    try_start,
+                    try_end,
+                    try_completed,
+                } => {
+                    let catch_end = self.current_node;
+                    stack.push(Task::AfterTryCatch {
+                        try_stmt,
+                        try_start,
+                        try_end,
+                        try_completed,
+                        catch_end,
+                    });
+                }
+                Task::AfterTryCatch {
+                    try_stmt,
+                    try_start,
+                    try_end,
+                    try_completed,
+                    catch_end,
+                } => {
+                    let has_handler = try_stmt.handler.is_some();
+
+                    if let Some(finally_block) = &try_stmt.finalizer {
+                        let finally_start = self.cfg.add_node(NodeKind::Statement);
+                        if try_completed {
+                            self.cfg.add_edge(try_end, finally_start);
+                        }
+                        if let Some(catch) = catch_end {
+                            if catch != self.cfg.exit {
+                                self.cfg.add_edge(catch, finally_start);
+                            }
+                        }
+                        // Fallback edge only when finally_start would otherwise
+                        // have zero predecessors: try always terminates AND
+                        // catch always terminates (no handler, or handler throws).
+                        if !try_completed && catch_end.is_none() {
+                            self.cfg.add_edge(try_start, finally_start);
+                        }
+                        self.current_node = Some(finally_start);
+
+                        stack.push(Task::AfterFinallyBlock);
+                        stack.push(Task::FromBody {
+                            stmts: &finally_block.stmts,
+                        });
+                    } else {
+                        let catch_completed =
+                            catch_end.map(|c| c != self.cfg.exit).unwrap_or(false);
+                        if try_completed || catch_completed {
+                            let join_node = self.cfg.add_node(NodeKind::Join);
+                            if try_completed {
+                                self.cfg.add_edge(try_end, join_node);
+                            }
+                            if let Some(catch) = catch_end {
+                                if catch != self.cfg.exit {
+                                    self.cfg.add_edge(catch, join_node);
+                                }
+                            }
+                            if !has_handler {
+                                self.cfg.add_edge(try_start, self.cfg.exit);
+                            }
+                            self.current_node = Some(join_node);
+                        } else {
+                            if !has_handler {
+                                self.cfg.add_edge(try_start, self.cfg.exit);
+                            }
+                            self.current_node = None;
+                        }
+                    }
+                }
+                Task::AfterFinallyBlock => {
+                    if let Some(finally_end) = self.current_node {
+                        let join_node = self.cfg.add_node(NodeKind::Join);
+                        self.cfg.add_edge(finally_end, join_node);
+                        self.current_node = Some(join_node);
+                    }
+                    // else: finally always terminates; current_node stays None
                 }
             }
         }
     }
 
-    /// Visit a statement and add CFG nodes/edges
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+    /// Dispatch a single statement: compound/control statements push further
+    /// `Task`s (replacing what used to be a native recursive call); simple
+    /// statements are handled inline since they never recurse.
+    fn dispatch_stmt<'a>(&mut self, stmt: &'a Stmt, stack: &mut Vec<Task<'a>>) {
         match stmt {
             Stmt::Labeled(labeled) => {
                 // Store label for the next loop/switch to consume
                 self.pending_label = Some(labeled.label.sym.to_string());
-                self.visit_stmt(&labeled.body);
-                // Clear if not consumed (e.g., label on non-loop statement)
-                self.pending_label = None;
+                stack.push(Task::ClearLabel);
+                stack.push(Task::Stmt {
+                    stmt: &labeled.body,
+                });
             }
-            Stmt::If(if_stmt) => self.visit_if(if_stmt),
-            Stmt::While(while_stmt) => self.visit_while(while_stmt),
-            Stmt::DoWhile(do_while_stmt) => self.visit_do_while(do_while_stmt),
-            Stmt::For(for_stmt) => self.visit_for(for_stmt),
-            Stmt::ForIn(for_in_stmt) => self.visit_for_in(for_in_stmt),
-            Stmt::ForOf(for_of_stmt) => self.visit_for_of(for_of_stmt),
-            Stmt::Switch(switch_stmt) => self.visit_switch(switch_stmt),
+            Stmt::If(if_stmt) => stack.push(Task::If { if_stmt }),
+            Stmt::While(while_stmt) => stack.push(Task::While { while_stmt }),
+            Stmt::DoWhile(do_while_stmt) => stack.push(Task::DoWhile { do_while_stmt }),
+            Stmt::For(for_stmt) => stack.push(Task::For { for_stmt }),
+            Stmt::ForIn(for_in_stmt) => stack.push(Task::ForIn { for_in_stmt }),
+            Stmt::ForOf(for_of_stmt) => stack.push(Task::ForOf { for_of_stmt }),
+            Stmt::Switch(switch_stmt) => stack.push(Task::Switch { switch_stmt }),
             Stmt::Return(return_stmt) => self.visit_return(return_stmt),
             Stmt::Throw(throw_stmt) => self.visit_throw(throw_stmt),
-            Stmt::Try(try_stmt) => self.visit_try(try_stmt),
+            Stmt::Try(try_stmt) => stack.push(Task::Try { try_stmt }),
             Stmt::Break(break_stmt) => self.visit_break(break_stmt),
             Stmt::Continue(continue_stmt) => self.visit_continue(continue_stmt),
             Stmt::Block(block_stmt) => {
                 // Nested blocks - visit statements sequentially
-                for stmt in &block_stmt.stmts {
-                    self.visit_stmt(stmt);
-                }
+                stack.push(Task::Stmts {
+                    stmts: &block_stmt.stmts,
+                    idx: 0,
+                });
             }
             _ => {
                 // Control-relevant statement - add node and continue
@@ -128,365 +810,6 @@ impl CfgBuilder {
                     self.current_node = Some(stmt_node);
                 }
             }
-        }
-    }
-
-    fn visit_if(&mut self, if_stmt: &IfStmt) {
-        // Dead code after a terminator — skip silently
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-
-        // Condition node
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(from_node, condition_node);
-
-        // Then branch
-        let then_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, then_start);
-        self.current_node = Some(then_start);
-        self.visit_stmt(&if_stmt.cons);
-        let then_end = self.current_node; // None if branch terminates
-
-        if let Some(alt) = &if_stmt.alt {
-            let else_start = self.cfg.add_node(NodeKind::Statement);
-            self.cfg.add_edge(condition_node, else_start);
-            self.current_node = Some(else_start);
-            self.visit_stmt(alt);
-            let else_end = self.current_node; // None if branch terminates
-
-            if then_end.is_some() || else_end.is_some() {
-                let join_node = self.cfg.add_node(NodeKind::Join);
-                if let Some(t) = then_end {
-                    self.cfg.add_edge(t, join_node);
-                }
-                if let Some(e) = else_end {
-                    self.cfg.add_edge(e, join_node);
-                }
-                self.current_node = Some(join_node);
-            } else {
-                self.current_node = None; // both branches terminate
-            }
-        } else {
-            // No else: condition false-edge always reaches join
-            let join_node = self.cfg.add_node(NodeKind::Join);
-            self.cfg.add_edge(condition_node, join_node);
-            if let Some(t) = then_end {
-                self.cfg.add_edge(t, join_node);
-            }
-            self.current_node = Some(join_node);
-        }
-    }
-
-    fn visit_while(&mut self, while_stmt: &WhileStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        // Loop header node
-        let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(from_node, header_node);
-
-        // Condition node
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(header_node, condition_node);
-
-        // The condition always provides a false-branch edge to join, so eager
-        // creation is safe — join is always reachable regardless of the body.
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
-
-        // Push loop context for break/continue resolution
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: Some(join_node),
-            continue_target: Some(header_node),
-        });
-
-        // Loop body
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, body_start);
-
-        self.current_node = Some(body_start);
-        self.visit_stmt(&while_stmt.body);
-        let body_end = self.current_node.unwrap_or(body_start);
-
-        self.breakable_stack.pop();
-
-        // Back-edge to header (if body didn't terminate with return/throw)
-        if self.current_node.is_some() {
-            self.cfg.add_edge(body_end, header_node);
-        }
-
-        self.current_node = Some(join_node);
-    }
-
-    fn visit_do_while(&mut self, do_while_stmt: &DoWhileStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        // Loop header node
-        let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(from_node, header_node);
-
-        // Unlike while/for, do-while has no pre-body condition that could provide
-        // a guaranteed edge to the join node.  The join is therefore created
-        // lazily: it only comes into existence when a `break` statement or the
-        // post-body condition needs it.  This prevents orphaned join nodes when
-        // the body always terminates (return/throw) and contains no break.
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: None,
-            continue_target: Some(header_node),
-        });
-
-        // Loop body (executes at least once)
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(header_node, body_start);
-
-        self.current_node = Some(body_start);
-        self.visit_stmt(&do_while_stmt.body);
-        let body_end = self.current_node.unwrap_or(body_start);
-        let body_completed = self.current_node.is_some();
-
-        let ctx = self.breakable_stack.pop().unwrap();
-        let lazy_join = ctx.break_target;
-
-        if body_completed {
-            // Body completed normally — emit the post-body condition, back-edge
-            // and false-exit edge to the join node.
-            let join_node = lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
-            let condition_node = self.cfg.add_node(NodeKind::Condition);
-            self.cfg.add_edge(body_end, condition_node);
-            self.cfg.add_edge(condition_node, header_node);
-            self.cfg.add_edge(condition_node, join_node);
-            self.current_node = Some(join_node);
-        } else if let Some(join_node) = lazy_join {
-            // Body terminated (return/throw) but a break statement targeted the
-            // join node, so it is reachable and code after the loop is live.
-            self.current_node = Some(join_node);
-        } else {
-            // Body always terminates with no break — code after the loop is dead.
-            self.current_node = None;
-        }
-    }
-
-    fn visit_for(&mut self, for_stmt: &ForStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        // Initialization (if present) - sequential node before header
-        let init_end = if for_stmt.init.is_some() {
-            let node = self.cfg.add_node(NodeKind::Statement);
-            self.cfg.add_edge(from_node, node);
-            node
-        } else {
-            from_node
-        };
-
-        // Loop header node
-        let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(init_end, header_node);
-
-        // When a condition is present it always provides a false-branch edge to
-        // join → eager creation.  Without a condition (infinite loop) the join
-        // is only reachable via break → lazy creation.
-        let (condition_node, initial_break_target) = if for_stmt.test.is_some() {
-            let cnode = self.cfg.add_node(NodeKind::Condition);
-            self.cfg.add_edge(header_node, cnode);
-            let join = self.cfg.add_node(NodeKind::Join);
-            self.cfg.add_edge(cnode, join);
-            (cnode, Some(join))
-        } else {
-            // No condition — treat header as the implicit condition node
-            (header_node, None)
-        };
-
-        // Push loop context for break/continue resolution
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: initial_break_target,
-            continue_target: Some(header_node),
-        });
-
-        // Loop body
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, body_start);
-
-        self.current_node = Some(body_start);
-        self.visit_stmt(&for_stmt.body);
-        let mut body_end = self.current_node.unwrap_or(body_start);
-
-        let ctx = self.breakable_stack.pop().unwrap();
-
-        // Only process update/back-edge if body completed normally
-        if self.current_node.is_some() {
-            // Update expression (if present) - executes after body
-            if for_stmt.update.is_some() {
-                let update_node = self.cfg.add_node(NodeKind::Statement);
-                self.cfg.add_edge(body_end, update_node);
-                body_end = update_node;
-            }
-
-            // Back-edge to header
-            self.cfg.add_edge(body_end, header_node);
-        }
-
-        if let Some(join_node) = ctx.break_target {
-            self.current_node = Some(join_node);
-        } else {
-            // Infinite loop whose body always terminates with no break.
-            self.current_node = None;
-        }
-    }
-
-    fn visit_for_in(&mut self, for_in_stmt: &ForInStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(from_node, header_node);
-
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(header_node, condition_node);
-
-        // Create join node BEFORE body so break can target it
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
-
-        // Push loop context
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: Some(join_node),
-            continue_target: Some(header_node),
-        });
-
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, body_start);
-
-        self.current_node = Some(body_start);
-        self.visit_stmt(&for_in_stmt.body);
-        let body_end = self.current_node.unwrap_or(body_start);
-
-        self.breakable_stack.pop();
-
-        // Back-edge only if body completed normally
-        if self.current_node.is_some() {
-            self.cfg.add_edge(body_end, header_node);
-        }
-
-        self.current_node = Some(join_node);
-    }
-
-    fn visit_for_of(&mut self, for_of_stmt: &ForOfStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        let header_node = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(from_node, header_node);
-
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(header_node, condition_node);
-
-        // Create join node BEFORE body so break can target it
-        let join_node = self.cfg.add_node(NodeKind::Join);
-        self.cfg.add_edge(condition_node, join_node);
-
-        // Push loop context
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: Some(join_node),
-            continue_target: Some(header_node),
-        });
-
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, body_start);
-
-        self.current_node = Some(body_start);
-        self.visit_stmt(&for_of_stmt.body);
-        let body_end = self.current_node.unwrap_or(body_start);
-
-        self.breakable_stack.pop();
-
-        // Back-edge only if body completed normally
-        if self.current_node.is_some() {
-            self.cfg.add_edge(body_end, header_node);
-        }
-
-        self.current_node = Some(join_node);
-    }
-
-    fn visit_switch(&mut self, switch_stmt: &SwitchStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-        let label = self.take_label();
-
-        // Switch expression evaluation (implied)
-        let switch_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(from_node, switch_node);
-
-        // The join node is created lazily: it comes into existence on the first
-        // `break` statement or when a case falls through past the end.  This
-        // prevents orphaned unreachable nodes when every case terminates via
-        // return/throw with no break.
-        self.breakable_stack.push(BreakableContext {
-            label,
-            break_target: None,
-            continue_target: None, // switch is not continuable
-        });
-
-        // Process cases
-        let mut prev_case_end: Option<NodeId> = None;
-        for case in &switch_stmt.cases {
-            let case_node = self.cfg.add_node(NodeKind::Statement);
-
-            // Each case gets an edge from switch (for case matching)
-            self.cfg.add_edge(switch_node, case_node);
-
-            // Fallthrough from previous case if it didn't break/return/throw
-            if let Some(prev_end) = prev_case_end {
-                self.cfg.add_edge(prev_end, case_node);
-            }
-
-            // Visit case body statements
-            self.current_node = Some(case_node);
-            for stmt in &case.cons {
-                self.visit_stmt(stmt);
-                if self.current_node.is_none() {
-                    break;
-                }
-            }
-
-            // Track end of case for fallthrough to next case
-            // If current_node is None (break/return/throw), no fallthrough
-            prev_case_end = self.current_node;
-        }
-
-        let ctx = self.breakable_stack.pop().unwrap();
-        let lazy_join = ctx.break_target;
-
-        if let Some(last_end) = prev_case_end {
-            // Last case fell through — wire it to the (possibly new) join node.
-            let join_node = lazy_join.unwrap_or_else(|| self.cfg.add_node(NodeKind::Join));
-            self.cfg.add_edge(last_end, join_node);
-            self.current_node = Some(join_node);
-        } else if let Some(join_node) = lazy_join {
-            // All cases terminated but at least one `break` already created join.
-            self.current_node = Some(join_node);
-        } else {
-            // All cases terminated with no break and no fallthrough.
-            // Code after the switch is dead.
-            self.current_node = None;
         }
     }
 
@@ -512,104 +835,6 @@ impl CfgBuilder {
 
         // No further execution after throw
         self.current_node = None;
-    }
-
-    fn build_catch_block(&mut self, try_stmt: &TryStmt, try_start: NodeId) -> Option<NodeId> {
-        let handler = try_stmt.handler.as_ref()?;
-        let catch_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(try_start, catch_start);
-        self.current_node = Some(catch_start);
-        self.build_from_body(&handler.body);
-        self.current_node
-    }
-
-    fn connect_finally(
-        &mut self,
-        finally_block: &BlockStmt,
-        try_start: NodeId,
-        try_end: NodeId,
-        try_completed: bool,
-        catch_end: Option<NodeId>,
-    ) {
-        let finally_start = self.cfg.add_node(NodeKind::Statement);
-        if try_completed {
-            self.cfg.add_edge(try_end, finally_start);
-        }
-        if let Some(catch) = catch_end {
-            if catch != self.cfg.exit {
-                self.cfg.add_edge(catch, finally_start);
-            }
-        }
-        // Add a fallback edge only when finally_start would otherwise have zero
-        // predecessors: try always terminates (!try_completed) AND catch always
-        // terminates (catch_end is None, either no handler or handler throws).
-        // When try_completed=true, try_end already reaches finally_start so this
-        // edge would be spurious (bypasses try body, inflates CC by +1).
-        if !try_completed && catch_end.is_none() {
-            self.cfg.add_edge(try_start, finally_start);
-        }
-        self.current_node = Some(finally_start);
-        self.build_from_body(finally_block);
-        if self.current_node.is_some() {
-            let finally_end = self.current_node.unwrap();
-            let join_node = self.cfg.add_node(NodeKind::Join);
-            self.cfg.add_edge(finally_end, join_node);
-            self.current_node = Some(join_node);
-        }
-        // else: finally always terminates; current_node stays None
-    }
-
-    fn connect_no_finally(
-        &mut self,
-        try_start: NodeId,
-        try_end: NodeId,
-        try_completed: bool,
-        catch_end: Option<NodeId>,
-        has_handler: bool,
-    ) {
-        let catch_completed = catch_end.map(|c| c != self.cfg.exit).unwrap_or(false);
-        if try_completed || catch_completed {
-            let join_node = self.cfg.add_node(NodeKind::Join);
-            if try_completed {
-                self.cfg.add_edge(try_end, join_node);
-            }
-            if let Some(catch) = catch_end {
-                if catch != self.cfg.exit {
-                    self.cfg.add_edge(catch, join_node);
-                }
-            }
-            if !has_handler {
-                self.cfg.add_edge(try_start, self.cfg.exit);
-            }
-            self.current_node = Some(join_node);
-        } else {
-            if !has_handler {
-                self.cfg.add_edge(try_start, self.cfg.exit);
-            }
-            self.current_node = None;
-        }
-    }
-
-    fn visit_try(&mut self, try_stmt: &TryStmt) {
-        let Some(from_node) = self.current_node else {
-            return;
-        };
-
-        let try_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(from_node, try_start);
-        self.current_node = Some(try_start);
-        self.build_from_body(&try_stmt.block);
-        let try_end = self.current_node.unwrap_or(try_start);
-        let try_completed = self.current_node.is_some();
-
-        let catch_end = self.build_catch_block(try_stmt, try_start);
-        let has_handler = try_stmt.handler.is_some();
-
-        if let Some(finally_block) = &try_stmt.finalizer {
-            self.connect_finally(finally_block, try_start, try_end, try_completed, catch_end);
-        } else {
-            self.connect_no_finally(try_start, try_end, try_completed, catch_end, has_handler);
-        }
     }
 
     fn visit_break(&mut self, break_stmt: &BreakStmt) {
@@ -923,7 +1148,7 @@ mod tests {
     #[test]
     fn test_dead_code_after_return_no_panic() {
         // The second `if` statement is dead code — current_node is None when we
-        // reach it.  The builder must not panic.
+        // reach it. The builder must not panic.
         let cfg = build_cfg_for(
             r#"
             function f(x: number): number {
@@ -936,5 +1161,77 @@ mod tests {
         "#,
         );
         cfg.validate().expect("CFG should be valid");
+    }
+
+    /// Regression test for https://github.com/Stephen-Collins-tech/hotspots/issues/237:
+    /// a deeply nested if/else chain used to overflow the calling thread's
+    /// stack because the old builder recursed natively per nesting level
+    /// (`visit_stmt` -> `visit_if` -> `visit_stmt` -> ...). Build the nested
+    /// `IfStmt` AST directly rather than parsing deeply-nested source text:
+    /// `swc_ecma_parser` has its own separate, unrelated recursion limit, and
+    /// parsing deep source would end up testing the parser's stack depth
+    /// instead of this builder's. Run on a small (256KB) thread stack to
+    /// prove no native recursion remains in `build_cfg`, and assert on node
+    /// count to prove a real, fully-built CFG came out — not a truncated or
+    /// degenerate one.
+    #[test]
+    fn test_deeply_nested_if_else_does_not_overflow_and_builds_real_cfg() {
+        const DEPTH: usize = 50_000;
+
+        fn nested_if(depth: usize) -> Stmt {
+            let mut body = Stmt::Break(BreakStmt {
+                span: Default::default(),
+                label: None,
+            });
+            for _ in 0..depth {
+                let cond = Expr::Ident(Ident::new(
+                    "x".into(),
+                    Default::default(),
+                    Default::default(),
+                ));
+                let if_stmt = IfStmt {
+                    span: Default::default(),
+                    test: Box::new(cond),
+                    cons: Box::new(body),
+                    alt: Some(Box::new(Stmt::Expr(ExprStmt {
+                        span: Default::default(),
+                        expr: Box::new(Expr::Ident(Ident::new(
+                            "y".into(),
+                            Default::default(),
+                            Default::default(),
+                        ))),
+                    }))),
+                };
+                body = Stmt::If(if_stmt);
+            }
+            body
+        }
+
+        let node_count = std::thread::Builder::new()
+            .stack_size(256 * 1024) // far below what native recursion of this depth would need
+            .spawn(move || {
+                let stmt = nested_if(DEPTH);
+                let mut builder = CfgBuilder::new();
+                builder.build_from_body(std::slice::from_ref(&stmt));
+                let node_count = builder.cfg.node_count();
+                // `Stmt`'s generated `Drop` glue recurses per nesting level,
+                // same as `syn::Block`'s does in the equivalent Rust-builder
+                // test (PR #245) — that's a property of the AST's nested-Box
+                // shape, not of this builder. Skip it so this test isolates
+                // what actually changed: `build_from_body`/`run` no longer
+                // recurse natively regardless of nesting depth.
+                std::mem::forget(stmt);
+                node_count
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        // Each nesting level adds a condition node and at least one branch
+        // node; a minimal/degenerate CFG would be just entry+exit (2 nodes).
+        assert!(
+            node_count > DEPTH,
+            "expected a fully-built CFG with >{DEPTH} nodes, got {node_count}"
+        );
     }
 }

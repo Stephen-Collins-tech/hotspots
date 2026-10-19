@@ -160,6 +160,104 @@ impl ParsedModule for VueParsedModule {
     }
 }
 
+/// Extracted frontmatter block from an Astro component
+struct FrontmatterBlock {
+    /// The raw content between the opening and closing `---` fences
+    content: String,
+    /// 1-indexed line number of the first line of `content` in the original file
+    start_line: u32,
+}
+
+/// Extract the `---`/`---` frontmatter fence from an Astro component source.
+///
+/// The fence must open on the file's first line. Returns `None` if the file
+/// has no frontmatter block — a valid Astro file with no component script.
+fn extract_frontmatter_block(source: &str) -> Option<FrontmatterBlock> {
+    let open_re = Regex::new(r"^---[ \t]*\r?\n").unwrap();
+    let open_m = open_re.find(source)?;
+    let content_start = open_m.end();
+
+    let close_re = Regex::new(r"(?m)^---[ \t]*\r?$").unwrap();
+    let close_m = close_re.find(&source[content_start..])?;
+    let content = source[content_start..content_start + close_m.start()].to_string();
+
+    // Count lines before content_start to get the 1-indexed line of the first
+    // content line (the newline after the opening fence puts content on the next line).
+    let start_line = source[..content_start]
+        .chars()
+        .filter(|&c| c == '\n')
+        .count() as u32
+        + 1;
+
+    Some(FrontmatterBlock {
+        content,
+        start_line,
+    })
+}
+
+/// Astro component parser — extracts the `---` frontmatter fence and
+/// delegates to ECMAScriptParser. Astro frontmatter is always TypeScript
+/// (no `lang` attribute to detect, unlike Vue's `<script>` tag).
+pub struct AstroParser {
+    inner: ECMAScriptParser,
+}
+
+impl AstroParser {
+    pub fn new(source_map: Lrc<SourceMap>) -> Self {
+        AstroParser {
+            inner: ECMAScriptParser::new(source_map),
+        }
+    }
+}
+
+impl LanguageParser for AstroParser {
+    fn parse(&self, source: &str, _filename: &str) -> Result<Box<dyn ParsedModule>> {
+        let Some(block) = extract_frontmatter_block(source) else {
+            // No frontmatter fence — a valid Astro file with no component
+            // script logic (pure markup). Nothing to analyze.
+            return Ok(Box::new(EmptyParsedModule));
+        };
+
+        let inner_module = self
+            .inner
+            .parse(&block.content, "__astro_frontmatter__.ts")?;
+
+        Ok(Box::new(AstroParsedModule {
+            inner: inner_module,
+            line_offset: block.start_line.saturating_sub(1),
+        }))
+    }
+}
+
+/// A `ParsedModule` with no functions, used when an Astro file has no
+/// frontmatter block to analyze.
+struct EmptyParsedModule;
+
+impl ParsedModule for EmptyParsedModule {
+    fn discover_functions(&self, _file_index: usize, _source: &str) -> Vec<FunctionNode> {
+        Vec::new()
+    }
+}
+
+/// Wraps an ECMAScript ParsedModule and shifts all span line numbers by `line_offset`.
+struct AstroParsedModule {
+    inner: Box<dyn ParsedModule>,
+    /// Lines to add to each reported start_line / end_line
+    line_offset: u32,
+}
+
+impl ParsedModule for AstroParsedModule {
+    fn discover_functions(&self, file_index: usize, source: &str) -> Vec<FunctionNode> {
+        let mut functions = self.inner.discover_functions(file_index, source);
+        let offset = self.line_offset;
+        for f in &mut functions {
+            f.span.start_line += offset;
+            f.span.end_line += offset;
+        }
+        functions
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +398,55 @@ mod tests {
         assert_eq!(functions1[0].name, Some("zzz".to_string()));
         assert_eq!(functions1[1].name, Some("aaa".to_string()));
         assert_eq!(functions1[2].name, Some("mmm".to_string()));
+    }
+
+    #[test]
+    fn test_extract_frontmatter_block_simple() {
+        let source = "---\nconst x = 1;\n---\n<div>hi</div>\n";
+        let block = extract_frontmatter_block(source).expect("frontmatter block found");
+        assert_eq!(block.content, "const x = 1;\n");
+        assert_eq!(block.start_line, 2);
+    }
+
+    #[test]
+    fn test_extract_frontmatter_block_missing() {
+        // No opening fence at all — pure markup, valid Astro file.
+        let source = "<div>no frontmatter here</div>\n";
+        assert!(extract_frontmatter_block(source).is_none());
+    }
+
+    #[test]
+    fn test_extract_frontmatter_block_requires_fence_at_start() {
+        // A `---` later in the file (e.g. inside markup/a comment) must not
+        // be mistaken for an opening fence.
+        let source = "<div>\n---\nnot frontmatter\n---\n</div>\n";
+        assert!(extract_frontmatter_block(source).is_none());
+    }
+
+    #[test]
+    fn test_astro_parser_simple_component() {
+        let source_map: Lrc<SourceMap> = Default::default();
+        let parser = AstroParser::new(source_map);
+
+        let source = "---\nfunction greet() { return 1; }\n---\n<div>{greet()}</div>\n";
+        let module = parser.parse(source, "test.astro").unwrap();
+        let functions = module.discover_functions(0, source);
+
+        assert_eq!(functions.len(), 1);
+        assert_eq!(functions[0].name, Some("greet".to_string()));
+        // Function is on line 2 of the original file, inside the frontmatter.
+        assert_eq!(functions[0].span.start_line, 2);
+    }
+
+    #[test]
+    fn test_astro_parser_no_frontmatter_returns_no_functions() {
+        let source_map: Lrc<SourceMap> = Default::default();
+        let parser = AstroParser::new(source_map);
+
+        let source = "<div>static markup only</div>\n";
+        let module = parser.parse(source, "test.astro").unwrap();
+        let functions = module.discover_functions(0, source);
+
+        assert_eq!(functions.len(), 0);
     }
 }

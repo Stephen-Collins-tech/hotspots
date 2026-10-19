@@ -51,6 +51,8 @@ pub(crate) struct AnalyzeArgs {
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
     /// instead of a single merged list (F05).
     pub axes: bool,
+    /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
+    pub timing_report: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -220,6 +222,7 @@ mod validate_analyze_flags_tests {
             skip_gate: false,
             cold_start: false,
             axes: false,
+            timing_report: false,
         }
     }
 
@@ -474,7 +477,10 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         skip_gate,
         cold_start,
         axes,
+        timing_report,
     } = args;
+
+    let timing = timing_report.then(hotspots_core::TimingCollector::default);
 
     warn_deprecated_touch_flags(
         no_per_function_touches,
@@ -530,22 +536,28 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     );
 
     if cold_start {
-        return handle_cold_start(
+        let result = handle_cold_start(
             &normalized_path,
             &resolved_config,
             effective_touch_mode,
             effective_top,
+            timing.as_ref(),
         );
+        print_timing_report(timing.as_ref());
+        return result;
     }
 
     if axes {
-        return handle_axes(
+        let result = handle_axes(
             &normalized_path,
             &resolved_config,
             effective_touch_mode,
             effective_top,
             format,
+            timing.as_ref(),
         );
+        print_timing_report(timing.as_ref());
+        return result;
     }
 
     if let Some(output_mode) = mode {
@@ -572,7 +584,9 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
             },
+            timing.as_ref(),
         );
+        print_timing_report(timing.as_ref());
         return result;
     }
 
@@ -606,19 +620,36 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
             },
+            timing.as_ref(),
         );
+        print_timing_report(timing.as_ref());
         return result;
     }
 
     // Default behavior (no --mode): simple text/JSON output
-    handle_default_output(
+    let result = handle_default_output(
         &normalized_path,
         format,
         explain_patterns,
         effective_min_lrs,
         effective_top,
         &resolved_config,
-    )
+        timing.as_ref(),
+    );
+    print_timing_report(timing.as_ref());
+    result
+}
+
+/// Prints the collected per-phase timing as a JSON object to stderr, when
+/// `--timing-report` was passed. Never touches stdout, so it can't interfere
+/// with piped analyze output.
+fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
+    if let Some(tc) = timing {
+        match serde_json::to_string_pretty(&tc.report()) {
+            Ok(json) => eprintln!("{json}"),
+            Err(e) => eprintln!("warning: failed to serialize timing report: {e}"),
+        }
+    }
 }
 
 /// `hotspots analyze --cold-start`: Gini-gated cold-start routing (F62/F63).
@@ -633,10 +664,11 @@ fn handle_cold_start(
     resolved_config: &hotspots_core::ResolvedConfig,
     touch_mode: TouchMode,
     top: Option<usize>,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = analyze_with_progress(
+    let reports = hotspots_core::analyze_with_progress_and_timing(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -644,6 +676,7 @@ fn handle_cold_start(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
+        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
@@ -664,6 +697,8 @@ fn handle_cold_start(
     };
     let result = hotspots_core::trainer::cold_start_rank(&snapshot, &repo_root, &train_cfg);
 
+    let report_start = timing.map(|_| std::time::Instant::now());
+
     let route_label = match result.route {
         hotspots_core::trainer::ColdStartRoute::Formula => "formula",
         hotspots_core::trainer::ColdStartRoute::Anomaly => "anomaly",
@@ -673,6 +708,9 @@ fn handle_cold_start(
 
     if result.ranked.is_empty() {
         println!("(uniform prior — no ranking to show; all files equally likely)");
+        if let (Some(tc), Some(start)) = (timing, report_start) {
+            tc.report.record(start.elapsed());
+        }
         return Ok(());
     }
 
@@ -683,6 +721,9 @@ fn handle_cold_start(
     };
     for scored in result.ranked.iter().take(limit) {
         println!("{:.4}  {}", scored.score, scored.function_id);
+    }
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
     }
 
     Ok(())
@@ -699,6 +740,7 @@ fn handle_axes(
     touch_mode: TouchMode,
     top: Option<usize>,
     format: OutputFormat,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     use hotspots_core::ranking::{rank_by_axis, HotspotAxis};
 
@@ -708,7 +750,7 @@ fn handle_axes(
 
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = analyze_with_progress(
+    let reports = hotspots_core::analyze_with_progress_and_timing(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -716,6 +758,7 @@ fn handle_axes(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
+        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
@@ -753,15 +796,24 @@ fn handle_axes(
         (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
     ];
 
+    let report_start = timing.map(|_| std::time::Instant::now());
+
     if matches!(format, OutputFormat::Json) {
-        let obj: serde_json::Map<String, serde_json::Value> = sections
+        let axes: serde_json::Map<String, serde_json::Value> = sections
             .iter()
             .map(|(axis, _, key)| {
                 let ranked = rank_by_axis(&snapshot.functions, *axis, top_n);
                 (key.to_string(), serde_json::to_value(ranked).unwrap())
             })
             .collect();
-        println!("{}", serde_json::to_string_pretty(&obj)?);
+        let envelope = serde_json::json!({
+            "schema_version": hotspots_core::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            "axes": axes,
+        });
+        println!("{}", serde_json::to_string_pretty(&envelope)?);
+        if let (Some(tc), Some(start)) = (timing, report_start) {
+            tc.report.record(start.elapsed());
+        }
         return Ok(());
     }
 
@@ -776,6 +828,9 @@ fn handle_axes(
         }
         println!();
     }
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
+    }
 
     Ok(())
 }
@@ -787,6 +842,7 @@ fn handle_default_output(
     min_lrs: Option<f64>,
     top: Option<usize>,
     resolved_config: &hotspots_core::ResolvedConfig,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
     let explicit_top = top.or(resolved_config.top_n);
@@ -796,7 +852,7 @@ fn handle_default_output(
         Some(n) => n,
         None => 20,
     };
-    let mut reports = analyze_with_progress(
+    let mut reports = hotspots_core::analyze_with_progress_and_timing(
         path,
         AnalysisOptions {
             min_lrs,
@@ -808,29 +864,44 @@ fn handle_default_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
+        timing,
     )?;
 
     if explain_patterns {
         populate_pattern_details(&mut reports, resolved_config);
+    } else {
+        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` in this
+        // bare (no-git-context) path too, for consistency with snapshot mode.
+        for report in &mut reports {
+            report.patterns.clear();
+        }
     }
 
-    match format {
+    let report_start = timing.map(|_| std::time::Instant::now());
+    let result: anyhow::Result<()> = match format {
         OutputFormat::Text => {
             let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
             print!(
                 "{}",
                 hotspots_core::render_text_grouped(&reports, limit, color)
             );
+            Ok(())
         }
-        OutputFormat::Json => println!("{}", hotspots_core::render_json(&reports)),
+        OutputFormat::Json => {
+            println!("{}", hotspots_core::render_json_envelope(&reports));
+            Ok(())
+        }
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }
         OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
         OutputFormat::Csv => anyhow::bail!("--format csv requires --mode snapshot"),
         OutputFormat::Xlsx => anyhow::bail!("--format xlsx requires --mode snapshot"),
+    };
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
     }
-    Ok(())
+    result
 }
 
 fn populate_pattern_details(
@@ -886,10 +957,11 @@ pub(crate) fn handle_mode_output(
     mode: OutputMode,
     resolved_config: &hotspots_core::ResolvedConfig,
     opts: ModeOutputOptions,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = analyze_with_progress(
+    let reports = hotspots_core::analyze_with_progress_and_timing(
         path,
         AnalysisOptions {
             min_lrs: opts.min_lrs,
@@ -897,17 +969,31 @@ pub(crate) fn handle_mode_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
+        timing,
     )?;
     let pr_context = git::detect_pr_context();
 
     match mode {
-        OutputMode::Snapshot => {
-            handle_snapshot_mode(path, &repo_root, resolved_config, reports, pr_context, opts)
+        OutputMode::Snapshot => handle_snapshot_mode(
+            path,
+            &repo_root,
+            resolved_config,
+            reports,
+            pr_context,
+            opts,
+            timing,
+        ),
+        OutputMode::Delta => handle_delta_mode(
+            &repo_root,
+            resolved_config,
+            reports,
+            pr_context,
+            opts,
+            timing,
+        ),
+        OutputMode::Models => {
+            handle_models_mode(path, &repo_root, resolved_config, reports, opts, timing)
         }
-        OutputMode::Delta => {
-            handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
-        }
-        OutputMode::Models => handle_models_mode(path, &repo_root, resolved_config, reports, opts),
     }
 }
 
@@ -918,6 +1004,7 @@ fn handle_snapshot_mode(
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -963,6 +1050,16 @@ fn handle_snapshot_mode(
     snapshot.populate_patterns(&resolved_config.pattern_thresholds);
     if explain_patterns {
         snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
+    } else {
+        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` (no
+        // validating finding for it as a standalone default-output signal).
+        // `populate_patterns` above also refreshes Tier-1 patterns already
+        // carried from the initial analysis pass onto `function.patterns`, so
+        // clearing here (rather than skipping the call) is what actually
+        // removes it from default output, not just withholding the Tier-2 add-on.
+        for function in &mut snapshot.functions {
+            function.patterns.clear();
+        }
     }
 
     // Populate DC before persisting so the snapshot on disk includes the values,
@@ -1058,7 +1155,8 @@ fn handle_snapshot_mode(
 
     apply_top_n(&mut snapshot, format, explain, level, top);
 
-    emit_snapshot_output(
+    let report_start = timing.map(|_| std::time::Instant::now());
+    let result = emit_snapshot_output(
         &mut snapshot,
         SnapshotOutputOpts {
             format,
@@ -1080,7 +1178,11 @@ fn handle_snapshot_mode(
         },
         repo_root,
         path,
-    )
+    );
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
+    }
+    result
 }
 
 fn handle_delta_mode(
@@ -1089,6 +1191,7 @@ fn handle_delta_mode(
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -1118,13 +1221,19 @@ fn handle_delta_mode(
 
     let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
 
-    if emit_delta_output(
+    let report_start = timing.map(|_| std::time::Instant::now());
+    let blocking = emit_delta_output(
         &delta_with_extras,
         format,
         policy,
         output,
         source_url.as_deref(),
-    )? {
+    )?;
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
+    }
+    if blocking {
+        print_timing_report(timing);
         std::process::exit(1);
     }
     Ok(())
@@ -1218,6 +1327,7 @@ fn handle_models_mode(
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     opts: ModeOutputOptions,
+    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -1238,18 +1348,21 @@ fn handle_models_mode(
     .context("failed to build enriched snapshot")?;
     let model_map = hotspots_core::models::compute_model_risk_map(path, repo_root, &snapshot, top)
         .context("failed to compute model risk map")?;
-    match format {
+    let report_start = timing.map(|_| std::time::Instant::now());
+    let result: anyhow::Result<()> = match format {
         OutputFormat::Text => {
             print!(
                 "{}",
                 hotspots_core::models::render_model_risk_text(&model_map, top)
             );
+            Ok(())
         }
         OutputFormat::Json => {
             println!(
                 "{}",
                 hotspots_core::models::render_model_risk_json(&model_map)?
             );
+            Ok(())
         }
         OutputFormat::Html
         | OutputFormat::Jsonl
@@ -1258,8 +1371,11 @@ fn handle_models_mode(
         | OutputFormat::Xlsx => {
             unreachable!("validated by validate_analyze_flags")
         }
+    };
+    if let (Some(tc), Some(start)) = (timing, report_start) {
+        tc.report.record(start.elapsed());
     }
-    Ok(())
+    result
 }
 
 struct SnapshotOutputOpts {
@@ -1317,15 +1433,19 @@ fn emit_json_output(
     );
     if all_functions {
         snapshot.aggregates = Some(aggregates);
-        write_json_snapshot(snapshot, output)
     } else {
-        let agent_output = hotspots_core::aggregates::compute_agent_snapshot_output(
-            snapshot,
-            &aggregates,
-            repo_root,
-        );
-        write_json_agent(&agent_output, output)
+        let (triage, architecture, co_change) =
+            hotspots_core::aggregates::compute_agent_sections(snapshot, &aggregates, repo_root);
+        // The slimmed default output never carried a full `functions[]` array
+        // (the merged-away `AgentSnapshotOutput` had no such field) — clear it
+        // here so the unified `Snapshot` continues to omit it in this mode,
+        // matching behavior prior to the envelope merge.
+        snapshot.functions.clear();
+        snapshot.triage = Some(triage);
+        snapshot.architecture = architecture;
+        snapshot.co_change = Some(co_change);
     }
+    write_json_snapshot(snapshot, output)
 }
 
 fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
@@ -1590,6 +1710,14 @@ fn populate_explanations(snapshot: &mut Snapshot) {
             total_churn: pct(6, fv[6]),
             authors_90d: pct(7, fv[7]),
             directed_coupling: pct(8, fv[8]),
+            // Direct, binary, per-function fact read straight off this
+            // function's own metrics — not a repo-relative percentile and
+            // not part of the trained ranker's feature set.
+            missing_docstring: if func.metrics.missing_docstring {
+                1.0
+            } else {
+                0.0
+            },
         };
         let phrase = top_phrases(&fp, 3);
         if !phrase.is_empty() {
@@ -1626,27 +1754,6 @@ fn write_json_snapshot(snapshot: &Snapshot, output: Option<PathBuf>) -> anyhow::
         snapshot
             .write_json_to(&mut out)
             .context("failed to write snapshot JSON")?;
-    }
-    Ok(())
-}
-
-fn write_json_agent(
-    agent_output: &hotspots_core::aggregates::AgentSnapshotOutput,
-    output: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    if let Some(output_path) = output {
-        write_snapshot_json_file(&output_path, |out| {
-            agent_output
-                .write_json_to(out)
-                .context("failed to write agent snapshot JSON")
-        })?;
-        eprintln!("JSON report written to: {}", output_path.display());
-    } else {
-        let stdout = std::io::stdout();
-        let mut out = std::io::BufWriter::new(stdout.lock());
-        agent_output
-            .write_json_to(&mut out)
-            .context("failed to write agent snapshot JSON")?;
     }
     Ok(())
 }
@@ -1845,10 +1952,14 @@ pub(crate) fn build_snapshot_via_db(
             scope: "full".to_string(),
             tool_version: env!("CARGO_PKG_VERSION").to_string(),
             formula_version: FORMULA_VERSION,
+            touch_window_days: 365,
         },
         functions,
         summary: None,
         aggregates: None,
+        triage: None,
+        architecture: None,
+        co_change: None,
     };
 
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
