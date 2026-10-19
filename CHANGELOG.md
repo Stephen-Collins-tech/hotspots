@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Trim CLAUDE.md and drop private-repo references (#246)
+
+
 ### Features
 - Add --timing-report per-phase analyze timing (#268)
 - Add perf macro-benchmark + CI regression gate (parts 3-4 of #267) (#277)
