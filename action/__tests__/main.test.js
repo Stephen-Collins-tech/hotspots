@@ -95,3 +95,56 @@ describe('action binary resolution helpers', () => {
     );
   });
 });
+
+
+describe('policy input validation', () => {
+  let main;
+  let core;
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    core = require('@actions/core');
+    main = loadMain();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('accepts critical-introduction and off without warning', async () => {
+    core.getInput.mockImplementation((name) => (name === 'policy' ? 'off' : ''));
+    const inputs = await main.getInputs();
+    expect(inputs.policy).toBe('off');
+    expect(core.warning).not.toHaveBeenCalled();
+    expect(main.policyGateEnabled(inputs.policy)).toBe(false);
+  });
+
+  test('warns and falls back to enabled for an unsupported preset name', async () => {
+    core.getInput.mockImplementation((name) => (name === 'policy' ? 'strict' : ''));
+    const inputs = await main.getInputs();
+    expect(inputs.policy).toBe('strict');
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("'policy: strict' is not supported"));
+    expect(main.policyGateEnabled(inputs.policy)).toBe(true);
+  });
+
+  test('default policy enables the gate', async () => {
+    core.getInput.mockImplementation(() => '');
+    const inputs = await main.getInputs();
+    expect(inputs.policy).toBe('critical-introduction');
+    expect(main.policyGateEnabled(inputs.policy)).toBe(true);
+  });
+});
+
+describe('PR comment marker', () => {
+  let main;
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    main = loadMain();
+  });
+
+  test('scopes the marker by analyzed path so monorepo jobs do not collide', () => {
+    expect(main.commentMarker('packages/frontend')).not.toBe(main.commentMarker('packages/backend'));
+    expect(main.commentMarker('.')).toContain('path=.');
+  });
+});
