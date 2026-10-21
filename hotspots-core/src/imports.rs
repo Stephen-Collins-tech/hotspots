@@ -610,7 +610,11 @@ pub fn resolve_file_deps(source_files: &[&str], repo_root: &Path) -> Vec<(String
     let mut edges = Vec::new();
     let mut seen_edges: HashSet<(String, String)> = HashSet::new();
 
+    let mut seen_files: HashSet<&str> = HashSet::new();
     for &file in source_files {
+        if !seen_files.insert(file) {
+            continue;
+        }
         for edge in extract_file_import_edges(file, &all_files_set, repo_root, &crate_map) {
             if seen_edges.insert(edge.clone()) {
                 edges.push(edge);
@@ -923,5 +927,19 @@ use std::collections::HashMap;
         let p = Path::new("/foo/bar/../baz/./qux");
         let normalized = normalize_path_lexically(p);
         assert_eq!(normalized, Path::new("/foo/baz/qux"));
+    }
+
+    #[test]
+    fn test_resolve_file_deps_ignores_duplicate_file_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.js"), "import { b } from './b';\n").unwrap();
+        std::fs::write(dir.path().join("b.js"), "export const b = 1;\n").unwrap();
+
+        // Callers pass one entry per function, so a file can repeat many times.
+        let deduped = resolve_file_deps(&["a.js", "b.js"], dir.path());
+        let repeated = resolve_file_deps(&["a.js", "b.js", "a.js", "a.js", "b.js"], dir.path());
+
+        assert_eq!(deduped, vec![("a.js".to_string(), "b.js".to_string())]);
+        assert_eq!(repeated, deduped);
     }
 }

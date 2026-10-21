@@ -385,6 +385,10 @@ fn ts_find_function_by_start<'a>(
     }
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
+        // A match starts at `start_byte`, so skip subtrees whose range cannot contain it.
+        if child.start_byte() > start_byte || child.end_byte() <= start_byte {
+            continue;
+        }
         if let Some(found) = ts_find_function_by_start(child, start_byte, func_kinds) {
             return Some(found);
         }
@@ -441,17 +445,38 @@ fn ts_with_function_body<R>(
     body_kinds: &[&str],
     f: impl FnOnce(tree_sitter::Node, tree_sitter::Node) -> R,
 ) -> Option<R> {
-    let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&language).ok()?;
-    let tree = parser.parse(source, None)?;
-    let root = tree.root_node();
-    let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
-    for kind in body_kinds {
-        if let Some(body_node) = ts_find_child_by_kind(func_node, kind) {
-            return Some(f(func_node, body_node));
-        }
+    use std::cell::RefCell;
+    use std::hash::{Hash, Hasher};
+
+    // All functions in a file share `source`, so cache the most recent parse per thread
+    // rather than re-parsing the whole file for every function.
+    thread_local! {
+        static TREE_CACHE: RefCell<Option<(u64, tree_sitter::Language, tree_sitter::Tree)>> =
+            const { RefCell::new(None) };
     }
-    None
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    TREE_CACHE.with(|cache| {
+        let mut c = cache.borrow_mut();
+        let hit = matches!(&*c, Some((h, l, _)) if *h == hash && *l == language);
+        if !hit {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&language).ok()?;
+            let tree = parser.parse(source, None)?;
+            *c = Some((hash, language.clone(), tree));
+        }
+        let root = c.as_ref()?.2.root_node();
+        let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
+        for kind in body_kinds {
+            if let Some(body_node) = ts_find_child_by_kind(func_node, kind) {
+                return Some(f(func_node, body_node));
+            }
+        }
+        None
+    })
 }
 
 // ============================================================================
@@ -1711,6 +1736,32 @@ func withDefer() {
         assert_eq!(m.nd, 0, "no nesting");
         assert!(m.loc >= 3);
         assert!(m.fo >= 1, "at least one callee");
+    }
+
+    #[test]
+    fn test_extract_java_metrics_per_function_with_shared_source_and_interleaved_files() {
+        // Metrics reuse a per-thread parse of the last-seen source; each function must
+        // still resolve against its own start byte, and a different source must not hit
+        // a stale cache entry.
+        let src_a = "class A {\n    void plain() {\n        foo();\n    }\n    void branchy(int x) {\n        if (x > 0) {\n            foo();\n        }\n    }\n}\n";
+        let src_b = "class B {\n    void only() {\n        bar();\n    }\n}\n";
+        let parser = JavaParser::new().unwrap();
+        let funcs_a = parser
+            .parse(src_a, "A.java")
+            .unwrap()
+            .discover_functions(0, src_a);
+        let funcs_b = parser
+            .parse(src_b, "B.java")
+            .unwrap()
+            .discover_functions(1, src_b);
+        assert_eq!(funcs_a.len(), 2);
+        assert_eq!(funcs_b.len(), 1);
+
+        let cc = |f: &crate::ast::FunctionNode| extract_metrics(f, &JavaCfgBuilder.build(f)).cc;
+        assert_eq!(cc(&funcs_a[0]), 1);
+        assert_eq!(cc(&funcs_b[0]), 1);
+        assert_eq!(cc(&funcs_a[1]), 2);
+        assert_eq!(cc(&funcs_a[0]), 1);
     }
 
     #[test]
