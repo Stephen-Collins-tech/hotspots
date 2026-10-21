@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Correct action policy input semantics and scope PR comments by path (#278)
-- Convert Go CFG builder to iterative work-stack walk, removing native-recursion stack-overflow risk on deeply nested code (part of #160)
-- Criterion Regression Gate: only flag a bench as regressed when confidence intervals don't overlap, fixing false positives on sub-microsecond benchmarks
+- Convert Go CFG builder to iterative work-stack walk (#281)
 
 
 ### Documentation
