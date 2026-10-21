@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trim CLAUDE.md and drop private-repo references (#246)
 - Document `WarningThresholdConfig` cutoffs as unvalidated heuristics in code, matching docs/REFERENCE.md (closes #214)
 
+### Security
+- Migrate `ureq` 2.x -> 3.x to drop vulnerable `rustls-webpki`/`webpki-roots` versions (RUSTSEC-2026-0381, RUSTSEC-2026-0382)
+
 
 ### Features
 - Add --timing-report per-phase analyze timing (#268)
