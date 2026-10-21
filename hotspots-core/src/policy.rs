@@ -357,6 +357,9 @@ fn evaluate_excessive_risk_regression(
 ///
 /// Triggers when `after.lrs` is in [watch_min, watch_max) AND `before.lrs` < watch_min
 /// Only applies to New or Modified functions (functions entering the watch range)
+///
+/// `watch_min`/`watch_max` are an unvalidated heuristic — see
+/// `WarningThresholdConfig`'s doc comment.
 fn evaluate_watch_threshold(
     deltas: &[FunctionDeltaEntry],
     config: &ResolvedConfig,
@@ -414,6 +417,9 @@ fn evaluate_watch_threshold(
 ///
 /// Triggers when `after.lrs` is in [attention_min, attention_max) AND `before.lrs` < attention_min
 /// Only applies to New or Modified functions (functions entering the attention range)
+///
+/// `attention_min`/`attention_max` are an unvalidated heuristic — see
+/// `WarningThresholdConfig`'s doc comment.
 fn evaluate_attention_threshold(
     deltas: &[FunctionDeltaEntry],
     config: &ResolvedConfig,
@@ -472,6 +478,9 @@ fn evaluate_attention_threshold(
 ///
 /// Triggers when `delta.lrs / before.lrs >= rapid_growth_percent / 100.0`
 /// Only applies to Modified functions (not New, since no baseline)
+///
+/// `rapid_growth_percent` is an unvalidated heuristic — see
+/// `WarningThresholdConfig`'s doc comment.
 fn evaluate_rapid_growth(
     deltas: &[FunctionDeltaEntry],
     config: &ResolvedConfig,

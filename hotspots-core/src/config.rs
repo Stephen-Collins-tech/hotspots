@@ -384,7 +384,12 @@ pub struct PatternThresholdsConfig {
     pub stale_complex_days: Option<u32>,
 }
 
-/// Warning thresholds for proactive alerts
+/// Warning thresholds for proactive alerts.
+///
+/// **Unvalidated heuristic** — these cutoffs (and `rapid_growth_percent`) have no
+/// corresponding `hotspots-research` finding behind them, unlike `lrs`'s component
+/// metrics. Treat them as reasonable starting points to tune for your repo, not as
+/// calibrated thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WarningThresholdConfig {

@@ -118,14 +118,18 @@ fn current_version() -> String {
 }
 
 fn fetch_latest_version() -> anyhow::Result<String> {
-    let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
 
     let body: LatestRelease = agent
         .get(RELEASES_URL)
-        .set("User-Agent", USER_AGENT)
+        .header("User-Agent", USER_AGENT)
         .call()
         .map_err(|e| anyhow::anyhow!("failed to reach GitHub releases: {e}"))?
-        .into_json()
+        .body_mut()
+        .read_json()
         .map_err(|e| anyhow::anyhow!("failed to parse GitHub releases response: {e}"))?;
 
     Ok(body.tag_name.trim_start_matches('v').to_string())
