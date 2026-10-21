@@ -1,0 +1,42 @@
+{
+  "name": "@hotspots/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server exposing the hotspots CLI's agent-facing risk signal, with a local sample log",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "hotspots-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc && cp src/sample-log/schema.sql dist/sample-log/schema.sql && chmod +x dist/index.js",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["hotspots", "mcp", "model-context-protocol", "complexity", "risk"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stephen-Collins-tech/hotspots.git",
+    "directory": "packages/mcp-server"
+  },
+  "dependencies": {
+    "@hotspots/types": "file:../types",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^12.0.0",
+    "execa": "^8.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.0"
+  }
+}

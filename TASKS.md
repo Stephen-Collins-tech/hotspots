@@ -28,7 +28,7 @@ ends up touching Rust (should not, per the spec's "Do not" section — if it doe
 and flag why before proceeding). Report back; do not push or open a PR without asking
 first.
 
-**Status:** spec committed, implementation not started.
+**Status:** implemented — branch `feat/mcp-server`, all 8 acceptance criteria met (`packages/mcp-server`, 32 tests pass against a live `hotspots` 2.2.0 build); not yet pushed/PR'd. Open-question resolutions are in `SPEC.md`.
 
 ---
 
