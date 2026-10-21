@@ -1,4 +1,14 @@
 //! Go CFG builder implementation
+//!
+//! Walks the tree-sitter-go AST iteratively via an explicit heap-allocated
+//! work stack (`Task`, driven by the `run` loop, with results threaded
+//! through `self.current_node`) instead of native function-call recursion
+//! between `visit_*`/`build_from_block` methods. This removes the depth
+//! bound entirely — nesting depth is now limited by available heap/memory,
+//! not by the calling thread's stack — closing the structural gap tracked in
+//! https://github.com/Stephen-Collins-tech/hotspots/issues/160 for the Go
+//! builder (see PR #245/#263 for the equivalent Rust/JS-TS conversions this
+//! follows).
 
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
@@ -25,7 +35,7 @@ impl CfgBuilder for GoCfgBuilder {
             )?;
             let body_node = find_child_by_kind(func_node, "block")?;
             let mut builder = GoCfgBuilderState::new();
-            builder.build_from_block(&body_node, source);
+            builder.build_from_block(body_node, source);
             Some(builder.cfg)
         });
 
@@ -61,6 +71,87 @@ struct LoopContext {
     label: Option<String>,
 }
 
+/// Pending unit of work on the explicit stack.
+///
+/// The "visit"-shaped variants (`If`, `For`, `Switch`, ...) mirror what the
+/// old recursive `visit_*`/`build_from_block` methods did on the way down the
+/// call stack; the "After*" variants mirror what they did with the recursive
+/// result on the way back up, now driven by a loop instead of native stack
+/// unwinding. Each variant borrows from the same tree-sitter tree, which
+/// outlives the whole build (owned by `with_cached_go_tree`'s closure). The
+/// "result" of whatever nested work just ran is read from
+/// `self.current_node` (exactly as the recursive methods used it before), so
+/// no separate result-passing field is needed.
+enum Task<'a> {
+    /// Sequential list of named children (a block body, a case body, the
+    /// `statement_list` wrapper, ...).
+    Children {
+        children: Vec<Node<'a>>,
+        idx: usize,
+    },
+    VisitNode {
+        node: Node<'a>,
+    },
+    /// `block`/`build_from_block`: visit children, then force an edge to
+    /// `exit` from the last node if one doesn't already exist.
+    FromBlock {
+        block: Node<'a>,
+    },
+    AfterFromBlock,
+    If {
+        node: Node<'a>,
+    },
+    AfterIfThen {
+        node: Node<'a>,
+        condition_node: NodeId,
+        then_start: NodeId,
+    },
+    AfterIfElse {
+        then_end: NodeId,
+        join_node: NodeId,
+        else_start: NodeId,
+    },
+    For {
+        node: Node<'a>,
+    },
+    AfterForBody {
+        loop_header: NodeId,
+    },
+    Switch {
+        node: Node<'a>,
+    },
+    /// Shared by switch and select: walk case nodes sequentially, since each
+    /// case's CFG wiring depends on `current_node`/`loop_stack` state left
+    /// behind by the previous one.
+    CaseList {
+        idx: usize,
+        condition_node: NodeId,
+        cases: Vec<Node<'a>>,
+        pos: usize,
+    },
+    CaseBody {
+        case: Node<'a>,
+        condition_node: NodeId,
+        idx: usize,
+    },
+    AfterCaseBody {
+        idx: usize,
+    },
+    AfterSwitchCases {
+        idx: usize,
+        condition_node: NodeId,
+        has_default: bool,
+    },
+    Select {
+        node: Node<'a>,
+    },
+    AfterSelectCases,
+    Labeled {
+        node: Node<'a>,
+    },
+    AfterLabeled,
+}
+
 impl GoCfgBuilderState {
     fn new() -> Self {
         let cfg = Cfg::new();
@@ -89,91 +180,382 @@ impl GoCfgBuilderState {
         id
     }
 
-    /// Visit every named child of `node` in order, dispatching each through
-    /// `visit_node`. Shared by `build_from_block` (a function/if/for body) and
-    /// the `statement_list` dispatch arm below (the wrapper tree-sitter-go
-    /// puts around every multi-statement body), so the walk-and-dispatch loop
-    /// isn't duplicated between them.
-    fn visit_children(&mut self, node: &Node, source: &str) {
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            // Skip braces and other structural nodes
-            if child.is_named() {
-                self.visit_node(&child, source);
-            }
-        }
+    /// Build CFG from a block node.
+    fn build_from_block(&mut self, block: Node<'_>, source: &str) {
+        let mut stack = vec![Task::FromBlock { block }];
+        self.run(&mut stack, source);
     }
 
-    /// Visit one case body shared by `visit_switch` and `visit_select`: build
-    /// the case's start node off `condition_node`, walk its body, and connect
-    /// its end to the enclosing switch/select's join (unless the case body
-    /// itself already terminated control flow, e.g. `return`/`break`).
-    /// `case`'s own kind (`expression_case`/`type_case`/`default_case` for a
-    /// switch, `communication_case`/`default_case` for a select) is the
-    /// caller's concern, not this helper's — a case is a case once the
-    /// caller has already decided to visit it.
-    fn visit_case(&mut self, case: &Node, condition_node: NodeId, idx: usize, source: &str) {
-        let case_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, case_start);
-        self.current_node = Some(case_start);
+    /// Drive the explicit work-stack loop. Pushing a `Task` here replaces
+    /// what used to be a native recursive call; the "After*" variants
+    /// replace what used to run after that recursive call returned.
+    fn run(&mut self, stack: &mut Vec<Task<'_>>, source: &str) {
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::Children { children, idx } => {
+                    if idx < children.len() {
+                        let node = children[idx];
+                        stack.push(Task::Children {
+                            children,
+                            idx: idx + 1,
+                        });
+                        stack.push(Task::VisitNode { node });
+                    }
+                }
+                Task::VisitNode { node } => self.dispatch_node(node, source, stack),
+                Task::FromBlock { block } => {
+                    stack.push(Task::AfterFromBlock);
+                    stack.push(Task::Children {
+                        children: named_children(&block),
+                        idx: 0,
+                    });
+                }
+                Task::AfterFromBlock => {
+                    if let Some(last_node) = self.current_node {
+                        if last_node != self.cfg.exit {
+                            let has_exit_edge = self
+                                .cfg
+                                .edges
+                                .iter()
+                                .any(|e| e.from == last_node && e.to == self.cfg.exit);
 
-        // `:` is a punctuation token, already excluded by `visit_children`'s
-        // `is_named()` check like every other unnamed token.
-        self.visit_children(case, source);
+                            if !has_exit_edge {
+                                self.cfg.add_edge(last_node, self.cfg.exit);
+                            }
+                        }
+                    }
+                }
+                Task::If { node } => {
+                    let from_node = self.current_node.expect("Current node should exist");
 
-        if let Some(case_end) = self.current_node {
-            if case_end != self.cfg.exit {
-                let join_node = self.get_or_create_break_target(idx);
-                self.cfg.add_edge(case_end, join_node);
-            }
-        }
-    }
+                    // Condition node
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(from_node, condition_node);
 
-    /// Build CFG from a block node
-    fn build_from_block(&mut self, block: &Node, source: &str) {
-        self.visit_children(block, source);
+                    // Then branch (consequence block)
+                    let then_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(condition_node, then_start);
 
-        // Connect last node to exit
-        if let Some(last_node) = self.current_node {
-            if last_node != self.cfg.exit {
-                let has_exit_edge = self
-                    .cfg
-                    .edges
-                    .iter()
-                    .any(|e| e.from == last_node && e.to == self.cfg.exit);
+                    stack.push(Task::AfterIfThen {
+                        node,
+                        condition_node,
+                        then_start,
+                    });
+                    if let Some(consequence) = find_child_by_kind(node, "block") {
+                        self.current_node = Some(then_start);
+                        stack.push(Task::FromBlock { block: consequence });
+                    }
+                }
+                Task::AfterIfThen {
+                    node,
+                    condition_node,
+                    then_start,
+                } => {
+                    let then_end = self.current_node.unwrap_or(then_start);
 
-                if !has_exit_edge {
-                    self.cfg.add_edge(last_node, self.cfg.exit);
+                    // Else branch (alternative)
+                    let join_node = self.cfg.add_node(NodeKind::Join);
+
+                    if let Some(alternative) = find_child_by_field(node, "alternative") {
+                        let else_start = self.cfg.add_node(NodeKind::Statement);
+                        self.cfg.add_edge(condition_node, else_start);
+                        self.current_node = Some(else_start);
+
+                        stack.push(Task::AfterIfElse {
+                            then_end,
+                            join_node,
+                            else_start,
+                        });
+                        stack.push(Task::VisitNode { node: alternative });
+                    } else {
+                        // No else branch - condition can go directly to join
+                        self.cfg.add_edge(condition_node, join_node);
+                        if then_end != self.cfg.exit {
+                            self.cfg.add_edge(then_end, join_node);
+                        }
+                        self.current_node = Some(join_node);
+                    }
+                }
+                Task::AfterIfElse {
+                    then_end,
+                    join_node,
+                    else_start,
+                } => {
+                    let else_end = self.current_node.unwrap_or(else_start);
+
+                    if then_end != self.cfg.exit {
+                        self.cfg.add_edge(then_end, join_node);
+                    }
+                    if else_end != self.cfg.exit {
+                        self.cfg.add_edge(else_end, join_node);
+                    }
+                    self.current_node = Some(join_node);
+                }
+                Task::For { node } => {
+                    let from_node = self.current_node.expect("Current node should exist");
+
+                    // Loop header
+                    let loop_header = self.cfg.add_node(NodeKind::LoopHeader);
+                    self.cfg.add_edge(from_node, loop_header);
+
+                    // Loop body
+                    let body_start = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(loop_header, body_start);
+
+                    // Push loop context for break/continue. The join node is
+                    // created lazily below via get_or_create_break_target,
+                    // but a `for` loop's header always has an unconditional
+                    // "exit" edge to it (the loop condition can always be
+                    // false, or there is none), so it will always end up
+                    // created.
+                    let label = self.pending_label.take();
+                    self.loop_stack.push(LoopContext {
+                        break_target: None,
+                        continue_target: Some(loop_header),
+                        label,
+                    });
+
+                    stack.push(Task::AfterForBody { loop_header });
+                    if let Some(body) = find_child_by_kind(node, "block") {
+                        self.current_node = Some(body_start);
+                        stack.push(Task::FromBlock { block: body });
+                    }
+                }
+                Task::AfterForBody { loop_header } => {
+                    // Back edge to loop header
+                    if let Some(body_end) = self.current_node {
+                        if body_end != self.cfg.exit {
+                            self.cfg.add_edge(body_end, loop_header);
+                        }
+                    }
+
+                    // Exit condition from loop header
+                    let idx = self.loop_stack.len() - 1;
+                    let join_node = self.get_or_create_break_target(idx);
+                    self.cfg.add_edge(loop_header, join_node);
+
+                    // Pop loop context
+                    self.loop_stack.pop();
+
+                    self.current_node = Some(join_node);
+                }
+                Task::Switch { node } => {
+                    let from_node = self.current_node.expect("Current node should exist");
+
+                    // Switch condition
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(from_node, condition_node);
+
+                    // Push break context (switch/select break independently
+                    // of any enclosing loop; `continue` is not valid here,
+                    // so continue_target is None and unlabeled continue
+                    // skips over this context). The join node itself is
+                    // created lazily: if every case terminates control flow
+                    // (e.g. `return` in every case) and there's a default
+                    // (so no fallback-to-join edge is added either), nothing
+                    // ever needs a join node, and creating one eagerly would
+                    // leave it unreachable.
+                    let idx = self.loop_stack.len();
+                    let label = self.pending_label.take();
+                    self.loop_stack.push(LoopContext {
+                        break_target: None,
+                        continue_target: None,
+                        label,
+                    });
+
+                    // Regular switches use "expression_case"; type switches
+                    // (switch x.(type) { case T: ... }) use "type_case".
+                    let mut cursor = node.walk();
+                    let cases: Vec<Node<'_>> = node
+                        .children(&mut cursor)
+                        .filter(|c| is_switch_case_kind(c.kind()))
+                        .collect();
+                    let has_default = cases.iter().any(|c| c.kind() == "default_case");
+
+                    stack.push(Task::AfterSwitchCases {
+                        idx,
+                        condition_node,
+                        has_default,
+                    });
+                    stack.push(Task::CaseList {
+                        idx,
+                        condition_node,
+                        cases,
+                        pos: 0,
+                    });
+                }
+                Task::CaseList {
+                    idx,
+                    condition_node,
+                    cases,
+                    pos,
+                } => {
+                    if pos < cases.len() {
+                        let case = cases[pos];
+                        stack.push(Task::CaseList {
+                            idx,
+                            condition_node,
+                            cases,
+                            pos: pos + 1,
+                        });
+                        stack.push(Task::CaseBody {
+                            case,
+                            condition_node,
+                            idx,
+                        });
+                    }
+                }
+                Task::CaseBody {
+                    case,
+                    condition_node,
+                    idx,
+                } => {
+                    let case_start = self.cfg.add_node(NodeKind::Statement);
+                    // Each case gets an edge from switch/select (for
+                    // case matching).
+                    self.cfg.add_edge(condition_node, case_start);
+                    self.current_node = Some(case_start);
+
+                    // `:` is a punctuation token, already excluded by
+                    // `named_children`'s `is_named()` check like every other
+                    // unnamed token.
+                    stack.push(Task::AfterCaseBody { idx });
+                    stack.push(Task::Children {
+                        children: named_children(&case),
+                        idx: 0,
+                    });
+                }
+                Task::AfterCaseBody { idx } => {
+                    if let Some(case_end) = self.current_node {
+                        if case_end != self.cfg.exit {
+                            let join_node = self.get_or_create_break_target(idx);
+                            self.cfg.add_edge(case_end, join_node);
+                        }
+                    }
+                }
+                Task::AfterSwitchCases {
+                    idx,
+                    condition_node,
+                    has_default,
+                } => {
+                    // If there's no default case, no case is guaranteed to
+                    // match, so the switch can fall through directly to
+                    // join. When a default exists, one case always
+                    // executes, so this edge would be spurious.
+                    if !has_default {
+                        let join_node = self.get_or_create_break_target(idx);
+                        self.cfg.add_edge(condition_node, join_node);
+                    }
+
+                    let ctx = self.loop_stack.pop().expect("pushed switch context above");
+                    self.current_node = ctx.break_target;
+                }
+                Task::Select { node } => {
+                    let from_node = self.current_node.expect("Current node should exist");
+
+                    // Select condition (non-deterministic choice)
+                    let condition_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(from_node, condition_node);
+
+                    // Push break context (select break independently of any
+                    // enclosing loop; `continue` is not valid here). The
+                    // join node is created lazily: if every case terminates
+                    // control flow (e.g. `return` in every case), nothing
+                    // ever needs a join node, and creating one eagerly would
+                    // leave it unreachable.
+                    let idx = self.loop_stack.len();
+                    let label = self.pending_label.take();
+                    self.loop_stack.push(LoopContext {
+                        break_target: None,
+                        continue_target: None,
+                        label,
+                    });
+
+                    let mut cursor = node.walk();
+                    let cases: Vec<Node<'_>> = node
+                        .children(&mut cursor)
+                        .filter(|c| matches!(c.kind(), "communication_case" | "default_case"))
+                        .collect();
+
+                    stack.push(Task::AfterSelectCases);
+                    stack.push(Task::CaseList {
+                        idx,
+                        condition_node,
+                        cases,
+                        pos: 0,
+                    });
+                }
+                Task::AfterSelectCases => {
+                    let ctx = self.loop_stack.pop().expect("pushed select context above");
+                    self.current_node = ctx.break_target;
+                }
+                Task::Labeled { node } => {
+                    // A label is a jump target reachable via goto. Always
+                    // create a node for it so dead code after a
+                    // goto/return/break doesn't panic.
+                    let label_node = self.cfg.add_node(NodeKind::Statement);
+                    if let Some(from) = self.current_node {
+                        self.cfg.add_edge(from, label_node);
+                    } else {
+                        self.cfg.add_edge(self.cfg.entry, label_node);
+                    }
+                    self.current_node = Some(label_node);
+
+                    // Record the label so the following loop/switch/select
+                    // statement can be targeted by a labeled break/continue.
+                    self.pending_label = find_label_text(&node, source);
+
+                    // Visit the labeled statement itself (skip the
+                    // label_name child)
+                    let mut cursor = node.walk();
+                    let target = node
+                        .children(&mut cursor)
+                        .find(|c| c.is_named() && c.kind() != "label_name");
+
+                    stack.push(Task::AfterLabeled);
+                    if let Some(target) = target {
+                        stack.push(Task::VisitNode { node: target });
+                    }
+                }
+                Task::AfterLabeled => {
+                    self.pending_label = None;
                 }
             }
         }
     }
 
-    /// Visit a tree-sitter node and build CFG
-    fn visit_node(&mut self, node: &Node, source: &str) {
+    /// Dispatch a single tree-sitter node: compound/control nodes push
+    /// further `Task`s (replacing what used to be a native recursive call);
+    /// simple nodes are handled inline since they never recurse.
+    fn dispatch_node<'a>(&mut self, node: Node<'a>, source: &str, stack: &mut Vec<Task<'a>>) {
         match node.kind() {
-            "if_statement" => self.visit_if(node, source),
-            "for_statement" => self.visit_for(node, source),
-            "switch_statement" | "expression_switch_statement" => self.visit_switch(node, source),
-            "type_switch_statement" => self.visit_type_switch(node, source),
-            "select_statement" => self.visit_select(node, source),
-            "return_statement" => self.visit_return(node),
-            "break_statement" => self.visit_break(node, source),
-            "continue_statement" => self.visit_continue(node, source),
+            "if_statement" => stack.push(Task::If { node }),
+            "for_statement" => stack.push(Task::For { node }),
+            "switch_statement" | "expression_switch_statement" | "type_switch_statement" => {
+                // Type switches work similar to regular switches
+                stack.push(Task::Switch { node })
+            }
+            "select_statement" => stack.push(Task::Select { node }),
+            "return_statement" => self.visit_return(&node),
+            "break_statement" => self.visit_break(&node, source),
+            "continue_statement" => self.visit_continue(&node, source),
             "goto_statement" => self.visit_goto(),
-            "labeled_statement" => self.visit_labeled(node, source),
-            "defer_statement" => self.visit_defer(node),
-            "go_statement" => self.visit_go_statement(node),
-            "expression_statement" => self.visit_expression_statement(node, source),
-            "block" => self.build_from_block(node, source),
+            "labeled_statement" => stack.push(Task::Labeled { node }),
+            "defer_statement" => self.visit_defer(&node),
+            "go_statement" => self.visit_go_statement(&node),
+            "expression_statement" => self.visit_expression_statement(&node, source),
+            "block" => stack.push(Task::FromBlock { block: node }),
             // tree-sitter-go wraps every sequence of statements (a
             // function/if/for block body, a switch/select case body, etc.)
-            // in a statement_list node. Without flattening it via
-            // `visit_children`, every statement inside would be treated as
-            // one opaque, un-dispatched node - collapsing entire multi-
-            // statement blocks into a single generic statement and silently
-            // skipping any if/for/switch/etc. nested inside.
-            "statement_list" => self.visit_children(node, source),
+            // in a statement_list node. Without flattening it here, every
+            // statement inside would be treated as one opaque,
+            // un-dispatched node - collapsing entire multi-statement blocks
+            // into a single generic statement and silently skipping any
+            // if/for/switch/etc. nested inside.
+            "statement_list" => stack.push(Task::Children {
+                children: named_children(&node),
+                idx: 0,
+            }),
             _ => {
                 // Regular statement - add node and continue
                 self.visit_simple_statement();
@@ -183,7 +565,8 @@ impl GoCfgBuilderState {
 
     /// A bare expression statement is a `panic(...)` call or an ordinary
     /// statement; distinguishing the two is real decision logic, not
-    /// dispatch, so it lives here rather than inline in `visit_node`'s match.
+    /// dispatch, so it lives here rather than inline in `dispatch_node`'s
+    /// match.
     fn visit_expression_statement(&mut self, node: &Node, source: &str) {
         if is_panic_call(node, source) {
             self.visit_panic();
@@ -198,181 +581,6 @@ impl GoCfgBuilderState {
             self.cfg.add_edge(from_node, stmt_node);
             self.current_node = Some(stmt_node);
         }
-    }
-
-    fn visit_if(&mut self, node: &Node, source: &str) {
-        let from_node = self.current_node.expect("Current node should exist");
-
-        // Condition node
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(from_node, condition_node);
-
-        // Then branch (consequence block)
-        let then_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(condition_node, then_start);
-
-        if let Some(consequence) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(then_start);
-            self.build_from_block(&consequence, source);
-        }
-        let then_end = self.current_node.unwrap_or(then_start);
-
-        // Else branch (alternative)
-        let join_node = self.cfg.add_node(NodeKind::Join);
-
-        if let Some(alternative) = find_child_by_field(*node, "alternative") {
-            let else_start = self.cfg.add_node(NodeKind::Statement);
-            self.cfg.add_edge(condition_node, else_start);
-
-            self.current_node = Some(else_start);
-            self.visit_node(&alternative, source);
-            let else_end = self.current_node.unwrap_or(else_start);
-
-            if then_end != self.cfg.exit {
-                self.cfg.add_edge(then_end, join_node);
-            }
-            if else_end != self.cfg.exit {
-                self.cfg.add_edge(else_end, join_node);
-            }
-        } else {
-            // No else branch - condition can go directly to join
-            self.cfg.add_edge(condition_node, join_node);
-            if then_end != self.cfg.exit {
-                self.cfg.add_edge(then_end, join_node);
-            }
-        }
-
-        self.current_node = Some(join_node);
-    }
-
-    fn visit_for(&mut self, node: &Node, source: &str) {
-        let from_node = self.current_node.expect("Current node should exist");
-
-        // Loop header
-        let loop_header = self.cfg.add_node(NodeKind::LoopHeader);
-        self.cfg.add_edge(from_node, loop_header);
-
-        // Loop body
-        let body_start = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(loop_header, body_start);
-
-        // Push loop context for break/continue. The join node is created
-        // lazily below via get_or_create_break_target, but a `for` loop's
-        // header always has an unconditional "exit" edge to it (the loop
-        // condition can always be false, or there is none), so it will
-        // always end up created.
-        let label = self.pending_label.take();
-        self.loop_stack.push(LoopContext {
-            break_target: None,
-            continue_target: Some(loop_header),
-            label,
-        });
-
-        // Visit loop body
-        if let Some(body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(body_start);
-            self.build_from_block(&body, source);
-
-            // Back edge to loop header
-            if let Some(body_end) = self.current_node {
-                if body_end != self.cfg.exit {
-                    self.cfg.add_edge(body_end, loop_header);
-                }
-            }
-        }
-
-        // Exit condition from loop header
-        let idx = self.loop_stack.len() - 1;
-        let join_node = self.get_or_create_break_target(idx);
-        self.cfg.add_edge(loop_header, join_node);
-
-        // Pop loop context
-        self.loop_stack.pop();
-
-        self.current_node = Some(join_node);
-    }
-
-    fn visit_switch(&mut self, node: &Node, source: &str) {
-        let from_node = self.current_node.expect("Current node should exist");
-
-        // Switch condition
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(from_node, condition_node);
-
-        // Push break context (switch/select break independently of any
-        // enclosing loop; `continue` is not valid here, so continue_target
-        // is None and unlabeled continue skips over this context). The join
-        // node itself is created lazily: if every case terminates control
-        // flow (e.g. `return` in every case) and there's a default (so no
-        // fallback-to-join edge is added either), nothing ever needs a join
-        // node, and creating one eagerly would leave it unreachable.
-        let idx = self.loop_stack.len();
-        let label = self.pending_label.take();
-        self.loop_stack.push(LoopContext {
-            break_target: None,
-            continue_target: None,
-            label,
-        });
-
-        // Visit each case. Regular switches use "expression_case"; type
-        // switches (switch x.(type) { case T: ... }) use "type_case".
-        let mut has_default = false;
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            let kind = child.kind();
-            if is_switch_case_kind(kind) {
-                has_default |= kind == "default_case";
-                self.visit_case(&child, condition_node, idx, source);
-            }
-        }
-
-        // If there's no default case, no case is guaranteed to match, so the
-        // switch can fall through directly to join. When a default exists,
-        // one case always executes, so this edge would be spurious.
-        if !has_default {
-            let join_node = self.get_or_create_break_target(idx);
-            self.cfg.add_edge(condition_node, join_node);
-        }
-
-        let ctx = self.loop_stack.pop().expect("pushed switch context above");
-        self.current_node = ctx.break_target;
-    }
-
-    fn visit_type_switch(&mut self, node: &Node, source: &str) {
-        // Type switches work similar to regular switches
-        self.visit_switch(node, source);
-    }
-
-    fn visit_select(&mut self, node: &Node, source: &str) {
-        let from_node = self.current_node.expect("Current node should exist");
-
-        // Select condition (non-deterministic choice)
-        let condition_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(from_node, condition_node);
-
-        // Push break context (select break independently of any enclosing
-        // loop; `continue` is not valid here). The join node is created
-        // lazily: if every case terminates control flow (e.g. `return` in
-        // every case), nothing ever needs a join node, and creating one
-        // eagerly would leave it unreachable.
-        let idx = self.loop_stack.len();
-        let label = self.pending_label.take();
-        self.loop_stack.push(LoopContext {
-            break_target: None,
-            continue_target: None,
-            label,
-        });
-
-        // Visit each communication case
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if matches!(child.kind(), "communication_case" | "default_case") {
-                self.visit_case(&child, condition_node, idx, source);
-            }
-        }
-
-        let ctx = self.loop_stack.pop().expect("pushed select context above");
-        self.current_node = ctx.break_target;
     }
 
     fn visit_return(&mut self, _node: &Node) {
@@ -451,33 +659,6 @@ impl GoCfgBuilderState {
         }
     }
 
-    fn visit_labeled(&mut self, node: &Node, source: &str) {
-        // A label is a jump target reachable via goto. Always create a node
-        // for it so dead code after a goto/return/break doesn't panic.
-        let label_node = self.cfg.add_node(NodeKind::Statement);
-        if let Some(from) = self.current_node {
-            self.cfg.add_edge(from, label_node);
-        } else {
-            self.cfg.add_edge(self.cfg.entry, label_node);
-        }
-        self.current_node = Some(label_node);
-
-        // Record the label so the following loop/switch/select statement
-        // can be targeted by a labeled break/continue.
-        self.pending_label = find_label_text(node, source);
-
-        // Visit the labeled statement itself (skip the label_name child)
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.is_named() && child.kind() != "label_name" {
-                self.visit_node(&child, source);
-                break;
-            }
-        }
-
-        self.pending_label = None;
-    }
-
     fn visit_defer(&mut self, _node: &Node) {
         // Defer statements are executed, but don't affect control flow
         // They're counted as non-structured exits in metrics
@@ -500,6 +681,16 @@ impl GoCfgBuilderState {
     }
 }
 
+/// Collect every named child of `node`, in order (skips braces and other
+/// structural/punctuation tokens, same as the old recursive `visit_children`
+/// did).
+fn named_children<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|c| c.is_named())
+        .collect()
+}
+
 /// Find a child node by field name
 fn find_child_by_field<'a>(node: Node<'a>, field: &str) -> Option<Node<'a>> {
     node.child_by_field_name(field)
@@ -516,10 +707,9 @@ fn find_label_text(node: &Node, source: &str) -> Option<String> {
 /// `switch x.(type) { ... }` share `default_case`; only `expression_case` vs.
 /// `type_case` differs between them).
 /// Whether a tree-sitter-go node kind is a `switch` case arm
-/// (`expression_case`/`type_case`/`default_case`). Used by `visit_switch` and
-/// `visit_type_switch` to filter case children before handing them to
-/// `visit_case`; select's `communication_case` is a distinct kind and isn't
-/// covered here.
+/// (`expression_case`/`type_case`/`default_case`). Used by the `Switch` task
+/// to filter case children before handing them to `CaseBody`; select's
+/// `communication_case` is a distinct kind and isn't covered here.
 fn is_switch_case_kind(kind: &str) -> bool {
     matches!(kind, "expression_case" | "type_case" | "default_case")
 }
@@ -1174,6 +1364,63 @@ func test() {
             plain_cfg.node_count(),
             5, // entry, doA, doB, doC, exit — all reachable
             "an ordinary call sequence keeps every statement reachable"
+        );
+    }
+
+    /// Regression test for https://github.com/Stephen-Collins-tech/hotspots/issues/160:
+    /// a deeply nested if/else chain used to overflow the calling thread's
+    /// stack because the old builder recursed natively per nesting level
+    /// (`visit_node` -> `visit_if` -> `build_from_block` -> `visit_children`
+    /// -> `visit_node` -> ...).
+    ///
+    /// tree-sitter-go's own parser (not this builder) has a separate,
+    /// unrelated native-recursion limit of its own — confirmed by profiling
+    /// `GoParser::parse`/`discover_functions` alone at this depth, which
+    /// needs ~5MB of stack regardless of whether a CFG is ever built from
+    /// the result. The 6MB stack below is sized for *that* pre-existing
+    /// limit, matching the same "give the unrelated parser recursion enough
+    /// room, then prove the builder itself needs no more than that" approach
+    /// `PR #263` used for `swc_ecma_parser`'s equivalent limit. What this
+    /// test actually isolates is the builder: profiling showed the full
+    /// parse+discover+build pipeline overflows at the *same* stack sizes as
+    /// parse+discover alone (no extra headroom needed for the build step),
+    /// proving `build_from_block`'s `run` loop adds no native recursion of
+    /// its own on top of the parser's.
+    #[test]
+    fn test_deeply_nested_if_else_does_not_overflow_and_builds_real_cfg() {
+        const DEPTH: usize = 2_000;
+
+        let mut source = String::from("package main\nfunc test(x int) {\n");
+        for _ in 0..DEPTH {
+            source.push_str("if x > 0 {\n");
+        }
+        source.push_str("x = 1\n");
+        for _ in 0..DEPTH {
+            source.push_str("} else {\nx = 2\n}\n");
+        }
+        source.push('}');
+
+        let node_count = std::thread::Builder::new()
+            .stack_size(6 * 1024 * 1024)
+            .spawn(move || {
+                use crate::language::GoParser;
+                let parser = GoParser::new().unwrap();
+                let module = parser.parse(&source, "test.go").unwrap();
+                let functions = module.discover_functions(0, &source);
+                assert_eq!(functions.len(), 1);
+                let builder = GoCfgBuilder;
+                let cfg = builder.build(&functions[0]);
+                cfg.node_count()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        // Each nesting level adds a condition node and at least one branch
+        // node; a minimal/degenerate CFG would be far smaller than DEPTH.
+        assert!(
+            node_count > DEPTH,
+            "expected a fully-built CFG with >{DEPTH} nodes, got {node_count}"
         );
     }
 }
