@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Correct action policy input semantics and scope PR comments by path (#278)
+
+
 ### Documentation
 - Trim CLAUDE.md and drop private-repo references (#246)
+- Mark warning-threshold cutoffs as unvalidated heuristics (#280)
 
 
 ### Features

@@ -33,8 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getInputs = getInputs;
+exports.policyGateEnabled = policyGateEnabled;
 exports.getPlatformInfo = getPlatformInfo;
 exports.installFaultline = installFaultline;
+exports.commentMarker = commentMarker;
 const core = __importStar(require("@actions/core"));
 const exec = __importStar(require("@actions/exec"));
 const github = __importStar(require("@actions/github"));
@@ -42,10 +45,20 @@ const tc = __importStar(require("@actions/tool-cache"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
+// The hotspots CLI's `--policy` flag is an on/off switch for the single
+// critical-introduction policy gate -- there is no named preset to select
+// between. 'off' disables the gate; anything else recognized enables it.
+const POLICY_VALUES = ['critical-introduction', 'off'];
 async function getInputs() {
+    const policy = core.getInput('policy') || 'critical-introduction';
+    if (!POLICY_VALUES.includes(policy)) {
+        core.warning(`Input 'policy: ${policy}' is not supported -- the hotspots CLI has no ` +
+            `'strict'/'moderate'/'custom' preset, only the critical-introduction gate. ` +
+            `Treating this as 'critical-introduction' (gate enabled). Use 'off' to disable it.`);
+    }
     return {
         path: core.getInput('path') || '.',
-        policy: core.getInput('policy') || 'critical-introduction',
+        policy,
         minLrs: core.getInput('min-lrs') || undefined,
         config: core.getInput('config') || undefined,
         failOn: core.getInput('fail-on') || 'error',
@@ -54,6 +67,9 @@ async function getInputs() {
         githubToken: core.getInput('github-token'),
         postComment: core.getBooleanInput('post-comment')
     };
+}
+function policyGateEnabled(policy) {
+    return policy !== 'off';
 }
 function getPlatformInfo() {
     const nodePlatform = os.platform();
@@ -124,9 +140,7 @@ async function installFaultline(version, token, binaryPath) {
     core.info(`Downloading hotspots from ${downloadUrl}`);
     try {
         const downloadPath = await tc.downloadTool(downloadUrl);
-        const extractPath = ext === 'zip'
-            ? await tc.extractZip(downloadPath)
-            : await tc.extractTar(downloadPath);
+        const extractPath = ext === 'zip' ? await tc.extractZip(downloadPath) : await tc.extractTar(downloadPath);
         const cachedDir = await tc.cacheDir(extractPath, 'hotspots', resolvedVersion);
         const binaryPath = path.join(cachedDir, binaryName);
         if (os.platform() !== 'win32') {
@@ -160,6 +174,36 @@ async function detectContext() {
     }
     return 'push';
 }
+// A shallow checkout (the actions/checkout default) has no history to diff
+// against, so the PR path silently falls back to delta analysis instead of a
+// true base-vs-head comparison. Warn so that fallback isn't mistaken for the
+// real thing.
+async function warnIfShallowClone(context) {
+    if (context !== 'pr')
+        return;
+    let stdout = '';
+    try {
+        await exec.exec('git', ['rev-parse', '--is-shallow-repository'], {
+            cwd: process.env.GITHUB_WORKSPACE || process.cwd(),
+            listeners: {
+                stdout: (data) => {
+                    stdout += data.toString();
+                }
+            },
+            silent: true
+        });
+    }
+    catch (error) {
+        core.debug(`Could not determine clone depth: ${error}`);
+        return;
+    }
+    if (stdout.trim() === 'true') {
+        core.warning("Checkout appears shallow (actions/checkout defaults to fetch-depth: 1), so there's " +
+            "no history to diff the PR's base against head. Falling back to delta analysis of the " +
+            'working tree instead of a true base-vs-head comparison. Add `fetch-depth: 0` to the ' +
+            'actions/checkout step to get full diff-based PR analysis.');
+    }
+}
 async function runFaultline(binaryPath, inputs, context) {
     if (context === 'pr') {
         return runPRAnalysis(binaryPath, inputs);
@@ -179,12 +223,22 @@ async function runFaultline(binaryPath, inputs, context) {
     let stderr = '';
     const exitCode = await exec.exec(binaryPath, args, {
         listeners: {
-            stdout: (data) => { stdout += data.toString(); },
-            stderr: (data) => { stderr += data.toString(); }
+            stdout: (data) => {
+                stdout += data.toString();
+            },
+            stderr: (data) => {
+                stderr += data.toString();
+            }
         },
         ignoreReturnCode: true
     });
-    await exec.exec(binaryPath, [...args.filter(a => a !== '--format' && a !== 'json'), '--format', 'html', '--output', reportPath], {
+    await exec.exec(binaryPath, [
+        ...args.filter(a => a !== '--format' && a !== 'json'),
+        '--format',
+        'html',
+        '--output',
+        reportPath
+    ], {
         ignoreReturnCode: true
     });
     core.info(`hotspots analyze exited with code ${exitCode}`);
@@ -228,7 +282,7 @@ async function runPRAnalysis(binaryPath, inputs) {
     const headSha = github.context.sha;
     if (baseSha) {
         const diffArgs = ['diff', baseSha, headSha, '--format', 'json'];
-        if (inputs.policy)
+        if (policyGateEnabled(inputs.policy))
             diffArgs.push('--policy');
         if (inputs.config)
             diffArgs.push('--config', inputs.config);
@@ -237,8 +291,12 @@ async function runPRAnalysis(binaryPath, inputs) {
         let diffStderr = '';
         const diffExitCode = await exec.exec(binaryPath, diffArgs, {
             listeners: {
-                stdout: (data) => { diffStdout += data.toString(); },
-                stderr: (data) => { diffStderr += data.toString(); }
+                stdout: (data) => {
+                    diffStdout += data.toString();
+                },
+                stderr: (data) => {
+                    diffStderr += data.toString();
+                }
             },
             ignoreReturnCode: true
         });
@@ -254,7 +312,7 @@ async function runPRAnalysis(binaryPath, inputs) {
             // Also generate HTML report
             const reportPath = path.join(process.env.GITHUB_WORKSPACE || '.', 'hotspots-delta-report.html');
             const htmlArgs = ['diff', baseSha, headSha, '--format', 'html', '--output', reportPath];
-            if (inputs.policy)
+            if (policyGateEnabled(inputs.policy))
                 htmlArgs.push('--policy');
             if (inputs.config)
                 htmlArgs.push('--config', inputs.config);
@@ -292,7 +350,7 @@ async function runPRAnalysis(binaryPath, inputs) {
 }
 async function runDeltaAnalysis(binaryPath, inputs) {
     const args = ['analyze', inputs.path, '--mode', 'delta'];
-    if (inputs.policy)
+    if (policyGateEnabled(inputs.policy))
         args.push('--policy');
     if (inputs.minLrs)
         args.push('--min-lrs', inputs.minLrs);
@@ -305,12 +363,22 @@ async function runDeltaAnalysis(binaryPath, inputs) {
     let stderr = '';
     const exitCode = await exec.exec(binaryPath, args, {
         listeners: {
-            stdout: (data) => { stdout += data.toString(); },
-            stderr: (data) => { stderr += data.toString(); }
+            stdout: (data) => {
+                stdout += data.toString();
+            },
+            stderr: (data) => {
+                stderr += data.toString();
+            }
         },
         ignoreReturnCode: true
     });
-    await exec.exec(binaryPath, [...args.filter(a => a !== '--format' && a !== 'json'), '--format', 'html', '--output', reportPath], {
+    await exec.exec(binaryPath, [
+        ...args.filter(a => a !== '--format' && a !== 'json'),
+        '--format',
+        'html',
+        '--output',
+        reportPath
+    ], {
         ignoreReturnCode: true
     });
     core.info(`hotspots analyze exited with code ${exitCode}`);
@@ -398,9 +466,10 @@ function generateDiffSummary(result, baseSha, headSha) {
     summary += `**Mode:** Diff (${baseSha.slice(0, 7)} → ${headSha.slice(0, 7)})\n\n`;
     summary += `**Changes:** ${modified.length} modified, ${newFns.length} new, ${deleted.length} deleted\n\n`;
     if (policy.failed.length === 0 && policy.warnings.length === 0) {
-        summary += deltas.length === 0
-            ? '✅ **No function changes detected.**\n'
-            : '✅ **No policy violations.**\n';
+        summary +=
+            deltas.length === 0
+                ? '✅ **No function changes detected.**\n'
+                : '✅ **No policy violations.**\n';
         return summary;
     }
     summary += `**Policy:** ${policy.failed.length} blocking, ${policy.warnings.length} warning(s)\n\n`;
@@ -424,7 +493,14 @@ function generateDiffSummary(result, baseSha, headSha) {
     }
     return summary;
 }
-async function postPRComment(token, summary, reportPath) {
+// Identifies this action invocation's comment among possibly several on the
+// same PR (e.g. a monorepo running the action once per package path). Scoped
+// by `path` so parallel jobs analyzing different subtrees don't overwrite
+// each other's comment.
+function commentMarker(analyzedPath) {
+    return `<!-- hotspots-action:path=${analyzedPath} -->`;
+}
+async function postPRComment(token, summary, analyzedPath, reportPath) {
     if (!github.context.payload.pull_request) {
         core.info('Not a PR context, skipping comment');
         return;
@@ -432,18 +508,19 @@ async function postPRComment(token, summary, reportPath) {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     const prNumber = github.context.payload.pull_request.number;
-    let body = summary;
+    const marker = commentMarker(analyzedPath);
+    let body = `${marker}\n${summary}`;
     if (reportPath) {
         body += '\n\n---\n';
         body += '*📊 Full HTML report available in workflow artifacts*\n';
     }
-    // Check if we already have a comment
+    // Check if we already have a comment for this path
     const comments = await octokit.rest.issues.listComments({
         owner,
         repo,
         issue_number: prNumber
     });
-    const botComment = comments.data.find(comment => comment.user?.type === 'Bot' && comment.body?.includes('Hotspots Analysis Results'));
+    const botComment = comments.data.find(comment => comment.user?.type === 'Bot' && comment.body?.includes(marker));
     if (botComment) {
         // Update existing comment
         await octokit.rest.issues.updateComment({
@@ -475,6 +552,7 @@ async function run() {
         // Detect context (PR or push)
         const context = await detectContext();
         core.info(`Detected context: ${context}`);
+        await warnIfShallowClone(context);
         // Run hotspots
         const result = await runFaultline(binaryPath, inputs, context);
         // Set outputs
@@ -485,12 +563,10 @@ async function run() {
             core.setOutput('report-path', result.reportPath);
         }
         // Write job summary
-        await core.summary
-            .addRaw(result.summary)
-            .write();
+        await core.summary.addRaw(result.summary).write();
         // Post PR comment if requested
         if (inputs.postComment && context === 'pr' && inputs.githubToken) {
-            await postPRComment(inputs.githubToken, result.summary, result.reportPath);
+            await postPRComment(inputs.githubToken, result.summary, inputs.path, result.reportPath);
         }
         // Fail if needed
         if (!result.passed) {

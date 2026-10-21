@@ -274,7 +274,7 @@ The action posts PR comments, generates HTML reports, and fails on blocking poli
 |---|---|---|
 | `github-token` | — | Required for PR comments |
 | `path` | `.` | Path to analyze |
-| `policy` | `critical-introduction` | `critical-introduction`, `strict`, `moderate`, `custom` |
+| `policy` | `critical-introduction` | `critical-introduction` (enabled), `off` (disabled) |
 | `fail-on` | `error` | `error`, `warn`, `never` |
 | `config` | auto-discover | Path to config file |
 | `version` | `latest` | Pin a specific version |
