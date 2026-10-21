@@ -21,6 +21,10 @@ pub fn find_function_by_start<'a>(
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        // A match starts at `start_byte`, so skip subtrees whose range cannot contain it.
+        if child.start_byte() > start_byte || child.end_byte() <= start_byte {
+            continue;
+        }
         if let Some(found) = find_function_by_start(child, start_byte, func_kinds) {
             return Some(found);
         }
