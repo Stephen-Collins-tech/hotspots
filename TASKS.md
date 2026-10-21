@@ -155,3 +155,25 @@ Not a promotion-brief handoff — scoped directly from a `hotspots-cloud` incide
 file's history.
 
 **Status:** done — hotspots PR [#186](https://github.com/Stephen-Collins-tech/hotspots/pull/186) (`--touch-mode` flag consolidation, prerequisite) and PR [#188](https://github.com/Stephen-Collins-tech/hotspots/pull/188) (`hotspots estimate` command), merged commits `9510e53` and `dede5cb`. Shipped in v1.37.0. Wired into `hotspots-cloud`'s crawl pipeline as the primary touch-mode screen (hotspots-cloud PR #121).
+
+---
+
+## Task: ⚠️ BLOCKED — do not touch `scoring.rs` yet (F160 LRS-swamping follow-up)
+
+**Plan:** `../hotspots-research/PLAN.md`
+
+Not a promotion-brief handoff — there is deliberately no brief yet. F160 found LRS's
+raw contribution to `compute_activity_risk` in `hotspots-core/src/scoring.rs` swamps
+the touch/recency terms that actually carry the composite's predictive power, but
+that specific observation was flagged "exploratory, not pre-registered" and never
+got a confirmatory re-run. `scoring.rs` today still does the exact raw unnormalized
+sum F160 flagged.
+
+**Do not implement a fix here from this description alone.** Read
+`../hotspots-research/PLAN.md` first — it specifies the confirmatory study that has
+to run and be confirmed in `hotspots-research` before a promotion brief (and a real
+task entry) exists for this repo. This entry exists only so the gap isn't silently
+rediscovered and "fixed" ad hoc; the actual implementation spec lands here once the
+research closes.
+
+**Status:** blocked on research — see `../hotspots-research/PLAN.md`
