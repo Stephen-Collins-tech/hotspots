@@ -1,6 +1,6 @@
 # `@hotspots/mcp-server` — requirements
 
-**Status:** spec only — nothing in this package is implemented yet.
+**Status:** implemented. See "Open questions" for how each was resolved.
 **Start here if you're a new session picking this up.** This file is the exhaustive spec;
 implement against it directly. It is a tooling/packaging feature, not a `hotspots-research`
 promotion — there is no promotion brief for it, and this spec plays that role instead. The
@@ -397,3 +397,19 @@ list of SQL files if `user_version` is behind."
 5. **Default `path` resolution** — confirm what `hotspots coordinate`/`analyze` actually do
    today when no path is given from the CLI (cwd? error?) and match that behavior exactly
    rather than assuming.
+
+### Resolutions (from the implementation)
+
+1. `schema_version` is `5` for `coordinate`, snapshot and diff JSON (hotspots 2.2.0). Nothing in
+   the package hardcodes it; only a test asserts it for `coordinate`.
+2. `output_json` is stored uncompressed; `summary_json` drives trends. Documented in the README.
+3. `hybrid:N` is not exposed; N stays at the CLI default.
+4. Own small client (`src/hotspots-client.ts`): the ai-agents client is analyze-only and not in a
+   published package. Error class names are identical.
+5. `coordinate` defaults to `.`; `analyze` has no default (path required), so the tool requires it.
+6. Snapshot triage buckets are `fire`/`debt`/`watch`/`ok`, not CRITICAL/HIGH/WATCH/OK; they are
+   stored as `criticalCount`/`highCount`/`watchCount`/`okCount`. Default triage lists top
+   functions only for non-ok buckets, so `maxLrs` covers listed functions. `hotspots_analyze`
+   passes `--no-persist` internally (snapshots are immutable per commit).
+7. `packages/types` was not touched and not used for the return types: the tools pass CLI JSON
+   through untyped, and `HotspotsOutput` was not checked for staleness.
