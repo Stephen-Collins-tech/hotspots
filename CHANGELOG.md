@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - Trim CLAUDE.md and drop private-repo references (#246)
+- Document `WarningThresholdConfig` cutoffs as unvalidated heuristics in code, matching docs/REFERENCE.md (closes #214)
 
 
 ### Features
