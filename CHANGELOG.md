@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Migrate `ureq` 2.x -> 3.x to drop vulnerable `rustls-webpki`/`webpki-roots` versions (RUSTSEC-2026-0381, RUSTSEC-2026-0382)
+- Bump `benchmarks/uv.lock`'s `pillow` to 13.0.0 (CVE-2026-112403, JPEG decoder bug)
 
 
 ### Features
