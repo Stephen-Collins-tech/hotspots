@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Trim CLAUDE.md and drop private-repo references (#246)
 - Mark warning-threshold cutoffs as unvalidated heuristics (#280)
 - Flag TASKS.md with blocked scoring.rs follow-up, pointing to research plan (#279)
+- Require iterative CFG builders for new languages (#283)
 
 
 ### Features
