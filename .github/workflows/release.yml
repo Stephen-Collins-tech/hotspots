@@ -78,7 +78,7 @@ jobs:
 
       - name: Run cargo-release (dry-run)
         if: inputs.dry_run == true
-        run: cargo release ${{ inputs.level }} --no-publish --no-confirm --execute --dry-run
+        run: cargo release ${{ inputs.level }} --no-publish --no-confirm
 
       - name: Run cargo-release
         if: inputs.dry_run != true
