@@ -132,6 +132,7 @@ Implement `CfgBuilder` trait in `cfg_builder.rs`:
 - Create join nodes **lazily** — only when at least one live path reaches them (see Architecture)
 - Track loop context stack for `break`/`continue` targets
 - Track nesting depth during traversal
+- **Walk the syntax tree iteratively, never by recursion.** Drive the traversal with an explicit heap-allocated work stack (see `language/rust/cfg_builder.rs`, `language/go/cfg_builder.rs`) so nesting depth is bounded by memory, not the thread stack. New builders with recursive `visit_*` calls over child nodes will not be merged; add a deep-nesting test (thousands of levels) that must not overflow
 
 **Critical:** After a terminating statement sets `current_node = None`, subsequent statements must return early. Eager join node creation before confirming live paths causes CFG validation failures.
 
