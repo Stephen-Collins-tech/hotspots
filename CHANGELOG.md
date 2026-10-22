@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convert Go CFG builder to iterative work-stack walk (#281)
 - Convert Java CFG builder to iterative work-stack walk (#284)
 - Convert Python CFG builder to iterative work-stack walk (#285)
+- Convert C CFG builder to iterative work-stack walk (#286)
 
 
 ### Documentation
