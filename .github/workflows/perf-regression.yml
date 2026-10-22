@@ -48,14 +48,29 @@ jobs:
           base_sha=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Bench merge-base (comparison point)
+      # Shared runners drift between back-to-back phases, so measure base and
+      # head twice, interleaved (base, head, base, head). The gate only fails
+      # a benchmark that regressed in both pairs; sub-microsecond benchmarks
+      # are reported but never gate (see scripts/check_bench_regression.py).
+      - name: Bench merge-base, run 1
         run: |
           git checkout "${{ steps.merge-base.outputs.sha }}"
-          cargo bench -p hotspots-core --bench hot_path -- --save-baseline pr_base
+          cargo bench -p hotspots-core --bench hot_path -- --save-baseline base1
+
+      - name: Bench PR head, run 1
+        run: |
           git checkout "${{ github.sha }}"
+          cargo bench -p hotspots-core --bench hot_path -- --save-baseline head1
 
-      - name: Bench PR head (candidate)
-        run: cargo bench -p hotspots-core --bench hot_path -- --save-baseline pr_head
+      - name: Bench merge-base, run 2
+        run: |
+          git checkout "${{ steps.merge-base.outputs.sha }}"
+          cargo bench -p hotspots-core --bench hot_path -- --save-baseline base2
 
-      - name: Check for regressions (>10%)
-        run: python3 scripts/check_bench_regression.py --base pr_base --pr pr_head --threshold 10
+      - name: Bench PR head, run 2
+        run: |
+          git checkout "${{ github.sha }}"
+          cargo bench -p hotspots-core --bench hot_path -- --save-baseline head2
+
+      - name: Check for regressions (>10%, reproduced in both runs)
+        run: python3 scripts/check_bench_regression.py --pair base1:head1 --pair base2:head2 --threshold 10 --min-base-ns 1000
