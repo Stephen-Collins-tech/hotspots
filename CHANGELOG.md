@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Correct action policy input semantics and scope PR comments by path (#278)
 - Convert Go CFG builder to iterative work-stack walk (#281)
+- Convert Java CFG builder to iterative work-stack walk (#284)
 
 
 ### Documentation
