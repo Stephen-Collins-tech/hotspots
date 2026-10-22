@@ -33,5 +33,6 @@
 - Batch related edits across files, then compile once with `cargo check`; fix all errors
   until the project compiles with zero errors. Do not report code you haven't compiled.
 - Run the full test suite, not just new tests, and fix failures before calling the task done.
+- **CFG builders must be iterative.** Never recurse over child nodes in a language's `cfg_builder.rs`; use an explicit heap work stack (see the Rust and Go builders). Applies to any new language.
 - Include test updates and documentation updates (concise, user-facing) in the same change as
   the feature.
