@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convert Python CFG builder to iterative work-stack walk (#285)
 - Convert C CFG builder to iterative work-stack walk (#286)
 - Make perf regression gate require reproduction across two runs (#289)
+- Convert C# CFG builder to iterative work-stack walk (#287)
 
 
 ### Documentation
