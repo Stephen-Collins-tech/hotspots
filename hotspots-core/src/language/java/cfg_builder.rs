@@ -1,4 +1,10 @@
 //! Java CFG builder implementation
+//!
+//! Walks the tree-sitter-java AST iteratively via an explicit heap-allocated
+//! work stack (`Task`, driven by the `run` loop, with results threaded
+//! through `self.current_node`) instead of native function-call recursion,
+//! so nesting depth is bounded by heap memory rather than the thread stack
+//! (https://github.com/Stephen-Collins-tech/hotspots/issues/160).
 
 use crate::ast::FunctionNode;
 use crate::cfg::{Cfg, NodeId, NodeKind};
@@ -26,7 +32,7 @@ impl CfgBuilder for JavaCfgBuilder {
             let body_node = find_child_by_kind(func_node, "block")
                 .or_else(|| find_child_by_kind(func_node, "constructor_body"))?;
             let mut builder = JavaCfgBuilderState::new();
-            builder.build_from_block(&body_node, source);
+            builder.build_from_block(body_node, source);
             Some(builder.cfg)
         });
 
@@ -51,6 +57,111 @@ struct LoopContext {
     continue_target: NodeId,
 }
 
+/// Pending unit of work on the explicit stack.
+///
+/// The start variants (`If`, `While`, `Switch`, ...) do what the old
+/// recursive `visit_*` methods did on the way down; the `*Finish`/`*After*`
+/// variants do what they did with the nested result on the way back up. The
+/// "result" of nested work is read from `self.current_node`, exactly as the
+/// recursive methods used it.
+enum Task<'a> {
+    /// `build_from_block`: visit children, then connect the last node to exit.
+    FromBlock {
+        block: Node<'a>,
+    },
+    AfterFromBlock,
+    /// `visit_block`: visit each named child in order.
+    Block {
+        block: Node<'a>,
+    },
+    VisitNode {
+        node: Node<'a>,
+    },
+    Expr {
+        node: Node<'a>,
+    },
+    If {
+        node: Node<'a>,
+    },
+    IfAfterConsequence {
+        alternative: Option<Node<'a>>,
+        condition: NodeId,
+        join: NodeId,
+        had_consequence: bool,
+    },
+    IfFinish {
+        join: NodeId,
+    },
+    /// Shared by `while` and traditional/enhanced `for`.
+    Loop {
+        node: Node<'a>,
+    },
+    LoopFinish {
+        condition: NodeId,
+        after_loop: NodeId,
+        had_body: bool,
+    },
+    DoWhile {
+        node: Node<'a>,
+    },
+    DoWhileFinish {
+        body_entry: NodeId,
+        condition: NodeId,
+        after_loop: NodeId,
+        had_body: bool,
+    },
+    Switch {
+        node: Node<'a>,
+    },
+    SwitchLabel {
+        switch_node: NodeId,
+    },
+    SwitchFinish {
+        switch_node: NodeId,
+        join: NodeId,
+        has_default: bool,
+        had_body: bool,
+    },
+    Try {
+        node: Node<'a>,
+    },
+    /// Advance the try statement: record the end of the branch that just ran
+    /// (if `collect`), then start the next catch clause or join the branches.
+    TryNext {
+        try_entry: NodeId,
+        catches: Vec<Node<'a>>,
+        idx: usize,
+        branch_ends: Vec<NodeId>,
+        collect: bool,
+    },
+    Synchronized {
+        node: Node<'a>,
+    },
+    Ternary {
+        node: Node<'a>,
+    },
+    TernaryAfterConsequence {
+        alternative: Option<Node<'a>>,
+        condition: NodeId,
+        join: NodeId,
+        had_consequence: bool,
+    },
+    TernaryFinish {
+        join: NodeId,
+    },
+    ShortCircuit {
+        node: Node<'a>,
+    },
+    ShortCircuitFinish {
+        left_evaluated: NodeId,
+        join: NodeId,
+        had_right: bool,
+    },
+    Lambda {
+        node: Node<'a>,
+    },
+}
+
 impl JavaCfgBuilderState {
     fn new() -> Self {
         let cfg = Cfg::new();
@@ -64,396 +175,546 @@ impl JavaCfgBuilderState {
     }
 
     /// Build CFG from a block node
-    fn build_from_block(&mut self, block: &Node, source: &str) {
-        let mut cursor = block.walk();
+    fn build_from_block(&mut self, block: Node<'_>, source: &str) {
+        let mut stack = vec![Task::FromBlock { block }];
+        self.run(&mut stack, source);
+    }
 
-        for child in block.children(&mut cursor) {
-            // Skip structural nodes (braces), process only named children
-            if child.is_named() {
-                self.visit_node(&child, source);
+    /// Edge from the current node to `target`, unless there is no live path
+    /// or the path already reached exit.
+    fn connect_current_to(&mut self, target: NodeId) {
+        if let Some(last) = self.current_node {
+            if last != self.cfg.exit {
+                self.cfg.add_edge(last, target);
             }
         }
+    }
 
-        // Connect last node to exit
-        if let Some(last_node) = self.current_node {
-            if last_node != self.cfg.exit {
-                let has_exit_edge = self
-                    .cfg
-                    .edges
-                    .iter()
-                    .any(|e| e.from == last_node && e.to == self.cfg.exit);
+    /// Drive the explicit work-stack loop. Tasks are pushed in reverse so
+    /// that they pop in source order.
+    fn run<'a>(&mut self, stack: &mut Vec<Task<'a>>, source: &str) {
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::FromBlock { block } => {
+                    stack.push(Task::AfterFromBlock);
+                    stack.push(Task::Block { block });
+                }
+                Task::AfterFromBlock => {
+                    // Connect last node to exit
+                    if let Some(last_node) = self.current_node {
+                        if last_node != self.cfg.exit {
+                            let has_exit_edge = self
+                                .cfg
+                                .edges
+                                .iter()
+                                .any(|e| e.from == last_node && e.to == self.cfg.exit);
 
-                if !has_exit_edge {
-                    self.cfg.add_edge(last_node, self.cfg.exit);
+                            if !has_exit_edge {
+                                self.cfg.add_edge(last_node, self.cfg.exit);
+                            }
+                        }
+                    }
+                }
+                Task::Block { block } => {
+                    for child in named_children(&block).into_iter().rev() {
+                        stack.push(Task::VisitNode { node: child });
+                    }
+                }
+                Task::VisitNode { node } => self.dispatch_node(node, source, stack),
+                Task::Expr { node } => self.dispatch_expr(node, source, stack),
+                Task::If { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let condition = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, condition);
+
+                    let consequence = find_child_by_kind(node, "block");
+                    let alternative = find_child_by_kind(node, "else_clause");
+
+                    let join = self.cfg.add_node(NodeKind::Statement);
+
+                    stack.push(Task::IfAfterConsequence {
+                        alternative,
+                        condition,
+                        join,
+                        had_consequence: consequence.is_some(),
+                    });
+                    if let Some(cons_block) = consequence {
+                        self.current_node = Some(condition);
+                        stack.push(Task::Block { block: cons_block });
+                    }
+                }
+                Task::IfAfterConsequence {
+                    alternative,
+                    condition,
+                    join,
+                    had_consequence,
+                } => {
+                    if had_consequence {
+                        self.connect_current_to(join);
+                    } else {
+                        self.cfg.add_edge(condition, join);
+                    }
+
+                    if let Some(alt_node) = alternative {
+                        self.current_node = Some(condition);
+                        stack.push(Task::IfFinish { join });
+
+                        // `else if` is a nested if, a plain `else` is a block
+                        for child in named_children(&alt_node).into_iter().rev() {
+                            match child.kind() {
+                                "if_statement" => stack.push(Task::If { node: child }),
+                                "block" => stack.push(Task::Block { block: child }),
+                                _ => {}
+                            }
+                        }
+                    } else {
+                        // No else clause, condition can go directly to join
+                        self.cfg.add_edge(condition, join);
+                        self.current_node = Some(join);
+                    }
+                }
+                Task::IfFinish { join } => {
+                    self.connect_current_to(join);
+                    self.current_node = Some(join);
+                }
+                Task::Loop { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let condition = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, condition);
+
+                    let after_loop = self.cfg.add_node(NodeKind::Statement);
+
+                    self.loop_stack.push(LoopContext {
+                        break_target: after_loop,
+                        continue_target: condition,
+                    });
+
+                    let body = find_child_by_kind(node, "block");
+                    stack.push(Task::LoopFinish {
+                        condition,
+                        after_loop,
+                        had_body: body.is_some(),
+                    });
+                    if let Some(body) = body {
+                        self.current_node = Some(condition);
+                        stack.push(Task::Block { block: body });
+                    }
+                }
+                Task::LoopFinish {
+                    condition,
+                    after_loop,
+                    had_body,
+                } => {
+                    if had_body {
+                        // Loop back to condition
+                        self.connect_current_to(condition);
+                    }
+
+                    // Condition false edge to after loop
+                    self.cfg.add_edge(condition, after_loop);
+
+                    self.loop_stack.pop();
+                    self.current_node = Some(after_loop);
+                }
+                Task::DoWhile { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let body_entry = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(current, body_entry);
+
+                    let condition = self.cfg.add_node(NodeKind::Condition);
+                    let after_loop = self.cfg.add_node(NodeKind::Statement);
+
+                    self.loop_stack.push(LoopContext {
+                        break_target: after_loop,
+                        continue_target: condition,
+                    });
+
+                    let body = find_child_by_kind(node, "block");
+                    stack.push(Task::DoWhileFinish {
+                        body_entry,
+                        condition,
+                        after_loop,
+                        had_body: body.is_some(),
+                    });
+                    if let Some(body) = body {
+                        self.current_node = Some(body_entry);
+                        stack.push(Task::Block { block: body });
+                    }
+                }
+                Task::DoWhileFinish {
+                    body_entry,
+                    condition,
+                    after_loop,
+                    had_body,
+                } => {
+                    if had_body {
+                        // Body goes to condition
+                        self.connect_current_to(condition);
+                    } else {
+                        self.cfg.add_edge(body_entry, condition);
+                    }
+
+                    // Condition true edge loops back to body
+                    self.cfg.add_edge(condition, body_entry);
+
+                    // Condition false edge to after loop
+                    self.cfg.add_edge(condition, after_loop);
+
+                    self.loop_stack.pop();
+                    self.current_node = Some(after_loop);
+                }
+                Task::Switch { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    // Switch node (decision point)
+                    let switch_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, switch_node);
+
+                    let join = self.cfg.add_node(NodeKind::Statement);
+
+                    // Switch can be broken out of
+                    self.loop_stack.push(LoopContext {
+                        break_target: join,
+                        continue_target: join, // continue not valid in switch, but use join
+                    });
+
+                    let switch_body = find_child_by_kind(node, "switch_block");
+                    let children = switch_body
+                        .map(|b| {
+                            let mut cursor = b.walk();
+                            b.children(&mut cursor).collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let has_default = children.iter().any(|c| {
+                        c.kind() == "switch_label"
+                            && source[c.start_byte()..c.end_byte()].contains("default")
+                    });
+
+                    stack.push(Task::SwitchFinish {
+                        switch_node,
+                        join,
+                        has_default,
+                        had_body: switch_body.is_some(),
+                    });
+                    for child in children.into_iter().rev() {
+                        if child.kind() == "switch_label" {
+                            stack.push(Task::SwitchLabel { switch_node });
+                        } else if child.is_named() && child.kind() != "{" && child.kind() != "}" {
+                            stack.push(Task::VisitNode { node: child });
+                        }
+                    }
+                }
+                Task::SwitchLabel { switch_node } => {
+                    let case_node = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(switch_node, case_node);
+                    self.current_node = Some(case_node);
+                }
+                Task::SwitchFinish {
+                    switch_node,
+                    join,
+                    has_default,
+                    had_body,
+                } => {
+                    if had_body {
+                        // Connect last case to join (fall-through or explicit break)
+                        self.connect_current_to(join);
+
+                        // If no default case, switch can go directly to join
+                        if !has_default {
+                            self.cfg.add_edge(switch_node, join);
+                        }
+                    } else {
+                        self.cfg.add_edge(switch_node, join);
+                    }
+
+                    self.loop_stack.pop();
+                    self.current_node = Some(join);
+                }
+                Task::Try { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let try_entry = self.cfg.add_node(NodeKind::Statement);
+                    self.cfg.add_edge(current, try_entry);
+
+                    let catches: Vec<Node<'a>> = named_children(&node)
+                        .into_iter()
+                        .filter(|c| c.kind() == "catch_clause")
+                        .collect();
+
+                    let try_body = find_child_by_kind(node, "block");
+                    // No try body: the entry node itself is the branch end
+                    let branch_ends = if try_body.is_some() {
+                        Vec::new()
+                    } else {
+                        vec![try_entry]
+                    };
+                    stack.push(Task::TryNext {
+                        try_entry,
+                        catches,
+                        idx: 0,
+                        branch_ends,
+                        collect: try_body.is_some(),
+                    });
+                    if let Some(try_body) = try_body {
+                        self.current_node = Some(try_entry);
+                        stack.push(Task::Block { block: try_body });
+                    }
+                }
+                Task::TryNext {
+                    try_entry,
+                    catches,
+                    idx,
+                    mut branch_ends,
+                    collect,
+                } => {
+                    if collect {
+                        if let Some(last) = self.current_node {
+                            branch_ends.push(last);
+                        }
+                    }
+
+                    if idx < catches.len() {
+                        // Each catch is a separate branch from try entry
+                        let catch_node = self.cfg.add_node(NodeKind::Condition);
+                        self.cfg.add_edge(try_entry, catch_node);
+
+                        let catch_body = find_child_by_kind(catches[idx], "block");
+                        if catch_body.is_none() {
+                            branch_ends.push(catch_node);
+                        }
+                        stack.push(Task::TryNext {
+                            try_entry,
+                            catches,
+                            idx: idx + 1,
+                            branch_ends,
+                            collect: catch_body.is_some(),
+                        });
+                        if let Some(catch_body) = catch_body {
+                            self.current_node = Some(catch_node);
+                            stack.push(Task::Block { block: catch_body });
+                        }
+                    } else {
+                        // Finally blocks are complex to model correctly in CFG because they
+                        // execute on all exit paths. For simplicity, we skip modeling finally.
+
+                        // Only create join node if there are branches that don't exit
+                        let non_exit_branches: Vec<_> = branch_ends
+                            .into_iter()
+                            .filter(|&end| end != self.cfg.exit)
+                            .collect();
+
+                        if !non_exit_branches.is_empty() {
+                            let join = self.cfg.add_node(NodeKind::Statement);
+                            for end in non_exit_branches {
+                                self.cfg.add_edge(end, join);
+                            }
+                            self.current_node = Some(join);
+                        } else {
+                            // All branches exit - current node is exit
+                            self.current_node = Some(self.cfg.exit);
+                        }
+                    }
+                }
+                Task::Synchronized { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    // Decision point - acquiring lock
+                    let sync_node = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, sync_node);
+
+                    self.current_node = Some(sync_node);
+                    if let Some(body) = find_child_by_kind(node, "block") {
+                        stack.push(Task::Block { block: body });
+                    }
+                }
+                Task::Ternary { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let condition = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, condition);
+
+                    let join = self.cfg.add_node(NodeKind::Statement);
+
+                    let consequence = node.child_by_field_name("consequence");
+                    stack.push(Task::TernaryAfterConsequence {
+                        alternative: node.child_by_field_name("alternative"),
+                        condition,
+                        join,
+                        had_consequence: consequence.is_some(),
+                    });
+                    if let Some(consequence) = consequence {
+                        self.current_node = Some(condition);
+                        stack.push(Task::Expr { node: consequence });
+                    }
+                }
+                Task::TernaryAfterConsequence {
+                    alternative,
+                    condition,
+                    join,
+                    had_consequence,
+                } => {
+                    if had_consequence {
+                        self.connect_current_to(join);
+                    } else {
+                        self.cfg.add_edge(condition, join);
+                    }
+
+                    if let Some(alternative) = alternative {
+                        self.current_node = Some(condition);
+                        stack.push(Task::TernaryFinish { join });
+                        stack.push(Task::Expr { node: alternative });
+                    } else {
+                        self.cfg.add_edge(condition, join);
+                        self.current_node = Some(join);
+                    }
+                }
+                Task::TernaryFinish { join } => {
+                    self.connect_current_to(join);
+                    self.current_node = Some(join);
+                }
+                Task::ShortCircuit { node } => {
+                    let Some(current) = self.current_node else {
+                        continue;
+                    };
+
+                    let left_evaluated = self.cfg.add_node(NodeKind::Condition);
+                    self.cfg.add_edge(current, left_evaluated);
+
+                    let join = self.cfg.add_node(NodeKind::Statement);
+
+                    // Right operand is evaluated only when short-circuiting doesn't apply.
+                    let right = node.child_by_field_name("right");
+                    stack.push(Task::ShortCircuitFinish {
+                        left_evaluated,
+                        join,
+                        had_right: right.is_some(),
+                    });
+                    if let Some(right) = right {
+                        self.current_node = Some(left_evaluated);
+                        stack.push(Task::Expr { node: right });
+                    } else {
+                        self.cfg.add_edge(left_evaluated, join);
+                    }
+                }
+                Task::ShortCircuitFinish {
+                    left_evaluated,
+                    join,
+                    had_right,
+                } => {
+                    if had_right {
+                        self.connect_current_to(join);
+                    }
+
+                    // Short-circuit path: right operand is skipped entirely.
+                    self.cfg.add_edge(left_evaluated, join);
+
+                    self.current_node = Some(join);
+                }
+                Task::Lambda { node } => {
+                    self.visit_simple_statement();
+
+                    if let Some(body) = node.child_by_field_name("body") {
+                        if body.kind() == "block" {
+                            stack.push(Task::Block { block: body });
+                        } else {
+                            stack.push(Task::Expr { node: body });
+                        }
+                    }
                 }
             }
         }
     }
 
-    /// Visit a tree-sitter node and build CFG
-    fn visit_node(&mut self, node: &Node, source: &str) {
+    /// Dispatch a tree-sitter node to the task (or inline handler) for its kind
+    fn dispatch_node<'a>(&mut self, node: Node<'a>, source: &str, stack: &mut Vec<Task<'a>>) {
         match node.kind() {
-            "if_statement" => self.visit_if(node, source),
-            "while_statement" => self.visit_while(node, source),
-            "do_statement" => self.visit_do_while(node, source),
-            "for_statement" | "enhanced_for_statement" => self.visit_for(node, source),
-            "switch_statement" | "switch_expression" => self.visit_switch(node, source),
-            "try_statement" => self.visit_try(node, source),
-            "synchronized_statement" => self.visit_synchronized(node, source),
+            "if_statement" => stack.push(Task::If { node }),
+            "while_statement" => stack.push(Task::Loop { node }),
+            "do_statement" => stack.push(Task::DoWhile { node }),
+            "for_statement" | "enhanced_for_statement" => stack.push(Task::Loop { node }),
+            "switch_statement" | "switch_expression" => stack.push(Task::Switch { node }),
+            "try_statement" => stack.push(Task::Try { node }),
+            "synchronized_statement" => stack.push(Task::Synchronized { node }),
             "return_statement" => self.visit_return(),
             "throw_statement" => self.visit_throw(),
             "break_statement" => self.visit_break(),
             "continue_statement" => self.visit_continue(),
-            "expression_statement" => self.visit_expression_statement(node, source),
-            "local_variable_declaration" => self.visit_simple_statement(),
-            "assert_statement" => self.visit_simple_statement(),
-            _ => {
-                // For other node types, just create a simple node
-                self.visit_simple_statement();
-            }
-        }
-    }
-
-    /// Visit if statement
-    fn visit_if(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create condition node
-        let condition = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, condition);
-
-        // Get the consequence block
-        let consequence = find_child_by_kind(*node, "block");
-
-        // Get alternative (else if or else)
-        let alternative = find_child_by_kind(*node, "else_clause");
-
-        // Join point after if
-        let join = self.cfg.add_node(NodeKind::Statement);
-
-        // Process consequence branch
-        if let Some(cons_block) = consequence {
-            self.current_node = Some(condition);
-            self.visit_block(&cons_block, source);
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-        } else {
-            self.cfg.add_edge(condition, join);
-        }
-
-        // Process alternative branch (else or else if)
-        if let Some(alt_node) = alternative {
-            self.current_node = Some(condition);
-
-            // Check if it's an else-if or plain else
-            let mut cursor = alt_node.walk();
-            for child in alt_node.children(&mut cursor) {
-                if child.is_named() {
-                    if child.kind() == "if_statement" {
-                        // else if - visit as a nested if
-                        self.visit_if(&child, source);
-                    } else if child.kind() == "block" {
-                        // else block
-                        self.visit_block(&child, source);
-                    }
-                }
-            }
-
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-        } else {
-            // No else clause, condition can go directly to join
-            self.cfg.add_edge(condition, join);
-        }
-
-        self.current_node = Some(join);
-    }
-
-    /// Visit while loop
-    fn visit_while(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create condition node
-        let condition = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, condition);
-
-        // After loop join point
-        let after_loop = self.cfg.add_node(NodeKind::Statement);
-
-        // Push loop context for break/continue
-        self.loop_stack.push(LoopContext {
-            break_target: after_loop,
-            continue_target: condition,
-        });
-
-        // Process body
-        if let Some(body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(condition);
-            self.visit_block(&body, source);
-
-            // Loop back to condition
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, condition);
-                }
-            }
-        }
-
-        // Condition false edge to after loop
-        self.cfg.add_edge(condition, after_loop);
-
-        self.loop_stack.pop();
-        self.current_node = Some(after_loop);
-    }
-
-    /// Visit do-while loop
-    fn visit_do_while(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create body entry node
-        let body_entry = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(current, body_entry);
-
-        // Create condition node
-        let condition = self.cfg.add_node(NodeKind::Condition);
-
-        // After loop join point
-        let after_loop = self.cfg.add_node(NodeKind::Statement);
-
-        // Push loop context for break/continue
-        self.loop_stack.push(LoopContext {
-            break_target: after_loop,
-            continue_target: condition,
-        });
-
-        // Process body
-        if let Some(body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(body_entry);
-            self.visit_block(&body, source);
-
-            // Body goes to condition
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, condition);
-                }
-            }
-        } else {
-            self.cfg.add_edge(body_entry, condition);
-        }
-
-        // Condition true edge loops back to body
-        self.cfg.add_edge(condition, body_entry);
-
-        // Condition false edge to after loop
-        self.cfg.add_edge(condition, after_loop);
-
-        self.loop_stack.pop();
-        self.current_node = Some(after_loop);
-    }
-
-    /// Visit for loop (traditional or enhanced)
-    fn visit_for(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create condition node (header)
-        let condition = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, condition);
-
-        // After loop join point
-        let after_loop = self.cfg.add_node(NodeKind::Statement);
-
-        // Push loop context for break/continue
-        self.loop_stack.push(LoopContext {
-            break_target: after_loop,
-            continue_target: condition,
-        });
-
-        // Process body
-        if let Some(body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(condition);
-            self.visit_block(&body, source);
-
-            // Loop back to condition
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, condition);
-                }
-            }
-        }
-
-        // Condition false edge to after loop
-        self.cfg.add_edge(condition, after_loop);
-
-        self.loop_stack.pop();
-        self.current_node = Some(after_loop);
-    }
-
-    /// Visit switch statement or switch expression
-    fn visit_switch(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create switch node (decision point)
-        let switch_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, switch_node);
-
-        // Join point after switch
-        let join = self.cfg.add_node(NodeKind::Statement);
-
-        // Push loop context for break (switch can be broken out of)
-        self.loop_stack.push(LoopContext {
-            break_target: join,
-            continue_target: join, // continue not valid in switch, but use join
-        });
-
-        // Find switch body
-        if let Some(switch_body) = find_child_by_kind(*node, "switch_block") {
-            let mut cursor = switch_body.walk();
-            let mut has_default = false;
-
-            for child in switch_body.children(&mut cursor) {
-                if child.kind() == "switch_label" {
-                    // Create a node for this case
-                    let case_node = self.cfg.add_node(NodeKind::Statement);
-
-                    // Switch branches to this case
-                    self.cfg.add_edge(switch_node, case_node);
-
-                    // Check if it's default case
-                    let case_text = &source[child.start_byte()..child.end_byte()];
-                    if case_text.contains("default") {
-                        has_default = true;
-                    }
-
-                    self.current_node = Some(case_node);
-                } else if child.is_named() && child.kind() != "{" && child.kind() != "}" {
-                    // Process statements in the case
-                    self.visit_node(&child, source);
-                }
-            }
-
-            // Connect last case to join (fall-through or explicit break)
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-
-            // If no default case, switch can go directly to join
-            if !has_default {
-                self.cfg.add_edge(switch_node, join);
-            }
-        } else {
-            // No body, just go to join
-            self.cfg.add_edge(switch_node, join);
-        }
-
-        self.loop_stack.pop();
-        self.current_node = Some(join);
-    }
-
-    /// Visit try statement
-    fn visit_try(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        // Create try block entry
-        let try_entry = self.cfg.add_node(NodeKind::Statement);
-        self.cfg.add_edge(current, try_entry);
-
-        // Track all branch ends
-        let mut branch_ends = Vec::new();
-
-        // Process try body
-        if let Some(try_body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(try_entry);
-            self.visit_block(&try_body, source);
-
-            if let Some(last) = self.current_node {
-                branch_ends.push(last);
-            }
-        } else {
-            // No try body
-            branch_ends.push(try_entry);
-        }
-
-        // Process catch clauses
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            if child.kind() == "catch_clause" {
-                // Each catch is a separate branch from try entry
-                let catch_node = self.cfg.add_node(NodeKind::Condition);
-                self.cfg.add_edge(try_entry, catch_node);
-
-                if let Some(catch_body) = find_child_by_kind(child, "block") {
-                    self.current_node = Some(catch_node);
-                    self.visit_block(&catch_body, source);
-
-                    if let Some(last) = self.current_node {
-                        branch_ends.push(last);
-                    }
+            "expression_statement" => {
+                // May contain ternary, &&, ||, lambdas
+                if let Some(expr) = node.named_child(0) {
+                    self.dispatch_expr(expr, source, stack);
                 } else {
-                    // No catch body
-                    branch_ends.push(catch_node);
+                    self.visit_simple_statement();
                 }
             }
-        }
-
-        // Process finally block if present
-        // Note: Finally blocks are complex to model correctly in CFG because they execute
-        // on all exit paths. For simplicity, we skip modeling finally in the CFG.
-
-        // Only create join node if there are branches that don't exit
-        let non_exit_branches: Vec<_> = branch_ends
-            .into_iter()
-            .filter(|&end| end != self.cfg.exit)
-            .collect();
-
-        if !non_exit_branches.is_empty() {
-            let join = self.cfg.add_node(NodeKind::Statement);
-            for end in non_exit_branches {
-                self.cfg.add_edge(end, join);
-            }
-            self.current_node = Some(join);
-        } else {
-            // All branches exit - current node is exit
-            self.current_node = Some(self.cfg.exit);
+            // Local variable declarations, assertions, and anything else
+            _ => self.visit_simple_statement(),
         }
     }
 
-    /// Visit synchronized statement
-    fn visit_synchronized(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
+    /// Dispatch an expression to branch-aware handling for ternaries,
+    /// &&/|| short-circuits, and lambdas with control flow.
+    fn dispatch_expr<'a>(&mut self, node: Node<'a>, source: &str, stack: &mut Vec<Task<'a>>) {
+        match node.kind() {
+            "ternary_expression" => stack.push(Task::Ternary { node }),
+            "binary_expression" if Self::is_short_circuit_op(&node, source) => {
+                stack.push(Task::ShortCircuit { node })
+            }
+            "lambda_expression" => stack.push(Task::Lambda { node }),
+            "assignment_expression" => {
+                if let Some(rhs) = node.child_by_field_name("right") {
+                    stack.push(Task::Expr { node: rhs });
+                } else {
+                    self.visit_simple_statement();
+                }
+            }
+            "method_invocation" => {
+                let mut lambda_arg = None;
+                if let Some(args) = node.child_by_field_name("arguments") {
+                    let mut cursor = args.walk();
+                    for child in args.named_children(&mut cursor) {
+                        if child.kind() == "lambda_expression" {
+                            lambda_arg = Some(child);
+                            break;
+                        }
+                    }
+                }
 
-        // Create synchronized node (decision point - acquiring lock)
-        let sync_node = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, sync_node);
-
-        // Process body
-        if let Some(body) = find_child_by_kind(*node, "block") {
-            self.current_node = Some(sync_node);
-            self.visit_block(&body, source);
-        } else {
-            self.current_node = Some(sync_node);
+                if let Some(lambda) = lambda_arg {
+                    stack.push(Task::Lambda { node: lambda });
+                } else {
+                    self.visit_simple_statement();
+                }
+            }
+            _ => self.visit_simple_statement(),
         }
+    }
+
+    /// Returns true if the binary expression's operator is `&&` or `||`.
+    fn is_short_circuit_op(node: &Node, source: &str) -> bool {
+        node.child_by_field_name("operator")
+            .map(|op| {
+                let text = &source[op.start_byte()..op.end_byte()];
+                text == "&&" || text == "||"
+            })
+            .unwrap_or(false)
     }
 
     /// Visit return statement
@@ -498,147 +759,6 @@ impl JavaCfgBuilderState {
         }
     }
 
-    /// Visit expression statement (may contain ternary, &&, ||, lambdas)
-    fn visit_expression_statement(&mut self, node: &Node, source: &str) {
-        if let Some(expr) = node.named_child(0) {
-            self.visit_expr(&expr, source);
-        } else {
-            self.visit_simple_statement();
-        }
-    }
-
-    /// Visit an expression, dispatching to branch-aware handling for
-    /// ternaries, &&/|| short-circuits, and lambdas with control flow.
-    fn visit_expr(&mut self, node: &Node, source: &str) {
-        match node.kind() {
-            "ternary_expression" => self.visit_ternary(node, source),
-            "binary_expression" if Self::is_short_circuit_op(node, source) => {
-                self.visit_short_circuit(node, source)
-            }
-            "lambda_expression" => self.visit_lambda(node, source),
-            "assignment_expression" => {
-                if let Some(rhs) = node.child_by_field_name("right") {
-                    self.visit_expr(&rhs, source);
-                } else {
-                    self.visit_simple_statement();
-                }
-            }
-            "method_invocation" => {
-                let mut lambda_arg = None;
-                if let Some(args) = node.child_by_field_name("arguments") {
-                    let mut cursor = args.walk();
-                    for child in args.named_children(&mut cursor) {
-                        if child.kind() == "lambda_expression" {
-                            lambda_arg = Some(child);
-                            break;
-                        }
-                    }
-                }
-
-                if let Some(lambda) = lambda_arg {
-                    self.visit_lambda(&lambda, source);
-                } else {
-                    self.visit_simple_statement();
-                }
-            }
-            _ => self.visit_simple_statement(),
-        }
-    }
-
-    /// Returns true if the binary expression's operator is `&&` or `||`.
-    fn is_short_circuit_op(node: &Node, source: &str) -> bool {
-        node.child_by_field_name("operator")
-            .map(|op| {
-                let text = &source[op.start_byte()..op.end_byte()];
-                text == "&&" || text == "||"
-            })
-            .unwrap_or(false)
-    }
-
-    /// Visit a ternary expression (`condition ? consequence : alternative`),
-    /// modeling it like an if/else branch.
-    fn visit_ternary(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        let condition = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, condition);
-
-        let join = self.cfg.add_node(NodeKind::Statement);
-
-        if let Some(consequence) = node.child_by_field_name("consequence") {
-            self.current_node = Some(condition);
-            self.visit_expr(&consequence, source);
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-        } else {
-            self.cfg.add_edge(condition, join);
-        }
-
-        if let Some(alternative) = node.child_by_field_name("alternative") {
-            self.current_node = Some(condition);
-            self.visit_expr(&alternative, source);
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-        } else {
-            self.cfg.add_edge(condition, join);
-        }
-
-        self.current_node = Some(join);
-    }
-
-    /// Visit a `&&`/`||` binary expression, modeling short-circuit evaluation:
-    /// the right operand is only conditionally evaluated.
-    fn visit_short_circuit(&mut self, node: &Node, source: &str) {
-        let Some(current) = self.current_node else {
-            return;
-        };
-
-        let left_evaluated = self.cfg.add_node(NodeKind::Condition);
-        self.cfg.add_edge(current, left_evaluated);
-
-        let join = self.cfg.add_node(NodeKind::Statement);
-
-        // Right operand is evaluated only when short-circuiting doesn't apply.
-        if let Some(right) = node.child_by_field_name("right") {
-            self.current_node = Some(left_evaluated);
-            self.visit_expr(&right, source);
-            if let Some(last) = self.current_node {
-                if last != self.cfg.exit {
-                    self.cfg.add_edge(last, join);
-                }
-            }
-        } else {
-            self.cfg.add_edge(left_evaluated, join);
-        }
-
-        // Short-circuit path: right operand is skipped entirely.
-        self.cfg.add_edge(left_evaluated, join);
-
-        self.current_node = Some(join);
-    }
-
-    /// Visit a lambda expression, building the CFG for its body when it has
-    /// its own control flow (a block body) instead of skipping it.
-    fn visit_lambda(&mut self, node: &Node, source: &str) {
-        self.visit_simple_statement();
-
-        if let Some(body) = node.child_by_field_name("body") {
-            if body.kind() == "block" {
-                self.visit_block(&body, source);
-            } else {
-                self.visit_expr(&body, source);
-            }
-        }
-    }
-
     /// Visit simple statement (no control flow impact)
     fn visit_simple_statement(&mut self) {
         if let Some(current) = self.current_node {
@@ -647,16 +767,13 @@ impl JavaCfgBuilderState {
             self.current_node = Some(node);
         }
     }
+}
 
-    /// Visit a block node
-    fn visit_block(&mut self, block: &Node, source: &str) {
-        let mut cursor = block.walk();
-        for child in block.children(&mut cursor) {
-            if child.is_named() {
-                self.visit_node(&child, source);
-            }
-        }
-    }
+fn named_children<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|c| c.is_named())
+        .collect()
 }
 
 #[cfg(test)]
@@ -893,5 +1010,40 @@ public class Test {
         cfg.validate().unwrap();
         // Entry, call-site node, lambda's if-condition, then-branch, join, exit
         assert!(cfg.node_count() >= 5);
+    }
+
+    /// Nesting this deep would overflow a recursive builder on a small stack.
+    #[test]
+    fn test_deeply_nested_if_else_does_not_overflow_and_builds_real_cfg() {
+        const DEPTH: usize = 2_000;
+
+        let mut source = String::from("class T {\nvoid test(int x) {\n");
+        for _ in 0..DEPTH {
+            source.push_str("if (x > 0) {\n");
+        }
+        source.push_str("x = 1;\n");
+        for _ in 0..DEPTH {
+            source.push_str("} else {\nx = 2;\n}\n");
+        }
+        source.push_str("}\n}\n");
+
+        let node_count = std::thread::Builder::new()
+            .stack_size(6 * 1024 * 1024)
+            .spawn(move || {
+                use crate::language::{JavaParser, LanguageParser};
+                let parser = JavaParser::new().unwrap();
+                let module = parser.parse(&source, "T.java").unwrap();
+                let functions = module.discover_functions(0, &source);
+                assert_eq!(functions.len(), 1);
+                JavaCfgBuilder.build(&functions[0]).node_count()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+
+        assert!(
+            node_count > DEPTH,
+            "expected a fully-built CFG with >{DEPTH} nodes, got {node_count}"
+        );
     }
 }
