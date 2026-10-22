@@ -26,8 +26,9 @@ collecting statistics — useful as a fast compile-and-smoke-test pass.
 
 ## What's covered
 
-`hot_path.rs` benchmarks three groups, each across Rust (via `syn`) and
-TypeScript (via SWC), at three fixed input sizes (small/medium/large):
+`hot_path.rs` benchmarks three groups, each across Rust (via `syn`),
+TypeScript (via SWC), Java, Python, C and C# (via tree-sitter), at three
+fixed input sizes (small/medium/large):
 
 - **`parse`** — `LanguageParser::parse` (the per-language parser entry
   point): raw source text to a `ParsedModule`.
@@ -39,7 +40,9 @@ Fixtures are deliberately fixed, not generated: small/medium are existing
 `tests/fixtures/` files reused from the test suite, and large is a real
 source file already in the repo (`hotspots-core/src/metrics.rs` for Rust,
 `action/src/main.ts` for TypeScript) rather than a synthetic blob, so the
-benchmarks track real-world function/branch shapes.
+benchmarks track real-world function/branch shapes. The repo has no large
+real Java, Python, C or C# source file, so for those languages `large` is a
+medium `tests/fixtures/` file repeated 16 times.
 
 ## Reading output
 
