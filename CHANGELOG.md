@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Convert C CFG builder to iterative work-stack walk (#286)
 - Make perf regression gate require reproduction across two runs (#289)
 - Convert C# CFG builder to iterative work-stack walk (#287)
+- Drop --execute from release dry-run step (#290)
 
 
 ### Documentation
