@@ -281,7 +281,7 @@ npm run clean && npm run build
 - [AI Integration Guide](../../docs/AI_INTEGRATION.md) - Complete AI integration documentation
 - [JSON Schema Reference](../../docs/json-schema.md) - Hotspots output format
 - [TypeScript Types](../../packages/types/README.md) - @hotspots/types documentation
-- [MCP Server](../../packages/mcp-server/README.md) - Claude Desktop integration
+- [MCP Server](../../packages/mcp-server/README.md) - Claude Desktop / Claude Code integration (coordinate, analyze, policy check, local sample log)
 
 ## License
 
