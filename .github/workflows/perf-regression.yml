@@ -7,10 +7,18 @@ name: Perf Regression
 # (hotspots#267 part 3, benchmarks/perf.py) — that clones and analyzes real
 # multi-thousand-file repos and is too slow for per-PR CI; it runs on a
 # separate schedule/release cadence instead.
+#
+# This is a spot check, not a full sweep: it runs only when a PR carries the
+# `perf` label (or via workflow_dispatch), and benchmarks only the `large`
+# fixtures of a few representative languages with short Criterion timings.
+# The full benchmark set stays available locally (`cargo bench -p
+# hotspots-core --bench hot_path`).
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ main, develop ]
+    types: [ opened, synchronize, reopened, labeled ]
     paths:
       - "hotspots-core/**"
       - "hotspots-cli/**"
@@ -22,7 +30,15 @@ jobs:
   bench-regression:
     name: Criterion Regression Gate
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.pull_request.labels.*.name, 'perf'))
+    timeout-minutes: 10
+    env:
+      # Spot-check settings: ~3s per benchmark instead of Criterion's ~8s and
+      # only the largest fixtures of three languages.
+      BENCH_ARGS: --warm-up-time 1 --measurement-time 2 --sample-size 20 (rust|typescript|python)/large
     steps:
       - name: Checkout PR head
         uses: actions/checkout@v6
@@ -44,8 +60,8 @@ jobs:
       - name: Resolve merge-base with target branch
         id: merge-base
         run: |
-          git fetch origin "${{ github.base_ref }}" --quiet
-          base_sha=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          git fetch origin "${{ github.base_ref || 'main' }}" --quiet
+          base_sha=$(git merge-base "origin/${{ github.base_ref || 'main' }}" HEAD)
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
 
       # Shared runners drift between back-to-back phases, so measure base and
@@ -55,22 +71,22 @@ jobs:
       - name: Bench merge-base, run 1
         run: |
           git checkout "${{ steps.merge-base.outputs.sha }}"
-          cargo bench -p hotspots-core --bench hot_path -- --save-baseline base1
+          cargo bench -p hotspots-core --bench hot_path -- $BENCH_ARGS --save-baseline base1
 
       - name: Bench PR head, run 1
         run: |
           git checkout "${{ github.sha }}"
-          cargo bench -p hotspots-core --bench hot_path -- --save-baseline head1
+          cargo bench -p hotspots-core --bench hot_path -- $BENCH_ARGS --save-baseline head1
 
       - name: Bench merge-base, run 2
         run: |
           git checkout "${{ steps.merge-base.outputs.sha }}"
-          cargo bench -p hotspots-core --bench hot_path -- --save-baseline base2
+          cargo bench -p hotspots-core --bench hot_path -- $BENCH_ARGS --save-baseline base2
 
       - name: Bench PR head, run 2
         run: |
           git checkout "${{ github.sha }}"
-          cargo bench -p hotspots-core --bench hot_path -- --save-baseline head2
+          cargo bench -p hotspots-core --bench hot_path -- $BENCH_ARGS --save-baseline head2
 
       - name: Check for regressions (>10%, reproduced in both runs)
         run: python3 scripts/check_bench_regression.py --pair base1:head1 --pair base2:head2 --threshold 10 --min-base-ns 1000
