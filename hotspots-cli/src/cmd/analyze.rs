@@ -1443,10 +1443,7 @@ fn emit_json_output(
         co_change_min_count,
         include_models.then_some(analysis_path),
     );
-    if blend_churn {
-        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
-        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
-    }
+    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if all_functions {
         snapshot.aggregates = Some(aggregates);
     } else {
@@ -1462,6 +1459,19 @@ fn emit_json_output(
         snapshot.co_change = Some(co_change);
     }
     write_json_snapshot(snapshot, output)
+}
+
+/// Shared by `emit_json_output`/`emit_text_output`: when `--blend-churn` is set,
+/// re-rank `aggregates.file_risk` by the blended score; no-op otherwise.
+fn maybe_blend_churn(
+    aggregates: &mut hotspots_core::aggregates::SnapshotAggregates,
+    snapshot: &Snapshot,
+    blend_churn: bool,
+) {
+    if blend_churn {
+        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
+        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
+    }
 }
 
 fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
@@ -1493,10 +1503,7 @@ fn emit_text_output(
         co_change_window_days,
         co_change_min_count,
     );
-    if blend_churn {
-        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
-        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
-    }
+    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if level == Some(OutputLevel::File) {
         explain::print_file_risk_output(&aggregates.file_risk, top)?;
     } else if level == Some(OutputLevel::Module) {
