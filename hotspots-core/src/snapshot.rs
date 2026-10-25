@@ -52,10 +52,12 @@ pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
 /// Version of the scoring formula (default `ScoringWeights`, `LrsWeights`,
-/// `RiskThresholds`). Bumped whenever a default weight or threshold changes,
-/// so `hotspots diff`/`trends` can distinguish a score delta caused by a tool
-/// upgrade from one caused by a real code change.
-pub const FORMULA_VERSION: u32 = 1;
+/// `RiskThresholds`). Bumped whenever a default weight or threshold changes, or
+/// whenever a scoring input's *computation* changes even if its name/shape does not
+/// (e.g. 1->2: `churn`'s source switched from a single-commit diff to a 180-day
+/// trailing window) — so `hotspots diff`/`trends` can distinguish a score delta caused
+/// by a tool upgrade from one caused by a real code change.
+pub const FORMULA_VERSION: u32 = 2;
 
 fn default_formula_version() -> u32 {
     FORMULA_VERSION

@@ -163,6 +163,14 @@ enum Commands {
         /// normal output. Diagnostic only — never affects stdout or exit code.
         #[arg(long)]
         timing_report: bool,
+
+        /// Re-rank file-level risk (--level file) by a 50/50 blend of file_risk_score
+        /// and per-file churn (lines added+deleted, 180-day window), instead of
+        /// file_risk_score alone. Validated by hotspots-research F206/F208 to improve
+        /// recall on most tested repos, with one known regression and no reliable way
+        /// yet to predict which repos it will hurt (F209) — opt-in, not a default.
+        #[arg(long)]
+        blend_churn: bool,
     },
     /// Prune unreachable snapshots
     Prune {
@@ -411,6 +419,7 @@ fn main() -> anyhow::Result<()> {
             cold_start,
             axes,
             timing_report,
+            blend_churn,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -439,6 +448,7 @@ fn main() -> anyhow::Result<()> {
             cold_start,
             axes,
             timing_report,
+            blend_churn,
         })?,
         Commands::Prune {
             unreachable,
