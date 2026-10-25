@@ -2,7 +2,7 @@
 
 **Status:** implemented. See "Open questions" for how each was resolved.
 **Start here if you're a new session picking this up.** This file is the exhaustive spec;
-implement against it directly. It is a tooling/packaging feature, not a `hotspots-research`
+implement against it directly. It is a tooling/packaging feature, not a research
 promotion — there is no promotion brief for it, and this spec plays that role instead. The
 same rules from the parent `CLAUDE.md` still apply (branch already created as
 `feat/mcp-server`, single-line commits, `cargo fmt`/`clippy`/`test` are not relevant here
@@ -65,7 +65,7 @@ log of every sample pulled so the *flow*, not just the latest drop, is inspectab
 - **Not a new risk-scoring feature.** If something here surfaces a gap in what `hotspots`
   itself computes (e.g., a missing field), note it in this spec's "Open questions" and stop —
   do not add new fields to `FunctionSnapshot`/`risk.rs`/etc. as part of this work. That
-  requires a `hotspots-research` finding and promotion brief, per the parent `CLAUDE.md`.
+  requires a research finding and promotion brief, per the parent `CLAUDE.md`.
 
 ## Package layout
 

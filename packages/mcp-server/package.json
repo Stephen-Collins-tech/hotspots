@@ -19,7 +19,13 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["hotspots", "mcp", "model-context-protocol", "complexity", "risk"],
+  "keywords": [
+    "hotspots",
+    "mcp",
+    "model-context-protocol",
+    "complexity",
+    "risk"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -31,7 +37,7 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "better-sqlite3": "^12.0.0",
     "execa": "^8.0.1",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
