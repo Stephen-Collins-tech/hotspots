@@ -41,6 +41,10 @@ pub struct GitContext {
     pub ticket_ids: Vec<String>,
 }
 
+/// Trailing-window size for `windowed_churn_at`, validated by hotspots-research
+/// F205/F206/F208/F209. Not user-configurable (no finding has tested another window).
+pub const CHURN_WINDOW_DAYS: u64 = 180;
+
 /// File churn metrics (lines added/deleted)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChurn {
@@ -598,6 +602,108 @@ pub fn extract_commit_churn_at(repo_path: &Path, sha: &str) -> Result<Vec<FileCh
     }
 
     Ok(churns)
+}
+
+/// Parse `--numstat` output (one or more commits' worth, each formatted with `--format=%x02`
+/// or `--format=` to suppress commit headers), summing `lines_added`/`lines_deleted` per file
+/// across every line in the output. Unlike the single-commit parsers above, malformed lines
+/// (including the `%x02` separator lines themselves, which never contain two tabs) are skipped
+/// rather than treated as an error — a windowed walk over many commits should not fail outright
+/// on one unparseable line.
+fn sum_numstat_lines(output: &str) -> Vec<FileChurn> {
+    let mut totals: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let (added_str, deleted_str, file) = (parts[0], parts[1], parts[2].to_string());
+        if added_str == "-" || deleted_str == "-" {
+            continue;
+        }
+
+        let (Ok(added), Ok(deleted)) = (added_str.parse::<usize>(), deleted_str.parse::<usize>())
+        else {
+            continue;
+        };
+
+        let entry = totals.entry(file).or_insert((0, 0));
+        entry.0 += added;
+        entry.1 += deleted;
+    }
+
+    totals
+        .into_iter()
+        .map(|(file, (lines_added, lines_deleted))| FileChurn {
+            file,
+            lines_added,
+            lines_deleted,
+        })
+        .collect()
+}
+
+/// Extract churn (lines added/deleted per file) summed over a trailing window ending at
+/// `sha`, rather than `sha`'s own single-commit diff.
+///
+/// `extract_commit_churn_at` (above) reflects only the most recent commit's change —
+/// a signal validated as near-inert for defect-risk purposes (hotspots-research F168,
+/// F205/F206/F208/F209) because a single commit's diff rarely captures a file's actual
+/// maintenance churn. This resolves that by summing `git log --numstat` over the
+/// `window_days` preceding `sha`.
+///
+/// # Arguments
+///
+/// * `repo_path` - Path to git repository
+/// * `sha` - Commit SHA to end the window at
+/// * `window_days` - Number of days before `sha`'s commit time to include
+///
+/// # Returns
+///
+/// Returns vector of `FileChurn` entries, one per file touched in the window, each the
+/// sum of lines added/deleted across every commit in that window (not a single diff).
+/// Returns empty vector if `sha`'s commit time cannot be resolved or the window is empty.
+///
+/// # Errors
+///
+/// Returns error if the initial commit-time lookup's git invocation fails outright
+/// (not found in an expected format); a failed `git log` for the window itself degrades
+/// to an empty result, matching `extract_commit_churn_at`'s own soft-failure convention.
+pub fn windowed_churn_at(repo_path: &Path, sha: &str, window_days: u64) -> Result<Vec<FileChurn>> {
+    let commit_ts: i64 = match git_at(repo_path, &["show", "-s", "--format=%at", sha]) {
+        Ok(out) => out
+            .trim()
+            .parse()
+            .with_context(|| format!("Failed to parse commit timestamp for {}", sha))?,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let since_ts = commit_ts - (window_days as i64 * 86400);
+
+    let since_arg = format!("--since=@{}", since_ts);
+    let until_arg = format!("--until=@{}", commit_ts);
+    let output = match git_at(
+        repo_path,
+        &[
+            "log",
+            sha,
+            &since_arg,
+            &until_arg,
+            "--numstat",
+            "--format=%x02",
+        ],
+    ) {
+        Ok(out) => out,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    Ok(sum_numstat_lines(&output))
 }
 
 /// Per-file changed-line numbers from a unified diff, split by old-file (deleted/context-shifted

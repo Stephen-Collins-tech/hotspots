@@ -28,10 +28,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add --timing-report per-phase analyze timing (#268)
 - Add perf macro-benchmark + CI regression gate (parts 3-4 of #267) (#277)
+- Add --blend-churn opt-in file-risk re-ranking (hotspots-research F206/F208/F209)
 
 
 ### Performance
 - Avoid re-parsing files once per function (#282)
+
+### Changed
+- **`churn`'s computation window changed from a single-commit diff to a 180-day
+  trailing window** (`FORMULA_VERSION` 1 -> 2). The single-commit version was
+  validated as near-inert for defect-risk purposes (hotspots-research F168); the
+  180-day window is validated to carry real signal (F205/F206/F208/F209). This
+  changes `activity_risk` and anything derived from it for every `analyze` run,
+  not just opt-in flags — scores will shift on upgrade. Field names/shapes are
+  unchanged.
 
 ## [2.2.0] - 2026-10-18
 

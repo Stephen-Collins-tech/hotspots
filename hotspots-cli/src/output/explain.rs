@@ -29,6 +29,17 @@ pub(crate) fn print_file_risk_output(
             view.function_count, view.loc, view.max_cc, view.avg_cc
         );
         println!("   Risk Score: {:.2}", view.file_risk_score);
+        if let (Some(blended), Some(churn_pct)) =
+            (view.file_risk_score_blended, view.churn_percentile)
+        {
+            // blended = (static_pct + churn_pct) / 2 -- recover static_pct rather than
+            // carrying a third field on FileRiskView just for this display line.
+            let static_pct = 2.0 * blended - churn_pct;
+            println!(
+                "   Blended Score: {:.2} (static percentile {:.2}, churn percentile {:.2})",
+                blended, static_pct, churn_pct
+            );
+        }
         if view.critical_count > 0 {
             println!("   Critical functions: {}", view.critical_count);
         }

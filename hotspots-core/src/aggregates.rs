@@ -48,6 +48,14 @@ pub struct FileRiskView {
     pub avg_cc: f64,
     pub critical_count: usize,
     pub file_risk_score: f64,
+    /// Percentile rank (0.0-1.0, 1.0 = riskiest) of this file's churn among all files in
+    /// the snapshot. `None` unless `apply_churn_blend` has run (opt-in, `--blend-churn`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub churn_percentile: Option<f64>,
+    /// 50/50 average of `file_risk_score`'s percentile rank and `churn_percentile`
+    /// (hotspots-research F206/F208/F209). `None` unless `apply_churn_blend` has run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_risk_score_blended: Option<f64>,
 }
 
 /// Module (directory) instability metric (Robert Martin's Ca/Ce)
@@ -671,6 +679,8 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
                     avg_cc: (avg_cc * 100.0).round() / 100.0,
                     critical_count,
                     file_risk_score: (score * 100.0).round() / 100.0,
+                    churn_percentile: None,
+                    file_risk_score_blended: None,
                 }
             },
         )
@@ -684,6 +694,87 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
     });
 
     views
+}
+
+/// Percentile-rank `views` by `key` (descending: highest value -> 1.0), ties broken by
+/// file path for determinism. Position `i` in the sorted-descending order maps to
+/// `1.0 - i / (n - 1)` (the top value gets 1.0, the bottom gets 0.0; a single-element
+/// slice gets 1.0). Matches hotspots-research's `scripts/eval/f206_analyze.py`
+/// `percentile_rank` exactly.
+fn percentile_ranks(
+    views: &[FileRiskView],
+    key: impl Fn(&FileRiskView) -> f64,
+) -> HashMap<String, f64> {
+    let n = views.len();
+    let mut ranked: Vec<&FileRiskView> = views.iter().collect();
+    ranked.sort_by(|a, b| {
+        key(b)
+            .partial_cmp(&key(a))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
+    ranked
+        .into_iter()
+        .enumerate()
+        .map(|(i, v)| {
+            (
+                v.file.clone(),
+                1.0 - (i as f64) / (n.saturating_sub(1).max(1) as f64),
+            )
+        })
+        .collect()
+}
+
+/// Sum `FunctionSnapshot.churn`'s `lines_added + lines_deleted` per file, for use as
+/// `apply_churn_blend`'s `churn_totals` argument. Files with no churn data (or no
+/// functions) are simply absent from the result, not present at zero.
+pub fn churn_totals_by_file(functions: &[FunctionSnapshot]) -> HashMap<String, u64> {
+    let mut totals: HashMap<String, u64> = HashMap::new();
+    for func in functions {
+        if let Some(churn) = &func.churn {
+            let entry = totals.entry(func.file.clone()).or_insert(0);
+            *entry += (churn.lines_added + churn.lines_deleted) as u64;
+        }
+    }
+    totals
+}
+
+/// Opt-in re-ranking: blend `file_risk_score` with per-file churn (lines added +
+/// deleted, summed over `windowed_churn_at`'s trailing window) via a 50/50 average of
+/// each signal's percentile rank. Validated by hotspots-research F206 (beats the static
+/// score on a majority of tested repos), F208 (holds on repos never used to develop the
+/// blend), F209 (one known regression, not yet detectable in advance — see those
+/// findings before changing this function's weighting).
+///
+/// `churn_totals` is `lines_added + lines_deleted` per file; the caller is responsible
+/// for aggregating it from `FunctionSnapshot.churn` (this function does no git I/O).
+/// Files with no entry in `churn_totals` are treated as zero churn, not excluded.
+///
+/// Mutates `views` in place: sets `churn_percentile`/`file_risk_score_blended` on every
+/// entry, then re-sorts by `file_risk_score_blended` descending (ties by file path).
+pub fn apply_churn_blend(views: &mut [FileRiskView], churn_totals: &HashMap<String, u64>) {
+    if views.is_empty() {
+        return;
+    }
+
+    let static_pct = percentile_ranks(views, |v| v.file_risk_score);
+    let churn_pct = percentile_ranks(views, |v| {
+        churn_totals.get(&v.file).copied().unwrap_or(0) as f64
+    });
+
+    for v in views.iter_mut() {
+        let sp = static_pct.get(&v.file).copied().unwrap_or(0.0);
+        let cp = churn_pct.get(&v.file).copied().unwrap_or(0.0);
+        v.churn_percentile = Some(cp);
+        v.file_risk_score_blended = Some((sp + cp) / 2.0);
+    }
+
+    views.sort_by(|a, b| {
+        b.file_risk_score_blended
+            .partial_cmp(&a.file_risk_score_blended)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
 }
 
 /// Annotate co-change pairs with `has_static_dep` from the import edge set.
