@@ -53,6 +53,9 @@ pub(crate) struct AnalyzeArgs {
     pub axes: bool,
     /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
     pub timing_report: bool,
+    /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
+    /// instead of file_risk_score alone (hotspots-research F206/F208/F209). Opt-in.
+    pub blend_churn: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -223,6 +226,7 @@ mod validate_analyze_flags_tests {
             cold_start: false,
             axes: false,
             timing_report: false,
+            blend_churn: false,
         }
     }
 
@@ -478,6 +482,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         cold_start,
         axes,
         timing_report,
+        blend_churn,
     } = args;
 
     let timing = timing_report.then(hotspots_core::TimingCollector::default);
@@ -583,6 +588,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 callgraph_skip_above,
                 skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
+                blend_churn,
             },
             timing.as_ref(),
         );
@@ -619,6 +625,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 callgraph_skip_above,
                 skip_touch_metrics: effective_skip_touch_metrics,
                 skip_gate,
+                blend_churn,
             },
             timing.as_ref(),
         );
@@ -950,6 +957,7 @@ pub(crate) struct ModeOutputOptions {
     pub callgraph_skip_above: Option<usize>,
     pub skip_touch_metrics: bool,
     pub skip_gate: bool,
+    pub blend_churn: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -1022,6 +1030,7 @@ fn handle_snapshot_mode(
         skip_gate,
         top,
         output,
+        blend_churn,
         ..
     } = opts;
 
@@ -1175,6 +1184,7 @@ fn handle_snapshot_mode(
                 high: resolved_config.high_threshold,
                 critical: resolved_config.critical_threshold,
             },
+            blend_churn,
         },
         repo_root,
         path,
@@ -1391,6 +1401,7 @@ struct SnapshotOutputOpts {
     include_models: bool,
     source_url: Option<String>,
     risk_thresholds: hotspots_core::risk::RiskThresholds,
+    blend_churn: bool,
 }
 
 fn emit_snapshot_output(
@@ -1422,15 +1433,17 @@ fn emit_json_output(
         co_change_window_days,
         co_change_min_count,
         output,
+        blend_churn,
         ..
     } = opts;
-    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
         include_models.then_some(analysis_path),
     );
+    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if all_functions {
         snapshot.aggregates = Some(aggregates);
     } else {
@@ -1446,6 +1459,19 @@ fn emit_json_output(
         snapshot.co_change = Some(co_change);
     }
     write_json_snapshot(snapshot, output)
+}
+
+/// Shared by `emit_json_output`/`emit_text_output`: when `--blend-churn` is set,
+/// re-rank `aggregates.file_risk` by the blended score; no-op otherwise.
+fn maybe_blend_churn(
+    aggregates: &mut hotspots_core::aggregates::SnapshotAggregates,
+    snapshot: &Snapshot,
+    blend_churn: bool,
+) {
+    if blend_churn {
+        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
+        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
+    }
 }
 
 fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
@@ -1468,14 +1494,16 @@ fn emit_text_output(
         total_function_count,
         co_change_window_days,
         co_change_min_count,
+        blend_churn,
         ..
     } = opts;
-    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
     );
+    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if level == Some(OutputLevel::File) {
         explain::print_file_risk_output(&aggregates.file_risk, top)?;
     } else if level == Some(OutputLevel::Module) {
@@ -1897,7 +1925,7 @@ pub(crate) fn build_snapshot_via_db(
 
     // Phase 2: churn (needed before callgraph so neighbor_churn can read it).
     if !git_context.parent_shas.is_empty() {
-        match git::extract_commit_churn_at(repo_root, &sha) {
+        match git::windowed_churn_at(repo_root, &sha, git::CHURN_WINDOW_DAYS) {
             Ok(churns) => {
                 let churn_map: std::collections::HashMap<String, _> = churns
                     .into_iter()
@@ -2035,7 +2063,7 @@ pub(crate) fn build_enriched_snapshot(
         .with_subsystems(repo_root);
 
     if !git_context.parent_shas.is_empty() {
-        match git::extract_commit_churn_at(repo_root, &git_context.head_sha) {
+        match git::windowed_churn_at(repo_root, &git_context.head_sha, git::CHURN_WINDOW_DAYS) {
             Ok(churns) => {
                 let churn_map: std::collections::HashMap<String, _> = churns
                     .into_iter()
