@@ -27,7 +27,7 @@ collecting statistics — useful as a fast compile-and-smoke-test pass.
 ## What's covered
 
 `hot_path.rs` benchmarks three groups, each across Rust (via `syn`),
-TypeScript (via SWC), Java, Python, C and C# (via tree-sitter), at three
+TypeScript (via SWC), Java, Python, C, C# and Go (via tree-sitter), at three
 fixed input sizes (small/medium/large):
 
 - **`parse`** — `LanguageParser::parse` (the per-language parser entry
@@ -42,7 +42,9 @@ source file already in the repo (`hotspots-core/src/metrics.rs` for Rust,
 `action/src/main.ts` for TypeScript) rather than a synthetic blob, so the
 benchmarks track real-world function/branch shapes. The repo has no large
 real Java, Python, C or C# source file, so for those languages `large` is a
-medium `tests/fixtures/` file repeated 16 times.
+medium `tests/fixtures/` file repeated 16 times. Go's fixture carries a
+`package`/`import` block that can't be duplicated the same way, so its
+`large` fixture is pre-generated once instead — see `benches/generated/README.md`.
 
 ## Reading output
 

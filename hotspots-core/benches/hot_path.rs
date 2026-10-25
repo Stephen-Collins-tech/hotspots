@@ -10,7 +10,7 @@ use hotspots_core::ast::FunctionNode;
 use hotspots_core::language::cfg_builder::get_builder_for_function;
 use hotspots_core::language::parser::LanguageParser;
 use hotspots_core::language::{
-    CParser, CSharpParser, ECMAScriptParser, JavaParser, PythonParser, RustParser,
+    CParser, CSharpParser, ECMAScriptParser, GoParser, JavaParser, PythonParser, RustParser,
 };
 use hotspots_core::metrics::extract_metrics;
 use swc_common::sync::Lrc;
@@ -65,6 +65,15 @@ const C_LARGE: &str = repeated!("../../tests/fixtures/c/control_flow.c");
 const CSHARP_SMALL: &str = include_str!("../../tests/fixtures/csharp/Simple.cs");
 const CSHARP_MEDIUM: &str = include_str!("../../tests/fixtures/csharp/Switches.cs");
 const CSHARP_LARGE: &str = repeated!("../../tests/fixtures/csharp/Switches.cs");
+
+const GO_SMALL: &str = include_str!("../../tests/fixtures/go/simple.go");
+const GO_MEDIUM: &str = include_str!("../../tests/fixtures/go/go_specific.go");
+// go_specific.go repeated would duplicate its `package`/`import` block, which
+// tree-sitter-go's own grammar is not lenient about re-parsing cleanly, so
+// `large` is pre-generated once (package/import stripped, body repeated 16x)
+// rather than repeated at compile time like the other languages — see
+// benches/generated/README.md.
+const GO_LARGE: &str = include_str!("generated/go_large.go");
 
 struct Language {
     name: &'static str,
@@ -129,6 +138,16 @@ fn languages() -> Vec<Language> {
                 ("small", CSHARP_SMALL),
                 ("medium", CSHARP_MEDIUM),
                 ("large", CSHARP_LARGE),
+            ],
+        },
+        Language {
+            name: "go",
+            filename: "fixture.go",
+            parser: Box::new(GoParser::new().expect("go parser")),
+            fixtures: [
+                ("small", GO_SMALL),
+                ("medium", GO_MEDIUM),
+                ("large", GO_LARGE),
             ],
         },
     ]
