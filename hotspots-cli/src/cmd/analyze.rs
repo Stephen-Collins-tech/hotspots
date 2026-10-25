@@ -54,7 +54,7 @@ pub(crate) struct AnalyzeArgs {
     /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
     pub timing_report: bool,
     /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
-    /// instead of file_risk_score alone (hotspots-research F206/F208/F209). Opt-in.
+    /// instead of file_risk_score alone. Opt-in.
     pub blend_churn: bool,
 }
 

@@ -41,8 +41,8 @@ pub struct GitContext {
     pub ticket_ids: Vec<String>,
 }
 
-/// Trailing-window size for `windowed_churn_at`, validated by hotspots-research
-/// F205/F206/F208/F209. Not user-configurable (no finding has tested another window).
+/// Trailing-window size for `windowed_churn_at`. Not user-configurable: only this window
+/// has been evaluated.
 pub const CHURN_WINDOW_DAYS: u64 = 180;
 
 /// File churn metrics (lines added/deleted)
@@ -654,8 +654,8 @@ fn sum_numstat_lines(output: &str) -> Vec<FileChurn> {
 /// `sha`, rather than `sha`'s own single-commit diff.
 ///
 /// `extract_commit_churn_at` (above) reflects only the most recent commit's change —
-/// a signal validated as near-inert for defect-risk purposes (hotspots-research F168,
-/// F205/F206/F208/F209) because a single commit's diff rarely captures a file's actual
+/// a signal that proved near-inert for defect-risk purposes in our evaluation, because a
+/// single commit's diff rarely captures a file's actual
 /// maintenance churn. This resolves that by summing `git log --numstat` over the
 /// `window_days` preceding `sha`.
 ///

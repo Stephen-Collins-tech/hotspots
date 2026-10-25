@@ -53,7 +53,7 @@ pub struct FileRiskView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub churn_percentile: Option<f64>,
     /// 50/50 average of `file_risk_score`'s percentile rank and `churn_percentile`
-    /// (hotspots-research F206/F208/F209). `None` unless `apply_churn_blend` has run.
+    /// `None` unless `apply_churn_blend` has run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_risk_score_blended: Option<f64>,
 }
@@ -741,10 +741,10 @@ pub fn churn_totals_by_file(functions: &[FunctionSnapshot]) -> HashMap<String, u
 
 /// Opt-in re-ranking: blend `file_risk_score` with per-file churn (lines added +
 /// deleted, summed over `windowed_churn_at`'s trailing window) via a 50/50 average of
-/// each signal's percentile rank. Validated by hotspots-research F206 (beats the static
-/// score on a majority of tested repos), F208 (holds on repos never used to develop the
-/// blend), F209 (one known regression, not yet detectable in advance — see those
-/// findings before changing this function's weighting).
+/// each signal's percentile rank. In testing it beat the static score on a majority of
+/// repos, including repos not used to develop the blend, but it regressed on at least one
+/// repo and that cannot yet be predicted in advance. Re-validate before changing the
+/// weighting.
 ///
 /// `churn_totals` is `lines_added + lines_deleted` per file; the caller is responsible
 /// for aggregating it from `FunctionSnapshot.churn` (this function does no git I/O).
