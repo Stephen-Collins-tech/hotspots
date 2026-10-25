@@ -1,5 +1,5 @@
 //! `hotspots estimate` (#187): a cheap pre-flight projection of `analyze
-//! --touch-mode per-function`'s wall-clock cost, so callers (e.g. hotspots-cloud)
+//! --touch-mode per-function`'s wall-clock cost, so callers (e.g. an external pipeline)
 //! can pick a touch mode before committing to a full run instead of guessing from
 //! `size_kb` — see the #163 spike's findings for why size is a weak proxy.
 //!
@@ -15,7 +15,7 @@
 //!
 //! Per-language ms/function calibration is seeded from the #163 spike's measured
 //! values (7 repos, 6 languages) — directional, not a fitted regression; refine
-//! once hotspots-cloud logs real duration/function_count/language per run.
+//! once real duration/function_count/language per run is logged.
 
 use crate::OutputFormat;
 use anyhow::Context;

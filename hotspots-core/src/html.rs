@@ -3683,7 +3683,7 @@ fn render_delta_summary(delta: &Delta) -> String {
         <h3>Changed Lines in Touched Functions</h3>
         <div class="value">{fn_changed_lines} <span style="font-size:0.6em;font-weight:normal;">({size_band})</span></div>
         <p style="font-size:0.8em;margin-top:4px;">Strongest tested predictor of defect risk
-        (hotspots-research F132/F159/F161). Size band is a display convenience, not itself
+        in our evaluation. Size band is a display convenience, not itself
         research-derived — see docs/REFERENCE.md.</p>
     </div>
     <div class="summary-card">

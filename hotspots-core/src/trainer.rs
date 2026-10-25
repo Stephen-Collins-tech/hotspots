@@ -478,7 +478,7 @@ pub fn train(
         let pos_rate = n_pos as f64 / rows.len() as f64;
         if label_is_degenerate(pos_rate) {
             eprintln!(
-                "hotspots: warning: {:.0}% of functions are labeled positive under the                  default keyword fix-commit label (>{:.0}% threshold) — this label                  degenerates on mature, high-cadence repos (hotspots-research META-06),                  and the trained ranker below may be trained on a near-useless signal.                  Re-run with --blame for a more precise, blame-based label.",
+                "hotspots: warning: {:.0}% of functions are labeled positive under the                  default keyword fix-commit label (>{:.0}% threshold) — this label                  degenerates on mature, high-cadence repos (in our evaluation),                  and the trained ranker below may be trained on a near-useless signal.                  Re-run with --blame for a more precise, blame-based label.",
                 pos_rate * 100.0,
                 DEGENERATE_LABEL_POS_RATE * 100.0
             );
@@ -1457,7 +1457,7 @@ mod tests {
         assert_eq!(FEATURE_NAMES.len(), 9);
         assert!(
             !FEATURE_NAMES.contains(&"convention_bug_fix_count"),
-            "convention_bug_fix_count ratchets the trained ranker (F168) — removed in model_version 6"
+            "convention_bug_fix_count ratchets the trained ranker — removed in model_version 6"
         );
     }
 

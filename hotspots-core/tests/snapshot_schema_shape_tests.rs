@@ -154,9 +154,8 @@ fn snapshot_envelope_top_level_shape() {
         expected,
         "Snapshot envelope's top-level keys changed. If this is an intentional \
          schema change (e.g. a master-schema version bump), update every \
-         downstream consumer (hotspots-content's shared/snapshot-schema.json, \
-         hotspots-cloud's docs/CLI-CONTRACT.md and scripts/pipeline/snapshot.py, \
-         hotspots-research's field reads) in the same release, then update the \
+         downstream consumer of the snapshot JSON (schema docs, the GitHub \
+         Action, and any external readers) in the same release, then update the \
          expected set here."
     );
 }
@@ -429,9 +428,9 @@ fn delta_envelope_shape() {
          design: `delta.commit.sha` already carries the head commit, and a \
          second copy at the top level would duplicate that value under a \
          different path (the master schema has zero field duplication). \
-         Update downstream consumers (hotspots-cloud, the GitHub Action, \
-         hotspots-research scripts) in the same release, then update the \
-         expected set here."
+         Update downstream consumers of the snapshot JSON (schema docs, the \
+         GitHub Action, and any external readers) in the same release, then \
+         update the expected set here."
     );
     assert_eq!(
         json["schema_version"], SNAPSHOT_SCHEMA_VERSION,

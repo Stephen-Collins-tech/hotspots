@@ -36,3 +36,21 @@
 - **CFG builders must be iterative.** Never recurse over child nodes in a language's `cfg_builder.rs`; use an explicit heap work stack (see the Rust and Go builders). Applies to any new language.
 - Include test updates and documentation updates (concise, user-facing) in the same change as
   the feature.
+
+## Public repo: no private references
+
+This repo is public and must stand alone. Nothing in it — code, comments, docs, help or runtime
+text, tests, commit messages, PR text, issues, changelog — may reference private material:
+
+- No private sibling repos by name or path (any `../hotspots-*` path other than public ones) and
+  no absolute local paths. If unsure whether a repo is private, treat it as private.
+- No research finding or experiment IDs (`F123`, `META-NN`), promotion-brief links, or phrases like
+  "validated by our research repo". State the behavior and any caveat instead ("in our evaluation",
+  "unvalidated heuristic"). Do not strengthen a claim to fill the gap.
+- No working notes, handoff files, task briefs, or status trackers (`TASKS.md`, `STATUS.md`,
+  `docs/.internal/`, `.claude/skills/*-pulse`). Those live in the maintainers' private workspace; do
+  not create them here.
+- No analytics numbers, pipeline details, roadmap, or strategy.
+- Commit subjects feed the generated changelog: never put finding IDs or private repo names in a
+  commit message or PR title.
+- Before opening a PR, run: `git grep -n -E "\bF[0-9]{2,3}\b|META-[0-9]+|\.\./hotspots-|/Users/"` and clear every hit you added (workspace crate paths like `../hotspots-core` are fine).
