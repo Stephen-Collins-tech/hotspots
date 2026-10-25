@@ -137,7 +137,7 @@ Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 
 Requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
-The trained model (`model_version 6`) uses 9 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`. (`convention_bug_fix_count` was removed in `model_version 6` — F168 found it ratchets the trained ranker monotonically, never improving once a function is flagged.) Models trained with an older version are rejected on load with a retrain message.
+The trained model (`model_version 6`) uses 9 features: `lrs`, `cc`, `nd`, `loc`, `fo`, `fan_in`, `total_churn`, `authors_90d`, `directed_coupling`. (`convention_bug_fix_count` was removed in `model_version 6` — in our testing it ratchets the trained ranker monotonically, never improving once a function is flagged.) Models trained with an older version are rejected on load with a retrain message.
 
 `hotspots analyze` prints which model class the loaded ranker uses:
 
@@ -410,17 +410,16 @@ Activity Risk = LRS
 `fan_in`, `scc` (cyclic dependency), `dependency_depth`, `burst`, and `neighbor_churn` do
 not contribute to the live Activity Risk / composite score, and — as of hotspots 2.0 —
 none of them have a corresponding field on `RiskFactors` either (the struct now has
-exactly `{complexity, churn, activity, recency}`). `fan_in`/`scc` were dropped per
-hotspots-research F160 (confirmed, 17-repo pre-registered gate: fan_in 4% Shapley share
-of rho, scc 1%, both non-inferior to drop within a pre-registered margin); `depth` per
-F167 (scoped 6-repo gate, Shapley share -2.1% mean, sign-inconsistent across repos); and
+exactly `{complexity, churn, activity, recency}`). `fan_in`/`scc` were dropped because in our
+evaluation (17 repos, pre-registered gate) fan_in had a 4% Shapley share of rho and scc 1%,
+both non-inferior to drop within a pre-registered margin; `depth` because in a scoped 6-repo
+evaluation its Shapley share was -2.1% on average and sign-inconsistent across repos; and
 `burst` because `burst_score` is a full-history, effectively monotonic non-decreasing
-value — folding it into the live score made Activity Risk a one-way ratchet (see
-`hotspots-research/docs/burst-score-non-decaying-issue.md`). `neighbor_churn` was removed
+value — folding it into the live score made Activity Risk a one-way ratchet. `neighbor_churn` was removed
 once hotspots 2.0 adopted a stricter "only fields proven to work" bar: its only citation
-was "consistent with META-02," never an independent finding of its own, unlike
-`complexity`/`activity`/`recency` (which META-02/F160 do validate) or `churn` (no
-non-inferiority finding *against* it, so it stayed).
+was a general consistency argument, never an independent finding of its own, unlike
+`complexity`/`activity`/`recency` (which our evaluation does support) or `churn` (no
+non-inferiority result *against* it, so it stayed).
 
 The underlying raw values these dropped terms were computed from are still
 computed/stored where another consumer needs them: `fan_in` and `pagerank` on
@@ -428,10 +427,7 @@ computed/stored where another consumer needs them: `fan_in` and `pagerank` on
 on `callgraph` (pattern detectors), `callgraph.neighbor_churn` (same pattern detectors —
 `neighbor_risk`/`middle_man`), and `burst_score` at the function level (`trainer`'s
 cold-start features). `dependency_depth` was removed outright — it had no other
-consumer. See `hotspots-research/docs/findings/F167-depth-score-decomposition.md` and
-`hotspots-research/docs/promotion-briefs/depth-score-remove-from-live-score.md` for the
-depth removal, and `hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md`
-for the burst removal.
+consumer.
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
@@ -449,13 +445,12 @@ no matching commit history keep `burst_score = None`.
 
 Validated against real-world defect data: it's one of the strongest signals in a
 CVE/OSV-linked-file logistic regression (largest standardized coefficient of 5
-candidate signals, positive across all leave-one-repo-out folds tested) — see
-`hotspots-research` findings F67 and F93 for the full cross-repo evaluation.
+candidate signals, positive across all leave-one-repo-out folds tested) in our cross-repo evaluation.
 
 **Touch window:** the git-log window behind `touch_count` (renamed from `touch_count_30d`
 in hotspots 2.0 — the name was always wrong, see the field's rename note) and
-`days_since_last_change` is 365 days by default (`git::TOUCH_WINDOW_DAYS`), per
-hotspots-research F165 (confirmed, pre-registered, 13-repo cutoff-safe gate) — 365 days
+`days_since_last_change` is 365 days by default (`git::TOUCH_WINDOW_DAYS`), based
+on our pre-registered 13-repo cutoff-safe evaluation — 365 days
 gave the strongest, monotonic gain of every window tested, with a size-confound check
 ruling out "it's just counting more commits." On a high-commit-velocity repo this is a
 real, measured wall-clock cost (a single git subprocess call, but scanning more history:
@@ -490,7 +485,7 @@ the formula above. Same validation as the LRS `weights` block: non-negative, at 
 - **Neighbor churn** — sum of churn in directly-called functions (feeds the `neighbor_risk`/`middle_man` pattern detectors; no longer contributes to the live Activity Risk score)
 
 `betweenness` centrality and `dependency_depth` were removed from `callgraph` entirely in
-hotspots 2.0 (F160/F167 — no validated consumer once their live-score contribution was
+hotspots 2.0 (no validated consumer once their live-score contribution was
 dropped).
 
 ### Quadrant assignment
@@ -620,8 +615,8 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 **Unvalidated heuristics.** `thresholds` (RiskBand cutoffs), `weights` (base LRS
 composite weights), and `warning_thresholds` (`watch_min`/`watch_max`/`attention_min`/
 `attention_max`/`rapid_growth_percent`) are shipped defaults with no corresponding
-`hotspots-research` finding validating these specific numbers — unlike `lrs`'s
-component metrics or `fn_changed_lines`, which do have research backing (see
+validation of these specific numbers — unlike `lrs`'s
+component metrics or `fn_changed_lines`, which were evaluated (see
 "Field stability" and the delta section below). Treat them as reasonable starting
 points to tune for your repo, not as calibrated thresholds.
 
@@ -780,15 +775,15 @@ not. See "Field stability" under Metrics above.
 ```
 file_risk_score = max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2
 ```
-**Unvalidated heuristic** — these component weights have no `hotspots-research` finding
+**Unvalidated heuristic** — these component weights have no validation
 behind them, unlike `lrs`/`activity_risk`. Treat `file_risk_score` as a convenience
 ranking, not a calibrated signal. (The formula previously included a `churn_factor×0.1`
 term and a `file_churn` field; both were removed — `file_churn` was always 0 in
 practice due to a file-path-matching bug in `populate_churn`'s lookup, confirmed via
-hotspots-research F170 and a direct smoke test against this repo.)
+our testing, including a direct smoke test against this repo.)
 
 **Validated for within-diff review triage, not for finding a bug repo-wide.**
-hotspots-research F173 tested `file_risk_score` two different ways. Given a bounded
+In our evaluation, `file_risk_score` was tested two different ways. Given a bounded
 diff a reviewer is already looking at (e.g. a PR's changed files), ranking those files
 by `file_risk_score` put the file that later needed a fix in the #1 slot 57.3% of the
 time (134/234 real fix-commit instances, 25 repos/8 languages), vs. 19.7% for a raw
@@ -800,13 +795,13 @@ optional tool, the same with an instance-aware prompt, and the triage view hande
 as static context) all converged on the same low hit rate as plain investigation with
 no tool at all. Read `file_risk_score` as *"of the files already in front of you, which
 deserves the closest look,"* not as a tool for finding which file in an entire
-repository has a bug. (n=234 across 25 repos; still not formally pre-registered — see
-F173 for the full method and caveats. A follow-up, F174, found `max_cc` alone — the
+repository has a bug. (n=234 across 25 repos; still not formally pre-registered. A follow-up
+found `max_cc` alone — the
 single most complex function in the file — carries nearly all of this signal; the other
 two terms add little at the margin, an explainability note, not a formula change.)
 
 No "refactor soon" cutoff is officially recommended for `file_risk_score` in this doc.
-If you want a rough high-risk marker, F170's 16-repo/82,574-file empirical
+If you want a rough high-risk marker, our 16-repo/82,574-file empirical
 distribution puts the 90th percentile at approximately 7.0 (p50 ≈ 2.9, p95 ≈ 9.6) —
 this is a percentile convenience marker from the real score distribution, not a
 defect-correlation-validated threshold.
@@ -840,7 +835,7 @@ defect-correlation-validated threshold.
 alone. `afferent`/`efferent` (external modules that depend on this one / that this
 one depends on) are descriptive facts only — `module_risk` does not depend on
 them. **`instability` (efferent / (afferent + efferent)) was removed entirely in
-hotspots 2.0** (F170: carried no measured signal, ρ≈-0.002, and combining it with
+hotspots 2.0** (carried no measured signal, ρ≈-0.002, and combining it with
 the complexity gate added no benefit over complexity alone) — do not expect this
 field in current output.
 
@@ -911,8 +906,8 @@ functions add `delta.lrs`); `band` is the highest risk band reached by any
 new/modified function's `after` state.
 
 **`fn_changed_lines`** is the count of diff-changed lines (`git diff -U0`) that fall inside a
-touched function's line span, summed across the whole diff — hotspots-research (F132, F159,
-F161) tested this directly against the real compiled binary and found it the strongest
+touched function's line span, summed across the whole diff — in our evaluation, tested directly against the real
+compiled binary, it was the strongest
 predictor of which PRs later need a defect fix, beating `pr_risk_score` and every other
 LRS-weighted score tried on every repo tested. **Read `pr_risk_score` as a structural signal
 (what's the worst code in this diff), not a validated risk estimate** — `fn_changed_lines` is
@@ -963,4 +958,4 @@ analyzed for complexity.
 
 All changes to formulas, weights, thresholds, or ranking rules are tracked in git commit history. The LRS formula and default weights have been stable since v1.0. The trained ranker feature was introduced in a later release; the current model is `model_version 6` (9 features). Check `CHANGELOG.md` for version-specific details.
 
-- The `authors_90d` and `directed_coupling` `--explain` phrases were reworded from directive to descriptive language (e.g. "no clear owner" → "no single frequent owner in recent history") after four independent tests found no outcome benefit from acting on the ownership/coupling diagnosis. See `META-12-observational-prescription-tests-fail.md` and `F103-review-hotspots-interventional.md` in `hotspots-research`.
+- The `authors_90d` and `directed_coupling` `--explain` phrases were reworded from directive to descriptive language (e.g. "no clear owner" → "no single frequent owner in recent history") after four independent tests found no outcome benefit from acting on the ownership/coupling diagnosis.

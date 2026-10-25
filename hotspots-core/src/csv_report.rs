@@ -41,7 +41,7 @@ pub struct FileCsvRow {
     /// Quadrant of the file's highest-risk function (fire/debt/watch/ok), empty if unset.
     pub quadrant: String,
     /// Symbol name of the function that earned `risk_score` (the file's max, not an
-    /// average) — per hotspots-research F110/F111/F112, file-level rollup can hide or
+    /// average) — in our evaluation, file-level rollup can hide or
     /// invert the real signal, which lives at function granularity. Carrying the
     /// function forward means a row is still actionable without re-deriving which
     /// function the tool already identified as the actual driver.

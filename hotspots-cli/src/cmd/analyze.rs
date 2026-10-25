@@ -45,16 +45,16 @@ pub(crate) struct AnalyzeArgs {
     pub touch_mode: Option<TouchModeArg>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
-    /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
+    /// Rank via Gini-gated cold-start routing instead of a trained ranker.
     /// Explicit opt-in only; reads no fix-commit label data.
     pub cold_start: bool,
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
-    /// instead of a single merged list (F05).
+    /// instead of a single merged list.
     pub axes: bool,
     /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
     pub timing_report: bool,
     /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
-    /// instead of file_risk_score alone (hotspots-research F206/F208/F209). Opt-in.
+    /// instead of file_risk_score alone (validated in our evaluation). Opt-in.
     pub blend_churn: bool,
 }
 
@@ -659,7 +659,7 @@ fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
     }
 }
 
-/// `hotspots analyze --cold-start`: Gini-gated cold-start routing (F62/F63).
+/// `hotspots analyze --cold-start`: Gini-gated cold-start routing.
 ///
 /// Skips the trained-ranker lookup entirely. Builds a snapshot with the cold-start
 /// history signals populated (but no touch/churn/call-graph work — not needed for the
@@ -736,11 +736,10 @@ fn handle_cold_start(
     Ok(())
 }
 
-/// `--axes` (F05): prints three independent ranked sections — Risk, Coupling,
+/// `--axes`: prints three independent ranked sections — Risk, Coupling,
 /// Ownership — in that fixed order, instead of a single merged list. Files
 /// may appear in more than one section; overlap is not deduplicated, and the
-/// axes are never blended into a composite score
-/// (`docs/promotion-briefs/f05-multi-axis-report.md`).
+/// axes are never blended into a composite score.
 fn handle_axes(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
@@ -1303,8 +1302,7 @@ fn enrich_delta(
             enriched.policy = Some(results);
         }
     }
-    // hotspots-research F132/F159/F161: fn_changed_lines is the strongest tested predictor of
-    // PR defect risk. Best-effort — no parent snapshot (first commit, or an untracked parent)
+    // fn_changed_lines is the strongest tested predictor of PR defect risk in our evaluation. Best-effort — no parent snapshot (first commit, or an untracked parent)
     // or a failed git diff both degrade to an empty line-set map, giving 0, not an error.
     let fn_changed_lines = match (&parent_snapshot, &parent_sha) {
         (Some(parent), Some(parent_sha)) => {

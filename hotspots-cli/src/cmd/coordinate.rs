@@ -1,33 +1,32 @@
 //! `hotspots coordinate` — ownership risk for a caller-specified file set,
 //! before work starts.
 //!
-//! v1 minimal baseline (`hotspots-research/docs/promotion-briefs/coordinate-v1-minimal.md`):
+//! v1 minimal baseline:
 //! given an explicit `--files` list, reports per-file ownership signals.
 //! Deliberately does not depend on any snapshot or AST/CFG analysis — this
 //! command only needs git log.
 //!
-//! `knowledge_mode` (`hotspots-research/docs/promotion-briefs/coordinate-knowledge-mode.md`):
+//! `knowledge_mode`:
 //! `FileOwnership.knowledge_mode` fires `"concentrated"` for narrow-ownership
 //! files, derived purely from already-shipped `author_entropy`/`author_count`.
 //!
-//! `--diff`/`--staged` (`hotspots-research/docs/promotion-briefs/coordinate-diff-mode.md`):
+//! `--diff`/`--staged`:
 //! alternate ways to derive the file set instead of `--files` — a unified
 //! diff on stdin, or the current git staging area.
 //!
-//! hotspots 2.0 (`docs/promotion-briefs/coordinate-remove-coupling-recommendation.md`,
-//! folded into `docs/master-schema-spec.md`): the coupling-triggered
+//! hotspots 2.0: the coupling-triggered
 //! `recommendation` field was removed (no validated finding supports its sole
-//! trigger — see the brief), and the output is now the `coordinate` section
+//! trigger), and the output is now the `coordinate` section
 //! of the unified master-schema envelope instead of a standalone
 //! `schema_version: 1` struct.
 //!
 //! hotspots 2.0, "only fields proven to work": `within_set`/`hidden_dependencies`
 //! (raw co-change coupling facts, with no recommendation derived from them)
 //! were removed entirely once this stricter bar was adopted — they shipped on
-//! *negative* evidence: F150 found `coupling_ratio >= 0.7` pairs collide
-//! *less* than churn-matched baselines, and F156 found coupling adds nothing
+//! *negative* evidence: in our evaluation `coupling_ratio >= 0.7` pairs collided
+//! *less* than churn-matched baselines, and coupling added nothing
 //! once ownership is controlled for. `ownership`/`knowledge_mode` stays — that
-//! one has real positive backing (F146 → F155 → F157).
+//! one has real positive backing.
 
 use anyhow::{bail, Context, Result};
 use hotspots_core::history_signals::compute_history_signals_for_repo;
@@ -37,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// `knowledge_mode` fires "concentrated" when a file's ownership is this
-/// narrow. Values from `coordinate-knowledge-mode.md` (F146) — 100%
+/// narrow. Values from `coordinate-knowledge-mode.md` — 100%
 /// cross-check match on every repo tested, not re-derived here.
 const CONCENTRATED_MAX_AUTHOR_COUNT: u32 = 3;
 const CONCENTRATED_MAX_NORMALIZED_ENTROPY: f64 = 0.5;
@@ -72,8 +71,8 @@ struct CoordinateEnvelope {
     coordinate: CoordinateSection,
 }
 
-/// `knowledge_mode` classifier (F146) — fires "concentrated" only. "diffuse"
-/// is deliberately unimplemented: F146 found it unreliable and repo-dependent
+/// `knowledge_mode` classifier — fires "concentrated" only. "diffuse"
+/// is deliberately unimplemented: it proved unreliable and repo-dependent
 /// (5.9%-80% cross-check match), blocked on an author-identity-canonicalization
 /// gap this brief does not attempt to fix.
 fn classify_knowledge_mode(author_count: u32, author_entropy: f64) -> Option<&'static str> {

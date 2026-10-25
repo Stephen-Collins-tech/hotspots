@@ -53,7 +53,7 @@ pub struct FileRiskView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub churn_percentile: Option<f64>,
     /// 50/50 average of `file_risk_score`'s percentile rank and `churn_percentile`
-    /// (hotspots-research F206/F208/F209). `None` unless `apply_churn_blend` has run.
+    /// (validated in our evaluation). `None` unless `apply_churn_blend` has run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_risk_score_blended: Option<f64>,
 }
@@ -115,11 +115,11 @@ pub struct FileDeltaAggregates {
 /// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
 /// just summed across the whole diff instead of grouped by file.
 ///
-/// **Not validated as beating a simple size measure.** hotspots-research tested this exact
-/// formula against the real compiled binary (F164) and against four other repos with a
-/// different construction (F161, `net_delta_lrs`): on every repo tested, `pr_risk_score`
+/// **Not validated as beating a simple size measure.** In our evaluation, this exact
+/// formula was tested against the real compiled binary and, with a different construction
+/// (`net_delta_lrs`), against four other repos: on every repo tested, `pr_risk_score`
 /// scored below `fn_changed_lines` (also in this struct) at predicting which PRs later needed a
-/// defect fix — F161 found it the weakest of five tested LRS-based scores. Read `band` as a
+/// defect fix — it was the weakest of five tested LRS-based scores. Read `band` as a
 /// structural-risk signal (what's the worst code in this diff), not a calibrated estimate of
 /// which PR is more likely to cause a bug — `fn_changed_lines` is the better-evidenced signal
 /// for that specific question.
@@ -132,7 +132,7 @@ pub struct FileDeltaAggregates {
 pub struct PrRiskSummary {
     pub pr_risk_score: f64,
     /// Diff-changed lines that fall inside a touched function (`git::compute_fn_changed_lines`).
-    /// hotspots-research (F132/F159/F161) found this is the strongest tested predictor of which
+    /// In our evaluation this is the strongest tested predictor of which
     /// PRs later need a defect fix in this corpus — it beat every LRS-weighted score tried,
     /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
     /// comment for the comparison.
@@ -230,7 +230,7 @@ pub struct AgentFunctionView {
     pub explanation: Option<String>,
     /// Per-prediction feature contributions from the trained ranker.
     /// Each entry is `[feature_name, contribution]`, sorted by |contribution| desc.
-    /// Null until TreeSHAP is implemented (see research brief F55-shap).
+    /// Null until TreeSHAP is implemented.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shap: Option<Vec<(String, f64)>>,
 }
@@ -699,8 +699,7 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
 /// Percentile-rank `views` by `key` (descending: highest value -> 1.0), ties broken by
 /// file path for determinism. Position `i` in the sorted-descending order maps to
 /// `1.0 - i / (n - 1)` (the top value gets 1.0, the bottom gets 0.0; a single-element
-/// slice gets 1.0). Matches hotspots-research's `scripts/eval/f206_analyze.py`
-/// `percentile_rank` exactly.
+/// slice gets 1.0). Ties are broken by file path as above.
 fn percentile_ranks(
     views: &[FileRiskView],
     key: impl Fn(&FileRiskView) -> f64,
@@ -741,10 +740,10 @@ pub fn churn_totals_by_file(functions: &[FunctionSnapshot]) -> HashMap<String, u
 
 /// Opt-in re-ranking: blend `file_risk_score` with per-file churn (lines added +
 /// deleted, summed over `windowed_churn_at`'s trailing window) via a 50/50 average of
-/// each signal's percentile rank. Validated by hotspots-research F206 (beats the static
-/// score on a majority of tested repos), F208 (holds on repos never used to develop the
-/// blend), F209 (one known regression, not yet detectable in advance — see those
-/// findings before changing this function's weighting).
+/// each signal's percentile rank. In our evaluation it beat the static
+/// score on a majority of tested repos and held on repos never used to develop the
+/// blend, with one known regression that is not yet detectable in advance — re-evaluate
+/// before changing this function's weighting.
 ///
 /// `churn_totals` is `lines_added + lines_deleted` per file; the caller is responsible
 /// for aggregating it from `FunctionSnapshot.churn` (this function does no git I/O).
