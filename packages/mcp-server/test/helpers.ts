@@ -3,12 +3,16 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** Integration tests need a `hotspots` build that has `coordinate`; set HOTSPOTS_PATH to one. */
+/**
+ * Integration tests need a `hotspots` >= 2.4.0 (HOTSPOTS_PATH or PATH). They skip without one
+ * locally; in CI (`CI` set) a missing binary is a hard failure so they cannot silently skip.
+ */
 export const hasBinary = (() => {
   try {
     const out = execFileSync(process.env.HOTSPOTS_PATH || 'hotspots', ['coordinate', '--help'], { stdio: 'pipe' });
     return out.length > 0;
   } catch {
+    if (process.env.CI) throw new Error('CI requires a hotspots binary (set HOTSPOTS_PATH) for the integration tests');
     return false;
   }
 })();

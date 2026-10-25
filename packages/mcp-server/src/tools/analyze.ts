@@ -9,7 +9,7 @@ export const name = 'hotspots_analyze';
 export const description =
   'Get the current risk triage for a repo or subtree (snapshot mode, JSON). Use it before or ' +
   'during work to see which functions are in fire / debt / watch / ok, ranked by activity risk. ' +
-  'Set allFunctions for a flat list of every function instead of triage buckets. Read-only; ' +
+  'Set allFunctions for a flat list of every function instead of triage buckets. Optional blendChurn adds recent-churn-aware file ranking. Read-only; ' +
   'does not write a snapshot.';
 
 export const shape = {
@@ -19,6 +19,8 @@ export const shape = {
   touchMode: z.enum(['auto', 'per-function', 'file', 'hybrid', 'none']).optional()
     .describe('Touch metrics mode (--touch-mode). "none" is fastest.'),
   coldStart: z.boolean().optional().describe('Pass --cold-start.'),
+  blendChurn: z.boolean().optional()
+    .describe('Pass --blend-churn (CLI >= 2.4.0): re-rank file-level risk by a 50/50 blend of complexity-based file risk and recent churn. Adds churn_percentile and file_risk_score_blended to architecture.file_risk. Opt-in.'),
 };
 
 export const inputSchema = z.object(shape);
@@ -70,6 +72,7 @@ export async function handler(raw: unknown): Promise<ToolResult> {
   if (input.allFunctions) args.push('--all-functions');
   if (input.touchMode) args.push('--touch-mode', input.touchMode);
   if (input.coldStart) args.push('--cold-start');
+  if (input.blendChurn) args.push('--blend-churn');
 
   const res = await runHotspots(args, { cwd: path });
   if (res.json === undefined) {
@@ -85,5 +88,24 @@ export async function handler(raw: unknown): Promise<ToolResult> {
     output: res.json,
     summary,
   });
-  return ok(res.json);
+  return ok(input.blendChurn ? withBlendedRanking(res.json) : res.json);
+}
+
+/**
+ * With --blend-churn the per-file fields live deep in architecture.file_risk. Surface the
+ * ranked files at the top level so a client does not have to dig; the CLI JSON is untouched.
+ */
+export function withBlendedRanking(output: any): unknown {
+  const rows: any[] = output?.architecture?.file_risk ?? [];
+  const blended = rows
+    .filter((r) => typeof r.file_risk_score_blended === 'number')
+    .sort((a, b) => b.file_risk_score_blended - a.file_risk_score_blended)
+    .slice(0, 10)
+    .map((r) => ({
+      file: r.file,
+      churn_percentile: r.churn_percentile,
+      file_risk_score: r.file_risk_score,
+      file_risk_score_blended: r.file_risk_score_blended,
+    }));
+  return blended.length ? { ...output, blended_file_ranking: blended } : output;
 }

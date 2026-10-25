@@ -13,13 +13,30 @@ async function connect() {
 }
 
 describe('MCP server', () => {
-  it('registers all five tools with usage-oriented descriptions', async () => {
+  it('registers the default tools (policy_check is opt-in) with usage-oriented descriptions', async () => {
     const { tools } = await (await connect()).listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'hotspots_analyze', 'hotspots_coordinate', 'hotspots_policy_check',
+      'hotspots_analyze', 'hotspots_coordinate', 'hotspots_review_brief',
       'hotspots_sample_history', 'hotspots_sample_trends',
     ]);
     for (const t of tools) expect(t.description!.length).toBeGreaterThan(60);
+  });
+
+  it('registers hotspots_policy_check only when HOTSPOTS_MCP_POLICY_CHECK=1', async () => {
+    process.env.HOTSPOTS_MCP_POLICY_CHECK = '1';
+    try {
+      const { tools } = await (await connect()).listTools();
+      expect(tools.map((t) => t.name)).toContain('hotspots_policy_check');
+    } finally {
+      delete process.env.HOTSPOTS_MCP_POLICY_CHECK;
+    }
+  });
+
+  it('tells the agent to present the brief, not act on it', async () => {
+    const { tools } = await (await connect()).listTools();
+    const t = tools.find((x) => x.name === 'hotspots_review_brief')!;
+    expect(t.description).toMatch(/PRESENT THIS BRIEF TO THE USER/);
+    expect(t.description).toMatch(/Do not act on it/);
   });
 
   it.skipIf(!hasBinary)('round-trips a coordinate call over MCP', async () => {

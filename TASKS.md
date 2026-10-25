@@ -28,7 +28,7 @@ ends up touching Rust (should not, per the spec's "Do not" section — if it doe
 and flag why before proceeding). Report back; do not push or open a PR without asking
 first.
 
-**Status:** implemented — branch `feat/mcp-server`, all 8 acceptance criteria met (`packages/mcp-server`, 32 tests pass against a live `hotspots` 2.2.0 build); not yet pushed/PR'd. Open-question resolutions are in `SPEC.md`.
+**Status:** implemented and reworked on `feat/mcp-server-rebase` (PR #294): the server now leads with `hotspots_review_brief`, a short ranked shortlist for a human reviewer (blended complexity + recent churn by default, reasons include ownership from `hotspots_coordinate`). `hotspots_analyze` gains `blendChurn`; `hotspots_policy_check` is opt-in (`HOTSPOTS_MCP_POLICY_CHECK=1`); sample history/trends kept. Requires CLI >= 2.4.0 (enforced at first use). Integration tests run in CI via the `MCP Server Tests` job. Open-question resolutions are in `SPEC.md`.
 
 ---
 

@@ -7,7 +7,7 @@ import { hasBinary, makeFixtureRepo } from '../helpers.js';
 describe('analyze input validation', () => {
   it('requires path and validates touchMode', () => {
     expect(inputSchema.safeParse({}).success).toBe(false);
-    expect(inputSchema.safeParse({ path: '.', touchMode: 'file', minLrs: 3 }).success).toBe(true);
+    expect(inputSchema.safeParse({ path: '.', touchMode: 'file', minLrs: 3, blendChurn: true }).success).toBe(true);
     expect(inputSchema.safeParse({ path: '.', touchMode: 'hybrid:5' }).success).toBe(false);
   });
   it('summarizes triage buckets (fire/debt/watch/ok)', () => {
@@ -34,6 +34,16 @@ describe.skipIf(!hasBinary)('analyze integration', () => {
     const s = JSON.parse(rows[0].summary_json);
     expect(s.watchCount + s.okCount + s.criticalCount + s.highCount).toBe(2);
     expect(s.maxLrs).toBeGreaterThan(0);
+  });
+
+  it('blendChurn surfaces churn_percentile and file_risk_score_blended', async () => {
+    const repo = makeFixtureRepo();
+    const r = await handler({ path: repo, blendChurn: true });
+    expect(r.isError).toBeUndefined();
+    const body = JSON.parse(r.content[0].text);
+    expect(body.architecture.file_risk[0]).toHaveProperty('churn_percentile');
+    expect(body.architecture.file_risk[0]).toHaveProperty('file_risk_score_blended');
+    expect(body.blended_file_ranking.length).toBeGreaterThan(0);
   });
 
   it('returns a tool error for a bad path', async () => {
