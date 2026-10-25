@@ -44,7 +44,7 @@ text, tests, commit messages, PR text, issues, changelog — may reference priva
 
 - No private sibling repos by name or path (any `../hotspots-*` path other than public ones) and
   no absolute local paths. If unsure whether a repo is private, treat it as private.
-- No research finding or experiment IDs (`F123`, `META-NN`), promotion-brief links, or phrases like
+- No research finding or experiment IDs (`F123`, `META-NN`), brief or handoff links, or phrases like
   "validated by our research repo". State the behavior and any caveat instead ("in our evaluation",
   "unvalidated heuristic"). Do not strengthen a claim to fill the gap.
 - No working notes, handoff files, task briefs, or status trackers (`TASKS.md`, `STATUS.md`,

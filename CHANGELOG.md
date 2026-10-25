@@ -128,7 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Features
-- Align scoring with confirmed research — F160, F165, META-06
+- Align scoring with evaluation results
 
 
 ### Performance

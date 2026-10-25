@@ -9,7 +9,7 @@
 
 hotspots has no public proof of accuracy. Users and evaluators must take the tool's claims on faith. A published benchmark — fixed corpus, pinned SHAs, known ground truth, versioned scores — makes every claim verifiable and reproducible by anyone.
 
-This is the public equivalent of the internal temporal holdout protocol used in hotspots-research (F54). Same design, same label logic, written as instructions anyone can follow.
+This is the public equivalent of the internal temporal holdout protocol the maintainers use. Same design, same label logic, written as instructions anyone can follow.
 
 ## What to build
 
@@ -292,7 +292,7 @@ Do not add benchmarks to CI. Full repo clones + analysis takes 30–60 minutes. 
 
 1. `benchmarks/run.sh` completes end-to-end on a fresh machine with no steps beyond `git clone` + binary install.
 2. Running `run.sh` twice produces byte-identical label files (deterministic).
-3. ρ for django falls within ±0.05 of +0.293; ρ for vscode falls within ±0.05 of internal research figure — verifies label protocol is consistent across runs.
+3. ρ for django falls within ±0.05 of +0.293; ρ for vscode falls within ±0.05 of the maintainers' internal figure — verifies label protocol is consistent across runs.
 4. `benchmarks/corpus.json` passes `python3 -m json.tool` and contains all 7 repos with `feature_sha` set.
 5. `benchmarks/RESULTS.md` and `benchmarks/versions/v{current}.json` are both populated before any public release that cites benchmark numbers.
 6. `benchmarks/versions/vX.Y.Z.json` contains `hotspots_version`, `run_date`, `corpus_version`, `features_active`, `ranker`, and `results` array.

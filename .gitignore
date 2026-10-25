@@ -68,3 +68,9 @@ samples/hotspots-example-report.png
 
 *.egg-info
 .github/bin/
+
+# Maintainer working notes live in the private workspace, not here (see CLAUDE.md)
+/TASKS.md
+/STATUS.md
+/docs/.internal/
+/.claude/skills/*-pulse/
