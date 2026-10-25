@@ -652,7 +652,7 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "hotspots-cli"
-version = "2.3.0"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -669,7 +669,7 @@ dependencies = [
 
 [[package]]
 name = "hotspots-core"
-version = "2.3.0"
+version = "2.4.0"
 dependencies = [
  "anyhow",
  "criterion",
