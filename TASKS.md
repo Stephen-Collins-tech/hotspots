@@ -5,33 +5,6 @@ specs. Read the brief in full before writing any code.
 
 ---
 
-## Task: `@hotspots/mcp-server` package
-
-Not a promotion-brief handoff — scoped directly from a dangling doc reference
-(`examples/ai-agents/README.md` and `docs/USAGE.md` both link to
-`packages/mcp-server/README.md` as the Claude Desktop/Code integration path, but the
-package has never existed in this repo, `TASKS.md`, or `CHANGELOG.md`). Included here
-for continuity with the rest of this file's history, same as the `hotspots estimate`
-task below.
-
-**Spec:** `packages/mcp-server/SPEC.md` — already committed on this branch, exhaustive,
-read it in full before writing any code; it plays the same role a promotion brief would.
-
-Branch already created and checked out: `feat/mcp-server`. Build the package exactly as
-scoped in the spec (five read-only MCP tools wrapping `hotspots coordinate`/`analyze
---mode snapshot`/`diff --policy`, plus a local-only SQLite "sample log" of every call —
-explicitly not named "analytics," explicitly no cloud sync in this pass). Work through
-the spec's "Acceptance criteria" section as the definition of done, and its "Open
-questions" section for the handful of things to confirm against a live build rather than
-assume. Run `cargo fmt`/`clippy`/`test` from the Rust workspace root if anything here
-ends up touching Rust (should not, per the spec's "Do not" section — if it does, stop
-and flag why before proceeding). Report back; do not push or open a PR without asking
-first.
-
-**Status:** implemented and reworked on `feat/mcp-server-rebase` (PR #294): the server now leads with `hotspots_review_brief`, a short ranked shortlist for a human reviewer (blended complexity + recent churn by default, reasons include ownership from `hotspots_coordinate`). `hotspots_analyze` gains `blendChurn`; `hotspots_policy_check` is opt-in (`HOTSPOTS_MCP_POLICY_CHECK=1`); sample history/trends kept. Requires CLI >= 2.4.0 (enforced at first use). Integration tests run in CI via the `MCP Server Tests` job. Open-question resolutions are in `SPEC.md`.
-
----
-
 ## Task: `--explain` opt-in flag (ranker score + explanation layer)
 
 **Brief:** `f55-jepa-ranker-explanation` (kept in the private research repo)
