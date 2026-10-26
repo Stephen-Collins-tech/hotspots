@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - Remove private research references from comments and docs (#298)
+- Scrub private refs from runtime text, tests, CONTRIBUTING; add CLAUDE.md rule (#299)
 
 ## [2.4.0] - 2026-10-25
 
