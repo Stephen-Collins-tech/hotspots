@@ -131,7 +131,7 @@ defaults don't fit your repo (see [REFERENCE.md](REFERENCE.md#activity-risk-scor
 
 ```
 3 modified, 1 new, 0 deleted
-Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk — hotspots-research F132/F159/F161; ...)
+Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk in our evaluation; ...)
 PR risk score: +7.50 (band: critical) — structural signal, not validated as beating the line-count measure above
 ====================================================================================================
 ```

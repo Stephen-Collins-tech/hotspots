@@ -310,7 +310,7 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
         writeln!(
             out,
             "Changed lines in touched functions: {} · {} (strongest tested predictor of \
-             defect risk — hotspots-research F132/F159/F161; size band is a display \
+             defect risk in our evaluation; size band is a display \
              convenience, not itself research-derived — see docs/REFERENCE.md)",
             summary.fn_changed_lines, summary.size_band
         )?;

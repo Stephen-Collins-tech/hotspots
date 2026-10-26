@@ -880,8 +880,9 @@ pub fn compute_fn_changed_lines(
 /// size-confound check (partial correlation controlling for loc) found the gain is
 /// not just "counting more commits." The `touch_count` field/struct names are kept
 /// as-is for JSON/schema compatibility with existing consumers (dashboards, `--compare`,
-/// hotspots-cloud) even though they now measure a 365-day window — this cost was not separately measured (the git walk here is still one process
-/// call, just scanning a wider `--since` range).
+/// external pipelines) even though they now measure a 365-day window. The added cost was
+/// not separately measured (the git walk here is still one process call, just scanning a
+/// wider `--since` range).
 pub const TOUCH_WINDOW_DAYS: i64 = 365;
 
 /// Compute touch metrics for all files in a repository using two git log calls.
