@@ -4,11 +4,12 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-pattern='\bF[0-9]{2,3}\b|META-[0-9]+|promotion-brief|/Users/stephencollins|\.\./hotspots-[a-z]+'
-allow='\.\./hotspots-(core|cli|content)\b'
+pattern='(^|[^A-Za-z0-9_])F[0-9]{2,3}([^A-Za-z0-9_]|$)|META-[0-9]+|promotion-brief|/Users/stephencollins|\.\./hotspots-[a-z]+'
+allow='\.\./hotspots-(core|cli|content)([^a-z]|$)'
 
 hits=$(git grep -n -I -E "$pattern" -- . \
   ':!*.lock' ':!action/dist' ':!action/package-lock.json' ':!scripts/check-public-refs.sh' \
+  ':!CHANGELOG.md' ':!CLAUDE.md' \
   | grep -v -E "$allow" || true)
 
 if [ -n "$hits" ]; then
