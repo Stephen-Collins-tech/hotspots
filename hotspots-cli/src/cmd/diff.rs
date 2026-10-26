@@ -99,8 +99,8 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         .as_ref()
         .map(|a| a.co_change.as_slice())
         .unwrap_or(&[]);
-    // hotspots-research F132/F159/F161: fn_changed_lines (diff-changed lines inside touched
-    // functions) is the strongest tested predictor of PR defect risk, beating every
+    // fn_changed_lines (diff-changed lines inside touched functions) is the strongest
+    // tested predictor of PR defect risk in our evaluation, beating every
     // LRS-weighted composite tried, including pr_risk_score itself. Best-effort — an
     // empty/failed git diff (e.g. shallow clone) degrades to an empty line-set map, giving 0,
     // not an error, matching extract_commit_churn_at's convention.

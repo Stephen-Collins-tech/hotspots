@@ -1,9 +1,9 @@
-//! Multi-axis hotspot ranking — F05 (independence hypothesis).
+//! Multi-axis hotspot ranking (independence hypothesis).
 //!
 //! Risk, Coupling, and Ownership axes rank files by different signals with
-//! low pairwise correlation (F05: coupling |r|=0.075, ownership |r|=0.104 vs
+//! low pairwise correlation (coupling |r|=0.075, ownership |r|=0.104 vs
 //! defect risk). Each axis is ranked independently — do not blend them into
-//! a composite score, see `docs/promotion-briefs/f05-multi-axis-report.md`.
+//! a composite score.
 
 use crate::snapshot::FunctionSnapshot;
 use serde::Serialize;

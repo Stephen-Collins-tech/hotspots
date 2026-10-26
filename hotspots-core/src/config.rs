@@ -134,10 +134,10 @@ pub struct HotspotsConfig {
     pub co_change_window_days: Option<u64>,
 
     /// Touch-metrics window in days (default: 365, see `git::TOUCH_WINDOW_DAYS`'s doc
-    /// comment / hotspots-research F165). On high-commit-velocity repos this widened
+    /// comment). On high-commit-velocity repos this widened
     /// default costs real wall-clock time (measured: +943ms on a 1.3GB, high-velocity
     /// repo, vs +16ms on a moderate one) for one extra `git log --since` call — set this
-    /// lower (e.g. 30, the pre-F165 default) to trade that validated ranking-quality
+    /// lower (e.g. 30, the pre-365-day default) to trade that validated ranking-quality
     /// gain back for speed.
     #[serde(default)]
     pub touch_window_days: Option<u32>,
@@ -197,7 +197,7 @@ pub struct HotspotsConfig {
     pub policy: Option<PolicyConfig>,
 
     /// Dead-zone width (in Gini points) subtracted from `LOW_GINI` before the
-    /// cold-start router (F62/F63) switches from the Formula route to the
+    /// cold-start router switches from the Formula route to the
     /// Anomaly route (default: 0.0, no dead zone). Widens the ambiguous middle
     /// zone that already defaults to Formula, so a repo whose commit-count Gini
     /// sits just under 0.55 doesn't flip ranking strategy on a marginal commit.
@@ -305,8 +305,8 @@ pub struct ThresholdConfig {
 /// Custom `fn_changed_lines` size-band cutoffs for `hotspots diff`'s `pr_summary.size_band`.
 ///
 /// **These are a display convenience, not a research-derived signal.** Unlike
-/// `fn_changed_lines` itself (confirmed by hotspots-research F132/F159/F161 as the
-/// strongest tested predictor of PR defect risk), no finding specifies where "small" ends
+/// `fn_changed_lines` itself (the strongest tested predictor of PR defect risk
+/// in our evaluation), no finding specifies where "small" ends
 /// and "large" begins — that's a presentation judgment, the same category as
 /// `ThresholdConfig`'s own LRS band cutoffs above, not a validated claim. Override these
 /// if the built-in defaults don't fit your repo's typical change size.
@@ -387,7 +387,7 @@ pub struct PatternThresholdsConfig {
 /// Warning thresholds for proactive alerts.
 ///
 /// **Unvalidated heuristic** — these cutoffs (and `rapid_growth_percent`) have no
-/// corresponding `hotspots-research` finding behind them, unlike `lrs`'s component
+/// corresponding validation behind them, unlike `lrs`'s component
 /// metrics. Treat them as reasonable starting points to tune for your repo, not as
 /// calibrated thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,11 +1,10 @@
-//! From-scratch IsolationForest for the F62/F63 cold-start anomaly route.
+//! From-scratch IsolationForest for the cold-start anomaly route.
 //!
 //! Memory-bounded independent of repo size: `fit()` takes an iterator and fills
 //! `n_trees` independent reservoir samples (reservoir sampling, one pass), so peak
 //! memory is `O(n_trees * subsample_size)` regardless of how many rows are streamed
 //! through it. Scoped exactly to the 8-feature cold-start vector — not a general-purpose
-//! anomaly detection library. Mirrors
-//! `hotspots-research/scripts/poc/validate_streaming_isolation_forest.py`.
+//! anomaly detection library.
 
 use rand::rngs::SmallRng;
 use rand::Rng;

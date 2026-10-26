@@ -117,7 +117,7 @@ pub struct AnalysisInfo {
     /// Window, in days, that per-function `touch_count` covers. hotspots 2.0
     /// renamed `touch_count_30d` to `touch_count` plus this top-level field,
     /// since the window has actually been `crate::git::TOUCH_WINDOW_DAYS`
-    /// (365 days, per F165) since before the old name was ever accurate.
+    /// (365 days) since before the old name was ever accurate.
     #[serde(default = "default_touch_window_days")]
     pub touch_window_days: u32,
 }
@@ -152,7 +152,7 @@ pub struct CallGraphMetrics {
     pub pagerank: f64,
     /// Size of this function's strongly-connected component (1 if not in a
     /// cycle). Kept despite `cyclic_dependency`'s removal from the live
-    /// composite score (F160) — it's a direct input to the `cyclic_hub`
+    /// composite score — it's a direct input to the `cyclic_hub`
     /// pattern detector (`patterns.rs`), not just a reported-but-dead value.
     pub scc_size: usize,
     /// Kept for the same reason as `scc_size`: a direct input to the
@@ -235,14 +235,14 @@ pub struct FunctionSnapshot {
     /// Directed coupling score for this file.
     /// dc(i) = Σ_j [co_changes(i,j) × hotspots_score(j)] / commit_count(i)
     /// Weights co-change relationships by partner defect density.
-    /// Variant (full-history or 365d) selected by the Jaccard screener (F38/F39).
+    /// Variant (full-history or 365d) selected by the Jaccard screener.
     /// File-level (shared by all functions in the same file).
     /// Populated by `Snapshot::populate_directed_coupling()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directed_coupling: Option<f64>,
     /// Count of commits touching this file whose message matches fix-keyword conventions.
     /// Full-history count (no time window) — avoids temporal leakage when used as a
-    /// training feature with a post-cutoff label window (F54).
+    /// training feature with a post-cutoff label window.
     /// File-level (shared by all functions in the same file).
     /// Populated only by `Snapshot::populate_convention_bug_fix_count()`, which is called
     /// solely inside `trainer::train()`'s own internal snapshot clone for feature
@@ -253,13 +253,13 @@ pub struct FunctionSnapshot {
     /// output" needs no code change here — that's already the real behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub convention_bug_fix_count: Option<u32>,
-    /// Sliding 30-day-window max/mean commit ratio for this file (F93).
+    /// Sliding 30-day-window max/mean commit ratio for this file.
     /// Always at least 1.0; higher values indicate a burst of frantic commit activity.
     /// File-level (shared by all functions in the same file).
     /// Populated by `Snapshot::populate_burst_score()`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub burst_score: Option<f64>,
-    /// Total commits touching this file across full history (F62/F63 cold-start signal).
+    /// Total commits touching this file across full history.
     /// File-level (shared by all functions in the same file).
     /// Populated by `Snapshot::populate_history_signals()`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -291,7 +291,7 @@ pub struct FunctionSnapshot {
     pub last_touch_days: Option<f64>,
     /// Fraction of this file's commits in the 90-day window before the snapshot
     /// cutoff authored by someone whose first-ever commit to the repo also falls
-    /// in that window (F102/F05 Ownership axis field).
+    /// in that window.
     /// File-level (shared by all functions in the same file).
     /// `None` when the file has no commits in the 90-day window (excluded, not
     /// zero-filled) — distinct from `Some(0.0)`, a file with window commits and
@@ -705,7 +705,7 @@ impl Snapshot {
         }
     }
 
-    /// Populate `burst_score` for every function (F93).
+    /// Populate `burst_score` for every function.
     ///
     /// Runs a single `git log --name-only` pass over the whole repository via
     /// `history_signals::load_commits_with_author` (the same loader
@@ -746,9 +746,8 @@ impl Snapshot {
     }
 
     /// Populate `commit_count`, `author_count`, `author_entropy`, `isolation_rate`,
-    /// `age_days`, and `last_touch_days` for every function (F63 signal-porting
-    /// prerequisite). `burst_score` is not touched here — it is populated separately
-    /// by `populate_burst_score` (F93) and reused as-is for cold-start features.
+    /// `age_days`, and `last_touch_days` for every function. `burst_score` is not touched here — it is populated separately
+    /// by `populate_burst_score` and reused as-is for cold-start features.
     ///
     /// Runs a single `git log --name-only` pass over the whole repository via
     /// `history_signals::load_commits_with_author`, then computes all six signals
@@ -795,7 +794,7 @@ impl Snapshot {
     ///
     /// Calls `crate::coupling::compute_directed_coupling_for_repo` which:
     /// 1. Loads full commit history via git log.
-    /// 2. Computes Jaccard label stability (F38 screener) to select dc_full vs
+    /// 2. Computes Jaccard label stability to select dc_full vs
     ///    dc_365d — purely an internal routing decision; hotspots 2.0 removed
     ///    the `jaccard_label_stability` output field once the stricter "only
     ///    fields proven to work" bar was adopted, since it was an internal
@@ -1056,7 +1055,7 @@ impl Snapshot {
     /// Populate touch count and recency metrics from git data
     ///
     /// For each file (or function when `per_function` is true), computes:
-    /// - touch_count: number of commits in the last `git::TOUCH_WINDOW_DAYS` days (365; F165)
+    /// - touch_count: number of commits in the last `git::TOUCH_WINDOW_DAYS` days (365)
     /// - days_since_last_change: days since last modification
     ///
     pub fn populate_touch_metrics(
@@ -1253,8 +1252,8 @@ impl Snapshot {
                 .map(|c| (c.lines_added, c.lines_deleted));
 
             // Extract call graph data. `dependency_depth` is always `None` now:
-            // `CallGraphMetrics` dropped the field in hotspots 2.0 (F167 already
-            // zeroed its contribution to `activity_risk` before this), kept as a
+            // `CallGraphMetrics` dropped the field in hotspots 2.0 (its contribution to
+            // `activity_risk` had already been zeroed before this), kept as a
             // literal `None` here rather than removing `ActivityRiskInput.dependency_depth`
             // itself, which `compute_activity_risk` no longer reads either way.
             let (fan_in, scc_size) = if let Some(ref cg) = function.callgraph {
@@ -1924,7 +1923,7 @@ impl SnapshotEnricher {
         self
     }
 
-    /// Populate `burst_score` for every function (F93).
+    /// Populate `burst_score` for every function.
     /// No-op if `repo_root` does not exist.
     pub fn with_burst_score(mut self, repo_root: &Path) -> Self {
         if repo_root.exists() {
