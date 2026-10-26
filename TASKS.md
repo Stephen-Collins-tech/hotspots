@@ -1,13 +1,13 @@
 # Pending Tasks — Promotion Brief Handoffs
 
-Briefs are written by Claude in `../hotspots-research` and are complete implementation
+Briefs are written by Claude in the private research repo and are complete implementation
 specs. Read the brief in full before writing any code.
 
 ---
 
 ## Task: `--explain` opt-in flag (ranker score + explanation layer)
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f55-jepa-ranker-explanation.md`
+**Brief:** `f55-jepa-ranker-explanation` (kept in the private research repo)
 
 Implement the promotion brief above in this repo. Create a new branch first
 (`feat/explain-flag`), implement exactly what's specified (the `--explain` flag,
@@ -20,7 +20,7 @@ Implement the promotion brief above in this repo. Create a new branch first
 
 ## Task: F61 regime-based model class selection
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f61-regime-model-selection.md`
+**Brief:** `f61-regime-model-selection` (kept in the private research repo)
 
 Implement the promotion brief above in this repo. Create a new branch first
 (`feat/f61-regime-model-selection`), implement exactly what's specified (Ridge via
@@ -34,7 +34,7 @@ open a PR.
 
 ## Task: F63 signal-porting prerequisite (blocks cold-start routing)
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f63-signal-porting-prerequisite.md`
+**Brief:** `f63-signal-porting-prerequisite` (kept in the private research repo)
 
 Adds `commit_count`, `author_count`, `author_entropy`, `burst_score`, `isolation_rate`,
 `age_days`, `last_touch_days` to `FunctionSnapshot` via a single git-log pass (not the
@@ -47,7 +47,7 @@ task below.
 
 ## Task: F62/F63 Gini-gated cold-start routing
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f62-f63-cold-start-routing.md`
+**Brief:** `f62-f63-cold-start-routing` (kept in the private research repo)
 
 **Depends on:** F63 signal-porting prerequisite above — do not start until that one is done.
 
@@ -64,7 +64,7 @@ v1.33.0. `hotspots analyze --cold-start` ships with Gini-gated routing
 
 ## Task: F98 low-label-density gate for cold-start routing
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f98-lowlabel-coldstart-gate.md`
+**Brief:** `f98-lowlabel-coldstart-gate` (kept in the private research repo)
 
 **Depends on:** F62/F63 Gini-gated cold-start routing above — shipped, so this was
 unblocked (hotspots#118 closed).
@@ -85,7 +85,7 @@ in `hotspots-cli/src/cmd/analyze.rs` updated accordingly. 4 new integration test
 
 ## Task: F93 OSV-weighted activity-risk formula
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f93-osv-weighted-formula.md`
+**Brief:** `f93-osv-weighted-formula` (kept in the private research repo)
 
 Implement the promotion brief above in this repo. Create a new branch first
 (`feat/f93-osv-weighted-formula`), implement exactly what's specified (add a `burst`
@@ -105,7 +105,7 @@ by README but absent from the repo) and re-ran the 7-repo benchmark: mean ρ +0.
 
 ## Task: Remove `burst_score` from live activity-risk score
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/burst-score-remove-from-live-score.md`
+**Brief:** `burst-score-remove-from-live-score` (kept in the private research repo)
 
 `burst_score` is computed over a file's entire commit history and is effectively
 monotonic non-decreasing, so including it in `compute_activity_risk` made
@@ -124,7 +124,7 @@ needs to flip from `pending` to `promoted` once merged.
 
 ## Task: F05 multi-axis hotspot report (`--axes` flag)
 
-**Brief:** `/Users/stephencollins/projects/stephencollins.tech-repos/hotspots-research/docs/promotion-briefs/f05-multi-axis-report.md`
+**Brief:** `f05-multi-axis-report` (kept in the private research repo)
 
 Implement the promotion brief above in this repo. Create a new branch first
 (`feat/f05-multi-axis-report`), implement exactly what's specified (`--axes` flag on
@@ -151,7 +151,7 @@ reimplemented from the English description alone.
 
 Not a promotion-brief handoff — scoped directly from a `hotspots-cloud` incident
 (golang/go crawl timeout) and the resulting hotspots#163 spike, not a
-`hotspots-research` finding. Included here for continuity with the rest of this
+the private research repo finding. Included here for continuity with the rest of this
 file's history.
 
 **Status:** done — hotspots PR [#186](https://github.com/Stephen-Collins-tech/hotspots/pull/186) (`--touch-mode` flag consolidation, prerequisite) and PR [#188](https://github.com/Stephen-Collins-tech/hotspots/pull/188) (`hotspots estimate` command), merged commits `9510e53` and `dede5cb`. Shipped in v1.37.0. Wired into `hotspots-cloud`'s crawl pipeline as the primary touch-mode screen (hotspots-cloud PR #121).
@@ -160,7 +160,7 @@ file's history.
 
 ## Task: ⚠️ BLOCKED — do not touch `scoring.rs` yet (F160 LRS-swamping follow-up)
 
-**Plan:** `../hotspots-research/PLAN.md`
+**Plan:** the private research plan
 
 Not a promotion-brief handoff — there is deliberately no brief yet. F160 found LRS's
 raw contribution to `compute_activity_risk` in `hotspots-core/src/scoring.rs` swamps
@@ -170,10 +170,10 @@ got a confirmatory re-run. `scoring.rs` today still does the exact raw unnormali
 sum F160 flagged.
 
 **Do not implement a fix here from this description alone.** Read
-`../hotspots-research/PLAN.md` first — it specifies the confirmatory study that has
-to run and be confirmed in `hotspots-research` before a promotion brief (and a real
+the private research plan first — it specifies the confirmatory study that has
+to run and be confirmed in the private research repo before a promotion brief (and a real
 task entry) exists for this repo. This entry exists only so the gap isn't silently
 rediscovered and "fixed" ad hoc; the actual implementation spec lands here once the
 research closes.
 
-**Status:** blocked on research — see `../hotspots-research/PLAN.md`
+**Status:** blocked on research — see the private research plan
