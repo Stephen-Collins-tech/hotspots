@@ -13,7 +13,7 @@ Full per-repo detail for every release lives in [`versions/`](versions/).
 
 **Features:** ARS baseline (no trained ranker)  
 **Feature set:** lrs, cc, nd, loc, fo, fan_in, total_churn, authors_90d, directed_coupling, convention_bug_fix_count, burst_score  
-**Note:** adds `burst_score` (F93 sliding 30-day max/mean commit-timing ratio) with weight 0.3; no trained-ranker feature set change.
+**Note:** adds `burst_score` (sliding 30-day max/mean commit-timing ratio) with weight 0.3; no trained-ranker feature set change.
 
 | Repo | Language | ρ | P@10 | n\_files | n\_bug\_files |
 |---|---|---|---|---|---|
@@ -57,6 +57,6 @@ Full per-repo detail for every release lives in [`versions/`](versions/).
 
 | Version | Date | mean ρ | mean P@10 | Ranker | Notes |
 |---|---|---|---|---|---|
-| [v1.30.0](versions/v1.30.0.json) | 2026-07-12 | +0.387 | 0.54 | off | +`burst_score` (F93 commit-timing burstiness term) |
+| [v1.30.0](versions/v1.30.0.json) | 2026-07-12 | +0.387 | 0.54 | off | +`burst_score` (commit-timing burstiness term) |
 | [v1.26.0](versions/v1.26.0.json) | 2026-06-28 | +0.350 | 0.54 | off | +`convention_bug_fix_count` (collected; ARS unchanged) |
 | [v1.25.3](versions/v1.25.3.json) | 2026-06-27 | +0.350 | 0.54 | off | Baseline: 9-feature ARS |

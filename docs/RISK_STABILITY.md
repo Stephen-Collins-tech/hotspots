@@ -152,7 +152,7 @@ as a documented no-op for output-schema compatibility. Similarly,
 `convention_bug_fix_rate`) because of temporal leakage that would make the
 ranker unstable or circular. `convention_bug_fix_count` (the raw, non-rate
 count) was also removed from the trained feature set entirely in
-`model_version 6` — F168 found it ratchets monotonically in both model classes,
+`model_version 6` — our evaluation found it ratchets monotonically in both model classes,
 the same failure mode already fixed for `burst_score` in the live score.
 
 ### B. Where predictability is weaker than it looks

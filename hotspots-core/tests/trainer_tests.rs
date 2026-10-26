@@ -431,7 +431,7 @@ fn train_returns_none_below_threshold() {
     assert!(result.is_none(), "too few functions → None");
 }
 
-// ── F98: low-label-density cold-start gate ─────────────────────────────────────
+// ── low-label-density cold-start gate ─────────────────────────────────────
 
 /// One function block per index: `def func_{i}():\n    x = {i}\n    return x\n`,
 /// blocks joined with a blank-line separator. Function `i`'s start line is

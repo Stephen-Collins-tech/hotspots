@@ -166,7 +166,7 @@ fn snapshot_aggregates_file_risk_shape() {
     let aggregates = &json["aggregates"];
 
     // file_risk: per-file composite view. `file_churn` was removed in 1.42.1
-    // (F170) -- its absence here is a regression guard against reintroducing
+    // -- its absence here is a regression guard against reintroducing
     // dead fields, not an oversight.
     let file_risk = aggregates["file_risk"]
         .as_array()
@@ -197,7 +197,7 @@ fn snapshot_aggregates_modules_shape() {
     let aggregates = &json["aggregates"];
 
     // modules: module-level risk view. module_risk gates on avg_complexity alone
-    // as of 1.42.1 (F170); `instability` carried no measured signal (rho≈-0.002)
+    // as of 1.42.1; `instability` carried no measured signal (rho≈-0.002)
     // and was removed entirely in hotspots 2.0 (issue #247) -- its absence here
     // is a regression guard, not an oversight. `afferent`/`efferent` remain as
     // descriptive facts. This fixture has no real import edges, so modules may
