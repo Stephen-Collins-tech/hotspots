@@ -6,7 +6,7 @@ Last updated: 2026-09-09
 This document tracks what is ready to implement, what is in flight, and known gaps
 against the project's own process rules. It is the working companion to
 [`docs/requirements/`](docs/requirements/), [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md),
-[`TASKS.md`](TASKS.md) (active promotion-brief handoffs from `../hotspots-research`),
+[`TASKS.md`](TASKS.md) (active promotion-brief handoffs from the private research repo),
 and open GitHub issues for day-to-day tracking — this file had gone unmaintained since
 the v1.25.3 baseline (2026-06-27) through eleven releases; the sections below are a
 2026-09-09 correction pass, not a claim that this file is kept current release-to-release
@@ -21,18 +21,17 @@ The four requirements this file originally tracked as "ready to implement" have 
 been resolved, three shipped and one rejected after implementation:
 
 - **REQ-001 (history depth tier annotation) — rejected, not shipped.** Implemented as
-  hotspots PR #133, but the finding behind it (F10, `hotspots-research`) was
+  hotspots PR #133, but the finding behind it (F10, the private research repo) was
   re-triaged after implementation and found not to survive function-granularity
   testing — the confidence-tier premise (`history_depth` predicting ranker
   reliability) did not hold once measured correctly. PR #133 was closed 2026-09-06,
-  not merged. See `hotspots-research/docs/findings/10-history-depth-and-signal-quality.md`
-  and the F10 row in `hotspots-research/docs/promotion-tracker.md`. Do not
+  not merged. See the F10 finding and promotion-tracker entry in the private research repo. Do not
   re-attempt this without first re-reading that closure — the rejection is about the
   underlying signal, not the implementation.
 - **REQ-002 (`convention_bug_fix_count` as 10th ranker feature) — shipped.** Landed
   v1.26.0 (`convention_bug_fix_count` collected) with the trained-ranker feature
   activation following; see `docs/requirements/REQ-002-convention-bug-fix-feature.md`
-  and the F54 row in `hotspots-research/docs/promotion-tracker.md` (`promoted`).
+  and the F54 entry in the private research repo's promotion tracker (`promoted`).
 - **REQ-003 (ranker explanation layer, `✦` phrases) — shipped.** `--explain` flag +
   `phrases.rs`, hotspots PR #115 (commit `7579672`). See TASKS.md's "done" entry.
 - **REQ-004 (public benchmark corpus) — shipped.** `benchmarks/run.sh` and
