@@ -908,10 +908,9 @@ fn handle_default_output(
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
-        OutputFormat::Csv => anyhow::bail!("--format csv requires --mode snapshot"),
-        OutputFormat::Xlsx => anyhow::bail!("--format xlsx requires --mode snapshot"),
-        OutputFormat::LlmContext => anyhow::bail!("--format llm-context requires --mode snapshot"),
+        OutputFormat::Sarif | OutputFormat::Csv | OutputFormat::Xlsx | OutputFormat::LlmContext => {
+            anyhow::bail!("SARIF/CSV/XLSX/llm-context format requires --mode snapshot");
+        }
     };
     if let (Some(tc), Some(start)) = (timing, report_start) {
         tc.report.record(start.elapsed());
