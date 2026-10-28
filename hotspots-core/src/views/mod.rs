@@ -4,3 +4,4 @@
 //! it never recomputes a metric. Metric computation belongs in `analysis.rs`.
 
 pub mod agent;
+pub mod llm_context;
