@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove private research references from comments and docs (#298)
 - Scrub private refs from runtime text, tests, CONTRIBUTING; add CLAUDE.md rule (#299)
 
+
+### Features
+- Add --format llm-context bounded risk projection (REQ-005) (#308)
+
 ## [2.4.0] - 2026-10-25
 
 ### Features
