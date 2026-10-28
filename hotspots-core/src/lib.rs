@@ -48,6 +48,7 @@ pub mod timing;
 pub mod touch_cache;
 pub mod trainer;
 pub mod trends;
+pub mod views;
 pub mod xlsx_report;
 
 pub use callgraph::CallGraph;
