@@ -253,6 +253,11 @@ fn emit_diff_output(
                 "--format xlsx is not supported for diff (use --format json or --format html)"
             );
         }
+        OutputFormat::LlmContext => {
+            anyhow::bail!(
+                "--format llm-context is not supported for diff (use --format json or --format html)"
+            );
+        }
     }
 
     Ok(has_blocking_failures)

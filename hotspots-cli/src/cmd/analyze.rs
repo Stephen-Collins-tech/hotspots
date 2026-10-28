@@ -188,6 +188,9 @@ fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if matches!(args.format, OutputFormat::Xlsx) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format xlsx requires --mode snapshot");
     }
+    if matches!(args.format, OutputFormat::LlmContext) && args.mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--format llm-context requires --mode snapshot");
+    }
     Ok(())
 }
 
@@ -433,8 +436,13 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn sarif_csv_xlsx_formats_require_snapshot_mode() {
-        for format in [OutputFormat::Sarif, OutputFormat::Csv, OutputFormat::Xlsx] {
+    fn sarif_csv_xlsx_llm_context_formats_require_snapshot_mode() {
+        for format in [
+            OutputFormat::Sarif,
+            OutputFormat::Csv,
+            OutputFormat::Xlsx,
+            OutputFormat::LlmContext,
+        ] {
             assert!(validate_analyze_flags(&AnalyzeArgs {
                 format,
                 mode: None,
@@ -900,9 +908,9 @@ fn handle_default_output(
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
-        OutputFormat::Csv => anyhow::bail!("--format csv requires --mode snapshot"),
-        OutputFormat::Xlsx => anyhow::bail!("--format xlsx requires --mode snapshot"),
+        OutputFormat::Sarif | OutputFormat::Csv | OutputFormat::Xlsx | OutputFormat::LlmContext => {
+            anyhow::bail!("SARIF/CSV/XLSX/llm-context format requires --mode snapshot");
+        }
     };
     if let (Some(tc), Some(start)) = (timing, report_start) {
         tc.report.record(start.elapsed());
@@ -1376,7 +1384,8 @@ fn handle_models_mode(
         | OutputFormat::Jsonl
         | OutputFormat::Sarif
         | OutputFormat::Csv
-        | OutputFormat::Xlsx => {
+        | OutputFormat::Xlsx
+        | OutputFormat::LlmContext => {
             unreachable!("validated by validate_analyze_flags")
         }
     };
@@ -1416,6 +1425,7 @@ fn emit_snapshot_output(
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
         OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
         OutputFormat::Xlsx => emit_xlsx_output(snapshot, repo_root, opts),
+        OutputFormat::LlmContext => emit_llm_context_output(snapshot, repo_root, opts),
     }
 }
 
@@ -1600,6 +1610,43 @@ fn emit_csv_output(
         eprintln!("CSV report written to: {}", output_path.display());
     } else {
         print!("{csv}");
+    }
+    Ok(())
+}
+
+/// `--format llm-context`: bounded, prompt-ready projection of the top `--top`
+/// (default 20) highest-risk functions, meant for inclusion in a hosted
+/// coding model's context window. Reuses `explanation` from `--explain`
+/// directly rather than deriving separate phrasing.
+fn emit_llm_context_output(
+    snapshot: &Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let top_n = opts
+        .top
+        .unwrap_or(hotspots_core::views::llm_context::DEFAULT_TOP_N);
+    let report = hotspots_core::views::llm_context::to_llm_context_report(
+        &snapshot.functions,
+        repo_root,
+        top_n,
+    );
+    let json =
+        serde_json::to_string_pretty(&report).context("failed to serialize llm-context report")?;
+    if let Some(output_path) = opts.output {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+        }
+        std::fs::write(&output_path, &json).with_context(|| {
+            format!(
+                "failed to write llm-context report to {}",
+                output_path.display()
+            )
+        })?;
+        eprintln!("LLM-context report written to: {}", output_path.display());
+    } else {
+        println!("{json}");
     }
     Ok(())
 }
@@ -1819,6 +1866,11 @@ fn emit_delta_output(
         }
         OutputFormat::Xlsx => {
             anyhow::bail!("--format xlsx is not supported for delta mode (use --mode snapshot)");
+        }
+        OutputFormat::LlmContext => {
+            anyhow::bail!(
+                "--format llm-context is not supported for delta mode (use --mode snapshot)"
+            );
         }
     }
 
