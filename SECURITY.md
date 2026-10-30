@@ -2,18 +2,22 @@
 
 ## Privacy & Data Policy
 
-**Hotspots makes no network requests.**
+**Hotspots never transmits your source code, analysis results, file paths or metrics.**
 
 When you run `hotspots`, it:
 - Reads source files from your local filesystem
 - Invokes `git log` and related git subprocesses locally
 - Writes results to your local filesystem (`.hotspots/` directory)
 
-It does not transmit your source code, analysis results, file paths, metrics,
-or any telemetry to any external server. There is no analytics, no update check,
-and no remote endpoint of any kind. You can verify this by inspecting the
-[dependency tree](https://github.com/Stephen-Collins-tech/hotspots/blob/main/Cargo.lock)
-— there are no HTTP client dependencies.
+The only network requests the CLI can make are:
+- **Update check:** a request to the GitHub releases API for the latest version, at most once
+  per 24 hours (cached in `~/.hotspots/update_check.json`). It sends nothing about you or
+  your code.
+- **Anonymous usage ping (opt-in, off by default):** only if you enable it. At most one small
+  request per day to `hotspots.dev` containing the CLI version, OS, architecture, install
+  channel, command name and a random install id. It is never sent in CI, and `DO_NOT_TRACK=1`
+  or `HOTSPOTS_TELEMETRY=0` disables it regardless of settings. Exact payload and controls:
+  [docs/TELEMETRY.md](docs/TELEMETRY.md).
 
 ---
 
