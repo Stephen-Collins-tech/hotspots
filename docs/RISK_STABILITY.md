@@ -157,20 +157,10 @@ the same failure mode already fixed for `burst_score` in the live score.
 
 ### B. Where predictability is weaker than it looks
 
-- **`--blend-churn`'s benefit is now in question on the repos where it was
-  best-supported.** The flag was added on evidence (F206/F208/F209) that
-  blending `file_risk_score` with per-file churn improved ranking quality on
-  most tested repos. A later, more careful re-check of the underlying
-  bug-fix signal used to validate that evidence (F218–F220) found the two
-  repos with the strongest original support for the blend no longer show a
-  net benefit once measured against a more reliable version of that signal —
-  one ties static ranking, the other now favors static ranking outright.
-  Neither delta is large enough to call a confirmed reversal yet, but the
-  original "improves ranking on most repos" claim is weaker than it was
-  characterized at ship time. `--blend-churn` remains opt-in and default-off;
-  this is not (yet) a recommendation to remove it, but a flag that its
-  evidentiary basis should be re-verified before leaning on it harder (e.g.
-  making it default-on) or citing it externally.
+- **`--blend-churn`'s (F206/F208/F209) evidentiary basis is weaker than it was
+  characterized at ship time** (F218–F220) — still opt-in/default-off, not a
+  removal recommendation, but re-verify before making it default-on or citing
+  it externally.
 - **Both gaps below are resolved as of hotspots 2.0** — `analysis.formula_version`
   (separate from `analysis.tool_version`, bumped only when a default weight or
   threshold changes — see REFERENCE.md's "JSON Schema" section) now lets tooling
