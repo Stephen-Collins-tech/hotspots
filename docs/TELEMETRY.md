@@ -22,13 +22,18 @@ At most one request per 24 hours, only while enabled:
 
 | Field | Meaning |
 |:--|:--|
-| `v` | CLI version |
-| `os`, `arch` | Operating system and CPU architecture |
-| `channel` | How it was installed: `npm`, `pypi`, `cargo`, `brew` or `binary` (guessed from the executable path) |
-| `cmd` | Which subcommand ran (name only, never its arguments) |
-| `iid` | Random install id, generated when you enable telemetry. Not derived from your machine, user or paths |
+| `v` | hotspots version |
+| `os` | Operating system (e.g. `linux`, `macos`, `windows`) |
+| `arch` | CPU architecture (e.g. `x86_64`, `aarch64`) |
+| `channel` | Install channel guessed from the executable path: `npm`, `pypi`, `cargo`, `brew` or `binary` |
+| `cmd` | Name of the subcommand that ran, never its arguments |
+| `iid` | Random install id, generated when you enable telemetry. Not derived from your machine, user or paths; `hotspots telemetry reset` replaces it |
 
-Never sent: source code, file or repo names, paths, languages, scores, results, arguments, hostnames or usernames. The server records the request's country (from the CDN) and does not store your IP address.
+That table is the complete list. It mirrors `COLLECTED` in `hotspots-cli/src/cmd/telemetry.rs`, which `hotspots telemetry show` and the opt-in prompt print, and a test fails if the code and this table disagree.
+
+**Added by the server on receipt:** the time of the request, the request's country (from the CDN; your IP address is not stored) and the fixed User-Agent `hotspots-cli`. Nothing else is stored.
+
+**Never collected:** source code, file or repo names, paths, languages, scores, analysis results, command arguments, environment variables, hostnames, usernames, IP addresses.
 
 ## Controls
 
