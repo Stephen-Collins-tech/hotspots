@@ -2,6 +2,17 @@
 
 Hotspots has **opt-in, anonymous** usage telemetry. It is off unless you turn it on.
 
+## What I'm asking for
+
+I'm a solo maintainer and I can't see how hotspots is used. Download counts include CI runs and mirrors, so they don't tell me how many people actually run it. If you're willing, enabling telemetry sends one small anonymous ping a day (the fields below, nothing else). It helps me answer a few questions:
+
+- How many real installs are active, and does anyone keep using it after the first run?
+- Which versions are still in use, so I know when it's safe to drop old behavior?
+- Which install channels (`npm`, `pypi`, `cargo`, `brew`, binary) and platforms to test and support first?
+- Which subcommands get used, so I improve those rather than guess?
+
+That's all I use it for. I don't sell it, share it, or join it to anything else. You can say no, and the tool works exactly the same.
+
 ## What is sent
 
 At most one request per 24 hours, only while enabled:
