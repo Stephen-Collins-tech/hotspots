@@ -20,6 +20,38 @@ const CI_VARS: [&str; 5] = [
     "JENKINS_URL",
 ];
 
+/// The complete list of what a ping contains, as `(field, meaning)`. This is the single source of
+/// truth: `hotspots telemetry show`, the opt-in prompt, docs/TELEMETRY.md and a test all follow it.
+/// Adding a field to `Meta` without listing it here fails `payload_has_only_the_documented_fields`.
+pub(crate) const COLLECTED: [(&str, &str); 6] = [
+    ("v", "hotspots version"),
+    ("os", "operating system (e.g. linux, macos, windows)"),
+    ("arch", "CPU architecture (e.g. x86_64, aarch64)"),
+    (
+        "channel",
+        "install channel guessed from the executable path: npm, pypi, cargo, brew or binary",
+    ),
+    (
+        "cmd",
+        "name of the subcommand that ran, never its arguments",
+    ),
+    (
+        "iid",
+        "random install id, generated when you enable telemetry",
+    ),
+];
+
+/// What the receiving server adds on its own. Nothing else is stored.
+pub(crate) const SERVER_SIDE: [&str; 3] = [
+    "the time the request arrived",
+    "the request's country, from the CDN (your IP address is not stored)",
+    "the User-Agent header, always the fixed string `hotspots-cli`",
+];
+
+/// Never collected, and not representable in the payload.
+pub(crate) const NEVER_COLLECTED: &str = "source code, file or repo names, paths, languages, \
+scores, analysis results, command arguments, environment variables, hostnames, usernames, IP addresses";
+
 #[derive(clap::Subcommand)]
 pub(crate) enum TelemetryAction {
     /// Show whether telemetry is enabled
@@ -180,10 +212,12 @@ pub(crate) fn after_command(cmd: &'static str) {
 
 fn prompt_opt_in() -> bool {
     eprintln!();
-    eprintln!(
-        "Share anonymous usage stats (version, OS, install channel, command name, random id)?"
-    );
-    eprintln!("No code, paths or results are ever sent. Details: `hotspots telemetry show`.");
+    eprintln!("Share anonymous usage stats? At most once a day, this is everything sent:");
+    for (field, meaning) in COLLECTED {
+        eprintln!("  {field:<8} {meaning}");
+    }
+    eprintln!("Never sent: {NEVER_COLLECTED}.");
+    eprintln!("See the exact payload any time: `hotspots telemetry show`.");
     eprint!("Enable? [y/N] ");
     let _ = std::io::stderr().flush();
     let mut line = String::new();
@@ -243,6 +277,15 @@ pub(crate) fn handle_telemetry(action: TelemetryAction) -> anyhow::Result<()> {
                 serde_json::to_string_pretty(&build_event(&state, "analyze"))?
             );
             println!("POST {ENDPOINT} at most once every 24 hours, only while enabled.");
+            println!("\nFields:");
+            for (field, meaning) in COLLECTED {
+                println!("  {field:<8} {meaning}");
+            }
+            println!("\nAdded by the server:");
+            for item in SERVER_SIDE {
+                println!("  - {item}");
+            }
+            println!("\nNever collected: {NEVER_COLLECTED}.");
         }
         TelemetryAction::Reset => {
             state.install_id = new_install_id();
@@ -305,6 +348,19 @@ mod tests {
         assert_eq!(json["name"], "cli_ping");
         let mut keys: Vec<_> = json["meta"].as_object().unwrap().keys().cloned().collect();
         keys.sort();
-        assert_eq!(keys, ["arch", "channel", "cmd", "iid", "os", "v"]);
+        let mut documented: Vec<_> = COLLECTED.iter().map(|(f, _)| f.to_string()).collect();
+        documented.sort();
+        assert_eq!(keys, documented);
+    }
+
+    #[test]
+    fn docs_list_every_collected_field() {
+        let doc = include_str!("../../../docs/TELEMETRY.md");
+        for (field, _) in COLLECTED {
+            assert!(
+                doc.contains(&format!("| `{field}`")),
+                "docs missing {field}"
+            );
+        }
     }
 }
