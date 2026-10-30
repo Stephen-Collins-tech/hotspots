@@ -197,6 +197,12 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 
 ---
 
+## Telemetry (opt-in)
+
+Off by default. If you choose to enable it, hotspots sends one anonymous ping a day (version, OS, architecture, install channel, subcommand name, random install id) so I can see real usage and decide what to improve. No code, paths or results. Run `hotspots telemetry show` to see exactly what would be sent, and `hotspots telemetry disable` to turn it off. Details: [docs/TELEMETRY.md](docs/TELEMETRY.md).
+
+---
+
 ## Why Hotspots?
 
 **vs ESLint complexity rules** — ESLint checks one metric in isolation with no git context. Hotspots combines four metrics, git history, and call graph topology into a single prioritized list.
