@@ -12,7 +12,10 @@ mod util;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs};
+use cmd::{
+    analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs,
+    telemetry::TelemetryAction,
+};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -336,6 +339,11 @@ enum Commands {
     },
     /// Check whether a newer version of hotspots is available
     Upgrade,
+    /// Manage opt-in anonymous usage telemetry (off by default)
+    Telemetry {
+        #[command(subcommand)]
+        action: TelemetryAction,
+    },
     /// Project `analyze --touch-mode per-function`'s wall-clock cost before running it
     Estimate {
         /// Path to source file or directory
@@ -388,6 +396,8 @@ pub(crate) enum OutputLevel {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    let command_name = command_name(&cli.command);
 
     if !matches!(cli.command, Commands::Upgrade) {
         cmd::upgrade::maybe_print_update_notice();
@@ -534,6 +544,7 @@ fn main() -> anyhow::Result<()> {
             })?
         }
         Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
+        Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
         Commands::Estimate {
             path,
             format,
@@ -549,7 +560,28 @@ fn main() -> anyhow::Result<()> {
         })?,
     }
 
+    if command_name != "telemetry" {
+        cmd::telemetry::after_command(command_name);
+    }
+
     Ok(())
+}
+
+fn command_name(command: &Commands) -> &'static str {
+    match command {
+        Commands::Analyze { .. } => "analyze",
+        Commands::Prune { .. } => "prune",
+        Commands::Compact { .. } => "compact",
+        Commands::Trends { .. } => "trends",
+        Commands::Config { .. } => "config",
+        Commands::Init { .. } => "init",
+        Commands::Diff { .. } => "diff",
+        Commands::Train { .. } => "train",
+        Commands::Coordinate { .. } => "coordinate",
+        Commands::Upgrade => "upgrade",
+        Commands::Telemetry { .. } => "telemetry",
+        Commands::Estimate { .. } => "estimate",
+    }
 }
 
 #[cfg(test)]
