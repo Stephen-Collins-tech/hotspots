@@ -176,13 +176,12 @@ Releases are fully automated via CI. **Never manually bump `Cargo.toml` versions
 
 **Before choosing a bump level:** check the actual diff against the bump-level rule two sections down (MAJOR breaking, MINOR new features, PATCH bug fixes) — don't default to patch. Removing or renaming a public output field (a `pub` struct field in `hotspots-core`, or anything in the JSON/CLI output shape) is a breaking change. `hotspots-core/tests/snapshot_schema_shape_tests.rs` pins the full snapshot envelope shape for exactly this reason — if it fails, the change is schema-breaking by definition.
 
-**If the JSON output schema changed at all (not just the bump level):** the following sibling repos read it directly and must be updated in the **same release window**, not as a follow-up afterward — a published mismatch between what the CLI emits and what a sibling repo expects isn't a "will fix later" problem, it fails silently (see the GitHub Action's `violations[]`/`policy.{failed,warnings}` precedent, a schema mismatch nobody noticed for a long time):
-- `../hotspots-content/shared/snapshot-schema.json` — documents `hotspots-cloud`'s derived `summary.json` shape
-- `../hotspots-cloud/docs/CLI-CONTRACT.md` and `scripts/pipeline/snapshot.py` — read the raw CLI snapshot JSON directly
-- `../hotspots-research`'s `scripts/` — many read `snapshot.json`/`aggregates.*` fields directly; grep for the changed field name across that repo before tagging
+**If the JSON output schema changed at all (not just the bump level):** the following consumers read it directly and must be updated in the **same release window**, not as a follow-up afterward — a published mismatch between what the CLI emits and what a sibling repo expects isn't a "will fix later" problem, it fails silently (see the GitHub Action's `violations[]`/`policy.{failed,warnings}` precedent, a schema mismatch nobody noticed for a long time):
+- `action/` in this repo, and the schema documentation under `docs/`
+- Any other consumer of the snapshot JSON that the maintainers track outside this repo (grep for the changed field name across them before tagging)
 
 To create a release:
-1. Ensure all changes are merged to `main` and CI is green, including the companion PRs in any sibling repo above if the schema changed
+1. Ensure all changes are merged to `main` and CI is green, including companion PRs for any downstream consumer above if the schema changed
 2. Trigger the release workflow manually: `gh workflow run release.yml -f level=patch|minor|major -f dry_run=false` (or via the Actions tab). It bumps `Cargo.toml`, tags, and pushes.
 3. It builds binaries for Linux x86_64, macOS x86_64, macOS ARM64, Windows x86_64
 4. Creates a GitHub release with binaries and generated release notes, and publishes to npm, PyPI, crates.io, and Homebrew

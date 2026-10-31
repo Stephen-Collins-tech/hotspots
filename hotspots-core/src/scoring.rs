@@ -14,7 +14,7 @@ pub struct ScoringWeights {
     pub fan_in: f64,
     pub scc: f64,
     pub depth: f64,
-    /// Weight for commit-timing burstiness (F93: OSV/CVE ground truth showed a
+    /// Weight for commit-timing burstiness (in our evaluation, OSV/CVE ground truth showed a
     /// burst/ownership term the formula previously lacked outperforms the
     /// unweighted baseline by mean ΔAUC +0.116 across 10 validated repos).
     pub burst: f64,
@@ -36,7 +36,7 @@ impl Default for ScoringWeights {
 
 /// Breakdown of risk score components.
 ///
-/// `fan_in`/`cyclic_dependency` (F160), `depth` (F167), and `burst` were removed
+/// `fan_in`/`cyclic_dependency`, `depth`, and `burst` were removed
 /// in hotspots 2.0 — each was already hardcoded to always report `0.0` (dropped
 /// from the live composite score per their respective validated non-inferiority
 /// findings), kept only for schema compatibility until this cut. `churn` is
@@ -46,9 +46,9 @@ impl Default for ScoringWeights {
 /// removal pass rather than bundled in by analogy to the others.
 ///
 /// `neighbor_churn` was removed in a later 2.0 pass once the "only fields
-/// proven to work" bar was adopted: its sole citation was "consistent with
-/// META-02" — not refuted, but never independently validated either, unlike
-/// `complexity`/`activity`/`recency` (META-02/F160) or `churn` (carved out
+/// proven to work" bar was adopted: its sole citation was a general consistency
+/// argument — not refuted, but never independently validated either, unlike
+/// `complexity`/`activity`/`recency` (supported by our evaluation) or `churn` (carved out
 /// above). The raw `callgraph.neighbor_churn` count this term was derived
 /// from stays on `CallGraphMetrics` — it still feeds the `neighbor_risk`/
 /// `middle_man` pattern detectors in `patterns.rs`, which is a structural-fact
@@ -72,7 +72,7 @@ pub struct ActivityRiskInput {
     pub fan_in: Option<usize>,
     pub scc_size: Option<usize>,
     pub dependency_depth: Option<usize>,
-    /// Sliding 30-day-window max/mean commit ratio (F93). Higher values indicate
+    /// Sliding 30-day-window max/mean commit ratio. Higher values indicate
     /// a burst of frantic commit activity rather than steady, spread-out changes.
     pub burst_score: Option<f64>,
 }
@@ -95,7 +95,7 @@ pub fn compute_activity_risk(
     };
 
     // Touch factor: min(touch_count / 10, 5.0). The window is
-    // `crate::git::TOUCH_WINDOW_DAYS` (365 days, per F165) — the field was
+    // `crate::git::TOUCH_WINDOW_DAYS` (365 days) — the field was
     // renamed from `touch_count_30d` in hotspots 2.0 to stop implying 30 days.
     let touch_score = if let Some(touches) = input.touch_count {
         ((touches as f64 / 10.0).min(5.0)) * weights.touch
@@ -110,7 +110,7 @@ pub fn compute_activity_risk(
         0.0
     };
 
-    // Fan-in/SCC (F160) and depth (F167) terms, and the separate burst term,
+    // Fan-in/SCC and depth terms, and the separate burst term,
     // were already dropped from the live composite score (each individually
     // non-inferior per its own pre-registered finding) and reported as hardcoded
     // 0.0 in `RiskFactors` for schema compatibility only. hotspots 2.0 removes
@@ -126,9 +126,7 @@ pub fn compute_activity_risk(
     // computed over a file's entire commit history and is monotonic
     // non-decreasing, so including it here made activity_risk a one-way
     // ratchet — a single historical burst could permanently keep a file at
-    // CRITICAL regardless of current state. See
-    // hotspots-research/docs/burst-score-non-decaying-issue.md and
-    // docs/promotion-briefs/burst-score-remove-from-live-score.md. The
+    // CRITICAL regardless of current state. The
     // `burst_score` value itself is still computed and stored (see
     // `history_signals.rs`/`snapshot.rs`) for other consumers such as
     // `trainer::cold_start_features`.
@@ -214,7 +212,7 @@ mod tests {
         // churn: (100/100) * 0.5 = 0.5
         // touch: min(20/10, 5.0) * 0.3 = 2.0 * 0.3 = 0.6
         // recency: max(0, 5.0 - 1/7) * 0.2 ≈ 4.857 * 0.2 ≈ 0.971
-        // fan_in, scc (F160), and depth (F167) were already dropped from the live
+        // fan_in, scc, and depth were already dropped from the live
         // composite before this struct's 2.0 field removal; `fan_in`/`scc_size`/
         // `dependency_depth` inputs here are accepted (other callers still pass
         // them for other consumers) but contribute nothing to `risk` or `factors`.

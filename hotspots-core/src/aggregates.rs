@@ -10,6 +10,7 @@
 use crate::delta::Delta;
 use crate::risk::RiskBand;
 use crate::snapshot::{FunctionSnapshot, Snapshot};
+use crate::views::agent::{to_agent_view, AgentFunctionView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -53,7 +54,7 @@ pub struct FileRiskView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub churn_percentile: Option<f64>,
     /// 50/50 average of `file_risk_score`'s percentile rank and `churn_percentile`
-    /// (hotspots-research F206/F208/F209). `None` unless `apply_churn_blend` has run.
+    /// (validated in our evaluation). `None` unless `apply_churn_blend` has run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_risk_score_blended: Option<f64>,
 }
@@ -115,11 +116,11 @@ pub struct FileDeltaAggregates {
 /// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
 /// just summed across the whole diff instead of grouped by file.
 ///
-/// **Not validated as beating a simple size measure.** hotspots-research tested this exact
-/// formula against the real compiled binary (F164) and against four other repos with a
-/// different construction (F161, `net_delta_lrs`): on every repo tested, `pr_risk_score`
+/// **Not validated as beating a simple size measure.** In our evaluation, this exact
+/// formula was tested against the real compiled binary and, with a different construction
+/// (`net_delta_lrs`), against four other repos: on every repo tested, `pr_risk_score`
 /// scored below `fn_changed_lines` (also in this struct) at predicting which PRs later needed a
-/// defect fix — F161 found it the weakest of five tested LRS-based scores. Read `band` as a
+/// defect fix — it was the weakest of five tested LRS-based scores. Read `band` as a
 /// structural-risk signal (what's the worst code in this diff), not a calibrated estimate of
 /// which PR is more likely to cause a bug — `fn_changed_lines` is the better-evidenced signal
 /// for that specific question.
@@ -132,7 +133,7 @@ pub struct FileDeltaAggregates {
 pub struct PrRiskSummary {
     pub pr_risk_score: f64,
     /// Diff-changed lines that fall inside a touched function (`git::compute_fn_changed_lines`).
-    /// hotspots-research (F132/F159/F161) found this is the strongest tested predictor of which
+    /// In our evaluation this is the strongest tested predictor of which
     /// PRs later need a defect fix in this corpus — it beat every LRS-weighted score tried,
     /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
     /// comment for the comparison.
@@ -188,53 +189,6 @@ const HIDDEN_COUPLING_TOP_N: usize = 20;
 /// Maximum file risk entries in the agent output
 const FILE_RISK_TOP_N: usize = 10;
 
-/// Slim complexity metrics for agent-optimized function view
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct AgentMetrics {
-    pub cc: usize,
-    pub nd: usize,
-    pub fo: usize,
-}
-
-/// Slim function view for agent-optimized triage output
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct AgentFunctionView {
-    pub function: String,
-    pub file: String,
-    pub line: u32,
-    pub band: String,
-    pub quadrant: String,
-    pub driver: String,
-    // Owned, not `&'static str`: this struct is now a field of `Snapshot`,
-    // which derives `Deserialize` for persisted-snapshot round-tripping, and
-    // `&'static str` cannot round-trip through arbitrary deserialized data.
-    pub action: String,
-    pub lrs: f64,
-    pub activity_risk: f64,
-    pub metrics: AgentMetrics,
-    // hotspots 2.0: renamed from `touches_30d`/`days_since_changed` to match
-    // `FunctionSnapshot`'s names exactly, now that this struct lives inside the
-    // same unified envelope (Phase 1) — these were the "triage-mode spelling"
-    // the master-schema-spec's duplicate-naming audit flagged (section 1).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub touch_count: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub days_since_last_change: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fan_in: Option<usize>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub patterns: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub explanation: Option<String>,
-    /// Per-prediction feature contributions from the trained ranker.
-    /// Each entry is `[feature_name, contribution]`, sorted by |contribution| desc.
-    /// Null until TreeSHAP is implemented (see research brief F55-shap).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shap: Option<Vec<(String, f64)>>,
-}
-
 /// A triage quadrant with count and top-N functions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -276,55 +230,6 @@ pub struct AgentArchitectureView {
     pub modules: Vec<ModuleInstability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<crate::models::ModelRiskMap>,
-}
-
-/// Convert a slice of function snapshots into slim `AgentFunctionView` entries (top N).
-fn to_agent_view(
-    fns: &[&FunctionSnapshot],
-    repo_root: &std::path::Path,
-    top_n: usize,
-) -> Vec<AgentFunctionView> {
-    fns.iter()
-        .take(top_n)
-        .map(|func| {
-            let function_name = func
-                .function_id
-                .split("::")
-                .last()
-                .unwrap_or(&func.function_id)
-                .to_string();
-            let file = normalize_path_relative_to_repo(&func.file, repo_root)
-                .unwrap_or_else(|| func.file.clone());
-            let driver = func.driver.as_deref().unwrap_or("composite");
-            let action = crate::snapshot::driver_action_for_quadrant(
-                driver,
-                func.quadrant.as_deref().unwrap_or(""),
-            )
-            .to_string();
-            AgentFunctionView {
-                function: function_name,
-                file,
-                line: func.line,
-                band: func.band.as_str().to_string(),
-                quadrant: func.quadrant.clone().unwrap_or_else(|| "ok".to_string()),
-                driver: driver.to_string(),
-                action,
-                lrs: func.lrs,
-                activity_risk: func.activity_risk.unwrap_or(func.lrs),
-                metrics: AgentMetrics {
-                    cc: func.metrics.cc as usize,
-                    nd: func.metrics.nd as usize,
-                    fo: func.metrics.fo as usize,
-                },
-                touch_count: func.touch_count,
-                days_since_last_change: func.days_since_last_change,
-                fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
-                patterns: func.patterns.clone(),
-                explanation: func.explanation.clone(),
-                shap: None,
-            }
-        })
-        .collect()
 }
 
 /// Build the slimmed triage/architecture/co_change sections of the unified
@@ -515,7 +420,10 @@ fn extract_directory(file_path: &str) -> String {
 
 /// Normalize file path relative to repo root
 /// Returns None if path is outside repo root
-fn normalize_path_relative_to_repo(file_path: &str, repo_root: &std::path::Path) -> Option<String> {
+pub(crate) fn normalize_path_relative_to_repo(
+    file_path: &str,
+    repo_root: &std::path::Path,
+) -> Option<String> {
     let file_path_buf = std::path::PathBuf::from(file_path);
 
     // Try to make path relative to repo root
@@ -699,8 +607,7 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
 /// Percentile-rank `views` by `key` (descending: highest value -> 1.0), ties broken by
 /// file path for determinism. Position `i` in the sorted-descending order maps to
 /// `1.0 - i / (n - 1)` (the top value gets 1.0, the bottom gets 0.0; a single-element
-/// slice gets 1.0). Matches hotspots-research's `scripts/eval/f206_analyze.py`
-/// `percentile_rank` exactly.
+/// slice gets 1.0). Ties are broken by file path as above.
 fn percentile_ranks(
     views: &[FileRiskView],
     key: impl Fn(&FileRiskView) -> f64,
@@ -741,10 +648,10 @@ pub fn churn_totals_by_file(functions: &[FunctionSnapshot]) -> HashMap<String, u
 
 /// Opt-in re-ranking: blend `file_risk_score` with per-file churn (lines added +
 /// deleted, summed over `windowed_churn_at`'s trailing window) via a 50/50 average of
-/// each signal's percentile rank. Validated by hotspots-research F206 (beats the static
-/// score on a majority of tested repos), F208 (holds on repos never used to develop the
-/// blend), F209 (one known regression, not yet detectable in advance — see those
-/// findings before changing this function's weighting).
+/// each signal's percentile rank. In our evaluation it beat the static
+/// score on a majority of tested repos and held on repos never used to develop the
+/// blend, with one known regression that is not yet detectable in advance — re-evaluate
+/// before changing this function's weighting.
 ///
 /// `churn_totals` is `lines_added + lines_deleted` per file; the caller is responsible
 /// for aggregating it from `FunctionSnapshot.churn` (this function does no git I/O).

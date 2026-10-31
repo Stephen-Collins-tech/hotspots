@@ -45,16 +45,16 @@ pub(crate) struct AnalyzeArgs {
     pub touch_mode: Option<TouchModeArg>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
-    /// Rank via Gini-gated cold-start routing (F62/F63) instead of a trained ranker.
+    /// Rank via Gini-gated cold-start routing instead of a trained ranker.
     /// Explicit opt-in only; reads no fix-commit label data.
     pub cold_start: bool,
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
-    /// instead of a single merged list (F05).
+    /// instead of a single merged list.
     pub axes: bool,
     /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
     pub timing_report: bool,
     /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
-    /// instead of file_risk_score alone (hotspots-research F206/F208/F209). Opt-in.
+    /// instead of file_risk_score alone (validated in our evaluation). Opt-in.
     pub blend_churn: bool,
 }
 
@@ -187,6 +187,9 @@ fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     }
     if matches!(args.format, OutputFormat::Xlsx) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format xlsx requires --mode snapshot");
+    }
+    if matches!(args.format, OutputFormat::LlmContext) && args.mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--format llm-context requires --mode snapshot");
     }
     Ok(())
 }
@@ -433,8 +436,13 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn sarif_csv_xlsx_formats_require_snapshot_mode() {
-        for format in [OutputFormat::Sarif, OutputFormat::Csv, OutputFormat::Xlsx] {
+    fn sarif_csv_xlsx_llm_context_formats_require_snapshot_mode() {
+        for format in [
+            OutputFormat::Sarif,
+            OutputFormat::Csv,
+            OutputFormat::Xlsx,
+            OutputFormat::LlmContext,
+        ] {
             assert!(validate_analyze_flags(&AnalyzeArgs {
                 format,
                 mode: None,
@@ -659,7 +667,7 @@ fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
     }
 }
 
-/// `hotspots analyze --cold-start`: Gini-gated cold-start routing (F62/F63).
+/// `hotspots analyze --cold-start`: Gini-gated cold-start routing.
 ///
 /// Skips the trained-ranker lookup entirely. Builds a snapshot with the cold-start
 /// history signals populated (but no touch/churn/call-graph work — not needed for the
@@ -736,11 +744,10 @@ fn handle_cold_start(
     Ok(())
 }
 
-/// `--axes` (F05): prints three independent ranked sections — Risk, Coupling,
+/// `--axes`: prints three independent ranked sections — Risk, Coupling,
 /// Ownership — in that fixed order, instead of a single merged list. Files
 /// may appear in more than one section; overlap is not deduplicated, and the
-/// axes are never blended into a composite score
-/// (`docs/promotion-briefs/f05-multi-axis-report.md`).
+/// axes are never blended into a composite score.
 fn handle_axes(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
@@ -901,9 +908,9 @@ fn handle_default_output(
         OutputFormat::Html | OutputFormat::Jsonl => {
             anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif => anyhow::bail!("SARIF format requires --mode snapshot"),
-        OutputFormat::Csv => anyhow::bail!("--format csv requires --mode snapshot"),
-        OutputFormat::Xlsx => anyhow::bail!("--format xlsx requires --mode snapshot"),
+        OutputFormat::Sarif | OutputFormat::Csv | OutputFormat::Xlsx | OutputFormat::LlmContext => {
+            anyhow::bail!("SARIF/CSV/XLSX/llm-context format requires --mode snapshot");
+        }
     };
     if let (Some(tc), Some(start)) = (timing, report_start) {
         tc.report.record(start.elapsed());
@@ -1303,8 +1310,7 @@ fn enrich_delta(
             enriched.policy = Some(results);
         }
     }
-    // hotspots-research F132/F159/F161: fn_changed_lines is the strongest tested predictor of
-    // PR defect risk. Best-effort — no parent snapshot (first commit, or an untracked parent)
+    // fn_changed_lines is the strongest tested predictor of PR defect risk in our evaluation. Best-effort — no parent snapshot (first commit, or an untracked parent)
     // or a failed git diff both degrade to an empty line-set map, giving 0, not an error.
     let fn_changed_lines = match (&parent_snapshot, &parent_sha) {
         (Some(parent), Some(parent_sha)) => {
@@ -1378,7 +1384,8 @@ fn handle_models_mode(
         | OutputFormat::Jsonl
         | OutputFormat::Sarif
         | OutputFormat::Csv
-        | OutputFormat::Xlsx => {
+        | OutputFormat::Xlsx
+        | OutputFormat::LlmContext => {
             unreachable!("validated by validate_analyze_flags")
         }
     };
@@ -1418,6 +1425,7 @@ fn emit_snapshot_output(
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
         OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
         OutputFormat::Xlsx => emit_xlsx_output(snapshot, repo_root, opts),
+        OutputFormat::LlmContext => emit_llm_context_output(snapshot, repo_root, opts),
     }
 }
 
@@ -1602,6 +1610,43 @@ fn emit_csv_output(
         eprintln!("CSV report written to: {}", output_path.display());
     } else {
         print!("{csv}");
+    }
+    Ok(())
+}
+
+/// `--format llm-context`: bounded, prompt-ready projection of the top `--top`
+/// (default 20) highest-risk functions, meant for inclusion in a hosted
+/// coding model's context window. Reuses `explanation` from `--explain`
+/// directly rather than deriving separate phrasing.
+fn emit_llm_context_output(
+    snapshot: &Snapshot,
+    repo_root: &Path,
+    opts: SnapshotOutputOpts,
+) -> anyhow::Result<()> {
+    let top_n = opts
+        .top
+        .unwrap_or(hotspots_core::views::llm_context::DEFAULT_TOP_N);
+    let report = hotspots_core::views::llm_context::to_llm_context_report(
+        &snapshot.functions,
+        repo_root,
+        top_n,
+    );
+    let json =
+        serde_json::to_string_pretty(&report).context("failed to serialize llm-context report")?;
+    if let Some(output_path) = opts.output {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
+        }
+        std::fs::write(&output_path, &json).with_context(|| {
+            format!(
+                "failed to write llm-context report to {}",
+                output_path.display()
+            )
+        })?;
+        eprintln!("LLM-context report written to: {}", output_path.display());
+    } else {
+        println!("{json}");
     }
     Ok(())
 }
@@ -1821,6 +1866,11 @@ fn emit_delta_output(
         }
         OutputFormat::Xlsx => {
             anyhow::bail!("--format xlsx is not supported for delta mode (use --mode snapshot)");
+        }
+        OutputFormat::LlmContext => {
+            anyhow::bail!(
+                "--format llm-context is not supported for delta mode (use --mode snapshot)"
+            );
         }
     }
 

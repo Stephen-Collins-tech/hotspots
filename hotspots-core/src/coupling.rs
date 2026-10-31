@@ -1,4 +1,4 @@
-//! Directed coupling signal — F37/F38/F39.
+//! Directed coupling signal.
 //!
 //! Directed coupling weights co-change relationships by partner defect score,
 //! filtering infrastructure noise: coupling to defect-prone files is more
@@ -313,7 +313,7 @@ pub fn compute_directed_coupling_for_repo(
 /// `coupling_ratio(A, B) = co_occurrence(A, B) / min(commits(A), commits(B))`.
 /// Distinct from [`compute_directed_coupling`], which weights co-changes by a
 /// partner's defect score — this is the plain co-change baseline `hotspots
-/// coordinate` needs (F37-style DC scoring is a separate, later enhancement).
+/// coordinate` needs.
 ///
 /// Files appearing fewer than `min_appearances` times are excluded entirely
 /// (not scored against anything). Each unordered pair appears at most once in

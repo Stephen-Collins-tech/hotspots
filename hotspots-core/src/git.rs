@@ -41,8 +41,8 @@ pub struct GitContext {
     pub ticket_ids: Vec<String>,
 }
 
-/// Trailing-window size for `windowed_churn_at`, validated by hotspots-research
-/// F205/F206/F208/F209. Not user-configurable (no finding has tested another window).
+/// Trailing-window size for `windowed_churn_at`, validated in our evaluation.
+/// Not user-configurable (no other window has been tested).
 pub const CHURN_WINDOW_DAYS: u64 = 180;
 
 /// File churn metrics (lines added/deleted)
@@ -654,8 +654,8 @@ fn sum_numstat_lines(output: &str) -> Vec<FileChurn> {
 /// `sha`, rather than `sha`'s own single-commit diff.
 ///
 /// `extract_commit_churn_at` (above) reflects only the most recent commit's change —
-/// a signal validated as near-inert for defect-risk purposes (hotspots-research F168,
-/// F205/F206/F208/F209) because a single commit's diff rarely captures a file's actual
+/// a signal validated as near-inert for defect-risk purposes in our evaluation, because a
+/// single commit's diff rarely captures a file's actual
 /// maintenance churn. This resolves that by summing `git log --numstat` over the
 /// `window_days` preceding `sha`.
 ///
@@ -789,22 +789,22 @@ fn parse_hunk_header(hunk: &str) -> Option<(Vec<u32>, Vec<u32>)> {
     Some((parse_range(old)?, parse_range(new)?))
 }
 
-/// `fn_changed_lines` (hotspots-research F132/F159/F161): the number of diff-changed lines that
+/// `fn_changed_lines`: the number of diff-changed lines that
 /// fall inside a function touched by this PR — restricted to functions, not the whole file
-/// (tests/docs/config changes elsewhere in the same file don't count). The confirmed strongest
-/// tested predictor of which PRs later need a defect fix in this corpus: it beat every
-/// LRS-weighted composite tried, including `pr_risk_score` itself (F161: 0 of 20 tested variants
+/// (tests/docs/config changes elsewhere in the same file don't count). The strongest
+/// tested predictor of which PRs later need a defect fix in our evaluation: it beat every
+/// LRS-weighted composite tried, including `pr_risk_score` itself (none of 20 tested variants
 /// beat this size-matched baseline).
 ///
 /// For each New/Modified function, counts new-file changed lines inside its `[line, line+loc-1]`
 /// span (using the head snapshot's line numbers, since that's the version those lines exist in).
 /// For each Deleted function, counts old-file changed lines inside its base-snapshot span. This
-/// mirrors the research's own method (F161: "restricted to functions overlapping a changed
-/// hunk") using whichever side of the diff a function's lines actually exist on, avoiding
+/// mirrors the evaluated method (restricted to functions overlapping a changed
+/// hunk) using whichever side of the diff a function's lines actually exist on, avoiding
 /// double-counting between the old/new line sets for the same function.
 ///
-/// Function spans are estimated as `[line, line + loc - 1]`, the same approximation F161's own
-/// Limitations section names ("the CLI gives start line and `loc`, not end line") — this can
+/// Function spans are estimated as `[line, line + loc - 1]`, the same approximation used in our
+/// evaluation, where the CLI gives start line and `loc`, not end line — this can
 /// overshoot on functions with trailing blank lines or undershoot on ones the parser measures
 /// `loc` for differently than raw line count, but it's the same measure `hotspots analyze`
 /// already reports, not a new approximation invented for this feature.
@@ -873,16 +873,16 @@ pub fn compute_fn_changed_lines(
 /// The touch window, in days, for `batch_touch_metrics_at`'s `touch_count` /
 /// `days_since_last_change` pair.
 ///
-/// Widened from 30 to 365 per hotspots-research F165 (confirmed, pre-registered,
-/// 13-repo cutoff-safe gate): substituting a 365-day window for the 30-day one raised
+/// Widened from 30 to 365 based on a pre-registered
+/// 13-repo cutoff-safe evaluation: substituting a 365-day window for the 30-day one raised
 /// mean rho by +0.029 and mean P@10% by +0.015 with both bootstrap CI lower bounds
 /// positive, monotonically across the whole tested grid with no peak — and a paired
 /// size-confound check (partial correlation controlling for loc) found the gain is
 /// not just "counting more commits." The `touch_count` field/struct names are kept
 /// as-is for JSON/schema compatibility with existing consumers (dashboards, `--compare`,
-/// hotspots-cloud) even though they now measure a 365-day window — see F165's own note
-/// that this cost was not separately measured (the git walk here is still one process
-/// call, just scanning a wider `--since` range).
+/// external pipelines) even though they now measure a 365-day window. The added cost was
+/// not separately measured (the git walk here is still one process call, just scanning a
+/// wider `--since` range).
 pub const TOUCH_WINDOW_DAYS: i64 = 365;
 
 /// Compute touch metrics for all files in a repository using two git log calls.

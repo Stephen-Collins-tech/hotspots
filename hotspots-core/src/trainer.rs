@@ -10,23 +10,22 @@
 //! 5  fan_in                     call-graph fan-in
 //! 6  total_churn                lifetime lines added + deleted (non-windowed structural signal)
 //! 7  authors_90d                distinct commit authors in last 90 days (ownership diversity)
-//! 8  directed_coupling          co-change weighted by partner defect score (F37/F38/F39)
+//! 8  directed_coupling          co-change weighted by partner defect score
 //!
 //! Deliberately excluded:
-//! - `convention_bug_fix_count` — removed in model_version 6 (F168, hotspots#182):
+//! - `convention_bug_fix_count` — removed in model_version 6:
 //!   a full-history cumulative count with no decay/window, it propagated as a
 //!   one-way ratchet in the trained ranker in both model classes (99.3%/100%
 //!   monotonic non-decrease on RandomForest, consistently positive Ridge
 //!   coefficient on all 3 Ridge repos tested) — the same shape of bug already
 //!   fixed for `burst_score` in the live composite score. The raw
 //!   `FunctionSnapshot.convention_bug_fix_count` field and its `--explain`/report
-//!   consumers are unaffected; only this feature vector stopped reading it. See
-//!   `docs/promotion-briefs/ratchet-182-convention-fix-count-removal.md`.
+//!   consumers are unaffected; only this feature vector stopped reading it.
 //! - `touch_count`, `days_since_last_change` — windowed activity signals that
 //!   correlate tautologically with labels when the training window overlaps the label
 //!   scan window (temporal leakage; see research Finding 15 and Finding 31).
 //! - `convention_bug_fix_rate` — fix count divided by total commits; circular with the
-//!   label scan (F48). Only the raw count survives temporal holdout (F54).
+//!   label scan. Only the raw count survives temporal holdout.
 //! - `activity_risk` — a composite of `touch_count` and `days_since_last_change`;
 //!   including it is indirect temporal leakage of the same windowed signals. It also
 //!   causes the trained ranker to reproduce the heuristic score rather than learning
@@ -125,7 +124,7 @@ pub fn extract_features(func: &FunctionSnapshot) -> [f64; 9] {
     ]
 }
 
-/// Cold-start feature vector (F62/F63) — distinct from `extract_features()`'s 9
+/// Cold-start feature vector — distinct from `extract_features()`'s 9
 /// structural/activity features. Order: commit_count, author_count, author_entropy,
 /// burst_score, isolation_rate, age_days, last_touch_days, authors_90d. All fields
 /// default to `0.0` via `.unwrap_or(0.0)` — never panics on `None`.
@@ -438,8 +437,8 @@ pub fn train(
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }
     snapshot.populate_convention_bug_fix_count(repo_root);
-    // Cold-start signals (F62/F63 prerequisite) — not part of FEATURE_NAMES/extract_features;
-    // consumed via cold_start_features() by the downstream Gini-gated routing (F62/F63).
+    // Cold-start signals — not part of FEATURE_NAMES/extract_features;
+    // consumed via cold_start_features() by the downstream Gini-gated routing.
     snapshot.populate_history_signals(repo_root);
 
     // Build (features, label) pairs from snapshot functions
@@ -479,7 +478,7 @@ pub fn train(
         let pos_rate = n_pos as f64 / rows.len() as f64;
         if label_is_degenerate(pos_rate) {
             eprintln!(
-                "hotspots: warning: {:.0}% of functions are labeled positive under the                  default keyword fix-commit label (>{:.0}% threshold) — this label                  degenerates on mature, high-cadence repos (hotspots-research META-06),                  and the trained ranker below may be trained on a near-useless signal.                  Re-run with --blame for a more precise, blame-based label.",
+                "hotspots: warning: {:.0}% of functions are labeled positive under the                  default keyword fix-commit label (>{:.0}% threshold) — this label                  degenerates on mature, high-cadence repos (in our evaluation),                  and the trained ranker below may be trained on a near-useless signal.                  Re-run with --blame for a more precise, blame-based label.",
                 pos_rate * 100.0,
                 DEGENERATE_LABEL_POS_RATE * 100.0
             );
@@ -695,17 +694,17 @@ pub fn precision_at_k(
 // ── Repo screener ─────────────────────────────────────────────────────────────
 
 /// Repos with mean score below this are too flat for fine-tuning to be useful.
-/// Derived from F08: midpoint between facebook/react (0.0332) and golang/go (0.0421)
+/// Derived from our evaluation: midpoint between facebook/react (0.0332) and golang/go (0.0421)
 /// across a 32-repo validation corpus.
 pub const SCREENER_SKIP_THRESHOLD: f64 = 0.03;
 
 /// Repos between SKIP and RUN thresholds are ambiguous — training is allowed but
-/// a warning is emitted. The gap covers the overlap zone observed in F08.
+/// a warning is emitted. The gap covers the overlap zone observed there.
 pub const SCREENER_RUN_THRESHOLD: f64 = 0.06;
 
 /// Pre-flight verdict before committing to a full training run.
 ///
-/// Derived from F08 (32-repo corpus validation). Clear cases are separated by
+/// Derived from our evaluation (32-repo corpus validation). Clear cases are separated by
 /// the SKIP/RUN zone; repos in the middle are ambiguous and emit a warning
 /// but are not blocked.
 #[derive(Debug, PartialEq)]
@@ -746,43 +745,43 @@ pub fn screen_repo(snapshot: &Snapshot) -> (ScreenerVerdict, f64) {
     (verdict, mean_hs)
 }
 
-// ── Cold-start routing (F62/F63) ─────────────────────────────────────────────
+// ── Cold-start routing ─────────────────────────────────────────────
 
 /// Gini ≥ this on `commit_count` → the existing formula score is a sufficient
-/// day-one ranking. Matches F62's validated threshold exactly.
+/// day-one ranking. Matches the validated threshold.
 pub const HIGH_GINI: f64 = 0.60;
 
 /// Gini < this on `commit_count` → route to the label-free IsolationForest anomaly
-/// score (F63). Between `LOW_GINI` and `HIGH_GINI` is an ungated middle zone that
-/// defaults to the formula path — F62 does not define a third bucket.
+/// score. Between `LOW_GINI` and `HIGH_GINI` is an ungated middle zone that
+/// defaults to the formula path — no third bucket is defined.
 pub const LOW_GINI: f64 = 0.55;
 
 /// Uniform-prior guard: if the top 10% of files by `commit_count` account for less
 /// than this share of total commits, no file stands out even by raw count — return
-/// a uniform prior instead of a manufactured ranking. Adapted from F63's `pos_rate`
-/// guard, which does not apply at true cold-start (no labels exist yet).
+/// a uniform prior instead of a manufactured ranking. Adapted from the `pos_rate`
+/// guard used in evaluation, which does not apply at true cold-start (no labels exist yet).
 const UNIFORM_PRIOR_TOP_DECILE_SHARE: f64 = 0.20;
 
 const COLD_START_N_TREES: usize = 100;
 const COLD_START_SUBSAMPLE_SIZE: usize = 256;
 const COLD_START_SEED: u64 = 42;
 
-/// Low-label-density gate (F98): function-level positive rate lower bound.
+/// Low-label-density gate: function-level positive rate lower bound.
 /// Repos with `pos_rate` in `[LOWLABEL_POS_RATE_MIN, LOWLABEL_POS_RATE_MAX)` have fix
 /// history but too few confirmed fixes relative to total files for a supervised model
 /// to be trustworthy — route to the same label-free anomaly score as the Gini-low branch.
 pub const LOWLABEL_POS_RATE_MIN: f64 = 0.05;
-/// Low-label-density gate (F98): function-level positive rate upper bound (exclusive).
+/// Low-label-density gate: function-level positive rate upper bound (exclusive).
 pub const LOWLABEL_POS_RATE_MAX: f64 = 0.30;
-/// Low-label-density gate (F98): binary label-entropy floor. Separates F98's 4
+/// Low-label-density gate: binary label-entropy floor. Separates 4
 /// confirmed-good repos (entropy 0.391-0.932) from the rejected `dotnet__aspnetcore`
 /// case (entropy 0.198).
 pub const LOWLABEL_ENTROPY_MIN: f64 = 0.3;
 
 /// Default-label (keyword, non-`--blame`) positive-rate threshold above which
-/// `hotspots-research` META-06 (confirmed) found fix-commit keyword labels degenerate
+/// our evaluation found fix-commit keyword labels degenerate
 /// on mature, high-cadence repos (label positive rate >85% observed on the repos that
-/// motivated this finding). META-06's own CLI recommendation: warn above a configurable
+/// motivated this finding). The resulting recommendation: warn above a configurable
 /// threshold (default 80%) and point at `--blame` as the fix. This gate was never
 /// shipped alongside `--blame` itself (PR #113) until now.
 pub const DEGENERATE_LABEL_POS_RATE: f64 = 0.80;
@@ -819,7 +818,7 @@ pub struct ColdStartResult {
 }
 
 /// Standard Gini coefficient: `sum((2*i - n - 1) * v_i) / (n * sum(v))` over
-/// ascending-sorted `values`, `i` 1-indexed. Matches F62's formula exactly. Returns
+/// ascending-sorted `values`, `i` 1-indexed. Matches the evaluated formula. Returns
 /// `0.0` for empty input or when all values are zero (no concentration to measure).
 pub fn gini_coefficient(values: &[f64]) -> f64 {
     let n = values.len();
@@ -845,7 +844,7 @@ pub fn gini_coefficient(values: &[f64]) -> f64 {
 
 /// Rank a snapshot for a repo with zero (or unreliable) label history.
 ///
-/// Routes via the Gini coefficient of `commit_count` across all functions (F62):
+/// Routes via the Gini coefficient of `commit_count` across all functions:
 /// - `Gini >= HIGH_GINI` (or the 0.55-0.60 middle zone) → `Formula`: rank by the
 ///   existing `activity_risk`/`lrs` score, no new model needed.
 /// - `Gini < LOW_GINI - cfg.gini_dead_zone` → `Anomaly`: fit a label-free
@@ -918,7 +917,7 @@ pub fn cold_start_rank(
         }
     };
 
-    // F98: low-label-density gate, evaluated before the Gini branch. Always uses
+    // Low-label-density gate, evaluated before the Gini branch. Always uses
     // function-level (blame-based) labels regardless of `cfg.blame_labels` — the
     // file-level path inflates pos_rate on repos where one fix commit touches a
     // file with many functions (e.g. measured 0.751 vs true 0.133 on
@@ -966,7 +965,7 @@ pub fn cold_start_rank(
 
 // ── Regime screener ────────────────────────────────────────────────────────
 
-/// Verdict from the pre-training regime screener (F61): compares a depth-2
+/// Verdict from the pre-training regime screener: compares a depth-2
 /// RandomForest against Ridge regression to decide whether the fix-history
 /// signal is linear (Ridge suffices) or has interaction effects (use RandomForest).
 /// Thresholds mirror `scripts/eval/stats_pass.py`'s Q3 check exactly.
@@ -1358,7 +1357,7 @@ impl RankerModel {
 mod tests {
     use super::*;
 
-    // ── label_is_degenerate (META-06) ────────────────────────────────────────
+    // ── label_is_degenerate ────────────────────────────────────────
 
     #[test]
     fn label_is_degenerate_below_threshold_is_false() {
@@ -1374,7 +1373,7 @@ mod tests {
 
     #[test]
     fn label_is_degenerate_at_threshold_is_false() {
-        // Strictly greater-than, matching META-06's ">80%" framing, not "≥80%".
+        // Strictly greater-than, matching the ">80%" framing, not "≥80%".
         assert!(!label_is_degenerate(DEGENERATE_LABEL_POS_RATE));
     }
 
@@ -1458,7 +1457,7 @@ mod tests {
         assert_eq!(FEATURE_NAMES.len(), 9);
         assert!(
             !FEATURE_NAMES.contains(&"convention_bug_fix_count"),
-            "convention_bug_fix_count ratchets the trained ranker (F168) — removed in model_version 6"
+            "convention_bug_fix_count ratchets the trained ranker — removed in model_version 6"
         );
     }
 
@@ -1746,7 +1745,7 @@ mod tests {
         assert_eq!(model.model_version, 6);
     }
 
-    // ── cold-start routing (F62/F63) ────────────────────────────────────────────
+    // ── cold-start routing ────────────────────────────────────────────
 
     #[test]
     fn gini_uniform_distribution_is_zero() {

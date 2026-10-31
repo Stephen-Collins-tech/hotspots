@@ -1,12 +1,10 @@
-//! Cold-start history signals — F63 signal-porting prerequisite.
+//! Cold-start history signals.
 //!
-//! Seven file-level signals (six F62/F63 cold-start signals plus `burst_score`,
-//! F93), computed from a single `git log` pass over the whole repo (not one
+//! Seven file-level signals (six cold-start signals plus `burst_score`), computed from a single `git log` pass over the whole repo (not one
 //! subprocess per file, unlike `populate_authors_90d`/`populate_convention_bug_fix_count`).
 //! `burst_score`'s formula lives here too (moved from `snapshot.rs`) so
 //! `Snapshot::populate_burst_score` can reuse this module's loader instead of
-//! spawning its own redundant full-history `git log` walk — see
-//! `hotspots-research/docs/promotion-briefs/burst-score-history-signals-shared-walk.md`.
+//! spawning its own redundant full-history `git log` walk.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -24,7 +22,7 @@ pub struct CommitRecord {
     pub files: Vec<String>,
 }
 
-/// Per-file cold-start signals (F62/F63 feature set) plus `burst_score` (F93).
+/// Per-file cold-start signals plus `burst_score`.
 pub struct HistorySignals {
     pub commit_count: u32,
     pub author_count: u32,
@@ -123,13 +121,13 @@ fn author_entropy(authors: &[&str]) -> f64 {
     }
 }
 
-/// Sliding 30-day-window max/mean commit ratio (F93). Moved from `snapshot.rs`
+/// Sliding 30-day-window max/mean commit ratio. Moved from `snapshot.rs`
 /// so it shares this module's single-pass commit load with the other six
 /// cold-start signals instead of triggering its own `git log` walk.
 ///
 /// For each commit, counts how many commits (including itself) fall within the
 /// following 30-day window, then divides the maximum such count by the mean.
-/// Mirrors `cheap_signals.py::_burst_score` in `hotspots-research`. Returns
+/// Returns
 /// `1.0` (no burst signal) when fewer than 2 timestamps are given.
 fn burst_score(timestamps: &[i64]) -> f64 {
     const BURST_WINDOW_DAYS: i64 = 30;
@@ -159,7 +157,7 @@ fn burst_score(timestamps: &[i64]) -> f64 {
     counts.iter().cloned().fold(f64::MIN, f64::max) / mean_c
 }
 
-/// Newcomer commit ratio (F102/F05): fraction of a file's commits in the
+/// Newcomer commit ratio: fraction of a file's commits in the
 /// 90-day window before `cutoff` that were authored by someone whose
 /// first-ever commit to the repo also falls in that same window.
 ///
@@ -285,7 +283,7 @@ mod tests {
     }
 
     /// Hand-computed fixture: 3 files, ≤10 commits, matching the acceptance
-    /// criteria in the F63 signal-porting-prerequisite brief.
+    /// criteria.
     ///
     /// Commits (ts in days since epoch, converted to seconds):
     ///   d0: alice   -> a.rs, b.rs   (co-touch, both non-isolated)
@@ -414,7 +412,7 @@ mod tests {
 
     #[test]
     fn newcomer_rate_matches_reference() {
-        // Hand-computed case ported from F102's eval_ownership_axis_independence.py
+        // Hand-computed case following the reference
         // definition: window = [window_start, now]. alice's first-ever commit is
         // before the window (not a newcomer); bob's first-ever commit is inside
         // the window (a newcomer). All commits below fall inside a 90-day window

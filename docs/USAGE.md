@@ -44,7 +44,7 @@ hotspots analyze . --mode snapshot --format text --level file
 hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal (F170) and is no longer computed or reported.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal and is no longer computed or reported.
 
 ## Delta Mode
 
@@ -118,12 +118,12 @@ prints it under the summary line; JSON/JSONL expose it at
 `delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
 
 **Read `pr_risk_score` as a structural signal (what's the worst code in this
-diff), not a validated risk estimate.** hotspots-research tested it directly
-against the real compiled binary and found it does not beat a simple size
+diff), not a validated risk estimate.** In our evaluation, tested directly
+against the real compiled binary, it does not beat a simple size
 measure at predicting which PRs later need a defect fix. The better-evidenced
 number sits right next to it: `fn_changed_lines` — diff-changed lines that
-fall inside a touched function — confirmed the strongest tested predictor in
-that same research. `size_band` (`small`/`medium`/`large`/`very_large`)
+fall inside a touched function — was the strongest tested predictor in
+that same evaluation. `size_band` (`small`/`medium`/`large`/`very_large`)
 buckets it for a quick glance across PRs; unlike `fn_changed_lines` itself,
 the band's cutoffs are a display convenience, not a research finding —
 override them via `.hotspotsrc.json`'s `change_size_thresholds` if the
@@ -131,7 +131,7 @@ defaults don't fit your repo (see [REFERENCE.md](REFERENCE.md#activity-risk-scor
 
 ```
 3 modified, 1 new, 0 deleted
-Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk — hotspots-research F132/F159/F161; ...)
+Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk in our evaluation; ...)
 PR risk score: +7.50 (band: critical) — structural signal, not validated as beating the line-count measure above
 ====================================================================================================
 ```
@@ -168,8 +168,8 @@ Output (JSON only today):
 
 Earlier versions also reported raw co-change coupling facts (`within_set`, `hidden_dependencies`)
 as descriptive data with no recommendation attached. Hotspots 2.0 removed them too, once the bar
-for shipping a field became "proven to work, not just not-yet-refuted": hotspots-research
-actively tested them and found `coupling_ratio` predicts *less* coordination friction, not more,
+for shipping a field became "proven to work, not just not-yet-refuted": our
+evaluation actively tested them and found `coupling_ratio` predicts *less* coordination friction, not more,
 and adds nothing once ownership is controlled for — the opposite of the evidence `ownership`
 has. Use `knowledge_mode` and your own judgment instead.
 
@@ -180,7 +180,7 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
 **Blocking by default (exit code 1) — severity configurable, see below:**
 - `critical-introduction` — new or existing function crosses LRS ≥ 9.0
 - `excessive-risk-regression` — LRS increases by ≥ 1.0 on a modified function. This
-  is a flat absolute threshold, not size-relative — hotspots-research F105 found
+  is a flat absolute threshold, not size-relative — our analysis found
   this mechanically favors flagging large functions over small ones, but couldn't
   gather enough evidence to say whether that miscalibration matters in practice
   (see the doc comment on `REGRESSION_THRESHOLD` in `hotspots-core/src/policy.rs`).

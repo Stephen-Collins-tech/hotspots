@@ -99,8 +99,8 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         .as_ref()
         .map(|a| a.co_change.as_slice())
         .unwrap_or(&[]);
-    // hotspots-research F132/F159/F161: fn_changed_lines (diff-changed lines inside touched
-    // functions) is the strongest tested predictor of PR defect risk, beating every
+    // fn_changed_lines (diff-changed lines inside touched functions) is the strongest
+    // tested predictor of PR defect risk in our evaluation, beating every
     // LRS-weighted composite tried, including pr_risk_score itself. Best-effort — an
     // empty/failed git diff (e.g. shallow clone) degrades to an empty line-set map, giving 0,
     // not an error, matching extract_commit_churn_at's convention.
@@ -253,6 +253,11 @@ fn emit_diff_output(
                 "--format xlsx is not supported for diff (use --format json or --format html)"
             );
         }
+        OutputFormat::LlmContext => {
+            anyhow::bail!(
+                "--format llm-context is not supported for diff (use --format json or --format html)"
+            );
+        }
     }
 
     Ok(has_blocking_failures)
@@ -310,7 +315,7 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
         writeln!(
             out,
             "Changed lines in touched functions: {} · {} (strongest tested predictor of \
-             defect risk — hotspots-research F132/F159/F161; size band is a display \
+             defect risk in our evaluation; size band is a display \
              convenience, not itself research-derived — see docs/REFERENCE.md)",
             summary.fn_changed_lines, summary.size_band
         )?;

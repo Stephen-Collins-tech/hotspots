@@ -166,9 +166,9 @@ enum Commands {
 
         /// Re-rank file-level risk (--level file) by a 50/50 blend of file_risk_score
         /// and per-file churn (lines added+deleted, 180-day window), instead of
-        /// file_risk_score alone. Validated by hotspots-research F206/F208 to improve
+        /// file_risk_score alone. In our evaluation it improved
         /// recall on most tested repos, with one known regression and no reliable way
-        /// yet to predict which repos it will hurt (F209) — opt-in, not a default.
+        /// yet to predict which repos it will hurt — opt-in, not a default.
         #[arg(long)]
         blend_churn: bool,
     },
@@ -368,6 +368,9 @@ pub(crate) enum OutputFormat {
     Sarif,
     Csv,
     Xlsx,
+    /// Bounded, prompt-ready projection of the highest-risk functions,
+    /// meant for inclusion in a hosted coding model's context window.
+    LlmContext,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]

@@ -40,3 +40,7 @@ commit_parsers = [
   { message = "^ci", skip = true },
 ]
 filter_commits = true
+# Never let private research identifiers into the public changelog.
+commit_preprocessors = [
+  { pattern = '(?:\s*[—–-]\s*)?\b(?:F[0-9]{2,3}|META-[0-9]+)(?:[,/ ]+(?:F[0-9]{2,3}|META-[0-9]+))*\b', replace = "" },
+]

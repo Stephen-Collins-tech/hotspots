@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Bug Fixes
+- Bump zip to 9.0.5 for CVE-2026-115905 (#312)
+
+## [2.5.0] - 2026-10-28
+
+### Documentation
+- Remove private research references from comments and docs (#298)
+- Scrub private refs from runtime text, tests, CONTRIBUTING; add CLAUDE.md rule (#299)
+
+
+### Features
+- Add --format llm-context bounded risk projection (REQ-005) (#308)
+
 ## [2.4.0] - 2026-10-25
 
 ### Features
@@ -60,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.0.1] - 2026-10-13
 
 ### Documentation
-- Update file_risk_score validation to F173's n=234 result (#257)
+- Update file_risk_score validation to 's n=234 result (#257)
 
 ## [2.0.0] - 2026-10-12
 
@@ -73,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Document hotspots coordinate command (#239)
 - Changelog entry for 2.0 Phase 2 field removals
 - Fix stale DELTA_SCHEMA_VERSION reference in config.rs
-- Hedge file_risk_score for within-diff triage only (F173)
+- Hedge file_risk_score for within-diff triage only ()
 - Fix post-2.0 drift in REFERENCE/USAGE/ARCHITECTURE/RISK_STABILITY
 - Dedupe LRS formula and coordinate rationale restatements
 
@@ -98,7 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct 7 cyclomatic-complexity/fan-out/diff bugs found by dogfooding (#232)
 - 4 utility-command bugs found by dogfooding (prune/compact/snapshot/trends) (#233)
 - Remove unvalidated Centrality axis (closes #215) (#235)
-- Recalibrate module_risk cutoffs per F170, doc unvalidated thresholds
+- Recalibrate module_risk cutoffs per , doc unvalidated thresholds
 - Drop dead file_churn field, add file_risk_score percentile note
 
 
@@ -108,12 +123,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Match hotspots.dev's lowercase wordmark exactly
 - Match hotspots.dev font stack
 - Set prose in Merriweather to match hotspots.dev
-- F105 threshold note + runlog convention (#219)
+- Threshold note + runlog convention (#219)
 
 ## [1.42.0] - 2026-09-28
 
 ### Features
-- Add fn_changed_lines, hedge pr_risk_score (F132/F159/F161)
+- Add fn_changed_lines, hedge pr_risk_score ()
 - Size_band display + fix cross-worktree delta-matching bug
 
 ## [1.41.0] - 2026-09-27
@@ -123,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Features
-- Align scoring with confirmed research — F160, F165, META-06
+- Align scoring with confirmed research
 
 
 ### Performance
@@ -180,13 +195,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add plain-language summary to stability doc
 - Audit cumulative features for ratchet risk
 - Classify percentile/driver/quadrant as label-relative
-- Queue F05 multi-axis report brief for implementation
+- Queue  multi-axis report brief for implementation
 
 
 ### Features
 - Add formula_version to snapshot AnalysisInfo (#176)
 - Add schema_version field to HotspotsConfig (#175)
-- Add hotspots analyze --axes multi-axis report (F05)
+- Add hotspots analyze --axes multi-axis report ()
 - Add JSON output support for analyze --axes
 - Add Centrality as a 4th --axes ranking section
 - Add dead zone to cold-start Gini routing threshold
@@ -239,7 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.34.0] - 2026-08-02
 
 ### Features
-- F98 low-label-density gate for cold-start routing (#128)
+- Low-label-density gate for cold-start routing (#128)
 
 ## [1.33.2] - 2026-07-26
 
@@ -254,27 +269,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.33.0] - 2026-07-15
 
 ### Features
-- F62/F63 Gini-gated cold-start routing
+- Gini-gated cold-start routing
 
 ## [1.32.0] - 2026-07-15
 
 ### Features
-- F63 cold-start history signals prerequisite
+- Cold-start history signals prerequisite
 
 ## [1.31.0] - 2026-07-14
 
 ### Features
-- F93 burst-score term in activity-risk formula (#120)
+- Burst-score term in activity-risk formula (#120)
 
 ## [1.30.0] - 2026-07-09
 
 ### Features
-- F55 --explain flag with deterministic phrase-table explanation layer (#115)
+- --explain flag with deterministic phrase-table explanation layer (#115)
 
 ## [1.29.0] - 2026-07-09
 
 ### Features
-- F61 regime-based model class auto-selection (Q3 screener) (#114)
+- Regime-based model class auto-selection (Q3 screener) (#114)
 
 ## [1.28.0] - 2026-07-07
 
@@ -353,7 +368,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Add hotspots init --ci with GitHub Actions workflow (#101)
-- Add hotspots train --screen pre-flight repo screener (F08) (#91)
+- Add hotspots train --screen pre-flight repo screener () (#91)
 
 ## [1.24.0] - 2026-06-07
 
@@ -385,7 +400,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.23.0] - 2026-06-06
 
 ### Features
-- Directed coupling signal (F37/F38/F39) (#85)
+- Directed coupling signal () (#85)
 
 ## [1.22.0] - 2026-06-04
 
@@ -621,6 +636,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[2.5.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.5.0
 [2.4.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.4.0
 [2.2.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.2.1
 [2.2.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.2.0

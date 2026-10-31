@@ -165,7 +165,7 @@ def main() -> None:
     lines.append(f"## Latest — v{args.hotspots_version} ({args.run_date})\n")
     lines.append("**Features:** ARS baseline (no trained ranker)  ")
     lines.append(f"**Feature set:** {feature_set}  ")
-    lines.append("**Note:** adds `burst_score` (F93 sliding 30-day max/mean commit-timing "
+    lines.append("**Note:** adds `burst_score` (sliding 30-day max/mean commit-timing "
                   "ratio) with weight 0.3; no trained-ranker feature set change.\n")
     lines.append("| Repo | Language | ρ | P@10 | n\\_files | n\\_bug\\_files |")
     lines.append("|---|---|---|---|---|---|")
@@ -182,7 +182,7 @@ def main() -> None:
 
     history_row = (
         f"| [v{args.hotspots_version}](versions/v{args.hotspots_version}.json) | {args.run_date} | "
-        f"{mean_rho:+.3f} | {mean_p10:.2f} | off | +`burst_score` (F93 commit-timing burstiness term) |"
+        f"{mean_rho:+.3f} | {mean_p10:.2f} | off | +`burst_score` (commit-timing burstiness term) |"
     )
 
     results_md = Path(args.results_md)
