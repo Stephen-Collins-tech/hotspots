@@ -226,7 +226,10 @@ impl GoCfgBuilderState {
                     }
                 }
                 Task::If { node } => {
-                    let from_node = self.current_node.expect("Current node should exist");
+                    let Some(from_node) = self.current_node else {
+                        // Unreachable (dead code after return/panic/etc.): nothing to wire up.
+                        continue;
+                    };
 
                     // Condition node
                     let condition_node = self.cfg.add_node(NodeKind::Condition);
@@ -292,7 +295,10 @@ impl GoCfgBuilderState {
                     self.current_node = Some(join_node);
                 }
                 Task::For { node } => {
-                    let from_node = self.current_node.expect("Current node should exist");
+                    let Some(from_node) = self.current_node else {
+                        // Unreachable (dead code after return/panic/etc.): nothing to wire up.
+                        continue;
+                    };
 
                     // Loop header
                     let loop_header = self.cfg.add_node(NodeKind::LoopHeader);
@@ -340,7 +346,10 @@ impl GoCfgBuilderState {
                     self.current_node = Some(join_node);
                 }
                 Task::Switch { node } => {
-                    let from_node = self.current_node.expect("Current node should exist");
+                    let Some(from_node) = self.current_node else {
+                        // Unreachable (dead code after return/panic/etc.): nothing to wire up.
+                        continue;
+                    };
 
                     // Switch condition
                     let condition_node = self.cfg.add_node(NodeKind::Condition);
@@ -451,7 +460,10 @@ impl GoCfgBuilderState {
                     self.current_node = ctx.break_target;
                 }
                 Task::Select { node } => {
-                    let from_node = self.current_node.expect("Current node should exist");
+                    let Some(from_node) = self.current_node else {
+                        // Unreachable (dead code after return/panic/etc.): nothing to wire up.
+                        continue;
+                    };
 
                     // Select condition (non-deterministic choice)
                     let condition_node = self.cfg.add_node(NodeKind::Condition);
@@ -763,6 +775,31 @@ func test() {
 
         // Should have entry, statement, exit
         assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_go_cfg_builder_control_flow_in_dead_code_does_not_panic() {
+        // Regression: control flow after a terminating statement (here rclone's iCloud
+        // `Copy`, which returns early and leaves the rest as dead code) used to hit
+        // `expect("Current node should exist")`.
+        for tail in [
+            "if !ok { return nil, err }",
+            "for i := 0; i < 3; i++ { println(i) }",
+            "switch n { case 1: println(n) }",
+            "select { case <-ch: println(n) }",
+        ] {
+            for term in ["return nil, err", "panic(\"x\")"] {
+                let source = format!(
+                    "package main\nfunc test(src any, n int, ch chan int) (any, error) {{\n    {term}\n    v, ok := src.(int)\n    _ = v\n    {tail}\n    return nil, nil\n}}\n"
+                );
+                let mut function = make_test_go_function(&source);
+                // The builder locates the function by span start, so point it at `func`.
+                function.span =
+                    SourceSpan::new(source.find("func").unwrap(), source.len(), 1, 1, 0);
+                let cfg = GoCfgBuilder.build(&function);
+                assert!(cfg.node_count() > 2, "{term} then {tail}");
+            }
+        }
     }
 
     #[test]
