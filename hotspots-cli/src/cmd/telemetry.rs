@@ -10,7 +10,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ENDPOINT: &str = "https://hotspots.dev/api/event";
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+/// Dropped packets (captive portals, firewalls) must not stall a command: bound each phase too.
+const PHASE_TIMEOUT: Duration = Duration::from_millis(500);
 const PING_INTERVAL_SECS: u64 = 24 * 60 * 60;
+/// After a failed ping (offline, firewalled, server down) wait this long before trying again.
+const RETRY_INTERVAL_SECS: u64 = 60 * 60;
 const STATE_FILE: &str = "telemetry.json";
 const CI_VARS: [&str; 5] = [
     "CI",
@@ -72,7 +76,11 @@ struct State {
     /// The one-time prompt has been shown (whatever the answer was).
     asked: bool,
     install_id: String,
+    /// When a ping last succeeded.
     last_ping_unix: u64,
+    /// When a ping was last attempted and did not succeed; 0 if the last attempt succeeded.
+    #[serde(default)]
+    last_failure_unix: u64,
 }
 
 #[derive(Serialize)]
@@ -169,15 +177,40 @@ fn build_event(state: &State, cmd: &'static str) -> Event {
     }
 }
 
-fn send(event: &Event) {
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
-        .build();
-    let agent = ureq::Agent::new_with_config(config);
-    let _ = agent
-        .post(ENDPOINT)
-        .header("User-Agent", "hotspots-cli")
-        .send_json(event);
+/// Returns whether the server accepted the ping. Never panics or prints, and never blocks the
+/// caller past `REQUEST_TIMEOUT`: the request runs on a thread we stop waiting for (the process
+/// exits right after, ending it), because per-phase HTTP timeouts don't cover every way a
+/// network can stall (dropped packets, proxies).
+fn send(event: &Event) -> bool {
+    let Ok(body) = serde_json::to_string(event) else {
+        return false;
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(REQUEST_TIMEOUT))
+            .timeout_resolve(Some(PHASE_TIMEOUT))
+            .timeout_connect(Some(PHASE_TIMEOUT))
+            .build();
+        let ok = ureq::Agent::new_with_config(config)
+            .post(ENDPOINT)
+            .header("User-Agent", "hotspots-cli")
+            .header("Content-Type", "application/json")
+            .send(body)
+            .is_ok();
+        let _ = tx.send(ok);
+    });
+    rx.recv_timeout(REQUEST_TIMEOUT + Duration::from_millis(100))
+        .unwrap_or(false)
+}
+
+/// A ping is due 24h after the last success, and at least 1h after the last failure.
+fn ping_due(state: &State, now: u64) -> bool {
+    if now.saturating_sub(state.last_ping_unix) < PING_INTERVAL_SECS {
+        return false;
+    }
+    state.last_failure_unix == 0
+        || now.saturating_sub(state.last_failure_unix) >= RETRY_INTERVAL_SECS
 }
 
 /// Called after a command finishes. Silent and best-effort: never changes exit codes or output.
@@ -201,13 +234,42 @@ pub(crate) fn after_command(cmd: &'static str) {
         return;
     }
     let now = now_unix();
-    if now.saturating_sub(state.last_ping_unix) < PING_INTERVAL_SECS {
+    if !ping_due(&state, now) {
         return;
     }
-    // Stamp before sending so a failing network doesn't retry on every run.
-    state.last_ping_unix = now;
+    // Record an attempt before sending so a hang or crash doesn't retry on every run.
+    state.last_failure_unix = now;
     let _ = write_state(&path, &state);
-    send(&build_event(&state, cmd));
+    if send(&build_event(&state, cmd)) {
+        state.last_ping_unix = now;
+        state.last_failure_unix = 0;
+        let _ = write_state(&path, &state);
+    }
+}
+
+/// One line for `telemetry status`, so a failing ping is visible on request, never in normal output.
+fn last_ping_summary(state: &State, now: u64) -> String {
+    let ago = |t: u64| {
+        let s = now.saturating_sub(t);
+        if s < 3600 {
+            format!("{}m ago", s / 60)
+        } else if s < 86400 {
+            format!("{}h ago", s / 3600)
+        } else {
+            format!("{}d ago", s / 86400)
+        }
+    };
+    if state.last_failure_unix != 0 {
+        format!(
+            "Last ping: failed {} (offline or blocked?); retrying after {}m.",
+            ago(state.last_failure_unix),
+            RETRY_INTERVAL_SECS / 60
+        )
+    } else if state.last_ping_unix != 0 {
+        format!("Last ping: sent {}.", ago(state.last_ping_unix))
+    } else {
+        "Last ping: none yet.".to_string()
+    }
 }
 
 fn prompt_opt_in() -> bool {
@@ -251,6 +313,9 @@ pub(crate) fn handle_telemetry(action: TelemetryAction) -> anyhow::Result<()> {
                     ""
                 }
             );
+            if state.enabled {
+                println!("{}", last_ping_summary(&state, now_unix()));
+            }
             println!("State file: {}", path.display());
         }
         TelemetryAction::Enable => {
@@ -317,6 +382,36 @@ mod tests {
         assert!(env_opted_out(&env(&[("CI", "true")])));
         assert!(env_opted_out(&env(&[("GITHUB_ACTIONS", "true")])));
         assert!(!env_opted_out(&env(&[("DO_NOT_TRACK", "0")])));
+    }
+
+    #[test]
+    fn failed_ping_retries_after_an_hour_not_a_day() {
+        let day = PING_INTERVAL_SECS;
+        let mut st = State {
+            enabled: true,
+            install_id: "x".into(),
+            ..Default::default()
+        };
+        assert!(ping_due(&st, 1_000_000)); // never pinged
+        st.last_ping_unix = 1_000_000;
+        assert!(!ping_due(&st, 1_000_000 + day - 1)); // succeeded: wait a day
+        assert!(ping_due(&st, 1_000_000 + day));
+        st.last_failure_unix = 1_000_000 + day;
+        assert!(!ping_due(&st, 1_000_000 + day + RETRY_INTERVAL_SECS - 1)); // failed: wait an hour
+        assert!(ping_due(&st, 1_000_000 + day + RETRY_INTERVAL_SECS));
+    }
+
+    #[test]
+    fn status_summary_reports_failure_and_success() {
+        let mut st = State::default();
+        assert_eq!(last_ping_summary(&st, 100), "Last ping: none yet.");
+        st.last_ping_unix = 100;
+        assert_eq!(
+            last_ping_summary(&st, 100 + 7200),
+            "Last ping: sent 2h ago."
+        );
+        st.last_failure_unix = 100 + 7200;
+        assert!(last_ping_summary(&st, 100 + 7200 + 600).contains("failed 10m ago"));
     }
 
     #[test]
