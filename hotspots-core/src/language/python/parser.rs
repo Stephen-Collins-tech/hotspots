@@ -4,6 +4,7 @@ use crate::ast::FunctionNode;
 use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::tree_sitter_utils::find_child_by_kind;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use tree_sitter::{Node, Parser, Tree};
 
 /// Python parser using tree-sitter
@@ -44,7 +45,7 @@ impl LanguageParser for PythonParser {
 
         Ok(Box::new(PythonModule {
             tree,
-            source: source.to_string(),
+            source: Arc::from(source),
         }))
     }
 }
@@ -52,7 +53,7 @@ impl LanguageParser for PythonParser {
 /// Parsed Python module
 struct PythonModule {
     tree: Tree,
-    source: String,
+    source: Arc<str>,
 }
 
 impl ParsedModule for PythonModule {
@@ -73,7 +74,7 @@ impl ParsedModule for PythonModule {
 /// Recursively discover function declarations in the Python AST
 fn discover_functions_recursive(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     functions: &mut Vec<FunctionNode>,
 ) {
@@ -95,7 +96,7 @@ fn discover_functions_recursive(
 /// Extract a FunctionNode from a tree-sitter function_definition or async_function_definition
 fn extract_function(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     local_index: usize,
 ) -> Option<FunctionNode> {
@@ -120,7 +121,7 @@ fn extract_function(
     // Create FunctionBody::Python variant
     let body = FunctionBody::Python {
         body_node: body_node.id(),
-        source: source.to_string(),
+        source: Arc::clone(source),
     };
 
     Some(FunctionNode {

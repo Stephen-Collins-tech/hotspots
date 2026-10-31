@@ -4,6 +4,7 @@ use crate::ast::FunctionNode;
 use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::tree_sitter_utils::find_child_by_kind;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use tree_sitter::{Node, Parser, Tree};
 
 /// Go parser using tree-sitter
@@ -44,7 +45,7 @@ impl LanguageParser for GoParser {
 
         Ok(Box::new(GoModule {
             tree,
-            source: source.to_string(),
+            source: Arc::from(source),
         }))
     }
 }
@@ -52,7 +53,7 @@ impl LanguageParser for GoParser {
 /// Parsed Go module
 struct GoModule {
     tree: Tree,
-    source: String,
+    source: Arc<str>,
 }
 
 impl ParsedModule for GoModule {
@@ -73,7 +74,7 @@ impl ParsedModule for GoModule {
 /// Recursively discover function declarations in the Go AST
 fn discover_functions_recursive(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     functions: &mut Vec<FunctionNode>,
 ) {
@@ -94,7 +95,7 @@ fn discover_functions_recursive(
 /// Extract a FunctionNode from a tree-sitter function_declaration or method_declaration
 fn extract_function(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     local_index: usize,
 ) -> Option<FunctionNode> {
@@ -119,7 +120,7 @@ fn extract_function(
     // Create FunctionBody::Go variant (placeholder for now)
     let body = FunctionBody::Go {
         body_node: body_node.id(),
-        source: source.to_string(),
+        source: Arc::clone(source),
     };
 
     Some(FunctionNode {

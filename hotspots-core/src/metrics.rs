@@ -1706,7 +1706,7 @@ func withDefer() {
             span: SourceSpan::new(0, 0, 1, 1, 0),
             body: FunctionBody::Go {
                 body_node: 0,
-                source: String::new(),
+                source: "".into(),
             },
             suppression_reason: None,
         };
@@ -1812,7 +1812,7 @@ func withDefer() {
             span: SourceSpan::new(0, 0, 1, 1, 0),
             body: FunctionBody::Java {
                 body_node: 0,
-                source: String::new(),
+                source: "".into(),
             },
             suppression_reason: None,
         };
@@ -1910,7 +1910,7 @@ func withDefer() {
             span: SourceSpan::new(0, 0, 1, 1, 0),
             body: FunctionBody::Python {
                 body_node: 0,
-                source: String::new(),
+                source: "".into(),
             },
             suppression_reason: None,
         };
