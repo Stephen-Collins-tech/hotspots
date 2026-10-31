@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Bump zip to 9.0.5 for CVE-2026-115905 (#312)
+- Skip control flow in dead code instead of panicking (#314)
 
 
 ### Features
