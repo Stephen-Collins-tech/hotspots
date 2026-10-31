@@ -47,7 +47,7 @@ log of every sample pulled so the *flow*, not just the latest drop, is inspectab
 
 - **Not a replacement for the CLI.** The MCP server shells out to the same `hotspots` binary
   examples/ai-agents already uses (via `execa`, same pattern as `HotspotsClient` in
-  `examples/ai-agents/shared/hotspots-client.ts`) — it does not reimplement analysis logic in
+  `examples/ai-agents/shared/cli-client.ts`) — it does not reimplement analysis logic in
   TypeScript.
 - **Not cloud sync.** The sample log is local SQLite only. A cloud-sync target is explicitly
   future work (see "Explicitly deferred" below) — do not build any network call, API client,
@@ -77,7 +77,7 @@ packages/mcp-server/
 ├── SPEC.md                    # this file — keep it, do not delete once implemented
 ├── src/
 │   ├── index.ts                # MCP server entry point, stdio transport
-│   ├── hotspots-client.ts       # thin wrapper around the CLI binary (see below)
+│   ├── cli-client.ts       # thin wrapper around the CLI binary (see below)
 │   ├── tools/
 │   │   ├── coordinate.ts        # hotspots_coordinate tool
 │   │   ├── analyze.ts           # hotspots_analyze tool
@@ -89,7 +89,7 @@ packages/mcp-server/
 │   │   └── record.ts             # insert-a-sample helper, called by every tool in tools/
 │   └── types.ts                 # tool input/output TS types (reuse @hotspots/types where the shape matches CLI JSON output 1:1)
 └── test/
-    ├── hotspots-client.test.ts
+    ├── cli-client.test.ts
     ├── sample-log.test.ts
     └── tools/
         ├── coordinate.test.ts
@@ -101,7 +101,7 @@ packages/mcp-server/
 **Dependencies** (mirror `examples/ai-agents/package.json` conventions where they overlap):
 - `@modelcontextprotocol/sdk` — MCP server/stdio transport
 - `execa` — subprocess execution (already the established pattern for shelling out to the
-  `hotspots` binary; see `examples/ai-agents/shared/hotspots-client.ts`)
+  `hotspots` binary; see `examples/ai-agents/shared/cli-client.ts`)
 - `better-sqlite3` — synchronous SQLite, no async driver complexity needed for a local
   single-writer log
 - `@hotspots/types` (workspace dependency) — reuse `HotspotsOutput`, `PolicyResult`, etc.
@@ -112,7 +112,7 @@ packages/mcp-server/
 
 ## Binary discovery
 
-Reuse the exact convention from `examples/ai-agents/shared/hotspots-client.ts` and its
+Reuse the exact convention from `examples/ai-agents/shared/cli-client.ts` and its
 README: `HOTSPOTS_PATH` environment variable overrides; default is `hotspots` resolved from
 `PATH`. Throw the same `HotspotsNotFoundError` shape (or import/reuse it if
 `examples/ai-agents`'s client is extracted to a shared location — check whether that's
@@ -390,7 +390,7 @@ list of SQL files if `user_version` is behind."
 3. **`--touch-mode hybrid:N`** — the input schema above only exposes the bare `hybrid` variant
    of `--touch-mode`, not `hybrid:N` with a custom N. Decide whether to add an optional
    `hybridThreshold?: number` field or leave N at its CLI default (5) for v1.
-4. **Whether `examples/ai-agents/shared/hotspots-client.ts` should be extracted into a shared
+4. **Whether `examples/ai-agents/shared/cli-client.ts` should be extracted into a shared
    location** both it and this package import from, vs. this package having its own small
    client. Check for duplication risk before deciding; either is acceptable, but don't leave
    two subtly-different copies of the same binary-invocation logic without a documented reason.
@@ -404,7 +404,7 @@ list of SQL files if `user_version` is behind."
    the package hardcodes it; only a test asserts it for `coordinate`.
 2. `output_json` is stored uncompressed; `summary_json` drives trends. Documented in the README.
 3. `hybrid:N` is not exposed; N stays at the CLI default.
-4. Own small client (`src/hotspots-client.ts`): the ai-agents client is analyze-only and not in a
+4. Own small client (`src/cli-client.ts`): the ai-agents client is analyze-only and not in a
    published package. Error class names are identical.
 5. `coordinate` defaults to `.`; `analyze` has no default (path required), so the tool requires it.
 6. Snapshot triage buckets are `fire`/`debt`/`watch`/`ok`, not CRITICAL/HIGH/WATCH/OK; they are

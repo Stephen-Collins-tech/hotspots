@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import { runHotspots } from '../hotspots-client.js';
+import { runHotspots } from '../cli-client.js';
 import { recordSample, resolveRepoRoot, absPath } from '../sample-log/record.js';
 import { fail, ok, type AnalyzeSummary, type ToolResult } from '../types.js';
 

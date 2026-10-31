@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { HotspotsVersionError, HotspotsNotFoundError, assertMinVersion, parseVersion, versionAtLeast, HotspotsParseError, binaryPath, runHotspots } from '../src/hotspots-client.js';
+import { HotspotsVersionError, HotspotsNotFoundError, assertMinVersion, parseVersion, versionAtLeast, HotspotsParseError, binaryPath, runHotspots } from '../src/cli-client.js';
 
 const saved = process.env.HOTSPOTS_PATH;
 afterEach(() => {
@@ -10,7 +10,7 @@ afterEach(() => {
   else process.env.HOTSPOTS_PATH = saved;
 });
 
-describe('hotspots-client', () => {
+describe('cli-client', () => {
   it('defaults to hotspots on PATH and honors HOTSPOTS_PATH', () => {
     delete process.env.HOTSPOTS_PATH;
     expect(binaryPath()).toBe('hotspots');
