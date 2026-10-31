@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Bump zip to 9.0.5 for CVE-2026-115905 (#312)
 
+
+### Features
+- Add opt-in anonymous telemetry (#311)
+
 ## [2.5.0] - 2026-10-28
 
 ### Documentation
