@@ -64,7 +64,7 @@ Environment overrides that always win over a saved "enabled":
 - `HOTSPOTS_TELEMETRY=0`
 - any of `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `JENKINS_URL`
 
-State lives in `~/.hotspots/telemetry.json` (whether it is enabled, your random install id, and when a ping last succeeded or failed); deleting it resets everything. The request is cut off after about 1 second, failures are silent and never change output or exit codes. Your choice is never changed by a failed ping: if you opted in, you stay opted in. `hotspots telemetry status` shows whether the last ping was sent or failed.
+State lives in `~/.hotspots/telemetry.json` (whether it is enabled, your random install id, and when a ping last succeeded or failed); deleting it resets everything. The request is cut off after about 3 seconds (half a second if the network is unreachable), failures are silent and never change output or exit codes. Your choice is never changed by a failed ping: if you opted in, you stay opted in. `hotspots telemetry status` shows whether the last ping was sent or failed.
 
 ## Why
 

@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const ENDPOINT: &str = "https://hotspots.dev/api/event";
-const REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+/// Whole-request cap. The event endpoint answers in roughly 0.6-1.0s, so this must leave headroom.
+const REQUEST_TIMEOUT: Duration = Duration::from_millis(3000);
 /// Dropped packets (captive portals, firewalls) must not stall a command: bound each phase too.
 const PHASE_TIMEOUT: Duration = Duration::from_millis(500);
 const PING_INTERVAL_SECS: u64 = 24 * 60 * 60;
@@ -412,6 +413,13 @@ mod tests {
         );
         st.last_failure_unix = 100 + 7200;
         assert!(last_ping_summary(&st, 100 + 7200 + 600).contains("failed 10m ago"));
+    }
+
+    #[test]
+    fn request_timeout_leaves_headroom_over_the_endpoint_latency() {
+        // The event endpoint answers in ~0.6-1.0s; a 1s cap made real pings fail.
+        assert!(REQUEST_TIMEOUT >= Duration::from_secs(2));
+        assert!(PHASE_TIMEOUT < REQUEST_TIMEOUT);
     }
 
     #[test]
