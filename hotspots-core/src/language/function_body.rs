@@ -149,9 +149,9 @@ impl FunctionBody {
     /// # Panics
     ///
     /// Panics if this is not a Go body. Use `is_go()` to check first.
-    pub fn as_go(&self) -> (usize, &str) {
+    pub fn as_go(&self) -> (usize, &Arc<str>) {
         match self {
-            FunctionBody::Go { body_node, source } => (*body_node, source.as_ref()),
+            FunctionBody::Go { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not Go"),
         }
     }
@@ -161,9 +161,9 @@ impl FunctionBody {
     /// # Panics
     ///
     /// Panics if this is not a Java body. Use `is_java()` to check first.
-    pub fn as_java(&self) -> (usize, &str) {
+    pub fn as_java(&self) -> (usize, &Arc<str>) {
         match self {
-            FunctionBody::Java { body_node, source } => (*body_node, source.as_ref()),
+            FunctionBody::Java { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not Java"),
         }
     }
@@ -173,9 +173,9 @@ impl FunctionBody {
     /// # Panics
     ///
     /// Panics if this is not a Python body. Use `is_python()` to check first.
-    pub fn as_python(&self) -> (usize, &str) {
+    pub fn as_python(&self) -> (usize, &Arc<str>) {
         match self {
-            FunctionBody::Python { body_node, source } => (*body_node, source.as_ref()),
+            FunctionBody::Python { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not Python"),
         }
     }
@@ -197,9 +197,9 @@ impl FunctionBody {
     /// # Panics
     ///
     /// Panics if this is not a C# body. Use `is_csharp()` to check first.
-    pub fn as_csharp(&self) -> (usize, &str) {
+    pub fn as_csharp(&self) -> (usize, &Arc<str>) {
         match self {
-            FunctionBody::CSharp { body_node, source } => (*body_node, source.as_ref()),
+            FunctionBody::CSharp { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not CSharp"),
         }
     }
@@ -209,9 +209,9 @@ impl FunctionBody {
     /// # Panics
     ///
     /// Panics if this is not a C body. Use `is_c()` to check first.
-    pub fn as_c(&self) -> (usize, &str) {
+    pub fn as_c(&self) -> (usize, &Arc<str>) {
         match self {
-            FunctionBody::C { body_node, source } => (*body_node, source.as_ref()),
+            FunctionBody::C { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not C"),
         }
     }

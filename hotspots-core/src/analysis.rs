@@ -150,9 +150,14 @@ pub fn analyze_file_with_config_and_timing(
     // language-specific parsers leave `suppression_reason: None` and rely on
     // this pass rather than each duplicating the (language-agnostic) logic.
     let comment_prefix = language.suppression_comment_prefix();
+    let line_starts = crate::suppression::line_starts(&src);
     for function in &mut functions {
-        function.suppression_reason =
-            crate::suppression::extract_suppression(&src, function.span, comment_prefix);
+        function.suppression_reason = crate::suppression::extract_suppression_indexed(
+            &src,
+            &line_starts,
+            function.span,
+            comment_prefix,
+        );
     }
 
     let func_cfg = FunctionAnalysisConfig {

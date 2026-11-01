@@ -438,7 +438,7 @@ fn ts_non_structured_exits(body_node: &tree_sitter::Node, exit_kinds: &[&str]) -
 /// find the first matching body child, and call `f(func_node, body_node)`.
 /// Returns `None` if the function or body cannot be found.
 fn ts_with_function_body<R>(
-    source: &str,
+    source: &std::sync::Arc<str>,
     language: tree_sitter::Language,
     start_byte: usize,
     func_kinds: &[&str],
@@ -446,27 +446,25 @@ fn ts_with_function_body<R>(
     f: impl FnOnce(tree_sitter::Node, tree_sitter::Node) -> R,
 ) -> Option<R> {
     use std::cell::RefCell;
-    use std::hash::{Hash, Hasher};
+    use std::sync::Arc;
 
-    // All functions in a file share `source`, so cache the most recent parse per thread
-    // rather than re-parsing the whole file for every function.
+    // All functions in a file share one `Arc<str>` of the source, so cache the most recent parse per
+    // thread keyed by that Arc's identity instead of re-parsing (or re-hashing a multi-megabyte file)
+    // for every function. The cache keeps its own clone, which pins the allocation: the address can't
+    // be reused by a different source while cached, so a pointer match always means the same bytes.
     thread_local! {
-        static TREE_CACHE: RefCell<Option<(u64, tree_sitter::Language, tree_sitter::Tree)>> =
+        static TREE_CACHE: RefCell<Option<(Arc<str>, tree_sitter::Language, tree_sitter::Tree)>> =
             const { RefCell::new(None) };
     }
 
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let hash = hasher.finish();
-
     TREE_CACHE.with(|cache| {
         let mut c = cache.borrow_mut();
-        let hit = matches!(&*c, Some((h, l, _)) if *h == hash && *l == language);
+        let hit = matches!(&*c, Some((s, l, _)) if Arc::ptr_eq(s, source) && *l == language);
         if !hit {
             let mut parser = tree_sitter::Parser::new();
             parser.set_language(&language).ok()?;
-            let tree = parser.parse(source, None)?;
-            *c = Some((hash, language.clone(), tree));
+            let tree = parser.parse(&**source, None)?;
+            *c = Some((Arc::clone(source), language.clone(), tree));
         }
         let root = c.as_ref()?.2.root_node();
         let func_node = ts_find_function_by_start(root, start_byte, func_kinds)?;
