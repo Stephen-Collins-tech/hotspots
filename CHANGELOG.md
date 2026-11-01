@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 - Skip generated files and cap source size to stop runaway analysis (#318)
+- Share one source string per file and remove per-function O(file) work (#320)
 
 ## [2.6.2] - 2026-10-31
 
