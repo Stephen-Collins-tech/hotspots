@@ -4,6 +4,7 @@ use crate::ast::FunctionNode;
 use crate::language::parser::{LanguageParser, ParsedModule};
 use crate::language::tree_sitter_utils::find_child_by_kind;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tree_sitter::{Node, ParseOptions, Parser, Tree};
 
@@ -63,14 +64,14 @@ impl LanguageParser for CParser {
 
         Ok(Box::new(CModule {
             tree,
-            source: source.to_string(),
+            source: Arc::from(source),
         }))
     }
 }
 
 struct CModule {
     tree: Tree,
-    source: String,
+    source: Arc<str>,
 }
 
 impl ParsedModule for CModule {
@@ -85,7 +86,7 @@ impl ParsedModule for CModule {
 
 fn discover_functions_recursive(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     functions: &mut Vec<FunctionNode>,
 ) {
@@ -103,7 +104,7 @@ fn discover_functions_recursive(
 
 fn extract_function(
     node: Node,
-    source: &str,
+    source: &Arc<str>,
     file_index: usize,
     local_index: usize,
 ) -> Option<FunctionNode> {
@@ -126,7 +127,7 @@ fn extract_function(
 
     let body = FunctionBody::C {
         body_node: body_node.id(),
-        source: source.to_string(),
+        source: Arc::clone(source),
     };
 
     Some(FunctionNode {

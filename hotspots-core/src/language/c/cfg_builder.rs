@@ -564,7 +564,7 @@ mod tests {
             ),
             body: FunctionBody::C {
                 body_node: 0,
-                source: source.to_string(),
+                source: source.into(),
             },
             suppression_reason: None,
         }
