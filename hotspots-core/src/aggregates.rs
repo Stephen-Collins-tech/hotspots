@@ -83,21 +83,12 @@ pub struct FileDeltaAggregates {
     pub improvement_count: usize,
 }
 
-/// Single risk score for an entire PR (all changed functions collapsed into one view).
+/// Summary of an entire PR (all changed functions collapsed into one view).
 ///
-/// `pr_risk_score` is the net LRS delta summed across every New/Modified/Deleted
-/// function (New adds `after.lrs`, Deleted subtracts `before.lrs`, Modified adds
-/// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
-/// just summed across the whole diff instead of grouped by file.
-///
-/// **Not validated as beating a simple size measure.** In our evaluation, this exact
-/// formula was tested against the real compiled binary and, with a different construction
-/// (`net_delta_lrs`), against four other repos: on every repo tested, `pr_risk_score`
-/// scored below `fn_changed_lines` (also in this struct) at predicting which PRs later needed a
-/// defect fix — it was the weakest of five tested LRS-based scores. Read `band` as a
-/// structural-risk signal (what's the worst code in this diff), not a calibrated estimate of
-/// which PR is more likely to cause a bug — `fn_changed_lines` is the better-evidenced signal
-/// for that specific question.
+/// `fn_changed_lines` is the number of diff-changed lines that fall inside a touched
+/// function. In our evaluation it is the strongest tested predictor of which PRs later
+/// need a defect fix; every LRS-based PR score we tried was weaker, so no composite
+/// LRS score is reported.
 ///
 /// `band` is the highest risk band reached by any New or Modified function's
 /// `after` state (Deleted functions don't count toward it — removing risky code
@@ -105,19 +96,8 @@ pub struct FileDeltaAggregates {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct PrRiskSummary {
-    pub pr_risk_score: f64,
     /// Diff-changed lines that fall inside a touched function (`git::compute_fn_changed_lines`).
-    /// In our evaluation this is the strongest tested predictor of which
-    /// PRs later need a defect fix in this corpus — it beat every LRS-weighted score tried,
-    /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
-    /// comment for the comparison.
     pub fn_changed_lines: usize,
-    /// Human-readable size bucket for `fn_changed_lines` ("small"/"medium"/"large"/
-    /// "very_large") — a display convenience for comparing PRs at a glance, **not itself a
-    /// research-derived signal** (unlike `fn_changed_lines`, which is). Cutoffs are
-    /// configurable defaults (`ChangeSizeThresholds`), the same category as `RiskThresholds`'
-    /// LRS band cutoffs — a presentation judgment, not a validated claim.
-    pub size_band: String,
     pub band: RiskBand,
     pub new_count: usize,
     pub modified_count: usize,
@@ -771,7 +751,6 @@ pub fn compute_delta_aggregates(
     current_co_change: &[crate::git::CoChangePair],
     prev_co_change: &[crate::git::CoChangePair],
     fn_changed_lines: usize,
-    size_thresholds: &ChangeSizeThresholds,
 ) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
@@ -844,57 +823,16 @@ pub fn compute_delta_aggregates(
     DeltaAggregates {
         files: aggregates,
         co_change_delta,
-        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines, size_thresholds),
-    }
-}
-
-/// `size_band`'s cutoffs — a display convenience, not a research-derived signal. See
-/// `PrRiskSummary::size_band`'s doc comment. Defaults (small<50, medium<200, large<500,
-/// else very_large) are arbitrary round numbers, not fitted to any corpus; override via
-/// `.hotspotsrc.json`'s `change_size_thresholds` if they don't fit your repo.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ChangeSizeThresholds {
-    pub small: usize,
-    pub medium: usize,
-    pub large: usize,
-}
-
-impl Default for ChangeSizeThresholds {
-    fn default() -> Self {
-        ChangeSizeThresholds {
-            small: 50,
-            medium: 200,
-            large: 500,
-        }
-    }
-}
-
-/// Buckets `fn_changed_lines` into a human-readable size label for display. Boundaries are
-/// inclusive-below (`< small` is "small", `< medium` is "medium", etc.) — see
-/// `ChangeSizeThresholds` for why these specific numbers carry no research claim.
-pub fn size_band(fn_changed_lines: usize, thresholds: &ChangeSizeThresholds) -> &'static str {
-    if fn_changed_lines < thresholds.small {
-        "small"
-    } else if fn_changed_lines < thresholds.medium {
-        "medium"
-    } else if fn_changed_lines < thresholds.large {
-        "large"
-    } else {
-        "very_large"
+        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines),
     }
 }
 
 /// Collapse every function-level delta entry into a single PR-wide risk view.
 ///
-/// See [`PrRiskSummary`] for what `pr_risk_score` and `band` mean.
-pub fn compute_pr_risk_summary(
-    delta: &Delta,
-    fn_changed_lines: usize,
-    size_thresholds: &ChangeSizeThresholds,
-) -> PrRiskSummary {
+/// See [`PrRiskSummary`] for what `fn_changed_lines` and `band` mean.
+pub fn compute_pr_risk_summary(delta: &Delta, fn_changed_lines: usize) -> PrRiskSummary {
     use crate::delta::FunctionStatus;
 
-    let mut pr_risk_score = 0.0;
     let mut new_count = 0;
     let mut modified_count = 0;
     let mut deleted_count = 0;
@@ -915,21 +853,18 @@ pub fn compute_pr_risk_summary(
             FunctionStatus::New => {
                 new_count += 1;
                 if let Some(after) = &entry.after {
-                    pr_risk_score += after.lrs;
                     band = band.max(after.band);
                 }
             }
             FunctionStatus::Deleted => {
                 deleted_count += 1;
-                if let Some(before) = &entry.before {
-                    pr_risk_score -= before.lrs;
+                if entry.before.is_some() {
                     improvement_count += 1;
                 }
             }
             FunctionStatus::Modified => {
                 modified_count += 1;
                 if let Some(d) = &entry.delta {
-                    pr_risk_score += d.lrs;
                     if d.lrs > 0.0 {
                         regression_count += 1;
                     } else if d.lrs < 0.0 {
@@ -961,9 +896,7 @@ pub fn compute_pr_risk_summary(
         .unwrap_or(false);
 
     PrRiskSummary {
-        pr_risk_score,
         fn_changed_lines,
-        size_band: size_band(fn_changed_lines, size_thresholds).to_string(),
         band,
         new_count,
         modified_count,
@@ -980,34 +913,6 @@ mod tests {
     use super::*;
     use crate::report::MetricsReport;
     use crate::snapshot::FunctionSnapshot;
-
-    // ── size_band ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn size_band_default_boundaries() {
-        let t = ChangeSizeThresholds::default(); // small=50, medium=200, large=500
-        assert_eq!(size_band(0, &t), "small");
-        assert_eq!(size_band(49, &t), "small");
-        assert_eq!(size_band(50, &t), "medium"); // boundary: >= small is medium, not small
-        assert_eq!(size_band(199, &t), "medium");
-        assert_eq!(size_band(200, &t), "large");
-        assert_eq!(size_band(499, &t), "large");
-        assert_eq!(size_band(500, &t), "very_large");
-        assert_eq!(size_band(usize::MAX, &t), "very_large");
-    }
-
-    #[test]
-    fn size_band_respects_custom_thresholds() {
-        let t = ChangeSizeThresholds {
-            small: 10,
-            medium: 20,
-            large: 30,
-        };
-        assert_eq!(size_band(9, &t), "small");
-        assert_eq!(size_band(10, &t), "medium");
-        assert_eq!(size_band(25, &t), "large");
-        assert_eq!(size_band(30, &t), "very_large");
-    }
 
     fn create_test_function(file: &str, function: &str, lrs: f64, band: &str) -> FunctionSnapshot {
         FunctionSnapshot {
@@ -1032,7 +937,6 @@ mod tests {
             callgraph: None,
             activity_risk: None,
             risk_factors: None,
-            percentile: None,
             tier: None,
             subsystem: None,
             authors_90d: None,

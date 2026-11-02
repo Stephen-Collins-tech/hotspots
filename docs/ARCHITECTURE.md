@@ -80,7 +80,7 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 **Git history:** one batched `git log` per file provides churn and touch counts, applied to every function in the file. Touch counts use a 365-day window (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Call graph:** Import resolution builds a cross-file call graph and computes fan-in, the only call graph metric still reported. PageRank, betweenness, strongly connected components and dependency depth were removed because nothing validated them (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
 **Tier assignment:** touch count above the repo median or changed in the last 30 days → `active`, else `quiet`.
 
@@ -117,7 +117,7 @@ hotspots-core/src/
 ├── policy.rs           # policy rule evaluation
 ├── analysis.rs         # pipeline orchestration
 ├── aggregates.rs       # file_risk, co_change
-├── callgraph.rs        # fan-in/out, PageRank, betweenness, SCC
+├── callgraph.rs        # call graph and fan-in
 ├── git.rs              # git log integration, touch cache, ref resolution
 ├── config.rs           # config loading and resolution
 ├── html.rs             # HTML report rendering
@@ -174,6 +174,5 @@ These are non-negotiable. Any violation is a bug.
 
 **Lazy join node creation in CFG builder.** Eager creation of join nodes that never receive incoming edges (e.g., when all branches terminate) causes CFG validation failures (`"Nodes not reachable from entry"`). Lazy creation — only when at least one live path needs to merge — is the correct approach.
 
-**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: our evaluation found both add no measurable ranking value (confirmed, non-inferior to remove). `fan_in`/`pagerank`/`scc_size` are still computed and reported (`callgraph` output, `--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
+**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Fan-in is computed at the call graph layer and is not folded into LRS, which keeps LRS a pure structural measure.
 
-**Betweenness centrality / dependency depth no longer computed (hotspots 2.0).** The Brandes k=256-pivot approximation and the topological-sort depth calculation described below are retained in `callgraph.rs` but are no longer called anywhere in the live pipeline — `fan_out`, `betweenness`, `scc_id`, and `dependency_depth` had no consumer once their contribution to the live score was removed, so hotspots 2.0 dropped them from `callgraph` output entirely rather than keep computing values nothing reads.

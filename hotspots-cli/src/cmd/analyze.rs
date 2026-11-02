@@ -28,8 +28,6 @@ pub(crate) struct AnalyzeArgs {
     pub source_url: Option<String>,
     /// Number of rayon worker threads; None = use all logical CPUs.
     pub jobs: Option<usize>,
-    /// CLI override for callgraph_skip_above; None = use resolved config value.
-    pub callgraph_skip_above: Option<usize>,
     /// When true, skip all touch metrics (no git log calls at all).
     pub skip_touch_metrics: bool,
     /// Skip the suppression gate check entirely.
@@ -155,7 +153,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         all_functions,
         source_url,
         jobs,
-        callgraph_skip_above,
         skip_gate,
         cold_start,
         axes,
@@ -242,7 +239,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 all_functions,
                 source_url,
-                callgraph_skip_above,
                 skip_touch_metrics,
                 skip_gate,
                 blend_churn,
@@ -276,7 +272,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 all_functions: false,
                 source_url,
-                callgraph_skip_above,
                 skip_touch_metrics,
                 skip_gate,
                 blend_churn,
@@ -339,10 +334,7 @@ fn handle_cold_start(
     )?;
 
     let mut snapshot = build_enriched_snapshot(
-        &repo_root,
-        resolved_config,
-        reports,
-        None,
+        &repo_root, reports,
         true, // skip touch metrics — not part of the cold-start feature set
     )
     .context("failed to build snapshot for cold-start ranking")?;
@@ -418,11 +410,7 @@ fn handle_axes(
     )?;
 
     let mut snapshot = build_enriched_snapshot(
-        &repo_root,
-        resolved_config,
-        reports,
-        None,
-        false, // needed for directed_coupling and newcomer_rate below
+        &repo_root, reports, false, // needed for directed_coupling and newcomer_rate below
     )
     .context("failed to build snapshot for --axes ranking")?;
     snapshot.populate_history_signals(&repo_root);
@@ -560,7 +548,6 @@ pub(crate) struct ModeOutputOptions {
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
     pub source_url: Option<String>,
-    pub callgraph_skip_above: Option<usize>,
     pub skip_touch_metrics: bool,
     pub skip_gate: bool,
     pub blend_churn: bool,
@@ -588,14 +575,7 @@ pub(crate) fn handle_mode_output(
     let pr_context = git::detect_pr_context();
 
     match mode {
-        OutputMode::Snapshot => handle_snapshot_mode(
-            &repo_root,
-            resolved_config,
-            reports,
-            pr_context,
-            opts,
-            timing,
-        ),
+        OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts, timing),
         OutputMode::Delta => handle_delta_mode(
             &repo_root,
             resolved_config,
@@ -609,7 +589,6 @@ pub(crate) fn handle_mode_output(
 
 fn handle_snapshot_mode(
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
@@ -623,7 +602,6 @@ fn handle_snapshot_mode(
         level,
         all_functions,
         source_url,
-        callgraph_skip_above,
         skip_touch_metrics,
         skip_gate,
         top,
@@ -642,14 +620,8 @@ fn handle_snapshot_mode(
         );
     }
 
-    let mut snapshot = build_snapshot_via_db(
-        repo_root,
-        resolved_config,
-        reports,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
+    let mut snapshot = build_snapshot_via_db(repo_root, reports, skip_touch_metrics)
+        .context("failed to build enriched snapshot")?;
 
     // Populate DC before persisting so the snapshot on disk includes the values,
     // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
@@ -739,15 +711,11 @@ fn handle_snapshot_mode(
             top,
             total_function_count,
             output,
-            co_change_window_days: resolved_config.co_change_window_days,
-            co_change_min_count: resolved_config.co_change_min_count,
+            co_change_window_days: hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
+            co_change_min_count: hotspots_core::git::CO_CHANGE_MIN_COUNT,
             all_functions,
             source_url: source_url.clone(),
-            risk_thresholds: hotspots_core::risk::RiskThresholds {
-                moderate: resolved_config.moderate_threshold,
-                high: resolved_config.high_threshold,
-                critical: resolved_config.critical_threshold,
-            },
+            risk_thresholds: hotspots_core::risk::RiskThresholds::default(),
             blend_churn,
         },
         repo_root,
@@ -771,18 +739,11 @@ fn handle_delta_mode(
         policy,
         output,
         source_url,
-        callgraph_skip_above,
         skip_touch_metrics,
         ..
     } = opts;
-    let snapshot = build_enriched_snapshot(
-        repo_root,
-        resolved_config,
-        reports,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
+    let snapshot = build_enriched_snapshot(repo_root, reports, skip_touch_metrics)
+        .context("failed to build enriched snapshot")?;
 
     let delta_val = if pr_context.is_pr {
         compute_pr_delta(repo_root, &snapshot)?
@@ -829,8 +790,8 @@ fn enrich_delta(
     let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, repo_root);
     let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
         repo_root,
-        resolved_config.co_change_window_days,
-        resolved_config.co_change_min_count,
+        hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
+        hotspots_core::git::CO_CHANGE_MIN_COUNT,
     )
     .unwrap_or_default();
     hotspots_core::aggregates::annotate_static_deps(
@@ -881,7 +842,6 @@ fn enrich_delta(
         &current_co_change,
         &prev_co_change,
         fn_changed_lines,
-        &resolved_config.change_size_thresholds,
     ));
     Ok(enriched)
 }
@@ -1313,9 +1273,7 @@ fn load_merge_base_or_fallback(
 ///   After:  ~45 MB  (only call graph + SQLite overlap; reports freed before graph builds)
 pub(crate) fn build_snapshot_via_db(
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
-    callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     use hotspots_core::db::TempDb;
@@ -1356,28 +1314,11 @@ pub(crate) fn build_snapshot_via_db(
     }
 
     // Phase 3: build call graph from lean DB rows, run algorithms, write back, free graph.
-    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
-    let function_count = db
-        .function_count(&sha)
-        .context("failed to count functions in pipeline DB")?;
-
-    if function_count <= effective_skip_above {
-        let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
-            .context("failed to build call graph from DB")?;
-        db.update_callgraph_metrics(
-            &sha,
-            &call_graph,
-            resolved_config.betweenness_exact_threshold,
-            resolved_config.betweenness_approx_k,
-        )
+    let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
+        .context("failed to build call graph from DB")?;
+    db.update_callgraph_metrics(&sha, &call_graph)
         .context("failed to update callgraph metrics in pipeline DB")?;
-        // call_graph dropped here, freeing ~25 MB.
-    } else {
-        eprintln!(
-            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
-            function_count, effective_skip_above
-        );
-    }
+    // call_graph dropped here, freeing its memory.
 
     // Phase 4: load enriched functions from DB (churn + callgraph already set).
     let functions = db
@@ -1409,7 +1350,8 @@ pub(crate) fn build_snapshot_via_db(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        enricher = enricher.with_touch_metrics(repo_root, resolved_config.touch_window_days);
+        enricher =
+            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -1419,13 +1361,10 @@ pub(crate) fn build_snapshot_via_db(
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
 ///
-/// `callgraph_skip_above` overrides `resolved_config.callgraph_skip_above` when `Some`.
 /// `skip_touch_metrics` bypasses all git-log touch calls (file-level and per-function).
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     mut reports: Vec<hotspots_core::FunctionRiskReport>,
-    callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
@@ -1433,17 +1372,7 @@ pub(crate) fn build_enriched_snapshot(
 
     let merge_base = hotspots_core::git::find_merge_base(repo_root);
 
-    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
-    let call_graph = if reports.len() > effective_skip_above {
-        eprintln!(
-            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
-            reports.len(),
-            effective_skip_above
-        );
-        None
-    } else {
-        hotspots_core::build_call_graph(&reports, repo_root).ok()
-    };
+    let call_graph = { hotspots_core::build_call_graph(&reports, repo_root).ok() };
 
     for r in &mut reports {
         r.callees.clear();
@@ -1477,16 +1406,13 @@ pub(crate) fn build_enriched_snapshot(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        enricher = enricher.with_touch_metrics(repo_root, resolved_config.touch_window_days);
+        enricher =
+            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
     if let Some(ref graph) = call_graph {
-        enricher = enricher.with_callgraph(
-            graph,
-            resolved_config.betweenness_exact_threshold,
-            resolved_config.betweenness_approx_k,
-        );
+        enricher = enricher.with_callgraph(graph);
     }
 
     Ok(enricher.enrich().build())
@@ -1525,10 +1451,8 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
-    // callgraph_skip_above = None: always use the config value for historical refs.
-    let mut snapshot =
-        build_enriched_snapshot(&worktree.path, resolved_config, reports, None, false)
-            .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    let mut snapshot = build_enriched_snapshot(&worktree.path, reports, false)
+        .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
     let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
@@ -1627,7 +1551,6 @@ mod validate_analyze_flags_tests {
             all_functions: false,
             source_url: None,
             jobs: None,
-            callgraph_skip_above: None,
             skip_touch_metrics: false,
             skip_gate: false,
             cold_start: false,

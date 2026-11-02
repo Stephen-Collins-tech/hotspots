@@ -105,31 +105,23 @@ hotspots diff main HEAD
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
-### PR risk score, and the better-evidenced number next to it
+### What the PR summary shows
 
-Every `diff` collapses all function-level changes into `pr_risk_score`
-(net LRS delta across the whole diff — new functions add their LRS, deleted
-functions subtract theirs, modified functions add their ΔLRS) plus a `band`
-(the highest risk band reached by any new or modified function). Text output
-prints it under the summary line; JSON exposes it at
-`delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
+Every `diff` collapses all function-level changes into one PR-wide summary: the number of
+new, modified and deleted functions, the highest risk `band` reached by any new or modified
+function, and `fn_changed_lines`, the diff-changed lines that fall inside a touched
+function. Text output prints it under the summary line; JSON exposes it at
+`delta.aggregates.pr_summary`; the HTML report shows it as summary cards.
 
-**Read `pr_risk_score` as a structural signal (what's the worst code in this
-diff), not a validated risk estimate.** In our evaluation, tested directly
-against the real compiled binary, it does not beat a simple size
-measure at predicting which PRs later need a defect fix. The better-evidenced
-number sits right next to it: `fn_changed_lines` — diff-changed lines that
-fall inside a touched function — was the strongest tested predictor in
-that same evaluation. `size_band` (`small`/`medium`/`large`/`very_large`)
-buckets it for a quick glance across PRs; unlike `fn_changed_lines` itself,
-the band's cutoffs are a display convenience, not a research finding —
-override them via `.hotspotsrc.json`'s `change_size_thresholds` if the
-defaults don't fit your repo (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Why `fn_changed_lines` and not a combined risk score.** In our evaluation, tested
+directly against the real compiled binary, `fn_changed_lines` was the strongest predictor of
+which PRs later need a defect fix, and every LRS-based PR score we tried was weaker. So the
+summary reports the line count for "is this PR risky" and the `band` for "what is the worst
+code in this diff", and does not add up LRS into a single PR score.
 
 ```
 3 modified, 1 new, 0 deleted
-Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk in our evaluation; ...)
-PR risk score: +7.50 (band: critical) — structural signal, not validated as beating the line-count measure above
+Changed lines in touched functions: 84 (strongest tested predictor of defect risk in our evaluation) · highest band: critical
 ====================================================================================================
 ```
 
@@ -184,19 +176,6 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
 
 **Warnings (exit code 0, informational):**
 - `rapid-growth` — LRS increase > 50% on any function
-
-Configure thresholds in `.hotspotsrc.json`:
-```json
-{
-  "warning_thresholds": {
-    "watch_min": 2.5,
-    "watch_max": 3.0,
-    "attention_min": 5.5,
-    "attention_max": 6.0,
-    "rapid_growth_percent": 50.0
-  }
-}
-```
 
 ### Downgrading a blocking policy for your repo
 

@@ -76,7 +76,6 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         activity_risk: None,
         risk_factors: None,
         tier: None,
-        percentile: None,
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
@@ -144,15 +143,8 @@ fn extract_features_with_churn_and_callgraph() {
     func.churn = Some(ChurnMetrics {
         lines_added: 300,
         lines_deleted: 100,
-        net_change: 200,
     });
-    func.callgraph = Some(CallGraphMetrics {
-        fan_in: 5,
-        pagerank: 0.0,
-        scc_size: 1,
-        is_entrypoint: false,
-        neighbor_churn: None,
-    });
+    func.callgraph = Some(CallGraphMetrics { fan_in: 5 });
     func.activity_risk = Some(3.5);
 
     let feats = extract_features(&func);

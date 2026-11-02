@@ -176,8 +176,8 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 {
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts"],
-  "thresholds": { "moderate": 3.0, "high": 6.0, "critical": 9.0 },
-  "weights": { "cc": 1.0, "nd": 0.8, "fo": 0.6, "ns": 0.7 }
+  "min_lrs": 0.0,
+  "policy": { "critical_introduction": "block" }
 }
 ```
 

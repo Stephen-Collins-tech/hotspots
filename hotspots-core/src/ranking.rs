@@ -108,7 +108,6 @@ mod tests {
             activity_risk: None,
             risk_factors: None,
             tier: None,
-            percentile: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,

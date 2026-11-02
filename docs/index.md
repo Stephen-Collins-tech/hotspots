@@ -14,9 +14,8 @@ and touch frequency to separate active risk from dormant debt.
 - **LRS scoring** — combines cyclomatic complexity, nesting depth, fan-out, and
   non-structured exits into one actionable number per function.
 - **Git-enriched triage** — snapshot mode adds churn and touch frequency, placing
-  every function in an active or quiet tier. Call-graph metrics
-  (fan-in, PageRank, betweenness) are computed and reported alongside, but don't
-  feed the live score.
+  every function in an active or quiet tier. Fan-in is reported alongside, but
+  doesn't feed the live score.
 - **Policy engine** — block PRs that introduce critical-risk functions or regress
   LRS. Works with GitHub Actions, GitLab CI, and any CI that checks exit codes.
 

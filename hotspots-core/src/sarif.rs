@@ -285,7 +285,6 @@ mod tests {
             callgraph: None,
             activity_risk: None,
             risk_factors: None,
-            percentile: None,
             tier: None,
             subsystem: None,
             authors_90d: None,

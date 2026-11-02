@@ -15,9 +15,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 
 use crate::report::FunctionRiskReport;
-use crate::snapshot::{
-    CallGraphMetrics, ChurnMetrics, CommitInfo, FunctionSnapshot, PercentileFlags, Snapshot,
-};
+use crate::snapshot::{CallGraphMetrics, ChurnMetrics, CommitInfo, FunctionSnapshot, Snapshot};
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -57,19 +55,8 @@ CREATE TABLE IF NOT EXISTS functions (
     touch_count         INTEGER,
     days_since_last_change  INTEGER,
     fan_in                  INTEGER,
-    fan_out                 INTEGER,
-    pagerank                REAL,
-    betweenness             REAL,
-    scc_id                  INTEGER,
-    scc_size                INTEGER,
-    is_entrypoint           INTEGER,
-    dependency_depth        INTEGER,
-    neighbor_churn          INTEGER,
     activity_risk           REAL,
     risk_factors            TEXT,
-    is_top_10_pct           INTEGER,
-    is_top_5_pct            INTEGER,
-    is_top_1_pct            INTEGER,
     tier                    TEXT,
     FOREIGN KEY (commit_sha) REFERENCES commits(sha),
     UNIQUE (commit_sha, function_id)
@@ -124,21 +111,17 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             cc, nd, fo, ns, loc, lrs, band, suppression_reason,
             churn_added, churn_deleted,
             touch_count, days_since_last_change,
-            fan_in, fan_out, pagerank, betweenness,
-            scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
+            fan_in,
             activity_risk, risk_factors,
-            is_top_10_pct, is_top_5_pct, is_top_1_pct,
             tier
         ) VALUES (
             ?1,?2,?3,?4,?5,
             ?6,?7,?8,?9,?10,?11,?12,?13,
             ?14,?15,
             ?16,?17,
-            ?18,?19,?20,?21,
-            ?22,?23,?24,?25,?26,
-            ?27,?28,
-            ?29,?30,?31,
-            ?32
+            ?18,
+            ?19,?20,
+            ?21
         )",
     )?;
 
@@ -154,49 +137,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             .map(|c| (Some(c.lines_added as i64), Some(c.lines_deleted as i64)))
             .unwrap_or((None, None));
 
-        // `fan_out`/`betweenness`/`scc_id`/`dep_depth` are no longer on
-        // `CallGraphMetrics` (hotspots 2.0 field removal) and always write
-        // `None` now; their SQLite columns are kept as-is (no migration) since
-        // this DB is a local, rebuildable cache, not a durable store.
-        let (
-            fan_in,
-            fan_out,
-            pagerank,
-            betweenness,
-            scc_id,
-            scc_size,
-            is_entrypoint,
-            dep_depth,
-            nbr_churn,
-        ) = func
-            .callgraph
-            .as_ref()
-            .map(|cg| {
-                (
-                    Some(cg.fan_in as i64),
-                    None::<i64>,
-                    Some(cg.pagerank),
-                    None::<f64>,
-                    None::<i64>,
-                    Some(cg.scc_size as i64),
-                    Some(cg.is_entrypoint as i64),
-                    None::<i64>,
-                    cg.neighbor_churn.map(|n| n as i64),
-                )
-            })
-            .unwrap_or((None, None, None, None, None, None, None, None, None));
-
-        let (top10, top5, top1) = func
-            .percentile
-            .as_ref()
-            .map(|p| {
-                (
-                    Some(p.is_top_10_pct as i64),
-                    Some(p.is_top_5_pct as i64),
-                    Some(p.is_top_1_pct as i64),
-                )
-            })
-            .unwrap_or((None, None, None));
+        let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in as i64);
 
         stmt.execute(params![
             sha,
@@ -217,19 +158,8 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             func.touch_count.map(|n| n as i64),
             func.days_since_last_change.map(|n| n as i64),
             fan_in,
-            fan_out,
-            pagerank,
-            betweenness,
-            scc_id,
-            scc_size,
-            is_entrypoint,
-            dep_depth,
-            nbr_churn,
             func.activity_risk,
             risk_factors_json,
-            top10,
-            top5,
-            top1,
             func.tier,
         ])
         .context("failed to insert function row")?;
@@ -247,107 +177,69 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 cc, nd, fo, ns, loc, lrs, band, suppression_reason,
                 churn_added, churn_deleted,
                 touch_count, days_since_last_change,
-                fan_in, fan_out, pagerank, betweenness,
-                scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
+                fan_in,
                 activity_risk, risk_factors,
-                is_top_10_pct, is_top_5_pct, is_top_1_pct,
                 tier
          FROM functions
          WHERE commit_sha = ?1
          ORDER BY function_id",
     )?;
 
-    let rows =
-        stmt.query_map([sha], |row| {
-            let function_id: String = row.get(0)?;
-            let file: String = row.get(1)?;
-            let line: i64 = row.get(2)?;
-            let language: String = row.get(3)?;
-            let cc: i64 = row.get(4)?;
-            let nd: i64 = row.get(5)?;
-            let fo: i64 = row.get(6)?;
-            let ns: i64 = row.get(7)?;
-            let loc: i64 = row.get(8)?;
-            let lrs: f64 = row.get(9)?;
-            let band: String = row.get(10)?;
-            let suppression_reason: Option<String> = row.get(11)?;
+    let rows = stmt.query_map([sha], |row| {
+        let function_id: String = row.get(0)?;
+        let file: String = row.get(1)?;
+        let line: i64 = row.get(2)?;
+        let language: String = row.get(3)?;
+        let cc: i64 = row.get(4)?;
+        let nd: i64 = row.get(5)?;
+        let fo: i64 = row.get(6)?;
+        let ns: i64 = row.get(7)?;
+        let loc: i64 = row.get(8)?;
+        let lrs: f64 = row.get(9)?;
+        let band: String = row.get(10)?;
+        let suppression_reason: Option<String> = row.get(11)?;
 
-            let churn_added: Option<i64> = row.get(12)?;
-            let churn_deleted: Option<i64> = row.get(13)?;
-            let churn = churn_added.zip(churn_deleted).map(|(a, d)| {
-                let net = a - d;
-                ChurnMetrics {
-                    lines_added: a as usize,
-                    lines_deleted: d as usize,
-                    net_change: net,
-                }
-            });
+        let churn_added: Option<i64> = row.get(12)?;
+        let churn_deleted: Option<i64> = row.get(13)?;
+        let churn = churn_added.zip(churn_deleted).map(|(a, d)| ChurnMetrics {
+            lines_added: a as usize,
+            lines_deleted: d as usize,
+        });
 
-            let touch_count: Option<i64> = row.get(14)?;
-            let days_since_last_change: Option<i64> = row.get(15)?;
+        let touch_count: Option<i64> = row.get(14)?;
+        let days_since_last_change: Option<i64> = row.get(15)?;
 
-            let fan_in: Option<i64> = row.get(16)?;
-            // Columns 17/19/20/23 (`fan_out`/`betweenness`/`scc_id`/`dep_depth`) are read
-            // for schema stability (no column removal/migration) but no longer mapped
-            // onto `CallGraphMetrics`, which dropped those fields in hotspots 2.0.
-            let _fan_out: Option<i64> = row.get(17)?;
-            let pagerank: Option<f64> = row.get(18)?;
-            let _betweenness: Option<f64> = row.get(19)?;
-            let _scc_id: Option<i64> = row.get(20)?;
-            let scc_size: Option<i64> = row.get(21)?;
-            let is_entrypoint: Option<i64> = row.get(22)?;
-            let _dep_depth: Option<i64> = row.get(23)?;
-            let nbr_churn: Option<i64> = row.get(24)?;
-            let callgraph = fan_in.zip(pagerank).zip(scc_size).zip(is_entrypoint).map(
-                |(((fi, pr), ss), ep)| CallGraphMetrics {
-                    fan_in: fi as usize,
-                    pagerank: pr,
-                    scc_size: ss as usize,
-                    is_entrypoint: ep != 0,
-                    neighbor_churn: nbr_churn.map(|n| n as usize),
-                },
-            );
+        let fan_in: Option<i64> = row.get(16)?;
+        let callgraph = fan_in.map(|fi| CallGraphMetrics {
+            fan_in: fi as usize,
+        });
 
-            let activity_risk: Option<f64> = row.get(25)?;
-            let risk_factors_json: Option<String> = row.get(26)?;
+        let activity_risk: Option<f64> = row.get(17)?;
+        let risk_factors_json: Option<String> = row.get(18)?;
+        let tier: Option<String> = row.get(19)?;
 
-            let top10: Option<i64> = row.get(27)?;
-            let top5: Option<i64> = row.get(28)?;
-            let top1: Option<i64> = row.get(29)?;
-            let percentile = top10
-                .zip(top5)
-                .zip(top1)
-                .map(|((t10, t5), t1)| PercentileFlags {
-                    is_top_10_pct: t10 != 0,
-                    is_top_5_pct: t5 != 0,
-                    is_top_1_pct: t1 != 0,
-                });
-
-            let tier: Option<String> = row.get(30)?;
-
-            Ok((
-                function_id,
-                file,
-                line,
-                language,
-                cc,
-                nd,
-                fo,
-                ns,
-                loc,
-                lrs,
-                band,
-                suppression_reason,
-                churn,
-                touch_count,
-                days_since_last_change,
-                callgraph,
-                activity_risk,
-                risk_factors_json,
-                percentile,
-                tier,
-            ))
-        })?;
+        Ok((
+            function_id,
+            file,
+            line,
+            language,
+            cc,
+            nd,
+            fo,
+            ns,
+            loc,
+            lrs,
+            band,
+            suppression_reason,
+            churn,
+            touch_count,
+            days_since_last_change,
+            callgraph,
+            activity_risk,
+            risk_factors_json,
+            tier,
+        ))
+    })?;
 
     let mut functions = Vec::new();
     for row in rows {
@@ -370,7 +262,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             callgraph,
             activity_risk,
             risk_factors_json,
-            percentile,
             tier,
         ) = row.context("failed to read function row")?;
 
@@ -406,7 +297,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             callgraph,
             activity_risk,
             risk_factors,
-            percentile,
             tier,
             subsystem: None,
             authors_90d: None,
@@ -532,8 +422,7 @@ impl TempDb {
 
     /// Update churn columns from a file-level churn map.
     ///
-    /// Must be called before `update_callgraph_metrics` so neighbor_churn can be
-    /// computed from the churn column during the callgraph update pass.
+    /// Churn is stored per function row, keyed by file.
     pub fn update_churn(
         &self,
         sha: &str,
@@ -558,85 +447,32 @@ impl TempDb {
         Ok(())
     }
 
-    /// Run all graph algorithms and batch-UPDATE their results into the DB, then the
-    /// caller should drop the CallGraph to free ~25 MB.
-    ///
-    /// Neighbor churn is computed by reading the already-populated `churn_added` /
-    /// `churn_deleted` columns — so `update_churn` must be called first.
-    ///
-    /// Returns `true` when betweenness was computed via approximation.
+    /// Compute fan-in from the call graph and batch-UPDATE it into the DB, then the
+    /// caller should drop the CallGraph to free its memory.
     pub fn update_callgraph_metrics(
         &self,
         sha: &str,
         graph: &crate::callgraph::CallGraph,
-        exact_threshold: usize,
-        approx_k: usize,
-    ) -> Result<bool> {
-        let n = graph.node_count();
-        let approximate = n > exact_threshold;
-
-        let pagerank = graph.pagerank(0.85, 30, 1e-6);
-        let betweenness = if approximate {
-            graph.betweenness_centrality_approx(approx_k)
-        } else {
-            graph.betweenness_centrality()
-        };
-        let scc_info = graph.find_strongly_connected_components();
-        let depths = graph.compute_dependency_depth();
+    ) -> Result<()> {
         let fan_in_map = graph.build_fan_in_map();
-
-        // Load churn for neighbor_churn computation.
-        let churn_map: std::collections::HashMap<String, usize> = {
-            let mut stmt = self.conn.prepare(
-                "SELECT function_id, COALESCE(churn_added, 0) + COALESCE(churn_deleted, 0)
-                 FROM functions WHERE commit_sha = ?1",
-            )?;
-            let rows: Vec<(String, usize)> = stmt
-                .query_map([sha], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
-                })?
-                .filter_map(|r| r.ok())
-                .filter(|(_, v)| *v > 0)
-                .collect();
-            rows.into_iter().collect()
-        };
 
         let tx = self.conn.unchecked_transaction()?;
         let mut stmt = self.conn.prepare(
-            "UPDATE functions
-             SET fan_in = ?1, fan_out = ?2, pagerank = ?3, betweenness = ?4,
-                 scc_id = ?5, scc_size = ?6, is_entrypoint = ?7,
-                 dependency_depth = ?8, neighbor_churn = ?9
-             WHERE commit_sha = ?10 AND function_id = ?11",
+            "UPDATE functions SET fan_in = ?1 WHERE commit_sha = ?2 AND function_id = ?3",
         )?;
 
         // Iterate over all graph nodes (not just rows) so we only UPDATE functions
-        // that are actually in the graph; others keep NULL callgraph columns.
+        // that are actually in the graph; others keep a NULL fan_in.
         for function_id in graph.all_ids() {
-            let (scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
-            let dep_depth = depths.get(function_id).copied().flatten();
-            let neighbor_churn = graph
-                .callees_of(function_id)
-                .map(|callees| callees.filter_map(|c| churn_map.get(c)).sum::<usize>())
-                .filter(|&v| v > 0);
-
             stmt.execute(params![
                 fan_in_map.get(function_id).copied().unwrap_or(0) as i64,
-                graph.fan_out(function_id) as i64,
-                pagerank.get(function_id).copied().unwrap_or(0.0),
-                betweenness.get(function_id).copied().unwrap_or(0.0),
-                scc_id as i64,
-                scc_size as i64,
-                graph.is_entry_point(function_id) as i64,
-                dep_depth.map(|d| d as i64),
-                neighbor_churn.map(|n| n as i64),
                 sha,
                 function_id,
             ])
             .context("failed to update callgraph metrics row")?;
         }
         tx.commit()?;
-        Ok(approximate)
+        Ok(())
     }
 
     /// Return the number of function rows for the given commit SHA.
@@ -656,7 +492,7 @@ impl TempDb {
     ///
     /// Call this after `update_churn` and `update_callgraph_metrics` — the returned
     /// Vec will have `churn` and `callgraph` already populated. Touch metrics, activity
-    /// risk, percentiles, driver labels, and quadrants are populated by the caller via
+    /// risk and tiers are populated by the caller via
     /// the existing `SnapshotEnricher`.
     pub fn load_snapshot_functions(&self, sha: &str) -> Result<Vec<FunctionSnapshot>> {
         load_functions(&self.conn, sha)
@@ -669,39 +505,6 @@ impl TempDb {
         insert_functions(&self.conn, snapshot)?;
         tx.commit()?;
         Ok(())
-    }
-
-    /// Compute activity-risk percentile thresholds via SQL window functions.
-    ///
-    /// Returns `(p90, p95, p99)` activity_risk values (falling back to lrs when
-    /// activity_risk is NULL) for the given commit. Used by T4.5 aggregation.
-    pub fn percentile_thresholds(&self, sha: &str) -> Result<(f64, f64, f64)> {
-        // NTILE(100) assigns each row a bucket 1..100; we want the minimum score
-        // in buckets 90, 95, 99 (i.e., the value at that percentile).
-        let mut stmt = self.conn.prepare(
-            "WITH ranked AS (
-                SELECT COALESCE(activity_risk, lrs) AS score,
-                       NTILE(100) OVER (ORDER BY COALESCE(activity_risk, lrs)) AS bucket
-                FROM functions
-                WHERE commit_sha = ?1
-             )
-             SELECT
-                MIN(CASE WHEN bucket >= 90 THEN score END),
-                MIN(CASE WHEN bucket >= 95 THEN score END),
-                MIN(CASE WHEN bucket >= 99 THEN score END)
-             FROM ranked",
-        )?;
-
-        let (p90, p95, p99) = stmt
-            .query_row([sha], |row| {
-                let p90: Option<f64> = row.get(0)?;
-                let p95: Option<f64> = row.get(1)?;
-                let p99: Option<f64> = row.get(2)?;
-                Ok((p90.unwrap_or(0.0), p95.unwrap_or(0.0), p99.unwrap_or(0.0)))
-            })
-            .context("failed to compute percentile thresholds")?;
-
-        Ok((p90, p95, p99))
     }
 }
 
@@ -924,18 +727,6 @@ mod tests {
     }
 
     #[test]
-    fn test_temp_db_insert_and_percentile() {
-        let snapshot = make_snapshot();
-        let db = TempDb::new().unwrap();
-        db.insert_snapshot(&snapshot).unwrap();
-        let (p90, p95, p99) = db.percentile_thresholds("deadbeef").unwrap();
-        // Single-function snapshot: all percentile thresholds are the function's own lrs.
-        assert!(p90 >= 0.0);
-        assert!(p95 >= p90);
-        assert!(p99 >= p95);
-    }
-
-    #[test]
     fn test_snapshot_db_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let db_file = dir.path().join("snapshots.db");
@@ -1060,28 +851,16 @@ mod tests {
         f.churn = Some(ChurnMetrics {
             lines_added: 50,
             lines_deleted: 10,
-            net_change: 40,
         });
         f.touch_count = Some(7);
         f.days_since_last_change = Some(5);
-        f.callgraph = Some(CallGraphMetrics {
-            fan_in: 3,
-            pagerank: 0.42,
-            scc_size: 4,
-            is_entrypoint: true,
-            neighbor_churn: Some(12),
-        });
+        f.callgraph = Some(CallGraphMetrics { fan_in: 3 });
         f.activity_risk = Some(9.5);
         f.risk_factors = Some(RiskFactors {
             complexity: 1.0,
             churn: 0.5,
             touch: 0.8,
             recency: 0.3,
-        });
-        f.percentile = Some(PercentileFlags {
-            is_top_10_pct: true,
-            is_top_5_pct: true,
-            is_top_1_pct: false,
         });
         f.tier = Some("active".to_string());
 
@@ -1092,16 +871,11 @@ mod tests {
         let churn = lf.churn.as_ref().expect("churn should be present");
         assert_eq!(churn.lines_added, 50);
         assert_eq!(churn.lines_deleted, 10);
-        assert_eq!(churn.net_change, 40);
         assert_eq!(lf.touch_count, Some(7));
         assert_eq!(lf.days_since_last_change, Some(5));
 
         let cg = lf.callgraph.as_ref().expect("callgraph should be present");
         assert_eq!(cg.fan_in, 3);
-        assert!((cg.pagerank - 0.42).abs() < 1e-9);
-        assert_eq!(cg.scc_size, 4);
-        assert!(cg.is_entrypoint);
-        assert_eq!(cg.neighbor_churn, Some(12));
 
         assert!((lf.activity_risk.unwrap() - 9.5).abs() < 1e-9);
 
@@ -1111,78 +885,10 @@ mod tests {
             .expect("risk_factors should be present");
         assert!((rf.complexity - 1.0).abs() < 1e-9);
 
-        let pct = lf
-            .percentile
-            .as_ref()
-            .expect("percentile should be present");
-        assert!(pct.is_top_10_pct);
-        assert!(pct.is_top_5_pct);
-        assert!(!pct.is_top_1_pct);
-
         assert_eq!(lf.tier.as_deref(), Some("active"));
 
         // Commit fields
         assert_eq!(loaded.commit.ticket_ids, vec!["PROJ-123"]);
         assert_eq!(loaded.commit.is_fix_commit, Some(true));
-    }
-
-    #[test]
-    fn test_temp_db_percentile_thresholds_multiple_functions() {
-        use crate::git::GitContext;
-        use crate::report::{FunctionRiskReport, MetricsReport as ReportMetrics, RiskReport};
-
-        // Build a snapshot with 10 functions at lrs 1..=10 so NTILE(100) has real data.
-        let ctx = GitContext {
-            head_sha: "pctsha".to_string(),
-            parent_shas: vec![],
-            timestamp: 1_700_000_000,
-            branch: None,
-            is_detached: false,
-            message: None,
-            author: None,
-            is_fix_commit: None,
-            is_revert_commit: None,
-            ticket_ids: vec![],
-        };
-        // NTILE(100) only assigns buckets ≥ 90 when there are ≥ 90 rows; use 100.
-        let reports: Vec<FunctionRiskReport> = (1..=100u32)
-            .map(|i| FunctionRiskReport {
-                file: format!("src/f{i}.ts"),
-                function: format!("fn{i}"),
-                line: i,
-                language: crate::language::Language::TypeScript,
-                metrics: ReportMetrics {
-                    cc: i,
-                    nd: 0,
-                    fo: 0,
-                    ns: 0,
-                    loc: 10,
-                    missing_docstring: false,
-                },
-                risk: RiskReport {
-                    r_cc: i as f64,
-                    r_nd: 0.0,
-                    r_fo: 0.0,
-                    r_ns: 0.0,
-                },
-                lrs: i as f64,
-                band: crate::risk::RiskBand::Low,
-                callees: vec![],
-                suppression_reason: None,
-                explanation: None,
-            })
-            .collect();
-
-        let snapshot = Snapshot::new(ctx, reports);
-        let db = TempDb::new().unwrap();
-        db.insert_snapshot(&snapshot).unwrap();
-
-        let (p90, p95, p99) = db.percentile_thresholds("pctsha").unwrap();
-        // With 100 functions (lrs 1–100), NTILE(100) assigns one row per bucket.
-        // p90 = bucket-90 score = lrs 90, p95 = 95, p99 = 99.
-        assert!(p90 > 0.0, "p90 should be positive");
-        assert!(p95 >= p90, "p95 >= p90");
-        assert!(p99 >= p95, "p99 >= p95");
-        assert!(p99 <= 100.0, "p99 cannot exceed max lrs");
     }
 }

@@ -111,19 +111,6 @@ pub fn analyze_with_progress_and_timing(
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Instant;
 
-    // Build weights/thresholds from config
-    let weights = resolved_config.map(|c| risk::LrsWeights {
-        cc: c.weight_cc,
-        nd: c.weight_nd,
-        fo: c.weight_fo,
-        ns: c.weight_ns,
-    });
-    let thresholds = resolved_config.map(|c| risk::RiskThresholds {
-        moderate: c.moderate_threshold,
-        high: c.high_threshold,
-        critical: c.critical_threshold,
-    });
-
     // Collect and filter source files upfront so the total is known before analysis begins
     let discover_start = timing.map(|_| Instant::now());
     let source_files: Vec<_> = collect_source_files(path)?
@@ -151,13 +138,7 @@ pub fn analyze_with_progress_and_timing(
             .map(|(file_index, file_path)| {
                 let cm: Lrc<SourceMap> = Default::default();
                 let result = analysis::analyze_file_with_config_and_timing(
-                    file_path,
-                    &cm,
-                    file_index,
-                    &options,
-                    weights.as_ref(),
-                    thresholds.as_ref(),
-                    timing,
+                    file_path, &cm, file_index, &options, None, None, timing,
                 );
                 let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
                 if let Some(f) = progress {

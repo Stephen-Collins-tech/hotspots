@@ -116,16 +116,6 @@ fn default_touch_window_days() -> u32 {
 pub struct ChurnMetrics {
     pub lines_added: usize,
     pub lines_deleted: usize,
-    pub net_change: i64,
-}
-
-/// Per-function percentile flags based on activity_risk
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct PercentileFlags {
-    pub is_top_10_pct: bool,
-    pub is_top_5_pct: bool,
-    pub is_top_1_pct: bool,
 }
 
 /// Call graph metrics for a function
@@ -133,19 +123,6 @@ pub struct PercentileFlags {
 #[serde(rename_all = "snake_case")]
 pub struct CallGraphMetrics {
     pub fan_in: usize,
-    pub pagerank: f64,
-    /// Size of this function's strongly-connected component (1 if not in a
-    /// cycle). Kept despite `cyclic_dependency`'s removal from the live
-    /// composite score — it's a direct input to the `cyclic_hub`
-    /// pattern detector (`patterns.rs`), not just a reported-but-dead value.
-    pub scc_size: usize,
-    /// Kept for the same reason as `scc_size`: a direct input to the
-    /// `middle_man`/`neighbor_risk` pattern detectors, which suppress their
-    /// own patterns when a function is an entry point.
-    #[serde(default)]
-    pub is_entrypoint: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub neighbor_churn: Option<usize>,
 }
 
 /// Function entry in snapshot
@@ -173,8 +150,6 @@ pub struct FunctionSnapshot {
     pub activity_risk: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk_factors: Option<crate::scoring::RiskFactors>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub percentile: Option<PercentileFlags>,
     /// Activity tier: "active" when the function's file has more touches than the
     /// repo median or changed within the last 30 days, otherwise "quiet".
     /// Says nothing about complexity; `band` carries that separately.
@@ -279,14 +254,6 @@ pub struct BandStats {
     pub sum_risk: f64,
 }
 
-/// Call graph statistics for the whole repo
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct CallGraphStats {
-    pub total_edges: usize,
-    pub avg_fan_in: f64,
-}
-
 /// Repo-level summary statistics
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -297,8 +264,6 @@ pub struct SnapshotSummary {
     pub top_5_pct_share: f64,
     pub top_10_pct_share: f64,
     pub by_band: std::collections::BTreeMap<String, BandStats>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub call_graph: Option<CallGraphStats>,
 }
 
 /// Complete snapshot for a commit
@@ -506,7 +471,6 @@ impl Snapshot {
                     callgraph: None, // Call graph metrics will be populated separately if available
                     activity_risk: None,
                     risk_factors: None,
-                    percentile: None,
                     tier: None,
                     subsystem: None,
                     authors_90d: None,
@@ -563,11 +527,9 @@ impl Snapshot {
             let file_path = &function.file;
 
             if let Some(file_churn) = file_churns.get(file_path) {
-                let net_change = file_churn.lines_added as i64 - file_churn.lines_deleted as i64;
                 function.churn = Some(ChurnMetrics {
                     lines_added: file_churn.lines_added,
                     lines_deleted: file_churn.lines_deleted,
-                    net_change,
                 });
             }
         }
@@ -954,78 +916,18 @@ impl Snapshot {
         }
     }
 
-    /// Populate call graph metrics
-    ///
-    /// Populate call graph metrics (PageRank, fan-in, SCC, neighbor churn).
-    /// `fan_out`/`betweenness`/`scc_id`/`dependency_depth` were dropped from
-    /// `CallGraphMetrics` in hotspots 2.0 (unused reported fields, distinct from
-    /// `scc_size`/`is_entrypoint`, which remain real pattern-detector inputs);
-    /// `betweenness_centrality`/`compute_dependency_depth` are no longer called
-    /// here since nothing downstream consumes their output.
-    ///
-    /// `exact_threshold`/`approx_k` no longer affect this method's own work (they
-    /// controlled the now-removed betweenness computation) but are kept as
-    /// parameters, and `exact_threshold` still determines the returned
-    /// `approximate` bool, to avoid a public API signature change for this phase.
-    pub fn populate_callgraph(
-        &mut self,
-        call_graph: &crate::callgraph::CallGraph,
-        exact_threshold: usize,
-        _approx_k: usize,
-    ) -> bool {
-        use std::collections::HashMap;
-
-        let n = call_graph.node_count();
-        let approximate = n > exact_threshold;
-
-        // Compute global metrics once.
-        let pagerank_scores = call_graph.pagerank(0.85, 30, 1e-6);
-        let scc_info = call_graph.find_strongly_connected_components();
-        // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls below
+    /// Populate call graph metrics (fan-in).
+    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls
         let fan_in_map = call_graph.build_fan_in_map();
 
-        // Build a map of function_id -> total churn (lines_added + lines_deleted)
-        let mut churn_map: HashMap<String, usize> = HashMap::new();
-        for function in &self.functions {
-            if let Some(ref churn) = function.churn {
-                let total_churn = churn.lines_added + churn.lines_deleted;
-                churn_map.insert(function.function_id.clone(), total_churn);
-            }
-        }
-
-        // Populate metrics for each function
         for function in &mut self.functions {
-            let function_id = &function.function_id;
-
-            // Only populate if function is in the call graph
-            if call_graph.contains(function_id) {
-                let (_scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
-
-                // Compute neighbor churn: sum of churn for all callees
-                let neighbor_churn = if let Some(callees) = call_graph.callees_of(function_id) {
-                    let total: usize = callees
-                        .filter_map(|callee_id| churn_map.get(callee_id))
-                        .sum();
-                    if total > 0 {
-                        Some(total)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
+            if call_graph.contains(&function.function_id) {
                 function.callgraph = Some(CallGraphMetrics {
-                    fan_in: fan_in_map.get(function_id).copied().unwrap_or(0),
-                    pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
-                    scc_size,
-                    is_entrypoint: call_graph.is_entry_point(function_id),
-                    neighbor_churn,
+                    fan_in: fan_in_map.get(&function.function_id).copied().unwrap_or(0),
                 });
             }
         }
-
-        approximate
     }
 
     /// Compute and populate activity risk scores
@@ -1045,39 +947,6 @@ impl Snapshot {
                 });
             function.activity_risk = Some(activity_risk);
             function.risk_factors = Some(risk_factors);
-        }
-    }
-
-    /// Compute and populate percentile flags for all functions
-    ///
-    /// Must be called after compute_activity_risk().
-    /// Flags: is_top_1_pct, is_top_5_pct, is_top_10_pct based on activity_risk.
-    pub fn compute_percentiles(&mut self) {
-        let n = self.functions.len();
-        if n == 0 {
-            return;
-        }
-
-        // Collect all activity_risk scores (falling back to lrs)
-        let mut scores: Vec<f64> = self
-            .functions
-            .iter()
-            .map(|f| f.activity_risk.unwrap_or(f.lrs))
-            .collect();
-        scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Compute threshold values via quantile index
-        let threshold_10 = scores[n.saturating_sub(1) * 90 / 100];
-        let threshold_5 = scores[n.saturating_sub(1) * 95 / 100];
-        let threshold_1 = scores[n.saturating_sub(1) * 99 / 100];
-
-        for function in &mut self.functions {
-            let score = function.activity_risk.unwrap_or(function.lrs);
-            function.percentile = Some(PercentileFlags {
-                is_top_10_pct: score >= threshold_10,
-                is_top_5_pct: score >= threshold_5,
-                is_top_1_pct: score >= threshold_1,
-            });
         }
     }
 
@@ -1116,10 +985,7 @@ impl Snapshot {
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
     ///
-    /// `betweenness_approximate` is accepted but unused since hotspots 2.0 dropped
-    /// `CallGraphStats.betweenness_approximate` (no consumer) — kept as a parameter
-    /// to avoid a public API signature change for this phase.
-    pub fn compute_summary(&mut self, _betweenness_approximate: bool) {
+    pub fn compute_summary(&mut self) {
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -1129,7 +995,6 @@ impl Snapshot {
                 top_5_pct_share: 0.0,
                 top_10_pct_share: 0.0,
                 by_band: std::collections::BTreeMap::new(),
-                call_graph: None,
             });
             return;
         }
@@ -1152,7 +1017,6 @@ impl Snapshot {
             top_5_pct_share,
             top_10_pct_share,
             by_band: compute_band_distribution(&self.functions),
-            call_graph: compute_call_graph_stats(&self.functions, n),
         });
     }
 
@@ -1232,38 +1096,15 @@ fn compute_band_distribution(
     by_band
 }
 
-/// Computes call-graph-level summary statistics, or None if no call graph data.
-fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
-    if !functions.iter().any(|f| f.callgraph.is_some()) {
-        return None;
-    }
-    let total_fan_in: usize = functions
-        .iter()
-        .filter_map(|f| f.callgraph.as_ref())
-        .map(|cg| cg.fan_in)
-        .sum();
-    // Every edge contributes exactly one fan_in (and, before `fan_out`'s removal
-    // in hotspots 2.0, exactly one fan_out) across the graph, so summed fan_in
-    // alone is still the exact total edge count — no separate fan_out field needed.
-    Some(CallGraphStats {
-        total_edges: total_fan_in,
-        avg_fan_in: total_fan_in as f64 / n as f64,
-    })
-}
-
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
-    betweenness_approximate: bool,
 }
 
 impl SnapshotEnricher {
     /// Create a new enricher wrapping the given snapshot.
     pub fn new(snapshot: Snapshot) -> Self {
-        SnapshotEnricher {
-            snapshot,
-            betweenness_approximate: false,
-        }
+        SnapshotEnricher { snapshot }
     }
 
     /// Detect and populate the `subsystem` field for every function.
@@ -1319,19 +1160,9 @@ impl SnapshotEnricher {
         self
     }
 
-    /// Populate call graph metrics (PageRank, fan-in, betweenness, SCC, etc).
-    ///
-    /// Betweenness is computed exactly when `call_graph.nodes.len() <= exact_threshold`,
-    /// and via k-source approximation otherwise.
-    pub fn with_callgraph(
-        mut self,
-        call_graph: &crate::callgraph::CallGraph,
-        exact_threshold: usize,
-        approx_k: usize,
-    ) -> Self {
-        self.betweenness_approximate =
-            self.snapshot
-                .populate_callgraph(call_graph, exact_threshold, approx_k);
+    /// Populate call graph metrics (fan-in).
+    pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
+        self.snapshot.populate_callgraph(call_graph);
         self
     }
 
@@ -1340,9 +1171,8 @@ impl SnapshotEnricher {
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
     pub fn enrich(mut self) -> Self {
         self.snapshot.compute_activity_risk();
-        self.snapshot.compute_percentiles();
         self.snapshot.compute_tiers();
-        self.snapshot.compute_summary(self.betweenness_approximate);
+        self.snapshot.compute_summary();
         self
     }
 
@@ -1950,7 +1780,6 @@ mod tests {
             .expect("churn should be set");
         assert_eq!(churn.lines_added, 10);
         assert_eq!(churn.lines_deleted, 5);
-        assert_eq!(churn.net_change, 5);
     }
 
     #[test]
@@ -1962,10 +1791,11 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_enricher_enrich_computes_percentiles() {
+    fn test_snapshot_enricher_enrich_computes_activity_risk_and_tier() {
         let snapshot = create_test_snapshot();
         let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
-        assert!(snapshot.functions[0].percentile.is_some());
+        assert!(snapshot.functions[0].activity_risk.is_some());
+        assert!(snapshot.functions[0].tier.is_some());
     }
 
     #[test]

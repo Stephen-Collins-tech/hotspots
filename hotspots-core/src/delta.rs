@@ -1132,7 +1132,7 @@ mod tests {
 
     #[test]
     fn test_pr_risk_summary_nets_out_pure_rename() {
-        use crate::aggregates::{compute_pr_risk_summary, ChangeSizeThresholds};
+        use crate::aggregates::compute_pr_risk_summary;
 
         let state = make_state(5.4, RiskBand::Moderate);
         let mut deleted = make_delta_entry("old/path.ts::foo", FunctionStatus::Deleted);
@@ -1153,15 +1153,11 @@ mod tests {
             aggregates: None,
         };
 
-        let summary = compute_pr_risk_summary(&delta, 0, &ChangeSizeThresholds::default());
+        let summary = compute_pr_risk_summary(&delta, 0);
         assert_eq!(summary.new_count, 0, "pure rename must not count as new");
         assert_eq!(
             summary.deleted_count, 0,
             "pure rename must not count as deleted"
-        );
-        assert_eq!(
-            summary.pr_risk_score, 0.0,
-            "pure rename must contribute zero risk score"
         );
     }
 }

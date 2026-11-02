@@ -98,12 +98,6 @@ enum Commands {
         #[arg(long, short = 'j', value_name = "N")]
         jobs: Option<usize>,
 
-        /// Skip all call graph algorithms when the repo exceeds N functions.
-        /// Omits PageRank, betweenness, fan-in/fan-out, SCC, and dependency depth.
-        /// Useful for very large repos where graph computation dominates CPU time.
-        #[arg(long, value_name = "N")]
-        callgraph_skip_above: Option<usize>,
-
         /// Skip the suppression gate check (the P@10 calibration that warns when
         /// the activity ranker may be producing misleading rankings).
         #[arg(long)]
@@ -353,7 +347,6 @@ fn main() -> anyhow::Result<()> {
             all_functions,
             source_url,
             jobs,
-            callgraph_skip_above,
             skip_gate,
             cold_start,
             axes,
@@ -376,7 +369,6 @@ fn main() -> anyhow::Result<()> {
             all_functions,
             source_url,
             jobs,
-            callgraph_skip_above,
             skip_gate,
             cold_start,
             axes,

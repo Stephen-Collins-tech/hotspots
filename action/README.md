@@ -256,17 +256,6 @@ You can customize behavior with a `.hotspotsrc.json` file:
 
 ```json
 {
-  "thresholds": {
-    "moderate": 3.0,
-    "high": 6.0,
-    "critical": 9.0
-  },
-  "weights": {
-    "cc": 2.0,
-    "nd": 3.0,
-    "fo": 2.5,
-    "ns": 1.5
-  },
   "exclude": [
     "**/*.test.ts",
     "**/*.spec.ts"

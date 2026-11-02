@@ -68,7 +68,6 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
         activity_risk: None,
         risk_factors: None,
         tier: None,
-        percentile: None,
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,

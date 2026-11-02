@@ -165,9 +165,9 @@ the same failure mode already fixed for `burst_score` in the live score.
   weight/threshold-semantics migrations. Kept here as a historical note of what
   this doc previously flagged as missing, not as a current gap.
 - **Population-relative labels sit right next to an absolute score.**
-  Driver/quadrant/percentile labels are *designed* to move when the rest of
+  The `tier` label is *designed* to move when the rest of
   the repo changes — but users diffing output commit-to-commit may not
-  realize that a driver-label flip doesn't mean the function's own risk
+  realize that a tier flip doesn't mean the function's own risk
   changed, since it's presented alongside the (stable) LRS number.
 - **Cold-start routing has no hysteresis.** The Gini-coefficient thresholds
   that decide between Formula-based and Anomaly-based ranking are hardcoded
@@ -199,7 +199,7 @@ the same failure mode already fixed for `burst_score` in the live score.
 4. Add determinism tests for `hotspots train`/`cold_start_rank` analogous to
    the existing analysis determinism tests.
 5. Document, and consider visually separating in output, which fields are
-   population-relative (percentile, driver, quadrant) versus absolute (LRS,
+   population-relative (tier) versus absolute (LRS,
    risk band) — so CI consumers can choose to key gates only on the stable
    subset.
 6. Smooth the suppression gate's verdict (e.g. require N consecutive

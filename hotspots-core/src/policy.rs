@@ -164,7 +164,7 @@ pub fn evaluate_policies(delta: &Delta, config: &ResolvedConfig) -> Result<Optio
     evaluate_excessive_risk_regression(&delta.deltas, config, &mut results);
 
     // 2. Warning function-level policies
-    evaluate_rapid_growth(&delta.deltas, config, &mut results);
+    evaluate_rapid_growth(&delta.deltas, &mut results);
 
     // Sort results deterministically
     results.sort();
@@ -325,18 +325,14 @@ fn evaluate_excessive_risk_regression(
     }
 }
 
+/// Percent LRS increase at which `rapid-growth` warns (fixed, not configurable).
+const RAPID_GROWTH_PERCENT: f64 = 50.0;
+
 /// Evaluate Rapid Growth policy
 ///
-/// Triggers when `delta.lrs / before.lrs >= rapid_growth_percent / 100.0`
+/// Triggers when `delta.lrs / before.lrs >= RAPID_GROWTH_PERCENT / 100.0`
 /// Only applies to Modified functions (not New, since no baseline)
-///
-/// `rapid_growth_percent` is an unvalidated heuristic — see
-/// `WarningThresholdConfig`'s doc comment.
-fn evaluate_rapid_growth(
-    deltas: &[FunctionDeltaEntry],
-    config: &ResolvedConfig,
-    results: &mut PolicyResults,
-) {
+fn evaluate_rapid_growth(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
     for entry in active_deltas(deltas) {
         // Only check Modified functions
         if entry.status != FunctionStatus::Modified {
@@ -359,7 +355,7 @@ fn evaluate_rapid_growth(
         let growth_percent = (delta_lrs / before_lrs) * 100.0;
 
         // Trigger if growth exceeds threshold
-        if growth_percent >= config.rapid_growth_percent {
+        if growth_percent >= RAPID_GROWTH_PERCENT {
             let message = format!(
                 "Function {} LRS increased by {:.1}% ({:.2} -> {:.2})",
                 entry.function_id, growth_percent, before_lrs, after_lrs
@@ -933,7 +929,6 @@ mod tests {
     #[test]
     fn test_rapid_growth_triggered() {
         let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
 
         // Modified function with 100% growth (2.0 -> 4.0)
         let deltas = vec![create_test_delta_entry_with_lrs(
@@ -943,7 +938,7 @@ mod tests {
             Some(4.0),
         )];
 
-        evaluate_rapid_growth(&deltas, &config, &mut results);
+        evaluate_rapid_growth(&deltas, &mut results);
 
         assert_eq!(results.warnings.len(), 1);
         assert_eq!(results.warnings[0].id, PolicyId::RapidGrowth);
@@ -966,7 +961,6 @@ mod tests {
     #[test]
     fn test_rapid_growth_exactly_at_threshold() {
         let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
 
         // Modified function with exactly 50% growth (2.0 -> 3.0)
         let deltas = vec![create_test_delta_entry_with_lrs(
@@ -976,7 +970,7 @@ mod tests {
             Some(3.0),
         )];
 
-        evaluate_rapid_growth(&deltas, &config, &mut results);
+        evaluate_rapid_growth(&deltas, &mut results);
 
         assert_eq!(results.warnings.len(), 1);
         assert_eq!(results.warnings[0].id, PolicyId::RapidGrowth);
@@ -985,7 +979,6 @@ mod tests {
     #[test]
     fn test_rapid_growth_below_threshold() {
         let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
 
         // Modified function with 40% growth (below 50% threshold)
         let deltas = vec![create_test_delta_entry_with_lrs(
@@ -995,7 +988,7 @@ mod tests {
             Some(3.5),
         )];
 
-        evaluate_rapid_growth(&deltas, &config, &mut results);
+        evaluate_rapid_growth(&deltas, &mut results);
 
         // Should not trigger - below threshold
         assert_eq!(results.warnings.len(), 0);
@@ -1004,7 +997,6 @@ mod tests {
     #[test]
     fn test_rapid_growth_negative_delta() {
         let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
 
         // Modified function with improvement (5.0 -> 3.0)
         let deltas = vec![create_test_delta_entry_with_lrs(
@@ -1014,7 +1006,7 @@ mod tests {
             Some(3.0),
         )];
 
-        evaluate_rapid_growth(&deltas, &config, &mut results);
+        evaluate_rapid_growth(&deltas, &mut results);
 
         // Should not trigger - negative delta (improvement)
         assert_eq!(results.warnings.len(), 0);
@@ -1023,7 +1015,6 @@ mod tests {
     #[test]
     fn test_rapid_growth_new_function() {
         let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
 
         // New function (no baseline)
         let deltas = vec![create_test_delta_entry_with_lrs(
@@ -1033,7 +1024,7 @@ mod tests {
             Some(10.0),
         )];
 
-        evaluate_rapid_growth(&deltas, &config, &mut results);
+        evaluate_rapid_growth(&deltas, &mut results);
 
         // Should not trigger - new functions don't have rapid growth warnings
         assert_eq!(results.warnings.len(), 0);
