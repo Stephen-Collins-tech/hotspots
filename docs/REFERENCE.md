@@ -363,6 +363,18 @@ Activity Risk = LRS
   + max(0, 5.0 − days_since_last_change / 7) × 0.2  # recency
 ```
 
+**How to read it, and why you can't "fix" it.** Activity Risk estimates where attention is
+likely to be needed next, not how good the code is. It is built from how recently and how
+often a file has changed, so working on a file raises it for every function in that file
+(churn, touch and recency are file-level), including functions you did not edit. A fix
+therefore cannot lower it directly; it decays on its own as the file goes quiet (recency
+over about 35 days, churn over 180 days, touch over 365 days). On a feature branch,
+recency is measured from before the branch diverged, so your own edits do not reset it.
+The part a developer can change and see improve is LRS and its band, so use LRS for "did
+this refactor help" and Activity Risk for "where should I look first". Within each triage
+bucket, functions are sorted by Activity Risk, so editing one function can reorder its
+file's other functions in that list.
+
 `fan_in`, `scc` (cyclic dependency), `dependency_depth`, `burst`, and `neighbor_churn` do
 not contribute to the live Activity Risk / composite score, and — as of hotspots 2.0 —
 none of them have a corresponding field on `RiskFactors` either (the struct now has
