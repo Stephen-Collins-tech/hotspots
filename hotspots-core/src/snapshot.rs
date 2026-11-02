@@ -31,8 +31,13 @@ use crate::report::RiskReport;
 /// shared no serde-level relationship. v3/v4 never existed on this type (v4 was
 /// the now-merged agent envelope's own counter) — the jump from 2 to 5 reflects
 /// that merge, not three skipped revisions of this struct.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
-const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
+/// v6 (hotspots 3.0): removes `driver`, `patterns`, `percentile`, the call graph
+/// metrics other than `fan_in`, `churn.net_change`, `summary.call_graph` and the
+/// PR `pr_risk_score`/`size_band`; replaces `quadrant` with `tier`; renames
+/// `risk_factors.activity` to `touch`; and moves `activity_risk` to the fixed-scale
+/// formula. Older snapshots are not read: re-run `analyze --mode snapshot`.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 6;
 
 /// Version of the scoring formula (`activity_risk` constants, `LrsWeights`,
 /// `RiskThresholds`). Bumped whenever a default weight or threshold changes, or
@@ -1041,14 +1046,15 @@ impl Snapshot {
         let snapshot: Snapshot =
             serde_json::from_str(json).context("failed to deserialize snapshot from JSON")?;
 
-        // Validate schema version (accept v1 snapshots — missing fields default to None)
+        // Validate schema version. Snapshots from earlier schema versions are rejected;
+        // regenerate them with `analyze --mode snapshot`.
         if snapshot.schema_version < SNAPSHOT_SCHEMA_MIN_VERSION
             || snapshot.schema_version > SNAPSHOT_SCHEMA_VERSION
         {
             anyhow::bail!(
-                "unsupported schema version: got {}, supported range {}-{}",
+                "unsupported snapshot schema version {} (this build reads version {}); \
+                 regenerate it with `hotspots analyze --mode snapshot --force`",
                 snapshot.schema_version,
-                SNAPSHOT_SCHEMA_MIN_VERSION,
                 SNAPSHOT_SCHEMA_VERSION
             );
         }

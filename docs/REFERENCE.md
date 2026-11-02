@@ -184,7 +184,7 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 
 JSON output only today. `PATH` defaults to `.`.
 
-Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
+Output is the master-schema envelope's `coordinate` section (`schema_version: 6`):
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
 
 There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
@@ -490,7 +490,7 @@ workflow file can remove a required check — but it does mean the change can't 
 ### Schema versions
 
 As of hotspots 2.0, every JSON-emitting command shares **one envelope and one
-`schema_version` (currently `5`)** — the pre-2.0 model of separate version
+`schema_version` (currently `6`)** — the pre-2.0 model of separate version
 constants per command (`AGENT_SNAPSHOT_SCHEMA_VERSION`, `DELTA_SCHEMA_VERSION`,
 a bare unversioned `--axes` map, etc.) was unified in the 2.0 master-schema cut.
 The envelope always carries `schema_version`, `commit`, and `analysis`; everything
@@ -634,7 +634,7 @@ defect-correlation-validated threshold.
 
 ### Delta output
 
-`hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 5`,
+`hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 6`,
 unified with the snapshot schema version): the diff itself nested under `delta`. There
 is no separate top-level `commit` — `delta.commit.sha` already carries the head commit,
 and the master schema has zero field duplication (no value appears twice under
@@ -642,7 +642,7 @@ different paths), so it isn't repeated at the envelope's top level too.
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "delta": {
     "commit": { "sha": "abc123", "parent": "def456" },
     "baseline": false,

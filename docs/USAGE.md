@@ -139,7 +139,7 @@ Output (JSON only today):
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "coordinate": {
     "input_files": ["src/api.ts", "src/db.ts"],
     "ownership": [
@@ -345,7 +345,7 @@ hotspots analyze src/ --format json
 hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
 ```
 
-Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version
+Every JSON output is the unified master-schema envelope (`schema_version: 6`, same version
 across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
 `functions` array in favor of the triage-first structure (`active`/`quiet` groups);
 use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
