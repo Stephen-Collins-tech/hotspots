@@ -1273,7 +1273,7 @@ pub(crate) fn build_snapshot_via_db(
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
-    let result = enricher.enrich().build();
+    let result = enricher.with_relative_paths(repo_root).enrich().build();
     Ok(result)
 }
 
@@ -1333,7 +1333,7 @@ pub(crate) fn build_enriched_snapshot(
         enricher = enricher.with_callgraph(graph);
     }
 
-    Ok(enricher.enrich().build())
+    Ok(enricher.with_relative_paths(repo_root).enrich().build())
 }
 
 /// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and
@@ -1369,12 +1369,8 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
-    let mut snapshot = build_enriched_snapshot(&worktree.path, reports, false)
+    let snapshot = build_enriched_snapshot(&worktree.path, reports, false)
         .with_context(|| format!("enrichment failed for ref {sha}"))?;
-
-    let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
-    let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
-    rewrite_worktree_paths(&mut snapshot, &worktree_prefix, &repo_prefix);
 
     // Persist into the *real* repo's .hotspots/ directory, not the worktree.
     hotspots_core::snapshot::persist_snapshot(repo_root, &snapshot, false)
@@ -1384,19 +1380,6 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Drop of `worktree` runs `git worktree remove` here.
     Ok(snapshot)
-}
-
-fn rewrite_worktree_paths(snapshot: &mut Snapshot, worktree_prefix: &str, repo_prefix: &str) {
-    for f in &mut snapshot.functions {
-        if f.file.starts_with(worktree_prefix) {
-            let rel = f.file[worktree_prefix.len()..].to_string();
-            let old_file = f.file.clone();
-            f.file = format!("{}{}", repo_prefix, rel);
-            if let Some(symbol) = f.function_id.strip_prefix(&format!("{old_file}::")) {
-                f.function_id = format!("{}::{}", f.file, symbol);
-            }
-        }
-    }
 }
 
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {

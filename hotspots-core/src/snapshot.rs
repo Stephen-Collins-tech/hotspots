@@ -33,7 +33,8 @@ use crate::report::RiskReport;
 /// that merge, not three skipped revisions of this struct.
 /// v6 (hotspots 3.0): removes `driver`, `patterns`, `percentile`, the call graph
 /// metrics other than `fan_in`, `churn.net_change`, `summary.call_graph` and the
-/// PR `pr_risk_score`/`size_band`; replaces `quadrant` with `tier`; renames
+/// PR `pr_risk_score`/`size_band`; makes `file` and `function_id` repo-relative
+/// (they were absolute paths); replaces `quadrant` with `tier`; renames
 /// `risk_factors.activity` to `touch`; and moves `activity_risk` to the fixed-scale
 /// formula. Older snapshots are not read: re-run `analyze --mode snapshot`.
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
@@ -537,6 +538,24 @@ impl Snapshot {
                     lines_deleted: file_churn.lines_deleted,
                 });
             }
+        }
+    }
+
+    /// Rewrite every function's `file` and `function_id` to be relative to `repo_root`
+    /// (forward slashes, no leading `./`), so snapshots and deltas do not depend on where
+    /// the repo happens to be checked out. Call this after anything that looks functions up
+    /// by their analysis-time (absolute) path, such as the call graph.
+    pub fn relativize_paths(&mut self, repo_root: &Path) {
+        let (prefix_can, prefix_raw) = crate::trainer::repo_prefixes(repo_root);
+        for function in &mut self.functions {
+            let rel = crate::trainer::make_rel(&function.file, &prefix_can, &prefix_raw);
+            if rel == function.file {
+                continue;
+            }
+            if let Some((_, symbol)) = function.function_id.split_once("::") {
+                function.function_id = format!("{rel}::{symbol}");
+            }
+            function.file = rel;
         }
     }
 
@@ -1123,6 +1142,13 @@ impl SnapshotEnricher {
         if repo_root.exists() {
             self.snapshot.populate_subsystems(repo_root);
         }
+        self
+    }
+
+    /// Make every function's `file` and `function_id` repo-relative. Must come after the
+    /// steps that key off the analysis-time paths (call graph, churn, touch).
+    pub fn with_relative_paths(mut self, repo_root: &Path) -> Self {
+        self.snapshot.relativize_paths(repo_root);
         self
     }
 
@@ -1845,4 +1871,23 @@ mod tests {
 
     // Cache key for the test snapshot's single function:
     //   sha="abc123", file="src/foo.ts", line=42, loc=10 → end=51
+
+    #[test]
+    fn test_relativize_paths_makes_file_and_function_id_repo_relative() {
+        let mut snapshot = create_test_snapshot();
+        for (file, expected) in [
+            ("/repo/src/foo.ts", "src/foo.ts"),
+            ("/repo/./src/foo.ts", "src/foo.ts"),
+            ("src/foo.ts", "src/foo.ts"),
+        ] {
+            snapshot.functions[0].file = file.to_string();
+            snapshot.functions[0].function_id = format!("{file}::foo");
+            snapshot.relativize_paths(std::path::Path::new("/repo"));
+            assert_eq!(snapshot.functions[0].file, expected);
+            assert_eq!(
+                snapshot.functions[0].function_id,
+                format!("{expected}::foo")
+            );
+        }
+    }
 }
