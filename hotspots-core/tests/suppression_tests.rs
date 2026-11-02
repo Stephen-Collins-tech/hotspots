@@ -10,9 +10,7 @@ use hotspots_core::analysis::analyze_file_with_config;
 use hotspots_core::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
 use hotspots_core::policy::{evaluate_policies, PolicyId, PolicySeverity};
 use hotspots_core::risk::RiskBand;
-use hotspots_core::snapshot::Snapshot;
-use hotspots_core::{git::GitContext, AnalysisOptions, ResolvedConfig};
-use std::path::Path;
+use hotspots_core::{AnalysisOptions, ResolvedConfig};
 use swc_common::{sync::Lrc, SourceMap};
 use tempfile::Builder;
 
@@ -130,73 +128,6 @@ fn test_suppression_works_for_go() {
 }
 
 #[test]
-fn test_suppression_missing_reason_policy() {
-    use hotspots_core::delta::FunctionState;
-    use hotspots_core::report::MetricsReport;
-
-    let delta_entry = FunctionDeltaEntry {
-        function_id: "test.ts::foo".to_string(),
-        status: FunctionStatus::New,
-        before: None,
-        after: Some(FunctionState {
-            metrics: MetricsReport {
-                cc: 1,
-                nd: 0,
-                fo: 0,
-                ns: 0,
-                loc: 10,
-                missing_docstring: false,
-            },
-            lrs: 1.0,
-            band: RiskBand::Low,
-        }),
-        delta: None,
-        band_transition: None,
-        suppression_reason: Some(String::new()), // Empty reason
-        rename_hint: None,
-    };
-
-    let delta = Delta {
-        commit: hotspots_core::delta::DeltaCommitInfo {
-            sha: "abc123".to_string(),
-            parent: "parent123".to_string(),
-        },
-        baseline: false,
-        deltas: vec![delta_entry],
-        policy: None,
-        aggregates: None,
-    };
-
-    let git_context = GitContext {
-        head_sha: "abc123".to_string(),
-        parent_shas: vec!["parent123".to_string()],
-        timestamp: 1705600000,
-        branch: Some("main".to_string()),
-        is_detached: false,
-        message: Some("test commit".to_string()),
-        author: Some("Test Author".to_string()),
-        is_fix_commit: Some(false),
-        is_revert_commit: Some(false),
-        ticket_ids: vec![],
-    };
-
-    let snapshot = Snapshot::new(git_context, vec![]);
-    let config = ResolvedConfig::defaults().unwrap();
-
-    let results = evaluate_policies(&delta, &snapshot, Path::new("."), &config)
-        .unwrap()
-        .unwrap();
-
-    // Should have one warning for missing reason
-    assert_eq!(results.warnings.len(), 1);
-    assert_eq!(results.warnings[0].id, PolicyId::SuppressionMissingReason);
-    assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-    assert!(results.warnings[0]
-        .message
-        .contains("suppressed without reason"));
-}
-
-#[test]
 fn test_suppressed_function_excluded_from_critical_introduction() {
     use hotspots_core::delta::FunctionState;
     use hotspots_core::report::MetricsReport;
@@ -235,25 +166,9 @@ fn test_suppressed_function_excluded_from_critical_introduction() {
         aggregates: None,
     };
 
-    let git_context = GitContext {
-        head_sha: "abc123".to_string(),
-        parent_shas: vec!["parent123".to_string()],
-        timestamp: 1705600000,
-        branch: Some("main".to_string()),
-        is_detached: false,
-        message: Some("test commit".to_string()),
-        author: Some("Test Author".to_string()),
-        is_fix_commit: Some(false),
-        is_revert_commit: Some(false),
-        ticket_ids: vec![],
-    };
-
-    let snapshot = Snapshot::new(git_context, vec![]);
     let config = ResolvedConfig::defaults().unwrap();
 
-    let results = evaluate_policies(&delta, &snapshot, Path::new("."), &config)
-        .unwrap()
-        .unwrap();
+    let results = evaluate_policies(&delta, &config).unwrap().unwrap();
 
     // Should have NO blocking failures because function is suppressed
     assert_eq!(results.failed.len(), 0);
@@ -299,25 +214,9 @@ fn test_unsuppressed_function_triggers_critical_introduction() {
         aggregates: None,
     };
 
-    let git_context = GitContext {
-        head_sha: "abc123".to_string(),
-        parent_shas: vec!["parent123".to_string()],
-        timestamp: 1705600000,
-        branch: Some("main".to_string()),
-        is_detached: false,
-        message: Some("test commit".to_string()),
-        author: Some("Test Author".to_string()),
-        is_fix_commit: Some(false),
-        is_revert_commit: Some(false),
-        ticket_ids: vec![],
-    };
-
-    let snapshot = Snapshot::new(git_context, vec![]);
     let config = ResolvedConfig::defaults().unwrap();
 
-    let results = evaluate_policies(&delta, &snapshot, Path::new("."), &config)
-        .unwrap()
-        .unwrap();
+    let results = evaluate_policies(&delta, &config).unwrap().unwrap();
 
     // Should have ONE blocking failure for critical introduction
     assert_eq!(results.failed.len(), 1);

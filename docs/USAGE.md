@@ -183,11 +183,7 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
   (see the doc comment on `REGRESSION_THRESHOLD` in `hotspots-core/src/policy.rs`).
 
 **Warnings (exit code 0, informational):**
-- `watch-threshold` — function entering watch range (default LRS 2.5–3.0)
-- `attention-threshold` — function entering attention range (default LRS 5.5–6.0)
 - `rapid-growth` — LRS increase > 50% on any function
-- `suppression-missing-reason` — `// hotspots-ignore:` with no reason text
-- `net-repo-regression` — total LRS increased across all changes (any positive delta)
 
 Configure thresholds in `.hotspotsrc.json`:
 ```json

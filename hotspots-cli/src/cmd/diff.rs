@@ -146,13 +146,8 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
 
     // Evaluate policy if requested
     if policy {
-        let policy_results = hotspots_core::policy::evaluate_policies(
-            &delta_val,
-            &head_snapshot,
-            &repo_root,
-            &resolved_config,
-        )
-        .context("failed to evaluate policies")?;
+        let policy_results = hotspots_core::policy::evaluate_policies(&delta_val, &resolved_config)
+            .context("failed to evaluate policies")?;
         if let Some(results) = policy_results {
             delta_val.policy = Some(results);
         }

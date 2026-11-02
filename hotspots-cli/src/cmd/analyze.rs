@@ -929,13 +929,8 @@ fn enrich_delta(
 
     let mut enriched = delta_val.clone();
     if policy {
-        let policy_results = hotspots_core::policy::evaluate_policies(
-            &delta_val,
-            snapshot,
-            repo_root,
-            resolved_config,
-        )
-        .context("failed to evaluate policies")?;
+        let policy_results = hotspots_core::policy::evaluate_policies(&delta_val, resolved_config)
+            .context("failed to evaluate policies")?;
         if let Some(results) = policy_results {
             enriched.policy = Some(results);
         }

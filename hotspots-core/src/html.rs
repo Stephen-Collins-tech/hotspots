@@ -3011,32 +3011,12 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
     }
 
     // Group warnings by policy ID
-    let watch_warnings: Vec<_> = policy
-        .warnings
-        .iter()
-        .filter(|w| w.id == PolicyId::WatchThreshold)
-        .collect();
-    let attention_warnings: Vec<_> = policy
-        .warnings
-        .iter()
-        .filter(|w| w.id == PolicyId::AttentionThreshold)
-        .collect();
     let rapid_growth_warnings: Vec<_> = policy
         .warnings
         .iter()
         .filter(|w| w.id == PolicyId::RapidGrowth)
         .collect();
 
-    if !watch_warnings.is_empty() {
-        sections.push(render_warning_group("Watch Level", &watch_warnings, delta));
-    }
-    if !attention_warnings.is_empty() {
-        sections.push(render_warning_group(
-            "Attention Level",
-            &attention_warnings,
-            delta,
-        ));
-    }
     if !rapid_growth_warnings.is_empty() {
         sections.push(render_warning_group(
             "Rapid Growth",

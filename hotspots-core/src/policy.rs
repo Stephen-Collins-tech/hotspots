@@ -11,12 +11,10 @@
 use crate::config::{PolicyMode, ResolvedConfig};
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionState, FunctionStatus};
 use crate::risk::RiskBand;
-use crate::snapshot::Snapshot;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::Path;
 
 /// Policy identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -24,12 +22,7 @@ use std::path::Path;
 pub enum PolicyId {
     CriticalIntroduction,
     ExcessiveRiskRegression,
-    NetRepoRegression,
-    // Warning policies
-    WatchThreshold,
-    AttentionThreshold,
     RapidGrowth,
-    SuppressionMissingReason,
 }
 
 impl PolicyId {
@@ -38,11 +31,7 @@ impl PolicyId {
         match self {
             PolicyId::CriticalIntroduction => "critical-introduction",
             PolicyId::ExcessiveRiskRegression => "excessive-risk-regression",
-            PolicyId::NetRepoRegression => "net-repo-regression",
-            PolicyId::WatchThreshold => "watch-threshold",
-            PolicyId::AttentionThreshold => "attention-threshold",
             PolicyId::RapidGrowth => "rapid-growth",
-            PolicyId::SuppressionMissingReason => "suppression-missing-reason",
         }
     }
 
@@ -51,11 +40,7 @@ impl PolicyId {
         match self {
             PolicyId::CriticalIntroduction => 0,
             PolicyId::ExcessiveRiskRegression => 1,
-            PolicyId::WatchThreshold => 2,
-            PolicyId::AttentionThreshold => 3,
             PolicyId::RapidGrowth => 4,
-            PolicyId::SuppressionMissingReason => 5,
-            PolicyId::NetRepoRegression => 6,
         }
     }
 }
@@ -165,12 +150,7 @@ fn active_deltas(deltas: &[FunctionDeltaEntry]) -> impl Iterator<Item = &Functio
 /// # Returns
 ///
 /// Policy results, or None if baseline delta (baseline deltas skip policy evaluation)
-pub fn evaluate_policies(
-    delta: &Delta,
-    current_snapshot: &Snapshot,
-    repo_root: &Path,
-    config: &ResolvedConfig,
-) -> Result<Option<PolicyResults>> {
+pub fn evaluate_policies(delta: &Delta, config: &ResolvedConfig) -> Result<Option<PolicyResults>> {
     // Skip policy evaluation for baseline deltas
     if delta.baseline {
         return Ok(None);
@@ -184,13 +164,7 @@ pub fn evaluate_policies(
     evaluate_excessive_risk_regression(&delta.deltas, config, &mut results);
 
     // 2. Warning function-level policies
-    evaluate_watch_threshold(&delta.deltas, config, &mut results);
-    evaluate_attention_threshold(&delta.deltas, config, &mut results);
     evaluate_rapid_growth(&delta.deltas, config, &mut results);
-    evaluate_suppression_missing_reason(&delta.deltas, &mut results);
-
-    // 3. Repo-level policies
-    evaluate_net_repo_regression(delta, current_snapshot, repo_root, &mut results)?;
 
     // Sort results deterministically
     results.sort();
@@ -351,127 +325,6 @@ fn evaluate_excessive_risk_regression(
     }
 }
 
-/// Evaluate Watch Threshold policy
-///
-/// Triggers when `after.lrs` is in [watch_min, watch_max) AND `before.lrs` < watch_min
-/// Only applies to New or Modified functions (functions entering the watch range)
-///
-/// `watch_min`/`watch_max` are an unvalidated heuristic — see
-/// `WarningThresholdConfig`'s doc comment.
-fn evaluate_watch_threshold(
-    deltas: &[FunctionDeltaEntry],
-    config: &ResolvedConfig,
-    results: &mut PolicyResults,
-) {
-    for entry in active_deltas(deltas) {
-        // Only check New or Modified functions
-        if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
-            continue;
-        }
-
-        // Get after LRS
-        let after_lrs = if let Some(after) = &entry.after {
-            after.lrs
-        } else {
-            continue;
-        };
-
-        // Check if after LRS is in watch range
-        let in_watch_range = after_lrs >= config.watch_min && after_lrs < config.watch_max;
-        if !in_watch_range {
-            continue;
-        }
-
-        // Check if before LRS was below watch_min (entering the range)
-        let entering_watch = if let Some(before) = &entry.before {
-            before.lrs < config.watch_min
-        } else {
-            // New functions with no before state are entering
-            true
-        };
-
-        if entering_watch {
-            let message = format!(
-                "Function {} approaching moderate threshold (LRS: {:.2})",
-                entry.function_id, after_lrs
-            );
-
-            results.warnings.push(PolicyResult {
-                id: PolicyId::WatchThreshold,
-                severity: PolicySeverity::Warning,
-                function_id: Some(entry.function_id.clone()),
-                message,
-                metadata: entry.delta.as_ref().map(|d| PolicyMetadata {
-                    delta_lrs: Some(d.lrs),
-                    total_delta: None,
-                    growth_percent: None,
-                }),
-            });
-        }
-    }
-}
-
-/// Evaluate Attention Threshold policy
-///
-/// Triggers when `after.lrs` is in [attention_min, attention_max) AND `before.lrs` < attention_min
-/// Only applies to New or Modified functions (functions entering the attention range)
-///
-/// `attention_min`/`attention_max` are an unvalidated heuristic — see
-/// `WarningThresholdConfig`'s doc comment.
-fn evaluate_attention_threshold(
-    deltas: &[FunctionDeltaEntry],
-    config: &ResolvedConfig,
-    results: &mut PolicyResults,
-) {
-    for entry in active_deltas(deltas) {
-        // Only check New or Modified functions
-        if entry.status != FunctionStatus::New && entry.status != FunctionStatus::Modified {
-            continue;
-        }
-
-        // Get after LRS
-        let after_lrs = if let Some(after) = &entry.after {
-            after.lrs
-        } else {
-            continue;
-        };
-
-        // Check if after LRS is in attention range
-        let in_attention_range =
-            after_lrs >= config.attention_min && after_lrs < config.attention_max;
-        if !in_attention_range {
-            continue;
-        }
-
-        // Check if before LRS was below attention_min (entering the range)
-        let entering_attention = if let Some(before) = &entry.before {
-            before.lrs < config.attention_min
-        } else {
-            // New functions with no before state are entering
-            true
-        };
-
-        if entering_attention {
-            let message = format!(
-                "Function {} approaching high threshold (LRS: {:.2})",
-                entry.function_id, after_lrs
-            );
-
-            results.warnings.push(PolicyResult {
-                id: PolicyId::AttentionThreshold,
-                severity: PolicySeverity::Warning,
-                function_id: Some(entry.function_id.clone()),
-                message,
-                metadata: entry.delta.as_ref().map(|d| PolicyMetadata {
-                    delta_lrs: Some(d.lrs),
-                    total_delta: None,
-                    growth_percent: None,
-                }),
-            });
-        }
-    }
-}
-
 /// Evaluate Rapid Growth policy
 ///
 /// Triggers when `delta.lrs / before.lrs >= rapid_growth_percent / 100.0`
@@ -527,86 +380,11 @@ fn evaluate_rapid_growth(
     }
 }
 
-/// Evaluate Suppression Missing Reason policy
-///
-/// Triggers when `suppression_reason == Some("")` (suppression without reason)
-/// Warning only - reminds developers to document why functions are suppressed
-fn evaluate_suppression_missing_reason(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
-    for entry in deltas {
-        // Check if function has suppression without reason
-        if let Some(reason) = &entry.suppression_reason {
-            if reason.is_empty() {
-                let message = format!("Function {} suppressed without reason", entry.function_id);
-
-                results.warnings.push(PolicyResult {
-                    id: PolicyId::SuppressionMissingReason,
-                    severity: PolicySeverity::Warning,
-                    function_id: Some(entry.function_id.clone()),
-                    message,
-                    metadata: None,
-                });
-            }
-        }
-    }
-}
-
-/// Evaluate Net Repo Regression policy
-///
-/// Computes `Σ(all after.lrs) - Σ(all before.lrs)` by loading parent snapshot and using current snapshot
-/// Triggers when result > 0 (warning only, non-blocking)
-fn evaluate_net_repo_regression(
-    delta: &Delta,
-    current_snapshot: &Snapshot,
-    repo_root: &Path,
-    results: &mut PolicyResults,
-) -> Result<()> {
-    // Load parent snapshot (before)
-    let parent_sha = &delta.commit.parent;
-    let before_snapshot = if !parent_sha.is_empty() {
-        crate::delta::load_parent_snapshot(repo_root, parent_sha)?
-    } else {
-        None
-    };
-
-    // Compute totals
-    let before_total: f64 = if let Some(snapshot) = &before_snapshot {
-        snapshot.functions.iter().map(|f| f.lrs).sum()
-    } else {
-        0.0
-    };
-
-    // Use current snapshot directly (after)
-    let after_total: f64 = current_snapshot.functions.iter().map(|f| f.lrs).sum();
-
-    let total_delta = after_total - before_total;
-
-    // Trigger if repo total increased
-    if total_delta > 0.0 {
-        let message = format!("Repository total LRS increased by {:.2}", total_delta);
-
-        results.warnings.push(PolicyResult {
-            id: PolicyId::NetRepoRegression,
-            severity: PolicySeverity::Warning,
-            function_id: None,
-            message,
-            metadata: Some(PolicyMetadata {
-                delta_lrs: None,
-                total_delta: Some(total_delta),
-                growth_percent: None,
-            }),
-        });
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::delta::{Delta, DeltaCommitInfo, FunctionDelta, FunctionDeltaEntry, FunctionState};
-    use crate::git::GitContext;
     use crate::report::MetricsReport;
-    use tempfile::TempDir;
 
     fn create_test_delta_entry(
         function_id: &str,
@@ -1075,26 +853,8 @@ mod tests {
             aggregates: None,
         };
 
-        let temp_dir = TempDir::new().unwrap();
-        let repo_root = temp_dir.path();
-
-        // Create a dummy snapshot for testing
-        let git_context = GitContext {
-            head_sha: "abc123".to_string(),
-            parent_shas: vec![],
-            timestamp: 1705600000,
-            branch: Some("main".to_string()),
-            is_detached: false,
-            message: Some("test commit".to_string()),
-            author: Some("Test Author".to_string()),
-            is_fix_commit: Some(false),
-            is_revert_commit: Some(false),
-            ticket_ids: vec![],
-        };
-        let snapshot = Snapshot::new(git_context, vec![]);
-
         let config = ResolvedConfig::defaults().unwrap();
-        let result = evaluate_policies(&delta, &snapshot, repo_root, &config).unwrap();
+        let result = evaluate_policies(&delta, &config).unwrap();
         assert!(result.is_none());
     }
 
@@ -1168,122 +928,6 @@ mod tests {
             suppression_reason: None,
             rename_hint: None,
         }
-    }
-
-    #[test]
-    fn test_watch_threshold_new_function() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // New function with LRS in watch range [2.5, 3.0)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::New,
-            None,
-            Some(2.7),
-        )];
-
-        evaluate_watch_threshold(&deltas, &config, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::WatchThreshold);
-        assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-    }
-
-    #[test]
-    fn test_watch_threshold_modified_entering_range() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // Modified function entering watch range (2.0 -> 2.8)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.0),
-            Some(2.8),
-        )];
-
-        evaluate_watch_threshold(&deltas, &config, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::WatchThreshold);
-    }
-
-    #[test]
-    fn test_watch_threshold_already_in_range() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // Function already in watch range (2.6 -> 2.9)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.6),
-            Some(2.9),
-        )];
-
-        evaluate_watch_threshold(&deltas, &config, &mut results);
-
-        // Should not trigger - already in range
-        assert_eq!(results.warnings.len(), 0);
-    }
-
-    #[test]
-    fn test_watch_threshold_above_range() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // Function above watch range
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.0),
-            Some(4.0),
-        )];
-
-        evaluate_watch_threshold(&deltas, &config, &mut results);
-
-        // Should not trigger - above watch_max
-        assert_eq!(results.warnings.len(), 0);
-    }
-
-    #[test]
-    fn test_attention_threshold_new_function() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // New function with LRS in attention range [5.5, 6.0)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::New,
-            None,
-            Some(5.8),
-        )];
-
-        evaluate_attention_threshold(&deltas, &config, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::AttentionThreshold);
-        assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-    }
-
-    #[test]
-    fn test_attention_threshold_modified_entering_range() {
-        let mut results = PolicyResults::new();
-        let config = ResolvedConfig::defaults().unwrap();
-
-        // Modified function entering attention range (5.0 -> 5.7)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(5.0),
-            Some(5.7),
-        )];
-
-        evaluate_attention_threshold(&deltas, &config, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::AttentionThreshold);
     }
 
     #[test]
