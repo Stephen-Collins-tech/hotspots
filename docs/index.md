@@ -24,6 +24,7 @@ and touch frequency to separate active risk from dormant debt.
 | | |
 |---|---|
 | [Quick Start](/quickstart) | Install the binary and run your first analysis. |
+| [Commands](/COMMANDS) | Each command explained: why it exists, when to use it, how to read the output. |
 | [Usage & Workflows](/USAGE) | Snapshot mode, delta mode, the policy engine, `hotspots coordinate`. |
 | [CLI & Config Reference](/REFERENCE) | Every command, every flag, every config field. |
 | [Architecture](/ARCHITECTURE) | How the analysis pipeline actually works, end to end. |

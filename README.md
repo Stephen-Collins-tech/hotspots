@@ -182,6 +182,7 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 
 ## Documentation
 
+- [docs/COMMANDS.md](docs/COMMANDS.md) — every command: why it exists, when to use it, how to read its output
 - [docs/USAGE.md](docs/USAGE.md) — workflows, CI setup, output formats, policy engine, suppression, training, snapshot management
 - [docs/REFERENCE.md](docs/REFERENCE.md) — complete CLI reference, all flags, config options, JSON schema, metrics formula
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, analysis pipeline, invariants, design decisions
