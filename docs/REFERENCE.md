@@ -338,6 +338,12 @@ configurable. The range is roughly 0 to 4; a missing signal contributes 0, so wi
 git data Activity Risk is just `LRS / 20.2`. `risk_factors` in the JSON output breaks the
 score into `{complexity, churn, touch, recency}`.
 
+**What is and isn't validated.** Our evaluation found that git activity (how often and how
+recently a file changes) carries most of the signal, and that call-graph and dependency-depth
+terms add none, which is why only activity terms remain. The fixed scales (20.2, 14, 50, 35)
+and the equal weighting of the four terms are design choices that keep the score bounded and
+comparable across repos; they have not been tested head-to-head against alternatives.
+
 **How to read it, and why you can't "fix" it.** Activity Risk estimates where attention is
 likely to be needed next, not how good the code is. It is built from how recently and how
 often a file has changed, so working on a file raises it for every function in that file
