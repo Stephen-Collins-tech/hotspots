@@ -24,11 +24,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
-| `--touch-mode` | `auto` | `auto`, `per-function`, `file`, `hybrid[:N]` (default N=5), or `none` — see below |
-| `--per-function-touches` | off | **Deprecated**, use `--touch-mode per-function`. Use `git log -L` for precise touch counts (slow cold start) |
-| `--no-per-function-touches` | off | **Deprecated**, use `--touch-mode file`. Force file-level touch batching |
-| `--skip-touch-metrics` | off | **Deprecated**, use `--touch-mode none`. Skip all git log I/O (touch counts reported as 0) |
-| `--hybrid-touches N` | — | **Deprecated**, use `--touch-mode hybrid:N`. File-level first, per-function for files with touch_count_30d >= N |
+| `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
 | `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
 | `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
 | `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
@@ -44,21 +40,6 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
-- `--touch-mode` conflicts with each of the four deprecated flags above; the deprecated flags still work on their own (each prints a one-line warning to stderr) and remain mutually compatible with each other, resolved with the same precedence as before
-#### `--touch-mode`
-
-Controls how touch metrics (git churn/recency) are computed:
-
-| Value | Behavior |
-|---|---|
-| `auto` (default) | Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`, falling back to `hybrid:5` |
-| `per-function` | `git log -L` per function — accurate, but O(functions) cold-start git calls, cached in `.hotspots/touch-cache.json.zst` |
-| `file` | File-level batching — fast, one `git log` call per unique file |
-| `hybrid` / `hybrid:N` | File-level first; per-function only for files with `touch_count_30d >= N` (N defaults to 5) |
-| `none` | Skip touch metrics, directed coupling, and burst_score entirely — no git log calls at all |
-
-`--per-function-touches`, `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches` are deprecated aliases for `per-function`, `file`, `none`, and `hybrid:N` respectively. They still work but print a deprecation warning; use `--touch-mode` in new scripts and CI configs.
-
 ### `hotspots diff <base> <head>`
 
 Compare snapshots between any two git refs. Both must have existing snapshots.
@@ -188,20 +169,6 @@ The 0.55 and 0.60 constants themselves are unchanged; the dead zone only shrinks
   "cold_start_gini_dead_zone": 0.03
 }
 ```
-
-### `hotspots estimate <path>`
-
-Projects `analyze --touch-mode per-function`'s wall-clock cost before running it, so callers can pick a touch mode instead of guessing from repo size (`size_kb` is a weak proxy — see the runtime-prediction spike this command is based on).
-
-```
-hotspots estimate <PATH> [--format text|json] [--config PATH] [--budget-seconds N] [--tier1-timeout-seconds N]
-```
-
-Two tiers:
-- **Tier 0** (near-instant, no parsing): file discovery + a raw line count per file, always completes fast.
-- **Tier 1** (the real `--touch-mode none` structural pass — parsing, CFG, call graph, but zero git-log calls): gives the real per-language function count. Runs on a background thread with a `--tier1-timeout-seconds` budget (default 30s) so Tier 0's report is never blocked by a repo where even Tier 1 is slow.
-
-Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (directional, not a fitted regression). `--budget-seconds` compares the projection against a caller-supplied wall-clock budget and recommends `per-function`, `hybrid`, or `file`.
 
 ### `hotspots coordinate [PATH]`
 
@@ -593,7 +560,6 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
   "co_change_window_days": 90,
   "co_change_min_count": 3,
   "driver_threshold_percentile": 75,
-  "per_function_touches": true,
   "policy": {
     "critical_introduction": "warn",
     "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @stephenc222 2026-07-06",
@@ -645,8 +611,6 @@ workflow file can remove a required check — but it does mean the change can't 
 **`driver_threshold_percentile`:** default 75 means a function must be in the top 25% of its metric to receive a specific driver label. Lower (50–60) for small/uniform repos; higher (85–90) for large repos with high median complexity.
 
 **`co_change_window_days`:** days of git history to mine for file co-change pairs. Increase for repos with slow commit cadence.
-
-**`per_function_touches`:** `true` = use cached `git log -L` per-function counts; `false` = file-level batching always (useful in CI without persistent cache).
 
 ---
 

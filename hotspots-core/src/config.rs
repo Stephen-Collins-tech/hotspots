@@ -151,18 +151,6 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
 
-    /// Use per-function git log -L for touch metrics (default: false).
-    /// Warm runs use the on-disk cache and are as fast as file-level.
-    /// Set to true for full precision; the default is hybrid touch mode (see hybrid_touch_threshold).
-    #[serde(default)]
-    pub per_function_touches: Option<bool>,
-
-    /// Enable hybrid touch mode: file-level for all functions, then per-function
-    /// only for functions in files with touch_count >= this threshold.
-    /// Overrides per_function_touches when set. Recommended: 3–10.
-    #[serde(default)]
-    pub hybrid_touch_threshold: Option<usize>,
-
     /// Percentile threshold for driving dimension detection (1–99, default: 75).
     /// A function must exceed this percentile in a metric to trigger that driver label.
     /// Lower values = more functions get specific labels; higher = only extreme outliers.
@@ -223,8 +211,6 @@ impl Default for HotspotsConfig {
             touch_window_days: None,
             change_size_thresholds: None,
             co_change_min_count: None,
-            per_function_touches: None,
-            hybrid_touch_threshold: None,
             driver_threshold_percentile: None,
             betweenness_exact_threshold: None,
             betweenness_approx_k: None,
@@ -440,10 +426,6 @@ pub struct ResolvedConfig {
     /// `hotspots diff` size-band cutoffs (display only, not research-derived; see
     /// `HotspotsConfig::change_size_thresholds`)
     pub change_size_thresholds: crate::aggregates::ChangeSizeThresholds,
-    /// Whether to use per-function git log -L for touch metrics
-    pub per_function_touches: bool,
-    /// Hybrid touch threshold: Some(n) = file-level first, per-function for files with ≥n touches
-    pub hybrid_touch_threshold: Option<usize>,
     /// Percentile threshold for driving dimension detection (1–99)
     pub driver_threshold_percentile: u8,
     /// Node count above which betweenness switches to approximate algorithm
@@ -955,8 +937,6 @@ impl HotspotsConfig {
                 }
             },
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
-            per_function_touches: self.per_function_touches.unwrap_or(false),
-            hybrid_touch_threshold: self.hybrid_touch_threshold,
             driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),

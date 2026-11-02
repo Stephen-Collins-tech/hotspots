@@ -80,7 +80,7 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 ### Phase 5 — Enrichment (snapshot mode)
 
-**Git history:** `git log` provides per-file or per-function (with `-L`) churn and touch counts. Results cached in `.hotspots/touch-cache.json.zst`. Hybrid mode: file-level for all functions, per-function for files with ≥ N touches in the touch window (365 days by default — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Git history:** one batched `git log` per file provides churn and touch counts, applied to every function in the file. Touch counts use a 365-day window (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
 **Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
@@ -142,7 +142,6 @@ hotspots-cli/src/
     ├── trends.rs
     ├── prune.rs
     ├── compact.rs
-    ├── estimate.rs     # projects per-function touch-mode cost before running it
     ├── upgrade.rs       # checks for a newer hotspots release
     ├── config.rs
     └── init.rs

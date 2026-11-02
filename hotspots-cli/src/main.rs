@@ -12,10 +12,7 @@ mod util;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use cmd::{
-    analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs,
-    telemetry::TelemetryAction,
-};
+use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, telemetry::TelemetryAction};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -81,32 +78,9 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Touch metrics mode: `auto` (default — config or hybrid:5), `per-function`
-        /// (accurate, O(functions) git calls, cached in .hotspots/touch-cache.json.zst),
-        /// `file` (fast file-level batching), `hybrid[:N]` (file-level first,
-        /// per-function only for files with touch_count >= N, default N=5), or
-        /// `none` (skip touch metrics, directed coupling, and burst_score entirely —
-        /// no git log calls; for benchmarking pure analysis + call graph performance).
-        #[arg(long, value_parser = cmd::analyze::parse_touch_mode_arg, conflicts_with_all = ["per_function_touches", "no_per_function_touches", "skip_touch_metrics", "hybrid_touches"])]
-        touch_mode: Option<cmd::analyze::TouchModeArg>,
-
-        /// Deprecated: use `--touch-mode per-function`. Use per-function git log -L
-        /// for touch metrics (more accurate than file-level batching). Results are
-        /// cached in .hotspots/touch-cache.json.zst — the first run on a new commit
-        /// is slow (~9 ms per uncached function); subsequent runs are fast. A warning
-        /// is printed when 50+ functions need to be fetched.
-        #[arg(long, conflicts_with = "touch_mode")]
-        per_function_touches: bool,
-
-        /// Deprecated: use `--touch-mode file`. Disable per-function touch metrics,
-        /// use file-level batching instead. Overrides config and --per-function-touches.
-        #[arg(long, conflicts_with = "touch_mode")]
-        no_per_function_touches: bool,
-
-        /// Deprecated: use `--touch-mode none`. Skip all touch metrics entirely (no
-        /// git log calls for churn/recency), skip directed coupling (also a git log
-        /// walk), and skip burst_score (also a full-history git log walk).
-        #[arg(long, conflicts_with = "touch_mode")]
+        /// Skip all touch metrics (no git log calls for churn/recency), directed
+        /// coupling, and burst_score. For benchmarking pure analysis performance.
+        #[arg(long)]
         skip_touch_metrics: bool,
 
         /// Output all functions as a flat array (only valid with --mode snapshot --format json).
@@ -142,11 +116,6 @@ enum Commands {
         /// the activity ranker may be producing misleading rankings).
         #[arg(long)]
         skip_gate: bool,
-
-        /// Deprecated: use `--touch-mode hybrid:N`. Hybrid touch mode: run file-level
-        /// touch first, then per-function only for files with touch_count >= N.
-        #[arg(long, value_name = "N", conflicts_with = "touch_mode")]
-        hybrid_touches: Option<usize>,
 
         /// Rank using a Gini-gated cold-start strategy (formula / IsolationForest
         /// anomaly / uniform prior) instead of a trained ranker. For repos with no
@@ -344,27 +313,6 @@ enum Commands {
         #[command(subcommand)]
         action: TelemetryAction,
     },
-    /// Project `analyze --touch-mode per-function`'s wall-clock cost before running it
-    Estimate {
-        /// Path to source file or directory
-        path: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "text")]
-        format: OutputFormat,
-
-        /// Path to config file (default: auto-discover)
-        #[arg(long)]
-        config: Option<PathBuf>,
-
-        /// If given, recommend a touch mode against this wall-clock budget (seconds)
-        #[arg(long, value_name = "SECONDS")]
-        budget_seconds: Option<u64>,
-
-        /// How long to let the Tier 1 structural pass run before giving up on it
-        #[arg(long, value_name = "SECONDS", default_value = "30")]
-        tier1_timeout_seconds: u64,
-    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -411,8 +359,6 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            per_function_touches,
-            no_per_function_touches,
             skip_touch_metrics,
             all_functions,
             include_models,
@@ -420,8 +366,6 @@ fn main() -> anyhow::Result<()> {
             source_url,
             jobs,
             callgraph_skip_above,
-            hybrid_touches,
-            touch_mode,
             skip_gate,
             cold_start,
             axes,
@@ -440,8 +384,6 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            per_function_touches,
-            no_per_function_touches,
             skip_touch_metrics,
             all_functions,
             include_models,
@@ -449,8 +391,6 @@ fn main() -> anyhow::Result<()> {
             source_url,
             jobs,
             callgraph_skip_above,
-            hybrid_touches,
-            touch_mode,
             skip_gate,
             cold_start,
             axes,
@@ -539,19 +479,6 @@ fn main() -> anyhow::Result<()> {
         }
         Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
         Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
-        Commands::Estimate {
-            path,
-            format,
-            config,
-            budget_seconds,
-            tier1_timeout_seconds,
-        } => cmd::estimate::handle_estimate(EstimateArgs {
-            path,
-            format,
-            config_path: config,
-            budget_seconds,
-            tier1_timeout_seconds,
-        })?,
     }
 
     if command_name != "telemetry" {
@@ -574,7 +501,6 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Coordinate { .. } => "coordinate",
         Commands::Upgrade => "upgrade",
         Commands::Telemetry { .. } => "telemetry",
-        Commands::Estimate { .. } => "estimate",
     }
 }
 

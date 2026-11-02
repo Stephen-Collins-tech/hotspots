@@ -14,29 +14,12 @@ use crate::language::Language;
 use crate::report::{FunctionRiskReport, MetricsReport};
 use crate::risk::RiskBand;
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use crate::report::RiskReport;
-
-/// Controls how touch metrics (git churn/recency) are populated.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TouchMode {
-    /// File-level batching: one git call per unique file, result applied to all
-    /// functions in that file. Fast (O(files) git calls), but imprecise when a
-    /// file contains functions with very different churn histories.
-    File,
-    /// Per-function `git log -L`: one subprocess per function. Accurate, but
-    /// O(functions) cold-start cost (~9 ms each) which OOM-kills on large repos.
-    PerFunction,
-    /// File-level first; per-function only for functions in files whose
-    /// touch_count meets or exceeds `threshold`. Bounds subprocess count to
-    /// the functions that actually benefit from precision.
-    Hybrid { threshold: usize },
-}
 
 /// Schema version for snapshots.
 /// v1: LRS + basic metrics only
@@ -856,129 +839,6 @@ impl Snapshot {
         }
     }
 
-    fn populate_per_function_touch_metrics(
-        &mut self,
-        repo_root: &std::path::Path,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-    ) -> anyhow::Result<()> {
-        let all: Vec<usize> = (0..self.functions.len()).collect();
-        self.populate_per_function_touch_for_indices(repo_root, &all, progress_fn)
-    }
-
-    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
-    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
-    // functions whose line ranges have not changed since the last run (warm path).
-    //
-    // Chunked implementation to bound peak memory: `indices` are processed CHUNK_SIZE at a
-    // time. Each chunk goes through three phases before moving to the next:
-    //   Phase A (serial):   check cache, apply hits, collect misses (≤ CHUNK_SIZE entries).
-    //   Phase B (parallel): run git subprocesses for this chunk's misses via rayon.
-    //   Phase C (serial):   apply results, update cache.
-    // This keeps the live miss buffer O(CHUNK_SIZE) regardless of how many indices are passed.
-    fn populate_per_function_touch_for_indices(
-        &mut self,
-        repo_root: &std::path::Path,
-        indices: &[usize],
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-    ) -> anyhow::Result<()> {
-        let sha = self.commit.sha.clone();
-        let timestamp = self.commit.timestamp;
-        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
-        let total = indices.len();
-
-        // Emit a cold-start warning if the cache holds no entries for the current SHA.
-        const COLD_CACHE_WARN_THRESHOLD: usize = 50;
-        let cache_warm = cache.keys().any(|k| k.starts_with(&sha));
-        if !cache_warm && total >= COLD_CACHE_WARN_THRESHOLD {
-            let threads = rayon::current_num_threads().max(1);
-            let est_secs = (total * 9).div_ceil(1000 * threads);
-            eprintln!("touch cache: cold start for {total} functions (~{est_secs}s; fast on subsequent runs)");
-        }
-
-        // CHUNK_SIZE bounds the miss buffer: at most this many (key, rel, lines) strings
-        // live in memory at once, regardless of total index count.
-        const CHUNK_SIZE: usize = 512;
-        let mut completed = 0usize;
-
-        for chunk in indices.chunks(CHUNK_SIZE) {
-            // Phase A: check cache for this chunk; collect misses.
-            // Each miss: (function_index, cache_key, rel_path, start_line, end_line)
-            let mut chunk_misses: Vec<(usize, String, String, u32, u32)> = Vec::new();
-            for &i in chunk {
-                let function = &self.functions[i];
-                let rel =
-                    if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
-                        r.to_string_lossy().replace('\\', "/")
-                    } else {
-                        function.file.replace('\\', "/")
-                    };
-                let start_line = function.line;
-                let end_line =
-                    (start_line + function.metrics.loc.saturating_sub(1)).max(start_line);
-                let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
-                if let Some(&(count, days)) = cache.get(&key) {
-                    self.functions[i].touch_count = Some(count);
-                    self.functions[i].days_since_last_change = days;
-                    completed += 1;
-                } else {
-                    chunk_misses.push((i, key, rel, start_line, end_line));
-                }
-            }
-            if let Some(f) = progress_fn {
-                f(completed, total);
-            }
-            if chunk_misses.is_empty() {
-                continue;
-            }
-
-            // Phase B: run git subprocesses in parallel for this chunk's misses only.
-            let results: Vec<(usize, String, (usize, Option<u32>))> = chunk_misses
-                .par_iter()
-                .map(|(idx, key, rel, start_line, end_line)| {
-                    let value = match crate::git::function_touch_metrics_at(
-                        repo_root,
-                        rel,
-                        *start_line,
-                        *end_line,
-                        timestamp,
-                    ) {
-                        Ok((count, days)) => (count, days),
-                        Err(_) => (0usize, None),
-                    };
-                    (*idx, key.clone(), value)
-                })
-                .collect();
-
-            // Phase C: apply this chunk's results and update the cache.
-            for (idx, key, (count, days)) in results {
-                self.functions[idx].touch_count = Some(count);
-                self.functions[idx].days_since_last_change = days;
-                cache.insert(key, (count, days));
-                completed += 1;
-                if let Some(f) = progress_fn {
-                    f(completed, total);
-                }
-            }
-        }
-
-        // Evict stale entries (most-recent SHAs first) then write.
-        let known_shas: Vec<String> = {
-            let mut commits = Index::load_or_new(&index_path(repo_root))
-                .map(|idx| idx.commits)
-                .unwrap_or_default();
-            commits.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
-            let mut shas = vec![sha.clone()];
-            shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
-            shas
-        };
-        crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
-        if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
-            eprintln!("warning: failed to write touch cache: {e}");
-        }
-
-        Ok(())
-    }
-
     /// File-level touch metrics: one batched git call + per-file fallback
     fn populate_file_level_touch_metrics(
         &mut self,
@@ -1061,50 +921,9 @@ impl Snapshot {
     pub fn populate_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
-        mode: TouchMode,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
         window_days: u32,
     ) -> anyhow::Result<()> {
-        match mode {
-            TouchMode::File => self.populate_file_level_touch_metrics(repo_root, window_days),
-            TouchMode::PerFunction => {
-                self.populate_per_function_touch_metrics(repo_root, progress_fn)
-            }
-            TouchMode::Hybrid { threshold } => {
-                self.populate_hybrid_touch_metrics(repo_root, threshold, progress_fn, window_days)
-            }
-        }
-    }
-
-    /// Hybrid touch: file-level first (cheap), then per-function only for
-    /// functions in files whose touch_count >= threshold.
-    fn populate_hybrid_touch_metrics(
-        &mut self,
-        repo_root: &std::path::Path,
-        threshold: usize,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-        window_days: u32,
-    ) -> anyhow::Result<()> {
-        self.populate_file_level_touch_metrics(repo_root, window_days)?;
-
-        let hot_indices: Vec<usize> = self
-            .functions
-            .iter()
-            .enumerate()
-            .filter_map(|(i, f)| {
-                if f.touch_count.unwrap_or(0) >= threshold {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if hot_indices.is_empty() {
-            return Ok(());
-        }
-
-        self.populate_per_function_touch_for_indices(repo_root, &hot_indices, progress_fn)
+        self.populate_file_level_touch_metrics(repo_root, window_days)
     }
 
     /// Replace branch-inflated recency values with pre-branch last-change dates.
@@ -1904,19 +1723,8 @@ impl SnapshotEnricher {
 
     /// Populate touch count and recency metrics from git.
     /// On error, emits a warning to stderr and continues.
-    pub fn with_touch_metrics(
-        mut self,
-        repo_root: &Path,
-        mode: TouchMode,
-        progress_fn: Option<Box<dyn Fn(usize, usize)>>,
-        window_days: u32,
-    ) -> Self {
-        if let Err(e) = self.snapshot.populate_touch_metrics(
-            repo_root,
-            mode,
-            progress_fn.as_deref(),
-            window_days,
-        ) {
+    pub fn with_touch_metrics(mut self, repo_root: &Path, window_days: u32) -> Self {
+        if let Err(e) = self.snapshot.populate_touch_metrics(repo_root, window_days) {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
         self
@@ -2634,99 +2442,4 @@ mod tests {
 
     // Cache key for the test snapshot's single function:
     //   sha="abc123", file="src/foo.ts", line=42, loc=10 → end=51
-    fn test_cache_key() -> String {
-        crate::touch_cache::cache_key("abc123", "src/foo.ts", 42, 51)
-    }
-
-    #[test]
-    fn test_populate_touch_metrics_applies_cache_hits() {
-        let snapshot = create_test_snapshot();
-        let mut cache = crate::touch_cache::TouchCache::new();
-        cache.insert(test_cache_key(), (7, Some(3)));
-
-        let dir = tempfile::tempdir().unwrap();
-        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
-
-        let mut snapshot = snapshot;
-        snapshot
-            .populate_touch_metrics(
-                dir.path(),
-                crate::snapshot::TouchMode::PerFunction,
-                None,
-                crate::git::TOUCH_WINDOW_DAYS as u32,
-            )
-            .unwrap();
-
-        assert_eq!(snapshot.functions[0].touch_count, Some(7));
-        assert_eq!(snapshot.functions[0].days_since_last_change, Some(3));
-    }
-
-    #[test]
-    fn test_populate_touch_metrics_progress_fires_on_all_cache_hits() {
-        use std::sync::{Arc, Mutex};
-
-        let snapshot = create_test_snapshot();
-        let mut cache = crate::touch_cache::TouchCache::new();
-        cache.insert(test_cache_key(), (3, Some(1)));
-
-        let dir = tempfile::tempdir().unwrap();
-        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
-
-        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
-        let calls_ref = calls.clone();
-
-        let mut snapshot = snapshot;
-        snapshot
-            .populate_touch_metrics(
-                dir.path(),
-                crate::snapshot::TouchMode::PerFunction,
-                Some(&|i, n| {
-                    calls_ref.lock().unwrap().push((i, n));
-                }),
-                crate::git::TOUCH_WINDOW_DAYS as u32,
-            )
-            .unwrap();
-
-        let calls = calls.lock().unwrap();
-        // Phase 1 fires once; misses=0 so we return early with (total, total)
-        assert!(!calls.is_empty(), "progress should have been called");
-        assert_eq!(*calls.last().unwrap(), (1, 1));
-    }
-
-    #[test]
-    fn test_populate_touch_metrics_progress_fires_per_miss() {
-        // When there are cache misses, progress_fn should be called once per
-        // resolved miss in the phase-3 drain loop, not just at the end.
-        use std::sync::{Arc, Mutex};
-
-        let snapshot = create_test_snapshot();
-        // Empty cache → 1 function = 1 miss
-        let dir = tempfile::tempdir().unwrap();
-
-        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
-        let calls_ref = calls.clone();
-
-        let mut snapshot = snapshot;
-        // populate_touch_metrics will shell out to git for the miss; in a temp
-        // dir with no git repo it will return (0, None) via the error path.
-        let _ = snapshot.populate_touch_metrics(
-            dir.path(),
-            crate::snapshot::TouchMode::PerFunction,
-            Some(&|i, n| {
-                calls_ref.lock().unwrap().push((i, n));
-            }),
-            crate::git::TOUCH_WINDOW_DAYS as u32,
-        );
-
-        let calls = calls.lock().unwrap();
-        // Phase 1: (0, 1) — 0 hits out of 1 total
-        // Phase 3: (1, 1) — 1 resolved miss
-        assert!(
-            calls.len() >= 2,
-            "expected at least 2 progress calls, got {}",
-            calls.len()
-        );
-        assert_eq!(calls[0], (0, 1));
-        assert_eq!(*calls.last().unwrap(), (1, 1));
-    }
 }

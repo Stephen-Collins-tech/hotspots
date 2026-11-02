@@ -5,7 +5,6 @@ use anyhow::Context;
 use hotspots_core::delta::Delta;
 use hotspots_core::gate::{check_gate_smoothed, GateConfig, GateVerdict};
 use hotspots_core::snapshot::{self, Snapshot};
-use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
 use hotspots_core::{delta, git};
 use std::io::IsTerminal;
@@ -24,7 +23,6 @@ pub(crate) struct AnalyzeArgs {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub per_function_touches: bool,
     pub all_functions: bool,
     pub include_models: bool,
     pub explain_patterns: bool,
@@ -34,15 +32,8 @@ pub(crate) struct AnalyzeArgs {
     pub jobs: Option<usize>,
     /// CLI override for callgraph_skip_above; None = use resolved config value.
     pub callgraph_skip_above: Option<usize>,
-    /// When true, force-disable per-function touches regardless of config.
-    pub no_per_function_touches: bool,
     /// When true, skip all touch metrics (no git log calls at all).
     pub skip_touch_metrics: bool,
-    /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
-    pub hybrid_touches: Option<usize>,
-    /// `--touch-mode`: supersedes per_function_touches/no_per_function_touches/
-    /// skip_touch_metrics/hybrid_touches (kept as deprecated aliases).
-    pub touch_mode: Option<TouchModeArg>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
     /// Rank via Gini-gated cold-start routing instead of a trained ranker.
@@ -63,7 +54,6 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_mode_bypass_flags(args)?;
     validate_policy_flag(args)?;
     validate_explain_flag(args)?;
-    validate_per_function_touches_flag(args)?;
     validate_no_persist_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
@@ -100,15 +90,6 @@ fn validate_policy_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
 fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if args.explain && args.mode.is_some() && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--explain is not compatible with --mode delta or --mode models");
-    }
-    Ok(())
-}
-
-fn validate_per_function_touches_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.per_function_touches && args.mode.is_none() {
-        anyhow::bail!(
-            "--per-function-touches is only valid with --mode snapshot, --mode delta, or --mode models"
-        );
     }
     Ok(())
 }
@@ -185,264 +166,6 @@ fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod validate_analyze_flags_tests {
-    use super::*;
-
-    /// All-permissive baseline: no mode, text format, every bool false, every
-    /// optional field unset. Individual tests override just the field(s) under test.
-    fn base_args() -> AnalyzeArgs {
-        AnalyzeArgs {
-            path: PathBuf::new(),
-            format: OutputFormat::Text,
-            mode: None,
-            policy: false,
-            top: None,
-            min_lrs: None,
-            config_path: None,
-            output: None,
-            explain: false,
-            force: false,
-            no_persist: false,
-            level: None,
-            per_function_touches: false,
-            all_functions: false,
-            include_models: false,
-            explain_patterns: false,
-            source_url: None,
-            jobs: None,
-            callgraph_skip_above: None,
-            no_per_function_touches: false,
-            skip_touch_metrics: false,
-            hybrid_touches: None,
-            touch_mode: None,
-            skip_gate: false,
-            cold_start: false,
-            axes: false,
-            timing_report: false,
-            blend_churn: false,
-        }
-    }
-
-    #[test]
-    fn base_args_pass_validation() {
-        assert!(validate_analyze_flags(&base_args()).is_ok());
-    }
-
-    #[test]
-    fn cold_start_and_axes_reject_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            cold_start: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            axes: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn cold_start_and_axes_are_mutually_exclusive() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            cold_start: true,
-            axes: true,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn policy_requires_delta_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_rejects_delta_and_models_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Models),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: Some(OutputMode::Models),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            force: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-    }
-
-    #[test]
-    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Json,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            explain: true,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-    }
-
-    #[test]
-    fn all_functions_requires_snapshot_mode_and_json_format() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            all_functions: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Json,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            all_functions: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn models_mode_supports_only_text_or_json() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn include_models_requires_snapshot_mode_and_json_or_html_format() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_patterns_rejects_non_snapshot_mode_only_when_mode_is_set() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn sarif_format_requires_snapshot_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            format: OutputFormat::Sarif,
-            mode: None,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            format: OutputFormat::Sarif,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-    }
-}
-
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     validate_analyze_flags(&args)?;
 
@@ -459,11 +182,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         force,
         no_persist,
         level,
-        per_function_touches,
-        no_per_function_touches,
         skip_touch_metrics,
-        hybrid_touches,
-        touch_mode,
         all_functions,
         include_models,
         explain_patterns,
@@ -478,13 +197,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     } = args;
 
     let timing = timing_report.then(hotspots_core::TimingCollector::default);
-
-    warn_deprecated_touch_flags(
-        no_per_function_touches,
-        per_function_touches,
-        skip_touch_metrics,
-        hybrid_touches,
-    );
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
@@ -522,21 +234,11 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let (effective_touch_mode, effective_skip_touch_metrics) = resolve_touch_mode_and_skip(
-        touch_mode,
-        no_per_function_touches,
-        per_function_touches,
-        hybrid_touches,
-        skip_touch_metrics,
-        resolved_config.per_function_touches,
-        resolved_config.hybrid_touch_threshold,
-    );
 
     if cold_start {
         let result = handle_cold_start(
             &normalized_path,
             &resolved_config,
-            effective_touch_mode,
             effective_top,
             timing.as_ref(),
         );
@@ -548,7 +250,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         let result = handle_axes(
             &normalized_path,
             &resolved_config,
-            effective_touch_mode,
             effective_top,
             format,
             timing.as_ref(),
@@ -572,13 +273,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist,
                 level,
-                touch_mode: effective_touch_mode,
                 all_functions,
                 include_models,
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
-                skip_touch_metrics: effective_skip_touch_metrics,
+                skip_touch_metrics,
                 skip_gate,
                 blend_churn,
             },
@@ -609,13 +309,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist: true, // default analyze doesn't persist snapshots
                 level,
-                touch_mode: effective_touch_mode,
                 all_functions: false,
                 include_models: false,
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
-                skip_touch_metrics: effective_skip_touch_metrics,
+                skip_touch_metrics,
                 skip_gate,
                 blend_churn,
             },
@@ -661,7 +360,6 @@ fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
 fn handle_cold_start(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    touch_mode: TouchMode,
     top: Option<usize>,
     timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
@@ -682,7 +380,6 @@ fn handle_cold_start(
         &repo_root,
         resolved_config,
         reports,
-        touch_mode,
         None,
         true, // skip touch metrics — not part of the cold-start feature set
     )
@@ -735,7 +432,6 @@ fn handle_cold_start(
 fn handle_axes(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    touch_mode: TouchMode,
     top: Option<usize>,
     format: OutputFormat,
     timing: Option<&hotspots_core::TimingCollector>,
@@ -763,7 +459,6 @@ fn handle_axes(
         &repo_root,
         resolved_config,
         reports,
-        touch_mode,
         None,
         false, // needed for directed_coupling and newcomer_rate below
     )
@@ -940,7 +635,6 @@ pub(crate) struct ModeOutputOptions {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub touch_mode: TouchMode,
     pub all_functions: bool,
     pub include_models: bool,
     pub explain_patterns: bool,
@@ -1011,7 +705,6 @@ fn handle_snapshot_mode(
         force,
         no_persist,
         level,
-        touch_mode,
         all_functions,
         include_models,
         explain_patterns,
@@ -1041,7 +734,6 @@ fn handle_snapshot_mode(
         repo_root,
         resolved_config,
         reports,
-        touch_mode,
         callgraph_skip_above,
         skip_touch_metrics,
     )
@@ -1191,7 +883,6 @@ fn handle_delta_mode(
         policy,
         output,
         source_url,
-        touch_mode,
         callgraph_skip_above,
         skip_touch_metrics,
         ..
@@ -1200,7 +891,6 @@ fn handle_delta_mode(
         repo_root,
         resolved_config,
         reports,
-        touch_mode,
         callgraph_skip_above,
         skip_touch_metrics,
     )
@@ -1324,7 +1014,6 @@ fn handle_models_mode(
     let ModeOutputOptions {
         format,
         top,
-        touch_mode,
         callgraph_skip_above,
         skip_touch_metrics,
         ..
@@ -1333,7 +1022,6 @@ fn handle_models_mode(
         repo_root,
         resolved_config,
         reports,
-        touch_mode,
         callgraph_skip_above,
         skip_touch_metrics,
     )
@@ -1805,7 +1493,6 @@ pub(crate) fn build_snapshot_via_db(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
-    touch_mode: TouchMode,
     callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
@@ -1876,7 +1563,6 @@ pub(crate) fn build_snapshot_via_db(
         .context("failed to load snapshot functions from pipeline DB")?;
     // SQLite connection dropped with `db` at end of scope; no longer needed.
 
-    let total_functions = functions.len();
     let snapshot = Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         commit: commit_info,
@@ -1901,21 +1587,7 @@ pub(crate) fn build_snapshot_via_db(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        let needs_progress = matches!(
-            touch_mode,
-            TouchMode::PerFunction | TouchMode::Hybrid { .. }
-        );
-        let progress = if needs_progress {
-            Some(make_progress_reporter(total_functions))
-        } else {
-            None
-        };
-        enricher = enricher.with_touch_metrics(
-            repo_root,
-            touch_mode,
-            progress,
-            resolved_config.touch_window_days,
-        );
+        enricher = enricher.with_touch_metrics(repo_root, resolved_config.touch_window_days);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -1936,7 +1608,6 @@ pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     mut reports: Vec<hotspots_core::FunctionRiskReport>,
-    touch_mode: TouchMode,
     callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
@@ -1962,7 +1633,6 @@ pub(crate) fn build_enriched_snapshot(
         r.callees.shrink_to_fit();
     }
 
-    let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports))
         .with_subsystems(repo_root);
 
@@ -1990,21 +1660,7 @@ pub(crate) fn build_enriched_snapshot(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        let needs_progress = matches!(
-            touch_mode,
-            TouchMode::PerFunction | TouchMode::Hybrid { .. }
-        );
-        let progress = if needs_progress {
-            Some(make_progress_reporter(total_functions))
-        } else {
-            None
-        };
-        enricher = enricher.with_touch_metrics(
-            repo_root,
-            touch_mode,
-            progress,
-            resolved_config.touch_window_days,
-        );
+        enricher = enricher.with_touch_metrics(repo_root, resolved_config.touch_window_days);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -2022,44 +1678,6 @@ pub(crate) fn build_enriched_snapshot(
             resolved_config.driver_threshold_percentile,
         )
         .build())
-}
-
-fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
-    use std::io::IsTerminal;
-    if total == 0 {
-        return Box::new(|_i: usize, _total: usize| {});
-    }
-    if std::io::stderr().is_terminal() {
-        use indicatif::{ProgressBar, ProgressStyle};
-        let pb = ProgressBar::new(total as u64);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("Building touch cache [{bar:40}] {pos}/{len}")
-                .unwrap()
-                .progress_chars("##-"),
-        );
-        Box::new(move |i: usize, t: usize| {
-            pb.set_position(i as u64);
-            if i >= t {
-                pb.finish_and_clear();
-            }
-        })
-    } else {
-        let last_print = std::sync::Mutex::new(std::time::Instant::now());
-        Box::new(move |i: usize, t: usize| {
-            if i >= t {
-                eprintln!("touch cache: {t}/{t} functions (100%) [done]");
-                return;
-            }
-            if let Ok(mut last) = last_print.try_lock() {
-                if last.elapsed().as_secs() >= 30 {
-                    let pct = (i * 100).checked_div(t).unwrap_or(0);
-                    eprintln!("touch cache: {i}/{t} functions ({pct}%)");
-                    *last = std::time::Instant::now();
-                }
-            }
-        })
-    }
 }
 
 /// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and
@@ -2095,17 +1713,10 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
-    // Touch cache is skipped (per_function_touches = false).
     // callgraph_skip_above = None: always use the config value for historical refs.
-    let mut snapshot = build_enriched_snapshot(
-        &worktree.path,
-        resolved_config,
-        reports,
-        TouchMode::File,
-        None,
-        false,
-    )
-    .with_context(|| format!("enrichment failed for ref {sha}"))?;
+    let mut snapshot =
+        build_enriched_snapshot(&worktree.path, resolved_config, reports, None, false)
+            .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
     let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
@@ -2133,127 +1744,6 @@ fn rewrite_worktree_paths(snapshot: &mut Snapshot, worktree_prefix: &str, repo_p
                 f.function_id = format!("{}::{}", f.file, symbol);
             }
         }
-    }
-}
-
-const DEFAULT_HYBRID_THRESHOLD: usize = 5;
-
-fn resolve_touch_mode(
-    no_per_function: bool,
-    per_function: bool,
-    hybrid_threshold: Option<usize>,
-    config_per_function: bool,
-) -> TouchMode {
-    if no_per_function {
-        TouchMode::File
-    } else if let Some(threshold) = hybrid_threshold {
-        TouchMode::Hybrid { threshold }
-    } else if per_function || config_per_function {
-        TouchMode::PerFunction
-    } else {
-        TouchMode::Hybrid {
-            threshold: DEFAULT_HYBRID_THRESHOLD,
-        }
-    }
-}
-
-/// `--touch-mode` value (see issue #184). Supersedes `--per-function-touches`,
-/// `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches`,
-/// which are kept as deprecated aliases.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum TouchModeArg {
-    /// Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`,
-    /// falling back to hybrid with the default threshold — today's implicit default.
-    Auto,
-    PerFunction,
-    File,
-    /// `hybrid` (bare) uses `DEFAULT_HYBRID_THRESHOLD`; `hybrid:N` uses N.
-    Hybrid(Option<usize>),
-    /// Skip all touch metrics, directed coupling, and burst_score (no git log calls).
-    None,
-}
-
-pub(crate) fn parse_touch_mode_arg(s: &str) -> Result<TouchModeArg, String> {
-    let s = s.trim();
-    if let Some(rest) = s.strip_prefix("hybrid") {
-        return if rest.is_empty() {
-            Ok(TouchModeArg::Hybrid(None))
-        } else {
-            let n_str = rest.strip_prefix(':').ok_or_else(|| {
-                format!("invalid --touch-mode '{s}': expected 'hybrid' or 'hybrid:N'")
-            })?;
-            let n: usize = n_str.parse().map_err(|_| {
-                format!("invalid --touch-mode '{s}': N must be a non-negative integer")
-            })?;
-            Ok(TouchModeArg::Hybrid(Some(n)))
-        };
-    }
-    match s {
-        "auto" => Ok(TouchModeArg::Auto),
-        "per-function" => Ok(TouchModeArg::PerFunction),
-        "file" => Ok(TouchModeArg::File),
-        "none" => Ok(TouchModeArg::None),
-        _ => Err(format!(
-            "invalid --touch-mode '{s}': expected one of auto, per-function, file, hybrid[:N], none"
-        )),
-    }
-}
-
-/// Resolves `--touch-mode` (or, absent that, the four deprecated legacy flags) plus
-/// config defaults into a `(TouchMode, skip_touch_metrics)` pair. `TouchMode` is
-/// meaningless when `skip_touch_metrics` is true — callers already gate all touch
-/// computation behind `!skip_touch_metrics` and never consult `TouchMode` otherwise.
-fn resolve_touch_mode_and_skip(
-    touch_mode_arg: Option<TouchModeArg>,
-    legacy_no_per_function: bool,
-    legacy_per_function: bool,
-    legacy_hybrid: Option<usize>,
-    legacy_skip: bool,
-    config_per_function: bool,
-    config_hybrid_threshold: Option<usize>,
-) -> (TouchMode, bool) {
-    match touch_mode_arg {
-        Some(TouchModeArg::Auto) | None => {
-            let touch_mode = resolve_touch_mode(
-                legacy_no_per_function,
-                legacy_per_function,
-                legacy_hybrid.or(config_hybrid_threshold),
-                config_per_function,
-            );
-            (touch_mode, legacy_skip)
-        }
-        Some(TouchModeArg::PerFunction) => (TouchMode::PerFunction, false),
-        Some(TouchModeArg::File) => (TouchMode::File, false),
-        Some(TouchModeArg::Hybrid(threshold)) => (
-            TouchMode::Hybrid {
-                threshold: threshold.unwrap_or(DEFAULT_HYBRID_THRESHOLD),
-            },
-            false,
-        ),
-        Some(TouchModeArg::None) => (TouchMode::File, true),
-    }
-}
-
-/// Prints a one-line deprecation notice for each deprecated touch-metrics flag
-/// actually used. No-op when `--touch-mode` was used instead (clap's `conflicts_with`
-/// already rejects combining them).
-fn warn_deprecated_touch_flags(
-    no_per_function_touches: bool,
-    per_function_touches: bool,
-    skip_touch_metrics: bool,
-    hybrid_touches: Option<usize>,
-) {
-    if no_per_function_touches {
-        eprintln!("warning: --no-per-function-touches is deprecated, use --touch-mode file");
-    }
-    if per_function_touches {
-        eprintln!("warning: --per-function-touches is deprecated, use --touch-mode per-function");
-    }
-    if skip_touch_metrics {
-        eprintln!("warning: --skip-touch-metrics is deprecated, use --touch-mode none");
-    }
-    if let Some(n) = hybrid_touches {
-        eprintln!("warning: --hybrid-touches is deprecated, use --touch-mode hybrid:{n}");
     }
 }
 
@@ -2305,172 +1795,255 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
 }
 
 #[cfg(test)]
-mod touch_mode_tests {
+mod validate_analyze_flags_tests {
     use super::*;
 
-    #[test]
-    fn parse_touch_mode_arg_all_named_values() {
-        assert_eq!(parse_touch_mode_arg("auto"), Ok(TouchModeArg::Auto));
-        assert_eq!(
-            parse_touch_mode_arg("per-function"),
-            Ok(TouchModeArg::PerFunction)
-        );
-        assert_eq!(parse_touch_mode_arg("file"), Ok(TouchModeArg::File));
-        assert_eq!(parse_touch_mode_arg("none"), Ok(TouchModeArg::None));
+    /// All-permissive baseline: no mode, text format, every bool false, every
+    /// optional field unset. Individual tests override just the field(s) under test.
+    fn base_args() -> AnalyzeArgs {
+        AnalyzeArgs {
+            path: PathBuf::new(),
+            format: OutputFormat::Text,
+            mode: None,
+            policy: false,
+            top: None,
+            min_lrs: None,
+            config_path: None,
+            output: None,
+            explain: false,
+            force: false,
+            no_persist: false,
+            level: None,
+            all_functions: false,
+            include_models: false,
+            explain_patterns: false,
+            source_url: None,
+            jobs: None,
+            callgraph_skip_above: None,
+            skip_touch_metrics: false,
+            skip_gate: false,
+            cold_start: false,
+            axes: false,
+            timing_report: false,
+            blend_churn: false,
+        }
     }
 
     #[test]
-    fn parse_touch_mode_arg_hybrid_bare_and_with_threshold() {
-        assert_eq!(
-            parse_touch_mode_arg("hybrid"),
-            Ok(TouchModeArg::Hybrid(None))
-        );
-        assert_eq!(
-            parse_touch_mode_arg("hybrid:12"),
-            Ok(TouchModeArg::Hybrid(Some(12)))
-        );
-        assert_eq!(
-            parse_touch_mode_arg("hybrid:0"),
-            Ok(TouchModeArg::Hybrid(Some(0)))
-        );
+    fn base_args_pass_validation() {
+        assert!(validate_analyze_flags(&base_args()).is_ok());
     }
 
     #[test]
-    fn parse_touch_mode_arg_rejects_garbage() {
-        assert!(parse_touch_mode_arg("bogus").is_err());
-        assert!(parse_touch_mode_arg("hybrid:").is_err());
-        assert!(parse_touch_mode_arg("hybrid:abc").is_err());
-        assert!(parse_touch_mode_arg("hybrid-5").is_err());
-        assert!(parse_touch_mode_arg("hybrid:-1").is_err());
+    fn cold_start_and_axes_reject_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            axes: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_auto_falls_back_to_config() {
-        // No --touch-mode, no legacy flags, config says per_function_touches=true.
-        let (mode, skip) = resolve_touch_mode_and_skip(None, false, false, None, false, true, None);
-        assert_eq!(mode, TouchMode::PerFunction);
-        assert!(!skip);
-
-        // No config either: default hybrid threshold.
-        let (mode, skip) =
-            resolve_touch_mode_and_skip(None, false, false, None, false, false, None);
-        assert_eq!(
-            mode,
-            TouchMode::Hybrid {
-                threshold: DEFAULT_HYBRID_THRESHOLD
-            }
-        );
-        assert!(!skip);
+    fn cold_start_and_axes_are_mutually_exclusive() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            axes: true,
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_explicit_auto_matches_none() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Auto),
-            false,
-            false,
-            None,
-            false,
-            true,
-            Some(9),
-        );
-        // Explicit `--touch-mode auto` still honors config hybrid_touch_threshold,
-        // same as omitting --touch-mode entirely (both resolve through resolve_touch_mode).
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 9 });
-        assert!(!skip);
+    fn policy_requires_delta_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_per_function() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::PerFunction),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(mode, TouchMode::PerFunction);
-        assert!(!skip);
+    fn explain_rejects_delta_and_models_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Models),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_file() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::File),
-            false,
-            false,
-            None,
-            false,
-            true, // config says per-function; --touch-mode file must still win
-            None,
-        );
-        assert_eq!(mode, TouchMode::File);
-        assert!(!skip);
+    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: Some(OutputMode::Models),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            force: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_hybrid_default_and_explicit_threshold() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Hybrid(None)),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(
-            mode,
-            TouchMode::Hybrid {
-                threshold: DEFAULT_HYBRID_THRESHOLD
-            }
-        );
-        assert!(!skip);
-
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Hybrid(Some(42))),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 42 });
-        assert!(!skip);
+    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            explain: true,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_none_sets_skip_true() {
-        let (_, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::None),
-            false,
-            false,
-            None,
-            false,
-            true,
-            Some(3),
-        );
-        assert!(skip);
+    fn all_functions_requires_snapshot_mode_and_json_format() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_legacy_flags_unchanged_when_touch_mode_absent() {
-        // Legacy --skip-touch-metrics still works when --touch-mode isn't passed.
-        let (_, skip) = resolve_touch_mode_and_skip(None, false, false, None, true, false, None);
-        assert!(skip);
+    fn models_mode_supports_only_text_or_json() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            mode: Some(OutputMode::Models),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            mode: Some(OutputMode::Models),
+            format: OutputFormat::Html,
+            ..base_args()
+        })
+        .is_err());
+    }
 
-        // Legacy --no-per-function-touches still works.
-        let (mode, skip) = resolve_touch_mode_and_skip(None, true, false, None, false, true, None);
-        assert_eq!(mode, TouchMode::File);
-        assert!(!skip);
+    #[test]
+    fn include_models_requires_snapshot_mode_and_json_or_html_format() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            include_models: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Html,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            include_models: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_err());
+    }
 
-        // Legacy --hybrid-touches still works.
-        let (mode, skip) =
-            resolve_touch_mode_and_skip(None, false, false, Some(7), false, false, None);
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 7 });
-        assert!(!skip);
+    #[test]
+    fn explain_patterns_rejects_non_snapshot_mode_only_when_mode_is_set() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: None,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain_patterns: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn sarif_format_requires_snapshot_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 }

@@ -44,7 +44,6 @@ pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
 pub mod timing;
-pub mod touch_cache;
 pub mod trainer;
 pub mod trends;
 pub mod views;
@@ -56,7 +55,6 @@ pub use report::{
     render_json, render_json_envelope, render_text, render_text_grouped, sort_reports,
     FunctionRiskReport,
 };
-pub use snapshot::TouchMode;
 pub use timing::{TimingCollector, TimingReport};
 
 use anyhow::{Context, Result};
