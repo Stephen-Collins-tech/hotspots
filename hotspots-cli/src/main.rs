@@ -116,12 +116,6 @@ enum Commands {
         #[arg(long)]
         axes: bool,
 
-        /// Print a per-phase wall-clock timing breakdown (discover, parse, cfg,
-        /// metrics, scoring, aggregate, report) as JSON to stderr after the
-        /// normal output. Diagnostic only — never affects stdout or exit code.
-        #[arg(long)]
-        timing_report: bool,
-
         /// Re-rank file-level risk (--level file) by a 50/50 blend of file_risk_score
         /// and per-file churn (lines added+deleted, 180-day window), instead of
         /// file_risk_score alone. In our evaluation it improved
@@ -350,7 +344,6 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
-            timing_report,
             blend_churn,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
@@ -372,7 +365,6 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
-            timing_report,
             blend_churn,
         })?,
         Commands::Prune {

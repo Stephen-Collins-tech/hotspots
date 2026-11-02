@@ -38,8 +38,6 @@ pub(crate) struct AnalyzeArgs {
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
     /// instead of a single merged list.
     pub axes: bool,
-    /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
-    pub timing_report: bool,
     /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
     /// instead of file_risk_score alone (validated in our evaluation). Opt-in.
     pub blend_churn: bool,
@@ -156,11 +154,8 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         skip_gate,
         cold_start,
         axes,
-        timing_report,
         blend_churn,
     } = args;
-
-    let timing = timing_report.then(hotspots_core::TimingCollector::default);
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
@@ -200,25 +195,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let effective_top = top.or(resolved_config.top_n);
 
     if cold_start {
-        let result = handle_cold_start(
-            &normalized_path,
-            &resolved_config,
-            effective_top,
-            timing.as_ref(),
-        );
-        print_timing_report(timing.as_ref());
+        let result = handle_cold_start(&normalized_path, &resolved_config, effective_top);
         return result;
     }
 
     if axes {
-        let result = handle_axes(
-            &normalized_path,
-            &resolved_config,
-            effective_top,
-            format,
-            timing.as_ref(),
-        );
-        print_timing_report(timing.as_ref());
+        let result = handle_axes(&normalized_path, &resolved_config, effective_top, format);
         return result;
     }
 
@@ -243,9 +225,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_gate,
                 blend_churn,
             },
-            timing.as_ref(),
         );
-        print_timing_report(timing.as_ref());
         return result;
     }
 
@@ -276,9 +256,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 skip_gate,
                 blend_churn,
             },
-            timing.as_ref(),
         );
-        print_timing_report(timing.as_ref());
         return result;
     }
 
@@ -289,22 +267,8 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         effective_min_lrs,
         effective_top,
         &resolved_config,
-        timing.as_ref(),
     );
-    print_timing_report(timing.as_ref());
     result
-}
-
-/// Prints the collected per-phase timing as a JSON object to stderr, when
-/// `--timing-report` was passed. Never touches stdout, so it can't interfere
-/// with piped analyze output.
-fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
-    if let Some(tc) = timing {
-        match serde_json::to_string_pretty(&tc.report()) {
-            Ok(json) => eprintln!("{json}"),
-            Err(e) => eprintln!("warning: failed to serialize timing report: {e}"),
-        }
-    }
 }
 
 /// `hotspots analyze --cold-start`: Gini-gated cold-start routing.
@@ -318,11 +282,10 @@ fn handle_cold_start(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     top: Option<usize>,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -330,7 +293,6 @@ fn handle_cold_start(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
@@ -347,8 +309,6 @@ fn handle_cold_start(
     };
     let result = hotspots_core::trainer::cold_start_rank(&snapshot, &repo_root, &train_cfg);
 
-    let report_start = timing.map(|_| std::time::Instant::now());
-
     let route_label = match result.route {
         hotspots_core::trainer::ColdStartRoute::Formula => "formula",
         hotspots_core::trainer::ColdStartRoute::Anomaly => "anomaly",
@@ -358,9 +318,6 @@ fn handle_cold_start(
 
     if result.ranked.is_empty() {
         println!("(uniform prior — no ranking to show; all files equally likely)");
-        if let (Some(tc), Some(start)) = (timing, report_start) {
-            tc.report.record(start.elapsed());
-        }
         return Ok(());
     }
 
@@ -371,9 +328,6 @@ fn handle_cold_start(
     };
     for scored in result.ranked.iter().take(limit) {
         println!("{:.4}  {}", scored.score, scored.function_id);
-    }
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
     }
 
     Ok(())
@@ -388,7 +342,6 @@ fn handle_axes(
     resolved_config: &hotspots_core::ResolvedConfig,
     top: Option<usize>,
     format: OutputFormat,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     use hotspots_core::ranking::{rank_by_axis, HotspotAxis};
 
@@ -398,7 +351,7 @@ fn handle_axes(
 
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -406,7 +359,6 @@ fn handle_axes(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
@@ -439,8 +391,6 @@ fn handle_axes(
         (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
     ];
 
-    let report_start = timing.map(|_| std::time::Instant::now());
-
     if matches!(format, OutputFormat::Json) {
         let axes: serde_json::Map<String, serde_json::Value> = sections
             .iter()
@@ -454,9 +404,6 @@ fn handle_axes(
             "axes": axes,
         });
         println!("{}", serde_json::to_string_pretty(&envelope)?);
-        if let (Some(tc), Some(start)) = (timing, report_start) {
-            tc.report.record(start.elapsed());
-        }
         return Ok(());
     }
 
@@ -471,9 +418,6 @@ fn handle_axes(
         }
         println!();
     }
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
 
     Ok(())
 }
@@ -484,7 +428,6 @@ fn handle_default_output(
     min_lrs: Option<f64>,
     top: Option<usize>,
     resolved_config: &hotspots_core::ResolvedConfig,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
     let explicit_top = top.or(resolved_config.top_n);
@@ -494,7 +437,7 @@ fn handle_default_output(
         Some(n) => n,
         None => 20,
     };
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs,
@@ -506,10 +449,8 @@ fn handle_default_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
-    let report_start = timing.map(|_| std::time::Instant::now());
     let result: anyhow::Result<()> = match format {
         OutputFormat::Text => {
             let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
@@ -530,9 +471,6 @@ fn handle_default_output(
             anyhow::bail!("SARIF format requires --mode snapshot");
         }
     };
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
     result
 }
 
@@ -558,11 +496,10 @@ pub(crate) fn handle_mode_output(
     mode: OutputMode,
     resolved_config: &hotspots_core::ResolvedConfig,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: opts.min_lrs,
@@ -570,20 +507,14 @@ pub(crate) fn handle_mode_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
     let pr_context = git::detect_pr_context();
 
     match mode {
-        OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts, timing),
-        OutputMode::Delta => handle_delta_mode(
-            &repo_root,
-            resolved_config,
-            reports,
-            pr_context,
-            opts,
-            timing,
-        ),
+        OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts),
+        OutputMode::Delta => {
+            handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
+        }
     }
 }
 
@@ -592,7 +523,6 @@ fn handle_snapshot_mode(
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -701,7 +631,6 @@ fn handle_snapshot_mode(
 
     apply_top_n(&mut snapshot, format, explain, level, top);
 
-    let report_start = timing.map(|_| std::time::Instant::now());
     let result = emit_snapshot_output(
         &mut snapshot,
         SnapshotOutputOpts {
@@ -720,9 +649,6 @@ fn handle_snapshot_mode(
         },
         repo_root,
     );
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
     result
 }
 
@@ -732,7 +658,6 @@ fn handle_delta_mode(
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -753,7 +678,6 @@ fn handle_delta_mode(
 
     let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
 
-    let report_start = timing.map(|_| std::time::Instant::now());
     let blocking = emit_delta_output(
         &delta_with_extras,
         format,
@@ -761,11 +685,7 @@ fn handle_delta_mode(
         output,
         source_url.as_deref(),
     )?;
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
     if blocking {
-        print_timing_report(timing);
         std::process::exit(1);
     }
     Ok(())
@@ -1555,7 +1475,6 @@ mod validate_analyze_flags_tests {
             skip_gate: false,
             cold_start: false,
             axes: false,
-            timing_report: false,
             blend_churn: false,
         }
     }
