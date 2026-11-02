@@ -24,7 +24,6 @@ pub(crate) struct AnalyzeArgs {
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
-    pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
     /// Number of rayon worker threads; None = use all logical CPUs.
@@ -56,7 +55,6 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_no_persist_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
-    validate_explain_patterns_flag(args)?;
     validate_format_mode_requirements(args)?;
     Ok(())
 }
@@ -129,13 +127,6 @@ fn validate_all_functions_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_explain_patterns_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.explain_patterns && args.mode != Some(OutputMode::Snapshot) && args.mode.is_some() {
-        anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
-    }
-    Ok(())
-}
-
 /// Output formats that require `--mode snapshot` specifically.
 fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if matches!(args.format, OutputFormat::Sarif) && args.mode != Some(OutputMode::Snapshot) {
@@ -162,7 +153,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         level,
         skip_touch_metrics,
         all_functions,
-        explain_patterns,
         source_url,
         jobs,
         callgraph_skip_above,
@@ -251,7 +241,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 no_persist,
                 level,
                 all_functions,
-                explain_patterns,
                 source_url,
                 callgraph_skip_above,
                 skip_touch_metrics,
@@ -286,7 +275,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 no_persist: true, // default analyze doesn't persist snapshots
                 level,
                 all_functions: false,
-                explain_patterns,
                 source_url,
                 callgraph_skip_above,
                 skip_touch_metrics,
@@ -303,7 +291,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let result = handle_default_output(
         &normalized_path,
         format,
-        explain_patterns,
         effective_min_lrs,
         effective_top,
         &resolved_config,
@@ -506,7 +493,6 @@ fn handle_axes(
 fn handle_default_output(
     path: &Path,
     format: OutputFormat,
-    explain_patterns: bool,
     min_lrs: Option<f64>,
     top: Option<usize>,
     resolved_config: &hotspots_core::ResolvedConfig,
@@ -520,7 +506,7 @@ fn handle_default_output(
         Some(n) => n,
         None => 20,
     };
-    let mut reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress_and_timing(
         path,
         AnalysisOptions {
             min_lrs,
@@ -534,16 +520,6 @@ fn handle_default_output(
         Some(analysis_progress.as_ref()),
         timing,
     )?;
-
-    if explain_patterns {
-        populate_pattern_details(&mut reports, resolved_config);
-    } else {
-        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` in this
-        // bare (no-git-context) path too, for consistency with snapshot mode.
-        for report in &mut reports {
-            report.patterns.clear();
-        }
-    }
 
     let report_start = timing.map(|_| std::time::Instant::now());
     let result: anyhow::Result<()> = match format {
@@ -572,34 +548,6 @@ fn handle_default_output(
     result
 }
 
-fn populate_pattern_details(
-    reports: &mut [hotspots_core::FunctionRiskReport],
-    resolved_config: &hotspots_core::ResolvedConfig,
-) {
-    for report in reports.iter_mut() {
-        let t1 = hotspots_core::patterns::Tier1Input {
-            cc: report.metrics.cc as usize,
-            nd: report.metrics.nd as usize,
-            fo: report.metrics.fo as usize,
-            ns: report.metrics.ns as usize,
-            loc: report.metrics.loc as usize,
-        };
-        let t2 = hotspots_core::patterns::Tier2Input {
-            fan_in: None,
-            scc_size: None,
-            churn_lines: None,
-            days_since_last_change: None,
-            neighbor_churn: None,
-            is_entrypoint: false,
-        };
-        report.pattern_details = Some(hotspots_core::patterns::classify_detailed(
-            &t1,
-            &t2,
-            &resolved_config.pattern_thresholds,
-        ));
-    }
-}
-
 pub(crate) struct ModeOutputOptions {
     pub format: OutputFormat,
     pub policy: bool,
@@ -611,7 +559,6 @@ pub(crate) struct ModeOutputOptions {
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
-    pub explain_patterns: bool,
     pub source_url: Option<String>,
     pub callgraph_skip_above: Option<usize>,
     pub skip_touch_metrics: bool,
@@ -675,7 +622,6 @@ fn handle_snapshot_mode(
         no_persist,
         level,
         all_functions,
-        explain_patterns,
         source_url,
         callgraph_skip_above,
         skip_touch_metrics,
@@ -704,21 +650,6 @@ fn handle_snapshot_mode(
         skip_touch_metrics,
     )
     .context("failed to build enriched snapshot")?;
-
-    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
-    if explain_patterns {
-        snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
-    } else {
-        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` (no
-        // validating finding for it as a standalone default-output signal).
-        // `populate_patterns` above also refreshes Tier-1 patterns already
-        // carried from the initial analysis pass onto `function.patterns`, so
-        // clearing here (rather than skipping the call) is what actually
-        // removes it from default output, not just withholding the Tier-2 add-on.
-        for function in &mut snapshot.functions {
-            function.patterns.clear();
-        }
-    }
 
     // Populate DC before persisting so the snapshot on disk includes the values,
     // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
@@ -1620,8 +1551,6 @@ pub(crate) fn analyze_and_persist_at_ref(
     let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
     rewrite_worktree_paths(&mut snapshot, &worktree_prefix, &repo_prefix);
 
-    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
-
     // Persist into the *real* repo's .hotspots/ directory, not the worktree.
     hotspots_core::snapshot::persist_snapshot(repo_root, &snapshot, false)
         .with_context(|| format!("failed to persist snapshot for {sha}"))?;
@@ -1713,7 +1642,6 @@ mod validate_analyze_flags_tests {
             no_persist: false,
             level: None,
             all_functions: false,
-            explain_patterns: false,
             source_url: None,
             jobs: None,
             callgraph_skip_above: None,
@@ -1855,28 +1783,6 @@ mod validate_analyze_flags_tests {
             all_functions: true,
             mode: Some(OutputMode::Snapshot),
             format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_patterns_rejects_non_snapshot_mode_only_when_mode_is_set() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Delta),
             ..base_args()
         })
         .is_err());

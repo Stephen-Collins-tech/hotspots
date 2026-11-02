@@ -40,8 +40,6 @@ pub struct AgentFunctionView {
     pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fan_in: Option<usize>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub patterns: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explanation: Option<String>,
     /// Per-prediction feature contributions from the trained ranker.
@@ -92,7 +90,6 @@ pub(crate) fn to_agent_view(
                 touch_count: func.touch_count,
                 days_since_last_change: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
-                patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
                 shap: None,
             }

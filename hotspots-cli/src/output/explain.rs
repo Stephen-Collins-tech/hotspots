@@ -125,19 +125,7 @@ pub(crate) fn print_explain_output(
             let score = f.activity_risk.unwrap_or(f.lrs);
             let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
             let loc = format!("{}:{}", rel_path(&f.file), f.line);
-            let patterns_str = if f.patterns.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", f.patterns.join(", "))
-            };
-            println!(
-                "  {:.2}  {:<col_w$}  {}{}",
-                score,
-                loc,
-                name,
-                patterns_str,
-                col_w = col_w
-            );
+            println!("  {:.2}  {:<col_w$}  {}", score, loc, name, col_w = col_w);
             if let Some(exp) = &f.explanation {
                 println!("         \u{2726} {}", exp);
             }

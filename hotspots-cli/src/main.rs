@@ -90,10 +90,6 @@ enum Commands {
         #[arg(long)]
         all_functions: bool,
 
-        /// Populate and emit pattern details for --explain-patterns
-        #[arg(long)]
-        explain_patterns: bool,
-
         /// URL of the written analysis post to link from the HTML report (HTML format only)
         #[arg(long, value_name = "URL")]
         source_url: Option<String>,
@@ -355,7 +351,6 @@ fn main() -> anyhow::Result<()> {
             level,
             skip_touch_metrics,
             all_functions,
-            explain_patterns,
             source_url,
             jobs,
             callgraph_skip_above,
@@ -379,7 +374,6 @@ fn main() -> anyhow::Result<()> {
             level,
             skip_touch_metrics,
             all_functions,
-            explain_patterns,
             source_url,
             jobs,
             callgraph_skip_above,

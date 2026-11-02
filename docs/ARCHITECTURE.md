@@ -26,11 +26,9 @@ Source Code
   ↓
 [LRS + Risk Band]
   ↓
-[Pattern Classification] → Tier 1 (structural)
-  ↓
 [optional: git history + call graph enrichment]
   ↓
-[Activity Risk Score + Tier 2 patterns + Driver Label + Quadrant]
+[Activity Risk Score + Driver Label + Quadrant]
   ↓
 [Snapshot persistence / Delta computation / Report rendering]
   ↓
@@ -84,8 +82,6 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 **Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Pattern classification:** Tier 2 patterns check call graph and git data against thresholds. `volatile_god` is derived (fires only when both `god_function` and `churn_magnet` are true).
-
 **Driver label assignment:** Percentile-relative checks in priority order (see [REFERENCE.md](REFERENCE.md#driver-labels)).
 
 **Quadrant assignment:** Band × activity → `fire`/`debt`/`watch`/`ok`.
@@ -118,7 +114,6 @@ hotspots-core/src/
 │   └── mod.rs          # CfgNode, CfgEdge, Cfg, validation
 ├── metrics.rs          # raw metric extraction
 ├── risk.rs             # LRS, risk components, risk bands
-├── patterns.rs         # Tier 1 + Tier 2 pattern detection
 ├── drivers.rs          # driver label assignment
 ├── snapshot.rs         # snapshot serialization, persistence, loading
 ├── delta.rs            # delta computation
@@ -162,7 +157,7 @@ These are non-negotiable. Any violation is a bug.
 
 **Golden tests** (`tests/golden/`) — expected JSON outputs for known fixture files. Automatically verified in CI. Updated when metric behavior intentionally changes.
 
-**Unit tests** — per-module: CFG construction, metric extraction, risk scoring, pattern detection, config parsing.
+**Unit tests** — per-module: CFG construction, metric extraction, risk scoring, config parsing.
 
 **Integration tests** (`integration/`, pytest-based E2E) — full pipeline tests against real fixture projects. `make test-integration` runs pytest; `make test-comprehensive` auto-detects pytest or falls back to legacy script.
 

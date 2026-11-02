@@ -34,10 +34,6 @@ on:
         description: 'Pass --skip-touch-metrics (true/false)'
         required: false
         default: 'false'
-      explain_patterns:
-        description: 'Pass --explain-patterns (true/false)'
-        required: false
-        default: 'true'
 
 jobs:
   analyze:
@@ -89,15 +85,9 @@ jobs:
             TOUCH_ARGS="--skip-touch-metrics"
           fi
 
-          PATTERN_ARGS=""
-          if [ "${{ inputs.explain_patterns || 'true' }}" = "true" ]; then
-            PATTERN_ARGS="--explain-patterns"
-          fi
-
           echo "==> Target:   $TARGET_REPO"
           echo "==> Path:     $ANALYZE_PATH"
           echo "==> Touch:    $TOUCH_ARGS"
-          echo "==> Patterns: $PATTERN_ARGS"
           echo ""
 
           hotspots analyze "$ANALYZE_PATH" \
@@ -105,7 +95,6 @@ jobs:
             --format json \
             --no-persist \
             $TOUCH_ARGS \
-            $PATTERN_ARGS \
             > /dev/null &
           HOTSPOTS_PID=$!
 

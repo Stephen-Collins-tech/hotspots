@@ -53,8 +53,6 @@ fn make_report(file: &str, func: &str, cc: u32, lrs: f64, band: &str) -> Functio
         lrs,
         band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
         suppression_reason: None,
-        patterns: vec![],
-        pattern_details: None,
         callees: vec![],
         explanation: None,
     }

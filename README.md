@@ -157,11 +157,9 @@ Exit code 1 on blocking violations, 0 on warnings only.
 
 ## Key Features
 
-**Policy engine** — blocks: new critical-risk functions, LRS regressions ≥ 1.0, net repo regression ≥ 5.0. Warns: approaching thresholds, rapid growth > 50%.
+**Policy engine** — blocks: new critical-risk functions and LRS regressions ≥ 1.0. Warns: rapid growth > 50%.
 
 **Driver labels** — each function gets a primary diagnosis: `high_complexity`, `deep_nesting`, `exit_heavy`, `high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, or `composite`.
-
-**Pattern detection** — 13 named patterns in two tiers: structural (always, e.g. `complex_branching`, `god_function`) and enriched (snapshot mode, e.g. `churn_magnet`, `cyclic_hub`, `volatile_god`).
 
 **Suppression comments** — exclude functions from CI failures while keeping them visible:
 ```typescript

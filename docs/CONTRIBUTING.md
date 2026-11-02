@@ -82,7 +82,6 @@ hotspots/
 │   ├── cfg/               # CFG types and validation
 │   ├── metrics.rs         # raw metric extraction
 │   ├── risk.rs            # LRS formula
-│   ├── patterns.rs        # pattern detection
 │   ├── snapshot.rs        # snapshot persistence
 │   ├── delta.rs           # delta computation
 │   ├── policy.rs          # policy engine

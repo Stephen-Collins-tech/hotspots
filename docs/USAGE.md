@@ -384,13 +384,11 @@ jq '.aggregates.by_band' output.json
 # Top 10 by LRS
 jq '.functions | sort_by(.lrs) | reverse | .[0:10]' output.json
 
-# Functions with a specific pattern
-jq '.functions[] | select(.patterns[]? == "god_function") | .function_id' output.json
 ```
 
 ### HTML
 
-Interactive self-contained report with sortable table, risk landscape scatter plot, pattern breakdown panel, and trend charts (requires ≥ 2 snapshots):
+Interactive self-contained report with sortable table, risk landscape scatter plot, and trend charts (requires ≥ 2 snapshots):
 
 ```bash
 hotspots analyze . --mode snapshot --format html

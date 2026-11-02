@@ -71,8 +71,6 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
         driver: None,
         driver_detail: None,
         quadrant: None,
-        patterns: vec![],
-        pattern_details: None,
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
@@ -442,8 +440,6 @@ fn bare_analyze_envelope_shape() {
         lrs: 3.0,
         band: RiskBand::Moderate,
         suppression_reason: None,
-        patterns: vec![],
-        pattern_details: None,
         callees: vec![],
         explanation: None,
     }];

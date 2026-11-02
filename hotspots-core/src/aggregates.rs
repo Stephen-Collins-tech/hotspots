@@ -1055,8 +1055,6 @@ mod tests {
             driver: None,
             driver_detail: None,
             quadrant: None,
-            patterns: vec![],
-            pattern_details: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,

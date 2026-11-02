@@ -26,7 +26,7 @@ fn analyze_source(source: &str, suffix: &str) -> Vec<hotspots_core::report::Func
         min_lrs: None,
         top_n: None,
     };
-    analyze_file_with_config(file.path(), &cm, 0, &options, None, None, None)
+    analyze_file_with_config(file.path(), &cm, 0, &options, None, None)
         .expect("analysis should succeed")
 }
 

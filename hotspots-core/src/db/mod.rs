@@ -73,7 +73,6 @@ CREATE TABLE IF NOT EXISTS functions (
     driver                  TEXT,
     driver_detail           TEXT,
     quadrant                TEXT,
-    patterns                TEXT,
     FOREIGN KEY (commit_sha) REFERENCES commits(sha),
     UNIQUE (commit_sha, function_id)
 );
@@ -131,7 +130,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
             activity_risk, risk_factors,
             is_top_10_pct, is_top_5_pct, is_top_1_pct,
-            driver, driver_detail, quadrant, patterns
+            driver, driver_detail, quadrant
         ) VALUES (
             ?1,?2,?3,?4,?5,
             ?6,?7,?8,?9,?10,?11,?12,?13,
@@ -141,7 +140,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             ?22,?23,?24,?25,?26,
             ?27,?28,
             ?29,?30,?31,
-            ?32,?33,?34,?35
+            ?32,?33,?34
         )",
     )?;
 
@@ -150,7 +149,6 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             .risk_factors
             .as_ref()
             .and_then(|rf| serde_json::to_string(rf).ok());
-        let patterns_json = serde_json::to_string(&func.patterns).unwrap_or_default();
 
         let (churn_added, churn_deleted) = func
             .churn
@@ -237,7 +235,6 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             func.driver,
             func.driver_detail,
             func.quadrant,
-            patterns_json,
         ])
         .context("failed to insert function row")?;
     }
@@ -258,7 +255,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
                 activity_risk, risk_factors,
                 is_top_10_pct, is_top_5_pct, is_top_1_pct,
-                driver, driver_detail, quadrant, patterns
+                driver, driver_detail, quadrant
          FROM functions
          WHERE commit_sha = ?1
          ORDER BY function_id",
@@ -333,7 +330,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             let driver: Option<String> = row.get(30)?;
             let driver_detail: Option<String> = row.get(31)?;
             let quadrant: Option<String> = row.get(32)?;
-            let patterns_json: Option<String> = row.get(33)?;
 
             Ok((
                 function_id,
@@ -358,7 +354,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 driver,
                 driver_detail,
                 quadrant,
-                patterns_json,
             ))
         })?;
 
@@ -387,17 +382,11 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             driver,
             driver_detail,
             quadrant,
-            patterns_json,
         ) = row.context("failed to read function row")?;
 
         let risk_factors = risk_factors_json
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok());
-
-        let patterns: Vec<String> = patterns_json
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
 
         let language = crate::language::Language::from_name(&language)
             .unwrap_or(crate::language::Language::TypeScript);
@@ -431,8 +420,6 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             driver,
             driver_detail,
             quadrant,
-            patterns,
-            pattern_details: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
@@ -943,8 +930,6 @@ mod tests {
             band: crate::risk::RiskBand::Low,
             callees: vec![],
             suppression_reason: None,
-            patterns: vec![],
-            pattern_details: None,
             explanation: None,
         }];
         Snapshot::new(ctx, reports)
@@ -1078,8 +1063,6 @@ mod tests {
             band: crate::risk::RiskBand::High,
             callees: vec!["doA".to_string(), "doB".to_string()],
             suppression_reason: None,
-            patterns: vec!["complex_branching".to_string()],
-            pattern_details: None,
             explanation: None,
         };
         let mut snapshot = Snapshot::new(ctx, vec![report]);
@@ -1153,7 +1136,6 @@ mod tests {
         assert_eq!(lf.driver.as_deref(), Some("high_complexity"));
         assert_eq!(lf.driver_detail.as_deref(), Some("cc (P92)"));
         assert_eq!(lf.quadrant.as_deref(), Some("fire"));
-        assert_eq!(lf.patterns, vec!["complex_branching"]);
 
         // Commit fields
         assert_eq!(loaded.commit.ticket_ids, vec!["PROJ-123"]);
@@ -1203,8 +1185,6 @@ mod tests {
                 band: crate::risk::RiskBand::Low,
                 callees: vec![],
                 suppression_reason: None,
-                patterns: vec![],
-                pattern_details: None,
                 explanation: None,
             })
             .collect();

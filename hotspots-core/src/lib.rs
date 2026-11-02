@@ -31,7 +31,6 @@ pub mod isolation_forest;
 pub mod language;
 pub mod metrics;
 pub mod parser;
-pub mod patterns;
 pub mod phrases;
 pub mod policy;
 pub mod prune;
@@ -124,7 +123,6 @@ pub fn analyze_with_progress_and_timing(
         high: c.high_threshold,
         critical: c.critical_threshold,
     });
-    let pattern_thresholds = resolved_config.map(|c| &c.pattern_thresholds);
 
     // Collect and filter source files upfront so the total is known before analysis begins
     let discover_start = timing.map(|_| Instant::now());
@@ -159,7 +157,6 @@ pub fn analyze_with_progress_and_timing(
                     &options,
                     weights.as_ref(),
                     thresholds.as_ref(),
-                    pattern_thresholds,
                     timing,
                 );
                 let done = counter.fetch_add(1, Ordering::Relaxed) + 1;

@@ -19,7 +19,6 @@ hotspots analyze <PATH> [OPTIONS]
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
-| `--explain-patterns` | off | Show pattern trigger conditions |
 | `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
@@ -298,7 +297,7 @@ Distinct functions called from within this function. Each call segment in a chai
 Count of early returns, throws, breaks, and continues (excluding the final tail return). Scattered exits make control flow hard to trace and postconditions hard to reason about.
 
 **LOC — Lines of Code**
-Physical line count. Used for pattern detection only, not the LRS score.
+Physical line count. Reported for context only; it is not part of the LRS score.
 
 ### LRS formula
 
@@ -391,9 +390,7 @@ non-inferiority result *against* it, so it stayed).
 
 The underlying raw values these dropped terms were computed from are still
 computed/stored where another consumer needs them: `fan_in` and `pagerank` on
-`callgraph` (trainer feature, `--axes coupling`/centrality), `scc_size`/`is_entrypoint`
-on `callgraph` (pattern detectors), `callgraph.neighbor_churn` (same pattern detectors —
-`neighbor_risk`/`middle_man`), and `burst_score` at the function level (`trainer`'s
+`callgraph` (trainer feature, `--axes coupling`/centrality), and `burst_score` at the function level (`trainer`'s
 cold-start features). `dependency_depth` was removed outright — it had no other
 consumer.
 
@@ -448,9 +445,7 @@ the formula above. Same validation as the LRS `weights` block: non-negative, at 
 
 - **Fan-in** — functions that call this function (blast radius)
 - **PageRank** — importance/centrality based on call graph topology
-- **SCC size** — strongly connected component size; > 1 = part of a dependency cycle (feeds the `cyclic_hub` pattern detector)
-- **Is entrypoint** — whether call-graph entry-point detection marked this function as one (suppresses `middle_man`/`neighbor_risk` patterns)
-- **Neighbor churn** — sum of churn in directly-called functions (feeds the `neighbor_risk`/`middle_man` pattern detectors; no longer contributes to the live Activity Risk score)
+- **SCC size** — strongly connected component size; > 1 = part of a dependency cycle
 
 `betweenness` centrality and `dependency_depth` were removed from `callgraph` entirely in
 hotspots 2.0 (no validated consumer once their live-score contribution was
@@ -493,34 +488,6 @@ Thresholds are percentile-relative (default P=75, configurable via `driver_thres
 the current run's distribution) — see "Field stability" above before keying a CI gate
 on them.
 
-### Pattern detection
-
-Patterns are informational labels. A function can have multiple. They do not affect LRS.
-
-**Tier 1 — structural (all modes):**
-
-| Pattern | Trigger |
-|---|---|
-| `complex_branching` | CC ≥ 10 AND ND ≥ 4 |
-| `deeply_nested` | ND ≥ 5 |
-| `exit_heavy` | NS ≥ 5 |
-| `god_function` | LOC ≥ 60 AND FO ≥ 10 |
-| `long_function` | LOC ≥ 80 |
-
-**Tier 2 — enriched (snapshot mode, requires call graph + git data):**
-
-| Pattern | Trigger |
-|---|---|
-| `churn_magnet` | churn ≥ 200 lines AND CC ≥ 8 |
-| `cyclic_hub` | SCC size ≥ 2 AND fan-in ≥ 6 |
-| `hub_function` | fan-in ≥ 10 AND CC ≥ 8 |
-| `middle_man` | fan-in ≥ 8 AND FO ≥ 8 AND CC ≤ 4 |
-| `neighbor_risk` | neighbor churn ≥ 400 AND FO ≥ 8 |
-| `shotgun_target` | fan-in ≥ 8 AND churn ≥ 150 lines |
-| `stale_complex` | CC ≥ 10 AND LOC ≥ 60 AND days since change ≥ 180 |
-| `volatile_god` | Derived: `god_function` AND `churn_magnet` |
-
-All thresholds configurable in `.hotspotsrc.json`. Use `--explain-patterns` to see which conditions triggered each pattern.
 
 ---
 
@@ -700,8 +667,6 @@ is not guaranteed to bump it.
   "driver": "high_complexity",
   "driver_detail": null,
   "quadrant": "fire",
-  "patterns": ["complex_branching", "churn_magnet"],
-  "pattern_details": null,
   "subsystem": "",
   "authors_90d": 2,
   "directed_coupling": 0.31
@@ -709,10 +674,7 @@ is not guaranteed to bump it.
 ```
 
 This is the full per-function shape in `functions[]` — present on every `--mode
-snapshot` run, with or without `--all-functions`. `pattern_details`,
-`pattern_details`-adjacent explanations, and `patterns` itself are populated only
-with `--explain`/`--explain-patterns`; omitted (empty array for `patterns`, absent
-key for `pattern_details`) otherwise. `suppression_reason` is omitted (not null)
+snapshot` run, with or without `--all-functions`. `suppression_reason` is omitted (not null)
 when no suppression is present. `risk_factors` is the `{complexity, churn,
 activity, recency}` breakdown that sums into `activity_risk` (see Activity Risk
 above) — `fan_in`/`cyclic_dependency`/`depth`/`burst` have no field here; they were
@@ -722,7 +684,7 @@ removed from `RiskFactors` in hotspots 2.0.
 present only on `--mode snapshot` *without* `--all-functions`): those use a
 slimmer shape (`function`, `file`, `line`, `band`, `quadrant`, `driver`, `action`,
 `lrs`, `activity_risk`, `metrics`, `touch_count`, `days_since_last_change`,
-`fan_in`, `patterns`) that adds a human-readable `action` string but omits
+`fan_in`) that adds a human-readable `action` string but omits
 `risk_factors`/`callgraph`'s other fields/`suppression_reason`/`subsystem`/
 `authors_90d`/`directed_coupling`. Don't assume the two shapes are interchangeable
 when writing a consumer against this schema.

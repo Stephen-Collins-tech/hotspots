@@ -79,8 +79,6 @@ fn make_func(file: &str, name: &str, line: u32) -> FunctionSnapshot {
         driver: None,
         driver_detail: None,
         quadrant: None,
-        patterns: vec![],
-        pattern_details: None,
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
