@@ -261,14 +261,13 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     }
 
     // Default behavior (no --mode): simple text/JSON output
-    let result = handle_default_output(
+    handle_default_output(
         &normalized_path,
         format,
         effective_min_lrs,
         effective_top,
         &resolved_config,
-    );
-    result
+    )
 }
 
 /// `hotspots analyze --cold-start`: Gini-gated cold-start routing.
@@ -631,7 +630,7 @@ fn handle_snapshot_mode(
 
     apply_top_n(&mut snapshot, format, explain, level, top);
 
-    let result = emit_snapshot_output(
+    emit_snapshot_output(
         &mut snapshot,
         SnapshotOutputOpts {
             format,
@@ -648,8 +647,7 @@ fn handle_snapshot_mode(
             blend_churn,
         },
         repo_root,
-    );
-    result
+    )
 }
 
 fn handle_delta_mode(
