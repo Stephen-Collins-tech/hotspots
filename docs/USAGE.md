@@ -531,17 +531,92 @@ hotspots analyze . --mode delta --format json
 hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
 ```
 
-## Hook Templates
+## Hooks and CI templates
 
-```bash
-# Print pre-commit and CI hook templates
-hotspots init --hooks
-```
+Policy checks run in delta mode, which compares against the last persisted snapshot. Seed a
+baseline first, otherwise policy evaluation is silently skipped:
 
-Seed a baseline snapshot first:
 ```bash
 hotspots analyze . --mode snapshot
-hotspots init --hooks   # copy the hook template, install it
+```
+
+**Pre-push hook, with the pre-commit framework** (`.pre-commit-config.yaml`):
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: hotspots
+        name: hotspots risk check
+        language: system
+        entry: hotspots analyze . --mode delta --policy --format text
+        pass_filenames: false
+        stages: [pre-push]
+```
+
+**Pre-push hook, plain shell** (save as `.git/hooks/pre-push`, then `chmod +x`):
+
+```sh
+#!/usr/bin/env sh
+set -e
+hotspots analyze . --mode delta --policy --format text
+```
+
+**GitHub Actions** (`.github/workflows/hotspots.yml`). A push to the main branch builds and
+caches the baseline snapshot; a pull request restores the base commit's snapshot and gates
+on the delta. The first PR has no baseline yet and skips policy; gating starts once a
+main-branch snapshot is cached.
+
+```yaml
+name: Hotspots
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  hotspots:
+    name: Analyze code hotspots
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Hotspots CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # On push-to-main we save the snapshot under hotspots-{sha}.
+      # On a PR we restore the snapshot for the base-branch commit so that
+      # delta mode has a baseline to diff against.
+      - name: Restore snapshot cache
+        uses: actions/cache@v4
+        with:
+          path: .hotspots/
+          key: hotspots-${{ github.sha }}
+          restore-keys: |
+            hotspots-${{ github.event.pull_request.base.sha }}
+            hotspots-
+
+      - name: Analyze (snapshot on main, delta on PR)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            hotspots analyze . --mode delta --policy
+          else
+            # --mode snapshot requires --format json (or --explain) when not
+            # printing text; the snapshot is persisted to .hotspots/ either way.
+            hotspots analyze . --mode snapshot --format json > /dev/null
+          fi
 ```
 
 ## Troubleshooting

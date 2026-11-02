@@ -228,12 +228,6 @@ hotspots config validate          # validate auto-discovered config (exit 1 on f
 hotspots config validate --path FILE
 ```
 
-### `hotspots init`
-
-```bash
-hotspots init --hooks   # print pre-commit and CI hook templates to stdout
-```
-
 ### Global flags
 
 ```bash

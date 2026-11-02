@@ -131,9 +131,9 @@ hotspots-cli/src/
     ├── diff.rs
     ├── train.rs
     ├── coordinate.rs   # coupling/ownership risk for a set of files, pre-work
-    ├── prune.rs
+    ├── prune.rs        # drop unreachable snapshots / compact history
     ├── config.rs
-    └── init.rs
+    └── telemetry.rs
 ```
 
 ## Global Invariants

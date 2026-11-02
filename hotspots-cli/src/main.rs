@@ -149,15 +149,6 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Print hook templates for CI/CD integration
-    Init {
-        /// Print pre-commit framework and raw shell hook templates to stdout
-        #[arg(long)]
-        hooks: bool,
-        /// Write a GitHub Actions workflow to .github/workflows/hotspots.yml
-        #[arg(long)]
-        ci: bool,
-    },
     /// Compare analysis snapshots between two git refs
     Diff {
         /// Base git ref (branch, tag, SHA, or HEAD~N)
@@ -346,7 +337,6 @@ fn main() -> anyhow::Result<()> {
             dry_run,
         } => cmd::prune::handle_prune(unreachable, older_than, compact, dry_run)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
-        Commands::Init { hooks, ci } => cmd::init::handle_init(hooks, ci)?,
         Commands::Diff {
             base,
             head,
@@ -428,7 +418,6 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Analyze { .. } => "analyze",
         Commands::Prune { .. } => "prune",
         Commands::Config { .. } => "config",
-        Commands::Init { .. } => "init",
         Commands::Diff { .. } => "diff",
         Commands::Train { .. } => "train",
         Commands::Coordinate { .. } => "coordinate",
