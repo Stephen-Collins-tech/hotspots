@@ -124,7 +124,7 @@ enum Commands {
         #[arg(long)]
         blend_churn: bool,
     },
-    /// Prune unreachable snapshots
+    /// Reduce snapshot storage: drop unreachable snapshots and/or compact history
     Prune {
         /// Prune unreachable snapshots (must be explicitly specified)
         #[arg(long)]
@@ -134,17 +134,12 @@ enum Commands {
         #[arg(long)]
         older_than: Option<u64>,
 
-        /// Dry-run mode (report what would be pruned without actually deleting)
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Compact history to reduce storage
-    Compact {
-        /// Compaction level (0 = full snapshots, 1 = deltas only, 2 = band transitions only)
-        #[arg(long)]
-        level: u32,
+        /// Compact history to the given level (0 = full snapshots, 1 = deltas only,
+        /// 2 = band transitions only)
+        #[arg(long, value_name = "LEVEL")]
+        compact: Option<u32>,
 
-        /// Report what would be done without modifying any files
+        /// Dry-run mode (report what would change without modifying any files)
         #[arg(long)]
         dry_run: bool,
     },
@@ -347,9 +342,9 @@ fn main() -> anyhow::Result<()> {
         Commands::Prune {
             unreachable,
             older_than,
+            compact,
             dry_run,
-        } => cmd::prune::handle_prune(unreachable, older_than, dry_run)?,
-        Commands::Compact { level, dry_run } => cmd::compact::handle_compact(level, dry_run)?,
+        } => cmd::prune::handle_prune(unreachable, older_than, compact, dry_run)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
         Commands::Init { hooks, ci } => cmd::init::handle_init(hooks, ci)?,
         Commands::Diff {
@@ -432,7 +427,6 @@ fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Analyze { .. } => "analyze",
         Commands::Prune { .. } => "prune",
-        Commands::Compact { .. } => "compact",
         Commands::Config { .. } => "config",
         Commands::Init { .. } => "init",
         Commands::Diff { .. } => "diff",

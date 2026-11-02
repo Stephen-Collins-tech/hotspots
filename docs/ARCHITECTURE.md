@@ -132,7 +132,6 @@ hotspots-cli/src/
     ├── train.rs
     ├── coordinate.rs   # coupling/ownership risk for a set of files, pre-work
     ├── prune.rs
-    ├── compact.rs
     ├── config.rs
     └── init.rs
 ```

@@ -193,23 +193,31 @@ facts either — both removed in hotspots 2.0 for lack of validated evidence. Se
 
 ### `hotspots prune`
 
-Remove unreachable snapshots (after force-push or branch deletion).
+Reduce the disk space used by the `.hotspots/` snapshot history. Two independent actions,
+at least one of which must be given:
 
 ```
 hotspots prune --unreachable [--older-than DAYS] [--dry-run]
+hotspots prune --compact LEVEL [--dry-run]
 ```
 
-`--unreachable` is required. Only prunes snapshots unreachable from `refs/heads/*`, `refs/tags/*`, or `refs/remotes/*`.
+| Flag | Description |
+|---|---|
+| `--unreachable` | Remove snapshots whose commit is no longer reachable from `refs/heads/*`, `refs/tags/*` or `refs/remotes/*` (after a force-push or branch deletion), and snapshots that reference a commit no longer in git history |
+| `--older-than DAYS` | With `--unreachable`: only remove unreachable snapshots older than this many days |
+| `--compact LEVEL` | Compact the retained history: `0` keeps full snapshots (the default, and the way to undo a compaction setting), `1` stores intermediate snapshots as deltas against their parent, `2` drops snapshots in which no function changed band |
+| `--dry-run` | Report what would change without modifying any files |
 
-### `hotspots compact`
+**Why it exists.** Every `analyze --mode snapshot` run writes a snapshot, so history grows
+with every commit analyzed. `prune` is the cleanup for that growth.
 
-Set compaction level for snapshot storage.
+**When to use it.** Run `--unreachable --dry-run` after force-pushes or deleting branches;
+run `--compact 1` on a long-lived repo whose `.hotspots/` directory has grown large. Level 2
+loses per-commit detail, so use it only when you need band-change history rather than every
+score.
 
-```
-hotspots compact --level 0
-```
-
-Level 0 = full snapshots (current). Levels 1–2 are not yet implemented.
+**Reading the output.** It prints the number of snapshots pruned or converted and, for
+compaction, the storage saved. `--dry-run` prints the same numbers without changing anything.
 
 ### `hotspots config`
 

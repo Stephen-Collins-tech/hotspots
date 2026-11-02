@@ -432,8 +432,9 @@ hotspots analyze . --mode snapshot --skip-touch-metrics
 hotspots prune --unreachable --dry-run
 hotspots prune --unreachable --older-than 30
 
-# Compact snapshot storage
-hotspots compact --level 0
+# Compact snapshot storage (1 = deltas between snapshots, 2 = keep only band changes)
+hotspots prune --compact 1 --dry-run
+hotspots prune --compact 1
 ```
 
 ## Training a Repo-Specific Ranker
