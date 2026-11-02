@@ -335,32 +335,36 @@ matters when diffing output commit-to-commit or gating CI on it:
 | Field | Category | Behavior |
 |---|---|---|
 | `lrs` | Absolute | Depends only on that function's own metrics (`cc`, `nd`, `fo`, `ns`). Unchanged unless the function itself changes. |
-| `activity_risk` | Absolute | Extends `lrs` with that function's own git/call-graph signals. Unchanged unless the function or its direct callers/history change. |
-| `band` (risk band) | Absolute | A fixed threshold on `lrs`/`activity_risk` (see Risk bands above). Moves only when the function's own score crosses a threshold. |
+| `activity_risk` | Absolute | `lrs` plus its file's git signals on a fixed scale (see Activity Risk below). Does not depend on any other function. Changes when the function, or any commit touching its file, changes. |
+| `band` (risk band) | Absolute | A fixed threshold on `lrs` (see Risk bands above). Moves only when the function's own score crosses a threshold. |
 | `percentile` | Population-relative | A rank against every other function in the current run. Can change when unrelated functions elsewhere in the repo are added, removed, or change score — even if this function is untouched. |
-| `driver` / `driver_detail` | Population-relative | Computed from percentile thresholds (default P75, see Driver labels below). Can flip for the same reason as `percentile`. |
-| `quadrant` | Population-relative | Depends on population-relative activity thresholds (median/P75, see Quadrant assignment below) as well as `band`. Can flip even when the function's own `lrs`/`activity_risk`/`band` are unchanged. |
+| `tier` | Population-relative | `active` when the file's touch count is above the repo median or it changed in the last 30 days. The median moves with the rest of the repo, so a function can flip tier even if its own file did not change. |
 
 **Implication for CI gates:** if you want a gate that only fires when a function's
 *own* risk changed — not when the rest of the repo's distribution shifted — key it on
-`lrs`, `activity_risk`, and `band`. Gates keyed on `percentile`, `driver`, or
-`quadrant` can trip on a commit that didn't touch the flagged function at all, because
+`lrs`, `activity_risk`, and `band`. Gates keyed on `percentile` or
+`tier` can trip on a commit that didn't touch the flagged function at all, because
 those labels are recomputed relative to the whole population on every run.
 
 No output field is renamed or restructured by this distinction — it is purely
-documentation of behavior that already exists in `compute_percentiles`,
-`populate_driver_labels`, and `compute_quadrants` (`hotspots-core/src/snapshot.rs`).
+documentation of behavior that already exists in `compute_percentiles`
+and `compute_tiers` (`hotspots-core/src/snapshot.rs`).
 
 ### Activity Risk Score (snapshot mode)
 
-Extends LRS with git history and call graph signals:
-
+Combines LRS with the file's git history into one absolute score. Each term is scaled
+to [0, 1] on a fixed scale, so no term swamps the others and the score never depends on
+the rest of the repo:
 ```
-Activity Risk = LRS
-  + (lines_added + lines_deleted) / 100 × 0.5   # churn
-  + min(touch_count / 10, 5.0) × 0.3             # touch frequency (see note below on the window)
-  + max(0, 5.0 − days_since_last_change / 7) × 0.2  # recency
+Activity Risk = LRS / 20.2
+  + min(log2(1 + lines_added_and_deleted) / 14, 1)   # churn (180-day window)
+  + min(touch_count / 50, 1)                          # touch frequency (365-day window)
+  + max(0, 1 − days_since_last_change / 35)           # recency
 ```
+The scale constants are fixed in the code (`hotspots-core/src/scoring.rs`) and are not
+configurable. The range is roughly 0 to 4; a missing signal contributes 0, so with no
+git data Activity Risk is just `LRS / 20.2`. `risk_factors` in the JSON output breaks the
+score into `{complexity, churn, touch, recency}`.
 
 **How to read it, and why you can't "fix" it.** Activity Risk estimates where attention is
 likely to be needed next, not how good the code is. It is built from how recently and how
@@ -423,24 +427,6 @@ real, measured wall-clock cost (a single git subprocess call, but scanning more 
 override it with `touch_window_days` in `.hotspotsrc.json` (any positive integer; default
 365) if that cost matters more than the ranking-quality gain for a given repo.
 
-Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
-
-The three live weights (`churn`, `touch`, `recency`) are overridable via the `scoring`
-key in `.hotspotsrc.json`. `fan_in`, `scc`, `depth`, and `burst` are also still accepted
-for forward compatibility (none of the four is read by the live formula):
-
-```json
-{
-  "scoring": {
-    "burst": 0.5
-  }
-}
-```
-
-`neighbor_churn` is **not** accepted — removed along with the field itself; a config
-file setting it now fails validation. Unset weights fall back to the defaults shown in
-the formula above. Same validation as the LRS `weights` block: non-negative, at most 10.0.
-
 ### Call graph metrics (snapshot mode)
 
 - **Fan-in** — functions that call this function (blast radius)
@@ -451,43 +437,27 @@ the formula above. Same validation as the LRS `weights` block: non-negative, at 
 hotspots 2.0 (no validated consumer once their live-score contribution was
 dropped).
 
-### Quadrant assignment
+### Activity tier
 
-| | Low activity | High activity |
-|---|---|---|
-| **High/Critical band** | `debt` | `fire` |
-| **Low/Moderate band** | `ok` | `watch` |
+Each function gets a `tier` of `active` or `quiet`, based on activity alone:
 
-Activity is "high" if: touch count (365-day window by default, see `touch_window_days`
-above) above population median, OR changed within that same window.
+- `active`: its file has more touches (in the touch window) than the repo median, or it
+  changed in the last 30 days.
+- `quiet`: everything else.
 
-`fire` = live regression risk (refactor now). `debt` = structural debt (schedule proactively). `watch` = monitor. `ok` = no action.
+**Why it exists.** The tier answers "is this code being worked on right now?". It makes no
+claim about how complex the code is; `band` carries that separately, so you can still
+select "complex and active" by combining the two. In our evaluation, adding a complexity
+gate to the activity set did not improve how well it predicted where fixes land, which is
+why the tier is activity-only.
 
-`quadrant` is population-relative (activity is judged against the current run's
-median/P75) — see "Field stability" above before keying a CI gate on it.
+**How to use it.** The triage view groups functions into `active` and `quiet`, each sorted
+by `activity_risk`. Start with the top of `active`. A function in `quiet` with a high
+`band` is dormant structural risk: not urgent, but worth knowing about before the file
+becomes active.
 
-### Driver labels
-
-Each function gets a single primary diagnosis, checked in priority order:
-
-| Label | Condition | Action |
-|---|---|---|
-| `cyclic_dep` | Part of dependency cycle (SCC > 1) | Break the cycle before adding callers |
-| `high_complexity` | CC above P75 | Schedule refactor; extract sub-functions |
-| `deep_nesting` | ND above P75 | Flatten with early returns or guard clauses |
-| `high_fanout_churning` | FO above P75 AND touches above P50 | Extract interface boundary |
-| `high_fanin_complex` | Fan-in above P75 AND CC above P50 | Extract and stabilize; wide blast radius |
-| `high_churn_low_cc` | Touches above P75 AND CC below P25 | Add regression tests before next change |
-| `composite` | No single dimension clearly dominates | Address the highest dimension first |
-
-Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`). `cyclic_dep` is the sole absolute check.
-
-`driver_detail` (JSON): for `composite` functions, lists up to 3 near-miss dimensions with their percentile rank (e.g. `"cc (P72), nd (P68)"` — notable but below P75 threshold). Omitted when null.
-
-`driver` and `driver_detail` are population-relative (thresholds are recomputed from
-the current run's distribution) — see "Field stability" above before keying a CI gate
-on them.
-
+`tier` is population-relative (the median is taken from the current run) — see "Field
+stability" above before keying a CI gate on it.
 
 ---
 
@@ -537,7 +507,6 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
   "top": null,
   "co_change_window_days": 90,
   "co_change_min_count": 3,
-  "driver_threshold_percentile": 75,
   "policy": {
     "critical_introduction": "warn",
     "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @stephenc222 2026-07-06",
@@ -586,8 +555,6 @@ whitespace-only reason. This does not make the override unbypassable — anyone 
 commit access to the config can still weaken it, the same as anyone with access to a CI
 workflow file can remove a required check — but it does mean the change can't be silent.
 
-**`driver_threshold_percentile`:** default 75 means a function must be in the top 25% of its metric to receive a specific driver label. Lower (50–60) for small/uniform repos; higher (85–90) for large repos with high median complexity.
-
 **`co_change_window_days`:** days of git history to mine for file co-change pairs. Increase for repos with slow commit cadence.
 
 ---
@@ -607,7 +574,7 @@ else is an **optional section**, present only when that command/flag computed it
 |---|---|---|
 | `functions` | always | Full per-function array (`FunctionSnapshot`) |
 | `summary` | always | Population-level aggregate stats |
-| `triage` | `--mode snapshot`, not `--all-functions` | `fire`/`debt`/`watch`/`ok` buckets, each with a per-function `action` |
+| `triage` | `--mode snapshot`, not `--all-functions` | `active`/`quiet` groups, each with a count and the top functions by `activity_risk` |
 | `architecture` | `--all-functions` | `file_risk`/`modules` aggregates |
 | `co_change` | `--all-functions` | File co-change pairs |
 | `coordinate` | `hotspots coordinate` | Ownership/knowledge-mode facts for a file set |
@@ -622,15 +589,15 @@ check for a section's presence (`Option`/possibly-absent key) rather than
 assuming it's always there.
 
 `analysis.formula_version` is a separate integer that tracks the scoring
-formula (default `ScoringWeights`, `LrsWeights`, `RiskThresholds`), bumped
-only when a default weight or threshold changes. `analysis.tool_version`
+formula (the `activity_risk` constants, `LrsWeights`, `RiskThresholds`), bumped
+only when a weight, threshold or scale constant changes. `analysis.tool_version`
 changes on every release; `formula_version` does not — use it in `hotspots
 diff`/`trends` tooling to tell a score delta caused by a tool upgrade apart
 from one caused by a real code change.
 
 **`formula_version` vs. config `schema_version` — not the same thing.**
-`formula_version` tracks changes to hotspots' *built-in default* weights/thresholds
-(`ScoringWeights::default()` etc.) and is unaffected by a user's own
+`formula_version` tracks changes to hotspots' *built-in* weights/thresholds/scales
+(the `scoring.rs` constants, `LrsWeights::default()` etc.) and is unaffected by a user's own
 `.hotspotsrc.json` — a repo with fully custom weights sees the same
 `formula_version` as one with no config at all, because *their* scoring didn't
 change even when the shipped defaults did. Config `schema_version` (above) tracks
@@ -662,11 +629,9 @@ is not guaranteed to bump it.
     "fan_in": 8, "pagerank": 0.0042,
     "scc_size": 1, "is_entrypoint": false, "neighbor_churn": 23
   },
-  "activity_risk": 18.5,
-  "risk_factors": { "complexity": 6.0, "churn": 1.2, "activity": 0.8, "recency": 0.0 },
-  "driver": "high_complexity",
-  "driver_detail": null,
-  "quadrant": "fire",
+  "activity_risk": 2.18,
+  "risk_factors": { "complexity": 0.59, "churn": 0.60, "touch": 0.24, "recency": 0.74 },
+  "tier": "active",
   "subsystem": "",
   "authors_90d": 2,
   "directed_coupling": 0.31
@@ -676,21 +641,21 @@ is not guaranteed to bump it.
 This is the full per-function shape in `functions[]` — present on every `--mode
 snapshot` run, with or without `--all-functions`. `suppression_reason` is omitted (not null)
 when no suppression is present. `risk_factors` is the `{complexity, churn,
-activity, recency}` breakdown that sums into `activity_risk` (see Activity Risk
+touch, recency}` breakdown that sums into `activity_risk` (see Activity Risk
 above) — `fan_in`/`cyclic_dependency`/`depth`/`burst` have no field here; they were
 removed from `RiskFactors` in hotspots 2.0.
 
-**This is distinct from the triage view's per-function entries** (`triage.{fire,debt,watch}.top[]`,
+**This is distinct from the triage view's per-function entries** (`triage.{active,quiet}.top[]`,
 present only on `--mode snapshot` *without* `--all-functions`): those use a
-slimmer shape (`function`, `file`, `line`, `band`, `quadrant`, `driver`, `action`,
+slimmer shape (`function`, `file`, `line`, `band`, `tier`,
 `lrs`, `activity_risk`, `metrics`, `touch_count`, `days_since_last_change`,
-`fan_in`) that adds a human-readable `action` string but omits
+`fan_in`) that omits
 `risk_factors`/`callgraph`'s other fields/`suppression_reason`/`subsystem`/
 `authors_90d`/`directed_coupling`. Don't assume the two shapes are interchangeable
 when writing a consumer against this schema.
 
 `lrs`, `activity_risk`, and `band` are absolute — stable across runs unless the
-function's own metrics/history change. `quadrant`, `driver`, `driver_detail`, and
+function's own metrics/history change. `tier` and
 `percentile` (`is_top_10_pct`/`is_top_5_pct`/`is_top_1_pct`, omitted from the example
 above but present when populated) are population-relative — they can change between
 runs purely because other functions in the repo changed, even when this function did

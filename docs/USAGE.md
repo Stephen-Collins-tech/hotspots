@@ -369,7 +369,7 @@ hotspots analyze . --mode snapshot --format json --all-functions  # full functio
 
 Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version
 across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
-`functions` array in favor of the triage-first structure (`fire`/`debt`/`watch`/`ok` buckets);
+`functions` array in favor of the triage-first structure (`active`/`quiet` groups);
 use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
 in tooling.
 
@@ -499,7 +499,7 @@ P@K evaluation (365-day fix-label window):
 
 If `P@K` is well above `base_rate`, apply the model. If `P@K ≈ base_rate`, skip it — the default LRS ranking is just as good.
 
-Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically, re-scores triage quadrants, and prints which model class is in effect:
+Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically, and prints which model class is in effect:
 
 ```
 hotspots: using trained ranker (model class: Ridge)

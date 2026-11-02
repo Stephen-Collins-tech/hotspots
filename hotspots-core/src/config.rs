@@ -125,10 +125,6 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub top: Option<usize>,
 
-    /// Activity risk scoring weights
-    #[serde(default)]
-    pub scoring: Option<ScoringWeightsConfig>,
-
     /// Number of days back to look for co-change pairs (default: 90)
     #[serde(default)]
     pub co_change_window_days: Option<u64>,
@@ -150,12 +146,6 @@ pub struct HotspotsConfig {
     /// Minimum number of co-changes required to report a pair (default: 3)
     #[serde(default)]
     pub co_change_min_count: Option<usize>,
-
-    /// Percentile threshold for driving dimension detection (1–99, default: 75).
-    /// A function must exceed this percentile in a metric to trigger that driver label.
-    /// Lower values = more functions get specific labels; higher = only extreme outliers.
-    #[serde(default)]
-    pub driver_threshold_percentile: Option<u8>,
 
     /// Node count above which betweenness centrality switches from exact to approximate
     /// (default: 2000). Below this threshold the exact O(N²) Brandes algorithm runs;
@@ -202,12 +192,10 @@ impl Default for HotspotsConfig {
             warning_thresholds: None,
             min_lrs: None,
             top: None,
-            scoring: None,
             co_change_window_days: None,
             touch_window_days: None,
             change_size_thresholds: None,
             co_change_min_count: None,
-            driver_threshold_percentile: None,
             betweenness_exact_threshold: None,
             betweenness_approx_k: None,
             callgraph_skip_above: None,
@@ -316,26 +304,6 @@ pub struct WeightConfig {
     pub ns: Option<f64>,
 }
 
-/// Weights for activity-weighted risk scoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScoringWeightsConfig {
-    /// Weight for churn factor (default: 0.5)
-    pub churn: Option<f64>,
-    /// Weight for touch frequency factor (default: 0.3)
-    pub touch: Option<f64>,
-    /// Weight for recency factor (default: 0.2)
-    pub recency: Option<f64>,
-    /// Weight for fan-in factor (default: 0.4)
-    pub fan_in: Option<f64>,
-    /// Weight for SCC penalty (default: 0.3)
-    pub scc: Option<f64>,
-    /// Weight for dependency depth penalty (default: 0.1)
-    pub depth: Option<f64>,
-    /// Weight for commit-timing burstiness factor (default: 0.3)
-    pub burst: Option<f64>,
-}
-
 /// Warning thresholds for proactive alerts.
 ///
 /// **Unvalidated heuristic** — these cutoffs (and `rapid_growth_percent`) have no
@@ -392,16 +360,12 @@ pub struct ResolvedConfig {
     /// `hotspots diff` size-band cutoffs (display only, not research-derived; see
     /// `HotspotsConfig::change_size_thresholds`)
     pub change_size_thresholds: crate::aggregates::ChangeSizeThresholds,
-    /// Percentile threshold for driving dimension detection (1–99)
-    pub driver_threshold_percentile: u8,
     /// Node count above which betweenness switches to approximate algorithm
     pub betweenness_exact_threshold: usize,
     /// Number of pivot sources for approximate betweenness
     pub betweenness_approx_k: usize,
     /// Skip all call graph computation above this function count (usize::MAX = never skip)
     pub callgraph_skip_above: usize,
-    /// Activity risk scoring weights
-    pub scoring_weights: crate::scoring::ScoringWeights,
     /// Severity for the `critical-introduction` policy (default: Block)
     pub critical_introduction_mode: PolicyMode,
     /// Reason given for downgrading `critical_introduction_mode` below Block (None if Block)
@@ -436,9 +400,6 @@ impl HotspotsConfig {
         }
         if let Some(ref wt) = self.warning_thresholds {
             validate_warning_thresholds(wt)?;
-        }
-        if let Some(ref s) = self.scoring {
-            validate_scoring(s)?;
         }
         if let Some(ref p) = self.policy {
             validate_policy_config(p)?;
@@ -477,14 +438,6 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
     if let Some(m) = c.co_change_min_count {
         if m == 0 {
             anyhow::bail!("co_change_min_count must be at least 1");
-        }
-    }
-    if let Some(p) = c.driver_threshold_percentile {
-        if p == 0 || p >= 100 {
-            anyhow::bail!(
-                "driver_threshold_percentile must be between 1 and 99 (got {})",
-                p
-            );
         }
     }
     if let Some(k) = c.betweenness_approx_k {
@@ -669,28 +622,6 @@ fn validate_warning_thresholds(wt: &WarningThresholdConfig) -> Result<()> {
     Ok(())
 }
 
-fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
-    for (name, val) in [
-        ("churn", s.churn),
-        ("touch", s.touch),
-        ("recency", s.recency),
-        ("fan_in", s.fan_in),
-        ("scc", s.scc),
-        ("depth", s.depth),
-        ("burst", s.burst),
-    ] {
-        if let Some(v) = val {
-            if v < 0.0 {
-                anyhow::bail!("scoring.{} must be non-negative (got {})", name, v);
-            }
-            if v > 10.0 {
-                anyhow::bail!("scoring.{} must be at most 10.0 (got {})", name, v);
-            }
-        }
-    }
-    Ok(())
-}
-
 impl HotspotsConfig {
     /// Resolve config into compiled form ready for use
     pub fn resolve(&self) -> Result<ResolvedConfig> {
@@ -750,22 +681,6 @@ impl HotspotsConfig {
                 None => (2.5, 3.0, 5.5, 6.0, 50.0),
             };
 
-        let scoring_weights = match &self.scoring {
-            Some(s) => {
-                let defaults = crate::scoring::ScoringWeights::default();
-                crate::scoring::ScoringWeights {
-                    churn: s.churn.unwrap_or(defaults.churn),
-                    touch: s.touch.unwrap_or(defaults.touch),
-                    recency: s.recency.unwrap_or(defaults.recency),
-                    fan_in: s.fan_in.unwrap_or(defaults.fan_in),
-                    scc: s.scc.unwrap_or(defaults.scc),
-                    depth: s.depth.unwrap_or(defaults.depth),
-                    burst: s.burst.unwrap_or(defaults.burst),
-                }
-            }
-            None => crate::scoring::ScoringWeights::default(),
-        };
-
         let (
             critical_introduction_mode,
             critical_introduction_reason,
@@ -804,7 +719,6 @@ impl HotspotsConfig {
             rapid_growth_percent,
             min_lrs: self.min_lrs,
             top_n: self.top,
-            scoring_weights,
             critical_introduction_mode,
             critical_introduction_reason,
             excessive_risk_regression_mode,
@@ -822,7 +736,6 @@ impl HotspotsConfig {
                 }
             },
             co_change_min_count: self.co_change_min_count.unwrap_or(3),
-            driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
             betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
             betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
             callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
@@ -1405,53 +1318,5 @@ mod tests {
         assert_eq!(resolved.attention_min, 5.5);
         assert_eq!(resolved.attention_max, 6.0);
         assert_eq!(resolved.rapid_growth_percent, 50.0);
-    }
-
-    #[test]
-    fn test_scoring_weights_defaults() {
-        let config = HotspotsConfig::default();
-        let resolved = config.resolve().unwrap();
-        let defaults = crate::scoring::ScoringWeights::default();
-        assert_eq!(resolved.scoring_weights.churn, defaults.churn);
-        assert_eq!(resolved.scoring_weights.touch, defaults.touch);
-        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
-        assert_eq!(resolved.scoring_weights.fan_in, defaults.fan_in);
-        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
-        assert_eq!(resolved.scoring_weights.depth, defaults.depth);
-    }
-
-    #[test]
-    fn test_scoring_weights_from_config() {
-        let json = r#"{
-            "scoring": {
-                "churn": 0.8,
-                "touch": 0.5,
-                "fan_in": 0.6
-            }
-        }"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        config.validate().unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.scoring_weights.churn, 0.8);
-        assert_eq!(resolved.scoring_weights.touch, 0.5);
-        assert_eq!(resolved.scoring_weights.fan_in, 0.6);
-        // Unspecified fields fall back to defaults
-        let defaults = crate::scoring::ScoringWeights::default();
-        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
-        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
-    }
-
-    #[test]
-    fn test_reject_negative_scoring_weight() {
-        let json = r#"{"scoring": {"churn": -0.1}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_scoring_weight_over_10() {
-        let json = r#"{"scoring": {"fan_in": 11.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
     }
 }

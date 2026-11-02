@@ -99,14 +99,13 @@ LRS = 1.0×R_cc + 0.8×R_nd + 0.6×R_fo + 0.7×R_ns
 
 where each component is log-scaled and capped to prevent outliers from dominating ([full formula, caps, and weight rationale](docs/REFERENCE.md#lrs-formula)).
 
-In **snapshot mode**, LRS is combined with git history (churn, touch frequency, recency) and call graph metrics (fan-in, PageRank, SCC membership) to compute an **Activity Risk Score** and place each function in a triage quadrant:
+In **snapshot mode**, LRS is combined with the file's git history (churn, touch frequency, recency) into an absolute **Activity Risk Score**, and each function is marked `active` (its file is touched more than the repo median, or changed in the last 30 days) or `quiet`:
 
-| Quadrant | Complexity | Activity | Action |
-|---|---|---|---|
-| `fire` | High | High | Refactor now |
-| `debt` | High | Low | Schedule before next push |
-| `watch` | Low | High | Monitor |
-| `ok` | Low | Low | Leave it alone |
+```
+Activity Risk = LRS/20.2 + churn + touch + recency      (each term scaled to 0–1)
+```
+
+Activity Risk says where attention is likely needed next, not how good the code is. Editing a file raises it for every function in the file and it decays as the file goes quiet, so use the risk **band** (from LRS) to judge structure and Activity Risk to decide where to look first. See [Activity Risk](docs/REFERENCE.md#activity-risk-score-snapshot-mode) and [Activity tier](docs/REFERENCE.md#activity-tier).
 
 **Risk bands:** Low (< 3) · Moderate (3–6) · High (6–9) · Critical (≥ 9)
 
@@ -158,8 +157,6 @@ Exit code 1 on blocking violations, 0 on warnings only.
 ## Key Features
 
 **Policy engine** — blocks: new critical-risk functions and LRS regressions ≥ 1.0. Warns: rapid growth > 50%.
-
-**Driver labels** — each function gets a primary diagnosis: `high_complexity`, `deep_nesting`, `exit_heavy`, `high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, or `composite`.
 
 **Suppression comments** — exclude functions from CI failures while keeping them visible:
 ```typescript

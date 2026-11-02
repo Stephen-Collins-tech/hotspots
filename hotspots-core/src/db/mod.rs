@@ -70,9 +70,7 @@ CREATE TABLE IF NOT EXISTS functions (
     is_top_10_pct           INTEGER,
     is_top_5_pct            INTEGER,
     is_top_1_pct            INTEGER,
-    driver                  TEXT,
-    driver_detail           TEXT,
-    quadrant                TEXT,
+    tier                    TEXT,
     FOREIGN KEY (commit_sha) REFERENCES commits(sha),
     UNIQUE (commit_sha, function_id)
 );
@@ -130,7 +128,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
             activity_risk, risk_factors,
             is_top_10_pct, is_top_5_pct, is_top_1_pct,
-            driver, driver_detail, quadrant
+            tier
         ) VALUES (
             ?1,?2,?3,?4,?5,
             ?6,?7,?8,?9,?10,?11,?12,?13,
@@ -140,7 +138,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             ?22,?23,?24,?25,?26,
             ?27,?28,
             ?29,?30,?31,
-            ?32,?33,?34
+            ?32
         )",
     )?;
 
@@ -232,9 +230,7 @@ fn insert_functions(conn: &Connection, snapshot: &Snapshot) -> Result<()> {
             top10,
             top5,
             top1,
-            func.driver,
-            func.driver_detail,
-            func.quadrant,
+            func.tier,
         ])
         .context("failed to insert function row")?;
     }
@@ -255,7 +251,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 scc_id, scc_size, is_entrypoint, dependency_depth, neighbor_churn,
                 activity_risk, risk_factors,
                 is_top_10_pct, is_top_5_pct, is_top_1_pct,
-                driver, driver_detail, quadrant
+                tier
          FROM functions
          WHERE commit_sha = ?1
          ORDER BY function_id",
@@ -327,9 +323,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                     is_top_1_pct: t1 != 0,
                 });
 
-            let driver: Option<String> = row.get(30)?;
-            let driver_detail: Option<String> = row.get(31)?;
-            let quadrant: Option<String> = row.get(32)?;
+            let tier: Option<String> = row.get(30)?;
 
             Ok((
                 function_id,
@@ -351,9 +345,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
                 activity_risk,
                 risk_factors_json,
                 percentile,
-                driver,
-                driver_detail,
-                quadrant,
+                tier,
             ))
         })?;
 
@@ -379,9 +371,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             activity_risk,
             risk_factors_json,
             percentile,
-            driver,
-            driver_detail,
-            quadrant,
+            tier,
         ) = row.context("failed to read function row")?;
 
         let risk_factors = risk_factors_json
@@ -417,9 +407,7 @@ fn load_functions(conn: &Connection, sha: &str) -> Result<Vec<FunctionSnapshot>>
             activity_risk,
             risk_factors,
             percentile,
-            driver,
-            driver_detail,
-            quadrant,
+            tier,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,
@@ -1087,7 +1075,7 @@ mod tests {
         f.risk_factors = Some(RiskFactors {
             complexity: 1.0,
             churn: 0.5,
-            activity: 0.8,
+            touch: 0.8,
             recency: 0.3,
         });
         f.percentile = Some(PercentileFlags {
@@ -1095,9 +1083,7 @@ mod tests {
             is_top_5_pct: true,
             is_top_1_pct: false,
         });
-        f.driver = Some("high_complexity".to_string());
-        f.driver_detail = Some("cc (P92)".to_string());
-        f.quadrant = Some("fire".to_string());
+        f.tier = Some("active".to_string());
 
         db.insert(&snapshot).unwrap();
         let loaded = db.load("fullsha").unwrap().expect("should exist");
@@ -1133,9 +1119,7 @@ mod tests {
         assert!(pct.is_top_5_pct);
         assert!(!pct.is_top_1_pct);
 
-        assert_eq!(lf.driver.as_deref(), Some("high_complexity"));
-        assert_eq!(lf.driver_detail.as_deref(), Some("cc (P92)"));
-        assert_eq!(lf.quadrant.as_deref(), Some("fire"));
+        assert_eq!(lf.tier.as_deref(), Some("active"));
 
         // Commit fields
         assert_eq!(loaded.commit.ticket_ids, vec!["PROJ-123"]);

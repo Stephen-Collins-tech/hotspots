@@ -34,13 +34,14 @@ use crate::report::RiskReport;
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
 
-/// Version of the scoring formula (default `ScoringWeights`, `LrsWeights`,
+/// Version of the scoring formula (`activity_risk` constants, `LrsWeights`,
 /// `RiskThresholds`). Bumped whenever a default weight or threshold changes, or
 /// whenever a scoring input's *computation* changes even if its name/shape does not
 /// (e.g. 1->2: `churn`'s source switched from a single-commit diff to a 180-day
-/// trailing window) — so `hotspots diff`/`trends` can distinguish a score delta caused
+/// trailing window; 2->3: `activity_risk` moved to the fixed-scale formula) — so
+/// `hotspots diff`/`trends` can distinguish a score delta caused
 /// by a tool upgrade from one caused by a real code change.
-pub const FORMULA_VERSION: u32 = 2;
+pub const FORMULA_VERSION: u32 = 3;
 
 fn default_formula_version() -> u32 {
     FORMULA_VERSION
@@ -174,23 +175,11 @@ pub struct FunctionSnapshot {
     pub risk_factors: Option<crate::scoring::RiskFactors>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub percentile: Option<PercentileFlags>,
-    /// Primary driving dimension label (e.g. "high_complexity", "high_churn_low_cc").
-    /// Populated by the enricher after activity_risk is computed.
+    /// Activity tier: "active" when the function's file has more touches than the
+    /// repo median or changed within the last 30 days, otherwise "quiet".
+    /// Says nothing about complexity; `band` carries that separately.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub driver: Option<String>,
-    /// Near-miss detail for composite functions: top dimensions that almost fired,
-    /// with their percentile rank. E.g. "cc (P72), nd (P68)".
-    /// None for non-composite labels or when no metric is near-threshold.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub driver_detail: Option<String>,
-    /// Triage quadrant. Values: "fire", "debt", "watch", "ok".
-    /// fire  = high/critical + active (touches > p50 or changed ≤30d)
-    /// debt  = high/critical + not active
-    /// watch = moderate/low  + active
-    /// ok    = everything else
-    /// Populated by the enricher after driver labels. None before enrichment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quadrant: Option<String>,
+    pub tier: Option<String>,
     /// Nearest manifest-root ancestor relative to repo root (e.g. "packages/next",
     /// "turbopack/crates/turbopack-ecmascript"). Empty string when the file belongs
     /// to the repo root itself. None when no repo_root was provided at snapshot time.
@@ -326,8 +315,8 @@ pub struct Snapshot {
     pub summary: Option<SnapshotSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
-    /// Functions grouped by triage quadrant (fire/debt/watch/ok), top-N per
-    /// quadrant. Populated only for the slimmed default `analyze --mode
+    /// Functions grouped by activity tier (active/quiet), top-N per
+    /// tier. Populated only for the slimmed default `analyze --mode
     /// snapshot --format json` output (i.e. without `--all-functions`), in
     /// which case `functions` above is empty and this carries the agent-sized
     /// view instead. Mutually exclusive with a populated `functions`/`aggregates`
@@ -518,9 +507,7 @@ impl Snapshot {
                     activity_risk: None,
                     risk_factors: None,
                     percentile: None,
-                    driver: None,
-                    driver_detail: None,
-                    quadrant: None,
+                    tier: None,
                     subsystem: None,
                     authors_90d: None,
                     directed_coupling: None,
@@ -1043,55 +1030,21 @@ impl Snapshot {
 
     /// Compute and populate activity risk scores
     ///
-    /// Combines LRS with activity metrics and call graph metrics to produce
-    /// a unified risk score. Should be called after populate_churn, populate_touch_metrics,
-    /// and populate_callgraph have been called.
-    ///
-    /// # Arguments
-    ///
-    /// * `weights` - Optional weights for risk factors (uses defaults if None)
-    pub fn compute_activity_risk(&mut self, weights: Option<&crate::scoring::ScoringWeights>) {
-        let default_weights = crate::scoring::ScoringWeights::default();
-        let weights = weights.unwrap_or(&default_weights);
-
+    /// Should be called after populate_churn and populate_touch_metrics.
+    pub fn compute_activity_risk(&mut self) {
         for function in &mut self.functions {
-            // Extract churn data
-            let churn = function
-                .churn
-                .as_ref()
-                .map(|c| (c.lines_added, c.lines_deleted));
-
-            // Extract call graph data. `dependency_depth` is always `None` now:
-            // `CallGraphMetrics` dropped the field in hotspots 2.0 (its contribution to
-            // `activity_risk` had already been zeroed before this), kept as a
-            // literal `None` here rather than removing `ActivityRiskInput.dependency_depth`
-            // itself, which `compute_activity_risk` no longer reads either way.
-            let (fan_in, scc_size) = if let Some(ref cg) = function.callgraph {
-                (Some(cg.fan_in), Some(cg.scc_size))
-            } else {
-                (None, None)
-            };
-
-            // Compute activity risk
-            let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
-                &crate::scoring::ActivityRiskInput {
+            let (activity_risk, risk_factors) =
+                crate::scoring::compute_activity_risk(&crate::scoring::ActivityRiskInput {
                     lrs: function.lrs,
-                    churn,
+                    churn: function
+                        .churn
+                        .as_ref()
+                        .map(|c| (c.lines_added, c.lines_deleted)),
                     touch_count: function.touch_count,
                     days_since_last_change: function.days_since_last_change,
-                    fan_in,
-                    scc_size,
-                    dependency_depth: None,
-                    burst_score: function.burst_score,
-                },
-                weights,
-            );
-
-            // Only populate if there are additional risk factors beyond base LRS
-            if activity_risk > function.lrs || risk_factors.churn > 0.0 {
-                function.activity_risk = Some(activity_risk);
-                function.risk_factors = Some(risk_factors);
-            }
+                });
+            function.activity_risk = Some(activity_risk);
+            function.risk_factors = Some(risk_factors);
         }
     }
 
@@ -1128,100 +1081,31 @@ impl Snapshot {
         }
     }
 
-    /// Populate driver labels for all functions using driving_dimension_label.
+    /// Compute and populate the activity tier for all functions.
     ///
-    /// Must be called after compute_activity_risk() and populate_callgraph().
-    pub fn populate_driver_labels(&mut self, percentile: u8) {
-        let thresholds = compute_dimension_thresholds(&self.functions, percentile);
-
-        let mut sorted_cc: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.cc as usize)
-            .collect();
-        let mut sorted_nd: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.nd as usize)
-            .collect();
-        let mut sorted_fo: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.fo as usize)
-            .collect();
-        let mut sorted_fi: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
-            .collect();
-        let mut sorted_touch: Vec<usize> = self
+    /// `active` = touch_count above the repo median OR last changed within 30 days;
+    /// everything else is `quiet`. Activity only: no complexity gate (the research
+    /// found the gate adds nothing for predicting where fixes land).
+    pub fn compute_tiers(&mut self) {
+        if self.functions.is_empty() {
+            return;
+        }
+        let mut touches: Vec<usize> = self
             .functions
             .iter()
             .map(|f| f.touch_count.unwrap_or(0))
             .collect();
-        sorted_cc.sort_unstable();
-        sorted_nd.sort_unstable();
-        sorted_fo.sort_unstable();
-        sorted_fi.sort_unstable();
-        sorted_touch.sort_unstable();
+        touches.sort_unstable();
+        let touch_median = touches[(50 * (touches.len() - 1)) / 100];
 
         for function in &mut self.functions {
-            let label = driving_dimension_label(function, &thresholds).to_string();
-            function.driver_detail = if label == "composite" {
-                compute_near_miss_detail(
-                    function,
-                    &sorted_cc,
-                    &sorted_nd,
-                    &sorted_fo,
-                    &sorted_fi,
-                    &sorted_touch,
-                )
-            } else {
-                None
-            };
-            function.driver = Some(label);
-        }
-    }
-
-    /// Compute and populate triage quadrant for all functions.
-    ///
-    /// Quadrant logic (Option C — combines both signals):
-    ///   is_active = touch_count > touch_p50 OR days_since_last_change <= 30
-    ///              [+ activity_risk >= 0.7 when ranker_applied]
-    ///   fire  = high/critical + is_active
-    ///   debt  = high/critical + !is_active
-    ///   watch = moderate/low  + is_active
-    ///   ok    = everything else
-    ///
-    /// When `ranker_applied` is true, a trained RF score >= 0.7 also counts as
-    /// active — promoting structurally-risky-but-dormant functions from debt to
-    /// fire when the model predicts they are likely to be touched in a fix commit.
-    ///
-    /// Must be called after populate_driver_labels().
-    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8, ranker_applied: bool) {
-        if self.functions.is_empty() {
-            return;
-        }
-        let thresholds = compute_dimension_thresholds(&self.functions, driver_threshold_percentile);
-        let touch_p50 = thresholds.touch_med;
-
-        for function in &mut self.functions {
-            let touch_above_p50 = function.touch_count.map(|t| t > touch_p50).unwrap_or(false);
-            let recently_changed = function
-                .days_since_last_change
-                .map(|d| d <= 30)
-                .unwrap_or(false);
-            let high_ranker_score =
-                ranker_applied && function.activity_risk.map(|r| r >= 0.7).unwrap_or(false);
-            let is_active = touch_above_p50 || recently_changed || high_ranker_score;
-            let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
-
-            function.quadrant = Some(
-                match (is_high_risk, is_active) {
-                    (true, true) => "fire",
-                    (true, false) => "debt",
-                    (false, true) => "watch",
-                    (false, false) => "ok",
+            let touched_often = function.touch_count.is_some_and(|t| t > touch_median);
+            let recently_changed = function.days_since_last_change.is_some_and(|d| d <= 30);
+            function.tier = Some(
+                if touched_often || recently_changed {
+                    "active"
+                } else {
+                    "quiet"
                 }
                 .to_string(),
             );
@@ -1367,225 +1251,6 @@ fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<
     })
 }
 
-/// Percentile-derived thresholds for driving dimension detection.
-/// Computed once per snapshot from the distribution of all functions.
-pub struct DimensionThresholds {
-    pub cc_high: usize,      // Pth percentile of cc — "high_complexity" gate
-    pub cc_med: usize,       // 50th percentile of cc — floor for "high_fanin_complex"
-    pub cc_low: usize,       // (100-P)th percentile of cc — "low cc" in "high_churn_low_cc"
-    pub nd_high: usize,      // Pth percentile of nd — "deep_nesting" gate
-    pub fan_out_high: usize, // Pth percentile of fan_out — "high_fanout_churning" gate
-    pub fan_in_high: usize,  // Pth percentile of fan_in — "high_fanin_complex" gate
-    pub touch_high: usize,   // Pth percentile of touch_count — "high churn" gate
-    pub touch_med: usize,    // 50th percentile of touch_count — floor for "high_fanout_churning"
-}
-
-/// Compute percentile-derived thresholds from a slice of function snapshots.
-pub fn compute_dimension_thresholds(
-    functions: &[FunctionSnapshot],
-    percentile: u8,
-) -> DimensionThresholds {
-    let n = functions.len();
-    if n == 0 {
-        return DimensionThresholds {
-            cc_high: 0,
-            cc_med: 0,
-            cc_low: 0,
-            nd_high: 0,
-            fan_out_high: 0,
-            fan_in_high: 0,
-            touch_high: 0,
-            touch_med: 0,
-        };
-    }
-
-    let p = percentile as usize;
-    let anti_p = 100 - p;
-
-    let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
-
-    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc as usize).collect();
-    cc_vals.sort_unstable();
-    let cc_high = cc_vals[percentile_idx(p)];
-    let cc_med = cc_vals[percentile_idx(50)];
-    let cc_low = cc_vals[percentile_idx(anti_p)];
-
-    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd as usize).collect();
-    nd_vals.sort_unstable();
-    let nd_high = nd_vals[percentile_idx(p)];
-
-    // Uses the AST-derived `metrics.fo` (always present), not the now-removed
-    // graph-level `CallGraphMetrics.fan_out` — same "how many functions does
-    // this one call" concept, just not call-graph-derived.
-    let mut fo_vals: Vec<usize> = functions.iter().map(|f| f.metrics.fo as usize).collect();
-    fo_vals.sort_unstable();
-    let fan_out_high = fo_vals[percentile_idx(p)];
-
-    let mut fi_vals: Vec<usize> = functions
-        .iter()
-        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
-        .collect();
-    fi_vals.sort_unstable();
-    let fan_in_high = fi_vals[percentile_idx(p)];
-
-    let mut touch_vals: Vec<usize> = functions
-        .iter()
-        .map(|f| f.touch_count.unwrap_or(0))
-        .collect();
-    touch_vals.sort_unstable();
-    let touch_high = touch_vals[percentile_idx(p)];
-    let touch_med = touch_vals[percentile_idx(50)];
-
-    DimensionThresholds {
-        cc_high,
-        cc_med,
-        cc_low,
-        nd_high,
-        fan_out_high,
-        fan_in_high,
-        touch_high,
-        touch_med,
-    }
-}
-
-/// Normalize a driver label string to a canonical `'static` str.
-pub fn normalize_driver_label(label: &str) -> &'static str {
-    match label {
-        "cyclic_dep" => "cyclic_dep",
-        "high_complexity" => "high_complexity",
-        "high_churn_low_cc" => "high_churn_low_cc",
-        "high_fanout_churning" => "high_fanout_churning",
-        "deep_nesting" => "deep_nesting",
-        "high_fanin_complex" => "high_fanin_complex",
-        _ => "composite",
-    }
-}
-
-/// Map a (driver, quadrant) pair to a recommended action string.
-///
-/// `quadrant` is one of `"fire"`, `"debt"`, `"watch"`, `"ok"`, or `""` (unknown).
-/// When quadrant context is available the action is more specific; the generic
-/// driver-only text is used as a fallback.
-pub fn driver_action_for_quadrant(driver: &str, quadrant: &str) -> &'static str {
-    match (driver, quadrant) {
-        ("cyclic_dep", "fire") => "Break cycle now — circular dep is actively changing",
-        ("cyclic_dep", _) => "Resolve dependency cycle",
-        ("high_complexity", "fire") => "Extract sub-functions now — actively changing",
-        ("high_complexity", "debt") => "Schedule CC reduction — stable, plan for next sprint",
-        ("high_complexity", _) => "Reduce cyclomatic complexity",
-        ("high_churn_low_cc", "fire") => "Add tests now — churning without a safety net",
-        ("high_churn_low_cc", _) => "Add tests before next change",
-        ("high_fanout_churning", "fire") => {
-            "Extract interface boundary — high coupling + active change"
-        }
-        ("high_fanout_churning", _) => "Consider extracting an interface boundary",
-        ("deep_nesting", "fire") => "Flatten nesting before next change",
-        ("deep_nesting", "debt") => "Schedule flattening — deep nesting, currently quiet",
-        ("deep_nesting", _) => "Flatten nesting depth",
-        ("high_fanin_complex", "fire") => "Stabilize interface — many callers + active changes",
-        ("high_fanin_complex", _) => "Stabilize interface — high fan-in makes changes risky",
-        (_, "fire") => "Actively risky — plan refactor this sprint",
-        _ => "Monitor: review complexity trends before next modification",
-    }
-}
-
-/// Map a driver label to its recommended action text (quadrant-agnostic fallback).
-pub fn driver_action(label: &str) -> &'static str {
-    driver_action_for_quadrant(label, "")
-}
-
-/// Identify the primary driving dimension for a function's risk.
-///
-/// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,
-/// `"high_churn_low_cc"`, `"high_fanout_churning"`, `"deep_nesting"`,
-/// `"high_fanin_complex"`, or `"composite"`. Uses percentile-relative thresholds
-/// derived from the snapshot's own distribution; `cyclic_dep` stays absolute.
-pub fn driving_dimension_label(
-    func: &FunctionSnapshot,
-    thresholds: &DimensionThresholds,
-) -> &'static str {
-    let in_cycle = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.scc_size > 1)
-        .unwrap_or(false);
-    let fan_out = func.metrics.fo as usize;
-    let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-    let touch_count = func.touch_count.unwrap_or(0);
-    let cc = func.metrics.cc as usize;
-    let nd = func.metrics.nd as usize;
-
-    if in_cycle {
-        "cyclic_dep"
-    } else if cc > thresholds.cc_high {
-        "high_complexity"
-    } else if touch_count > thresholds.touch_high && cc < thresholds.cc_low {
-        "high_churn_low_cc"
-    } else if fan_out > thresholds.fan_out_high && touch_count > thresholds.touch_med {
-        "high_fanout_churning"
-    } else if nd > thresholds.nd_high {
-        "deep_nesting"
-    } else if fan_in > thresholds.fan_in_high && cc > thresholds.cc_med {
-        "high_fanin_complex"
-    } else {
-        "composite"
-    }
-}
-
-/// Compute near-miss detail string for composite-labeled functions.
-///
-/// Returns a string like "cc (P72), nd (P68)" listing the top dimensions that
-/// are above the 40th percentile (above median) but below the firing threshold.
-/// Returns None when no dimension is notable.
-fn compute_near_miss_detail(
-    func: &FunctionSnapshot,
-    sorted_cc: &[usize],
-    sorted_nd: &[usize],
-    sorted_fo: &[usize],
-    sorted_fi: &[usize],
-    sorted_touch: &[usize],
-) -> Option<String> {
-    let pct_rank = |v: usize, sorted: &[usize]| -> u8 {
-        if sorted.is_empty() {
-            return 0;
-        }
-        ((sorted.partition_point(|&x| x < v) * 100) / sorted.len()) as u8
-    };
-
-    let mut near: Vec<(&str, u8)> = vec![
-        ("cc", pct_rank(func.metrics.cc as usize, sorted_cc)),
-        ("nd", pct_rank(func.metrics.nd as usize, sorted_nd)),
-        ("fan_out", pct_rank(func.metrics.fo as usize, sorted_fo)),
-        (
-            "fan_in",
-            pct_rank(
-                func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0),
-                sorted_fi,
-            ),
-        ),
-        (
-            "touch",
-            pct_rank(func.touch_count.unwrap_or(0), sorted_touch),
-        ),
-    ]
-    .into_iter()
-    .filter(|(_, rank)| *rank >= 40)
-    .collect();
-
-    near.sort_by_key(|a| std::cmp::Reverse(a.1));
-    near.truncate(3);
-
-    if near.is_empty() {
-        return None;
-    }
-    Some(
-        near.iter()
-            .map(|(name, rank)| format!("{} (P{})", name, rank))
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
-}
-
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
@@ -1673,17 +1338,10 @@ impl SnapshotEnricher {
     /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
-    pub fn enrich(
-        mut self,
-        weights: Option<&crate::scoring::ScoringWeights>,
-        driver_threshold_percentile: u8,
-    ) -> Self {
-        self.snapshot.compute_activity_risk(weights);
+    pub fn enrich(mut self) -> Self {
+        self.snapshot.compute_activity_risk();
         self.snapshot.compute_percentiles();
-        self.snapshot
-            .populate_driver_labels(driver_threshold_percentile);
-        self.snapshot
-            .compute_quadrants(driver_threshold_percentile, false);
+        self.snapshot.compute_tiers();
         self.snapshot.compute_summary(self.betweenness_approximate);
         self
     }
@@ -2298,7 +1956,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_summary() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
         let summary = snapshot.summary.as_ref().expect("summary should be set");
         assert_eq!(summary.total_functions, 1);
     }
@@ -2306,7 +1964,7 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_percentiles() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
         assert!(snapshot.functions[0].percentile.is_some());
     }
 

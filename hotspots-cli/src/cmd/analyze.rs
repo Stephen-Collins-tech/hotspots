@@ -691,13 +691,6 @@ fn handle_snapshot_mode(
         eprintln!("hotspots: using trained ranker (model class: {label})");
     }
 
-    // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
-    // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
-    // even if they haven't been touched recently (touch window: hotspots_core::git::TOUCH_WINDOW_DAYS).
-    if ranker_applied {
-        snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
-    }
-
     // Populate explanation phrases for CRITICAL/HIGH functions when --explain is set
     // and a trained ranker was applied. Percentiles are computed over all functions
     // before top-N truncation so the reference distribution is repo-wide.
@@ -1420,12 +1413,7 @@ pub(crate) fn build_snapshot_via_db(
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
-    let result = enricher
-        .enrich(
-            Some(&resolved_config.scoring_weights),
-            resolved_config.driver_threshold_percentile,
-        )
-        .build();
+    let result = enricher.enrich().build();
     Ok(result)
 }
 
@@ -1501,12 +1489,7 @@ pub(crate) fn build_enriched_snapshot(
         );
     }
 
-    Ok(enricher
-        .enrich(
-            Some(&resolved_config.scoring_weights),
-            resolved_config.driver_threshold_percentile,
-        )
-        .build())
+    Ok(enricher.enrich().build())
 }
 
 /// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and

@@ -156,30 +156,28 @@ pub struct DeltaAggregates {
     pub pr_summary: PrRiskSummary,
 }
 
-/// Number of functions per quadrant in the agent triage view
+/// Number of functions per tier in the agent triage view
 const TRIAGE_TOP_N: usize = 5;
 /// Maximum hidden coupling pairs in the agent output (context-window cap)
 const HIDDEN_COUPLING_TOP_N: usize = 20;
 /// Maximum file risk entries in the agent output
 const FILE_RISK_TOP_N: usize = 10;
 
-/// A triage quadrant with count and top-N functions
+/// A triage tier with count and top-N functions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub struct TriageQuadrant {
+pub struct TriageTier {
     pub count: usize,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub top: Vec<AgentFunctionView>,
 }
 
-/// Triage view grouping functions by quadrant
+/// Triage view grouping functions by activity tier
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageView {
-    pub fire: TriageQuadrant,
-    pub debt: TriageQuadrant,
-    pub watch: TriageQuadrant,
-    pub ok: TriageQuadrant,
+    pub active: TriageTier,
+    pub quiet: TriageTier,
 }
 
 /// Co-change section for agent-optimized output (hidden coupling only, capped at top N)
@@ -207,28 +205,20 @@ pub struct AgentArchitectureView {
 /// snapshot and its aggregates — the default `analyze --mode snapshot --format
 /// json` shape (i.e. without `--all-functions`).
 ///
-/// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
-/// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
+/// Groups functions by activity tier, sorts each group by `activity_risk` descending,
+/// and returns top-N per tier. Co-change is split into hidden pairs only, capped at
 /// top 20 by coupling_ratio. File risk is capped at top 10.
 pub fn compute_agent_sections(
     snapshot: &crate::snapshot::Snapshot,
     aggregates: &SnapshotAggregates,
     repo_root: &std::path::Path,
 ) -> (TriageView, Option<AgentArchitectureView>, AgentCoChangeView) {
-    // Partition functions into quadrant buckets
-    let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut watch_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut ok_count = 0usize;
-
-    for func in &snapshot.functions {
-        match func.quadrant.as_deref() {
-            Some("fire") => fire_fns.push(func),
-            Some("debt") => debt_fns.push(func),
-            Some("watch") => watch_fns.push(func),
-            _ => ok_count += 1,
-        }
-    }
+    // Partition functions into tier buckets
+    let (mut active_fns, mut quiet_fns): (Vec<&FunctionSnapshot>, Vec<&FunctionSnapshot>) =
+        snapshot
+            .functions
+            .iter()
+            .partition(|f| f.tier.as_deref() == Some("active"));
 
     // Sort each group by activity_risk descending
     let sort_by_risk = |fns: &mut Vec<&FunctionSnapshot>| {
@@ -240,26 +230,17 @@ pub fn compute_agent_sections(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     };
-    sort_by_risk(&mut fire_fns);
-    sort_by_risk(&mut debt_fns);
-    sort_by_risk(&mut watch_fns);
+    sort_by_risk(&mut active_fns);
+    sort_by_risk(&mut quiet_fns);
 
     let triage = TriageView {
-        fire: TriageQuadrant {
-            count: fire_fns.len(),
-            top: to_agent_view(&fire_fns, repo_root, TRIAGE_TOP_N),
+        active: TriageTier {
+            count: active_fns.len(),
+            top: to_agent_view(&active_fns, repo_root, TRIAGE_TOP_N),
         },
-        debt: TriageQuadrant {
-            count: debt_fns.len(),
-            top: to_agent_view(&debt_fns, repo_root, TRIAGE_TOP_N),
-        },
-        watch: TriageQuadrant {
-            count: watch_fns.len(),
-            top: to_agent_view(&watch_fns, repo_root, TRIAGE_TOP_N),
-        },
-        ok: TriageQuadrant {
-            count: ok_count,
-            top: Vec::new(),
+        quiet: TriageTier {
+            count: quiet_fns.len(),
+            top: to_agent_view(&quiet_fns, repo_root, TRIAGE_TOP_N),
         },
     };
 
@@ -1052,9 +1033,7 @@ mod tests {
             activity_risk: None,
             risk_factors: None,
             percentile: None,
-            driver: None,
-            driver_detail: None,
-            quadrant: None,
+            tier: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,

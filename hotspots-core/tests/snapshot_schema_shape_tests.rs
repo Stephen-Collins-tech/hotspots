@@ -67,10 +67,8 @@ fn test_function(file: &str, line: u32, cc: u32) -> FunctionSnapshot {
         callgraph: None,
         activity_risk: None,
         risk_factors: None,
+        tier: None,
         percentile: None,
-        driver: None,
-        driver_detail: None,
-        quadrant: None,
         subsystem: None,
         authors_90d: None,
         directed_coupling: None,
@@ -289,10 +287,8 @@ fn snapshot_triage_envelope_shape() {
     );
 
     let triage_json = &json["triage"];
-    let expected_triage: BTreeSet<String> = ["fire", "debt", "watch", "ok"]
-        .into_iter()
-        .map(String::from)
-        .collect();
+    let expected_triage: BTreeSet<String> =
+        ["active", "quiet"].into_iter().map(String::from).collect();
     assert_eq!(
         keys_of(triage_json),
         expected_triage,

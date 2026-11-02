@@ -28,7 +28,7 @@ Source Code
   ↓
 [optional: git history + call graph enrichment]
   ↓
-[Activity Risk Score + Driver Label + Quadrant]
+[Activity Risk Score + Activity Tier]
   ↓
 [Snapshot persistence / Delta computation / Report rendering]
   ↓
@@ -82,9 +82,7 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 **Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Driver label assignment:** Percentile-relative checks in priority order (see [REFERENCE.md](REFERENCE.md#driver-labels)).
-
-**Quadrant assignment:** Band × activity → `fire`/`debt`/`watch`/`ok`.
+**Tier assignment:** touch count above the repo median or changed in the last 30 days → `active`, else `quiet`.
 
 ### Phase 6 — Snapshot Persistence
 
@@ -114,7 +112,6 @@ hotspots-core/src/
 │   └── mod.rs          # CfgNode, CfgEdge, Cfg, validation
 ├── metrics.rs          # raw metric extraction
 ├── risk.rs             # LRS, risk components, risk bands
-├── drivers.rs          # driver label assignment
 ├── snapshot.rs         # snapshot serialization, persistence, loading
 ├── delta.rs            # delta computation
 ├── policy.rs           # policy rule evaluation
@@ -176,8 +173,6 @@ These are non-negotiable. Any violation is a bug.
 **Immutable snapshots keyed by commit SHA.** Enables `hotspots diff` between any two historical refs, supports multiple in-flight branches without collision, and makes snapshot storage auditable.
 
 **Lazy join node creation in CFG builder.** Eager creation of join nodes that never receive incoming edges (e.g., when all branches terminate) causes CFG validation failures (`"Nodes not reachable from entry"`). Lazy creation — only when at least one live path needs to merge — is the correct approach.
-
-**Percentile-relative driver labels.** Absolute thresholds for driver labels would fire on different functions in a 100-function repo vs a 100k-function repo. Percentile-relative checks (default P75) adapt to the codebase's own distribution.
 
 **No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: our evaluation found both add no measurable ranking value (confirmed, non-inferior to remove). `fan_in`/`pagerank`/`scc_size` are still computed and reported (`callgraph` output, `--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
 

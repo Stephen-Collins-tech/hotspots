@@ -893,7 +893,7 @@ footer a {
 }
 
 /* Quadrant chips */
-.quadrant-chips {
+.tier-chips {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 0.75rem;
@@ -901,22 +901,20 @@ footer a {
 }
 
 @media (max-width: 768px) {
-    .quadrant-chips {
+    .tier-chips {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
-.quadrant-chip {
+.tier-chip {
     padding: 0.75rem 1rem;
     border-radius: 0.5rem;
     border-left: 4px solid;
     text-align: center;
 }
 
-.quadrant-fire   { border-left-color: #ef4444; background: #fef2f2; }
-.quadrant-debt   { border-left-color: #8b5cf6; background: #f5f3ff; }
-.quadrant-watch  { border-left-color: #f59e0b; background: #fffbeb; }
-.quadrant-ok     { border-left-color: #22c55e; background: #f0fdf4; }
+.tier-active   { border-left-color: #ef4444; background: #fef2f2; }
+.tier-quiet     { border-left-color: #22c55e; background: #f0fdf4; }
 
 .chip-label {
     font-size: 0.7rem;
@@ -938,10 +936,8 @@ footer a {
     margin-top: 0.15rem;
 }
 
-.quadrant-fire .chip-count  { color: #ef4444; }
-.quadrant-debt .chip-count  { color: #8b5cf6; }
-.quadrant-watch .chip-count { color: #f59e0b; }
-.quadrant-ok .chip-count    { color: #22c55e; }
+.tier-active .chip-count  { color: #ef4444; }
+.tier-quiet .chip-count    { color: #22c55e; }
 
 /* Active risk row highlight */
 .triage-active-row { background: #fff7ed; }
@@ -965,14 +961,6 @@ footer a {
 /* Pattern breakdown widget */
 
 /* Driver badges */
-.driver-badge { font-size: 0.75rem; padding: 0.15rem 0.4rem; border-radius: 0.25rem; margin-left: 0.4rem; }
-.driver-high_complexity    { background: #fff3e0; color: #e65100; }
-.driver-deep_nesting       { background: #f3e5f5; color: #6a1b9a; }
-.driver-high_churn_low_cc  { background: #e0f7fa; color: #006064; }
-.driver-high_fanin_complex { background: #e3f2fd; color: #0d47a1; }
-.driver-high_fanout_churning { background: #e8f5e9; color: #1b5e20; }
-.driver-cyclic_dep         { background: #fce4ec; color: #880e4f; }
-.driver-composite          { background: #f5f5f5; color: #424242; }
 
 /* Module risk zones (complexity-gated, hotspots 2.0) */
 .zone-pain             { color: #ef4444; font-weight: 600; }
@@ -1235,13 +1223,6 @@ th.sortable.desc::after {
         color: #9ca3af;
     }
 
-    .driver-high_complexity    { background: #3d2000; color: #ffab76; }
-    .driver-deep_nesting       { background: #2d0050; color: #e0b0ff; }
-    .driver-high_churn_low_cc  { background: #002022; color: #80deea; }
-    .driver-high_fanin_complex { background: #001e3c; color: #90caf9; }
-    .driver-high_fanout_churning { background: #002200; color: #a5d6a7; }
-    .driver-cyclic_dep         { background: #3b0016; color: #f48fb1; }
-    .driver-composite          { background: #1a1a1a; color: #bdbdbd; }
 
     .zone-stable   { color: #4ade80; }
     .zone-balanced { color: #60a5fa; }
@@ -1257,10 +1238,8 @@ th.sortable.desc::after {
     .triage-section h2,
     .triage-section > summary { color: #fbbf24; }
     .triage-subtitle { color: #d1d5db; }
-    .quadrant-fire   { background: #1a0000; }
-    .quadrant-debt   { background: #140028; }
-    .quadrant-watch  { background: #1a1000; }
-    .quadrant-ok     { background: #001a08; }
+    .tier-active   { background: #1a0000; }
+    .tier-quiet     { background: #001a08; }
     .chip-label { color: #9ca3af; }
     .chip-desc  { color: #6b7280; }
     .triage-active-row { background: #1c1200; }
@@ -1350,16 +1329,16 @@ fn inline_javascript() -> &'static str {
 
     function filterTable() {
         const bandFilter = document.getElementById('band-filter').value;
-        const driverFilter = document.getElementById('driver-filter').value;
+        const tierFilter = document.getElementById('tier-filter').value;
         const searchFilter = document.getElementById('search-filter').value.toLowerCase();
 
         document.querySelectorAll('#functions-table tbody tr').forEach(row => {
             const bandMatch = bandFilter === 'all' || row.dataset.band === bandFilter;
-            const driverMatch = driverFilter === 'all' || row.dataset.driver === driverFilter;
+            const tierMatch = tierFilter === 'all' || row.dataset.tier === tierFilter;
             const searchMatch = !searchFilter ||
                 row.dataset.function.toLowerCase().includes(searchFilter) ||
                 row.dataset.file.toLowerCase().includes(searchFilter);
-            row.dataset.filterMatch = (bandMatch && driverMatch && searchMatch) ? '1' : '0';
+            row.dataset.filterMatch = (bandMatch && tierMatch && searchMatch) ? '1' : '0';
         });
 
         currentPage = 1;
@@ -1431,10 +1410,10 @@ fn inline_javascript() -> &'static str {
         });
 
         const bandFilter = document.getElementById('band-filter');
-        const driverFilter = document.getElementById('driver-filter');
+        const tierFilter = document.getElementById('tier-filter');
         const searchFilter = document.getElementById('search-filter');
         if (bandFilter) bandFilter.addEventListener('change', filterTable);
-        if (driverFilter) driverFilter.addEventListener('change', filterTable);
+        if (tierFilter) tierFilter.addEventListener('change', filterTable);
         if (searchFilter) searchFilter.addEventListener('input', filterTable);
 
         // Mark all rows as filter-matching before first sort
@@ -1658,10 +1637,10 @@ fn inline_javascript() -> &'static str {
                 ctx.textAlign = align || 'left';
                 ctx.fillText(text, x, y);
             }
-            quadrantLabel('watch while active', lP + 10, tP + 18, 'left');
-            quadrantLabel('act now', lP + cW - 10, tP + 18, 'right');
-            quadrantLabel('ignore', lP + 10, tP + cH - 10, 'left');
-            quadrantLabel('schedule debt', lP + cW - 10, tP + cH - 10, 'right');
+            quadrantLabel('low LRS, high activity', lP + 10, tP + 18, 'left');
+            quadrantLabel('high LRS, high activity', lP + cW - 10, tP + 18, 'right');
+            quadrantLabel('low LRS, low activity', lP + 10, tP + cH - 10, 'left');
+            quadrantLabel('high LRS, low activity', lP + cW - 10, tP + cH - 10, 'right');
 
             // dots
             var r = Math.max(3, Math.min(7, Math.round(cW / Math.sqrt(pts.length) * 0.18)));
@@ -1815,15 +1794,15 @@ fn render_summary(snapshot: &Snapshot) -> String {
         .iter()
         .filter(|f| f.band == RiskBand::High)
         .count();
-    let fire_count = snapshot
+    let active_count = snapshot
         .functions
         .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("fire"))
+        .filter(|f| f.tier.as_deref() == Some("active"))
         .count();
-    let debt_count = snapshot
+    let quiet_count = snapshot
         .functions
         .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("debt"))
+        .filter(|f| f.tier.as_deref() == Some("quiet"))
         .count();
 
     format!(
@@ -1833,12 +1812,12 @@ fn render_summary(snapshot: &Snapshot) -> String {
         <div class="value">{total}</div>
     </div>
     <div class="summary-card">
-        <h3>Fire</h3>
-        <div class="value band-critical">{fire}</div>
+        <h3>Active</h3>
+        <div class="value band-critical">{active}</div>
     </div>
     <div class="summary-card">
-        <h3>Debt</h3>
-        <div class="value band-high">{debt}</div>
+        <h3>Quiet</h3>
+        <div class="value">{quiet}</div>
     </div>
     <div class="summary-card">
         <h3>High+ Risk</h3>
@@ -1847,8 +1826,8 @@ fn render_summary(snapshot: &Snapshot) -> String {
 </div>
 "#,
         total = total_functions,
-        fire = fire_count,
-        debt = debt_count,
+        active = active_count,
+        quiet = quiet_count,
         high_plus = critical_count + high_count,
     )
 }
@@ -1931,22 +1910,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
         .iter()
         .map(|f| {
             let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
-            let driver_str = f.driver.as_deref().unwrap_or("");
-            let driver_badge = if let Some(driver) = &f.driver {
-                let title = f
-                    .driver_detail
-                    .as_ref()
-                    .map(|d| format!(" title=\"{}\"", html_escape(d)))
-                    .unwrap_or_default();
-                format!(
-                    r#" <span class="driver-badge driver-{}"{title}>{}</span>"#,
-                    html_escape(driver),
-                    html_escape(driver),
-                    title = title,
-                )
-            } else {
-                String::new()
-            };
+            let tier_str = f.tier.as_deref().unwrap_or("");
 
             let churn_val = f.churn.as_ref().map(|c| c.lines_added + c.lines_deleted);
 
@@ -2005,11 +1969,11 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
             format!(
                 "<tr data-file=\"{file}\" data-function=\"{function}\" data-band=\"{band}\" \
                  data-lrs=\"{lrs}\" data-line=\"{line}\" data-cc=\"{cc}\" data-nd=\"{nd}\" \
-                 data-driver=\"{driver}\" data-activity=\"{activity}\" data-churn=\"{churn}\" \
+                 data-tier=\"{tier}\" data-activity=\"{activity}\" data-churn=\"{churn}\" \
                  data-touches=\"{touches}\" data-fanin=\"{fanin}\" \
                  data-recency=\"{recency}\">\n\
                  <td class=\"monospace\">{file_display}</td>\n\
-                 <td>{function_display}{driver_badge}</td>\n\
+                 <td>{function_display}</td>\n\
                  <td>{line}</td>\n\
                  <td>{lrs:.2}</td>\n\
                  <td><span class=\"band-{band}\">{band}</span></td>\n\
@@ -2023,7 +1987,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 file_display = source_link(&f.file, f.line, &compact_source_label(&f.file)),
                 function = html_escape(function_name),
                 function_display = html_escape(function_name),
-                driver = html_escape(driver_str),
+                tier = html_escape(tier_str),
                 activity = f
                     .activity_risk
                     .map(|ar| format!("{:.4}", ar))
@@ -2046,7 +2010,6 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
                 nd = f.metrics.nd,
                 fo = f.metrics.fo,
                 ns = f.metrics.ns,
-                driver_badge = driver_badge,
                 activity_cell = activity_cell,
                 churn_cell = churn_cell,
                 touches_cell = touches_cell,
@@ -2102,16 +2065,11 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
             </select>
         </div>
         <div class="filter-group">
-            <label for="driver-filter">Driver</label>
-            <select id="driver-filter">
-                <option value="all">All Drivers</option>
-                <option value="high_complexity">High Complexity</option>
-                <option value="deep_nesting">Deep Nesting</option>
-                <option value="high_churn_low_cc">High Churn / Low CC</option>
-                <option value="high_fanin_complex">High Fan-in</option>
-                <option value="high_fanout_churning">High Fan-out</option>
-                <option value="cyclic_dep">Cyclic Dep</option>
-                <option value="composite">Composite</option>
+            <label for="tier-filter">Activity</label>
+            <select id="tier-filter">
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="quiet">Quiet</option>
             </select>
         </div>
         <div class="filter-group">
@@ -2159,37 +2117,20 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     )
 }
 
-/// Map (driver, quadrant) to a one-line recommended action for the triage table.
-fn triage_action(driver: Option<&str>, quadrant: Option<&str>) -> &'static str {
-    crate::snapshot::driver_action_for_quadrant(driver.unwrap_or(""), quadrant.unwrap_or(""))
+fn by_activity_risk_desc(a: &&FunctionSnapshot, b: &&FunctionSnapshot) -> std::cmp::Ordering {
+    b.activity_risk
+        .unwrap_or(b.lrs)
+        .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
+        .unwrap_or(std::cmp::Ordering::Equal)
 }
 
+/// "Start here": the three active functions with the highest activity risk.
 fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
     let mut candidates: Vec<&FunctionSnapshot> = functions
         .iter()
-        .filter(|f| {
-            matches!(
-                f.quadrant.as_deref(),
-                Some("fire") | Some("debt") | Some("watch")
-            )
-        })
+        .filter(|f| f.tier.as_deref() == Some("active"))
         .collect();
-    candidates.sort_by(|a, b| {
-        next_action_rank(a)
-            .cmp(&next_action_rank(b))
-            .then_with(|| {
-                b.activity_risk
-                    .unwrap_or(b.lrs)
-                    .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| b.touch_count.unwrap_or(0).cmp(&a.touch_count.unwrap_or(0)))
-            .then_with(|| {
-                b.lrs
-                    .partial_cmp(&a.lrs)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    });
+    candidates.sort_by(by_activity_risk_desc);
     candidates.truncate(3);
     if candidates.is_empty() {
         return String::new();
@@ -2203,21 +2144,12 @@ fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
 
     format!(
         r#"<section class="section next-actions-section" id="next-actions">
-    <h2>3 Targeted Next Moves</h2>
-    <div class="next-actions-subtitle">A short action list from the highest-priority fire, debt, and watch candidates.</div>
+    <h2>Start Here</h2>
+    <div class="next-actions-subtitle">The three recently active functions with the highest activity risk. Activity risk rises when a file is edited and decays as it goes quiet; use the band to judge structure.</div>
     <div class="next-actions-list">{rows}</div>
 </section>"#,
         rows = rows,
     )
-}
-
-fn next_action_rank(function: &FunctionSnapshot) -> u8 {
-    match function.quadrant.as_deref() {
-        Some("fire") => 0,
-        Some("debt") => 1,
-        Some("watch") => 2,
-        _ => 3,
-    }
 }
 
 fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
@@ -2226,31 +2158,25 @@ fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
         .split("::")
         .last()
         .unwrap_or(&function.function_id);
-    let quadrant = function.quadrant.as_deref().unwrap_or("ok");
-    let driver = function.driver.as_deref().unwrap_or("composite");
     let touches = function.touch_count.unwrap_or(0);
-    let fan_in = function.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
     let activity = function.activity_risk.unwrap_or(function.lrs);
     let last_change = function
         .days_since_last_change
         .map(|d| format!("{d}d ago"))
         .unwrap_or_else(|| "unknown".to_string());
-    let why = next_action_reason(function, quadrant, driver, touches, fan_in);
 
     format!(
-        r#"<div class="next-action next-action-{quadrant}">
+        r#"<div class="next-action next-action-active">
     <div class="next-action-rank">#{rank}</div>
     <div>
         <div class="next-action-title">{function}</div>
         <div class="next-action-meta monospace">{source}</div>
-        <div class="next-action-why">{why}</div>
     </div>
     <div class="next-action-score">
         <span class="band-{band}">{band}</span>
-        <span>{quadrant}</span>
         <span>{touches} touches</span>
         <span>{last_change}</span>
-        <span>risk {activity:.2}</span>
+        <span>activity {activity:.2}</span>
     </div>
 </div>"#,
         rank = rank,
@@ -2260,8 +2186,6 @@ fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
             function.line,
             &format!("{}:{}", compact_source_label(&function.file), function.line)
         ),
-        why = why,
-        quadrant = html_escape(quadrant),
         band = function.band.as_str(),
         touches = touches,
         last_change = last_change,
@@ -2269,97 +2193,24 @@ fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
     )
 }
 
-fn next_action_reason(
-    function: &FunctionSnapshot,
-    quadrant: &str,
-    driver: &str,
-    touches: usize,
-    fan_in: usize,
-) -> String {
-    let urgency = match quadrant {
-        "fire" => "Act this week",
-        "debt" => "Schedule deliberately",
-        "watch" => "Watch while active",
-        _ => "Track",
-    };
-    let driver_reason = match driver {
-        "high_complexity" => "complexity is the main driver",
-        "deep_nesting" => "nested control flow is the main driver",
-        "high_fanin_complex" => "wide fan-in raises blast radius",
-        "high_fanout_churning" => "fan-out plus activity raises integration risk",
-        "high_churn_low_cc" => "recent churn is the main signal",
-        "cyclic_dep" => "dependency cycles raise change risk",
-        _ => "multiple factors contribute",
-    };
-    let fan_in_note = if fan_in <= 2 {
-        "low fan-in makes this a smaller first move"
-    } else {
-        "higher fan-in means plan tests before changing it"
-    };
-    format!(
-        "{urgency}: {driver_reason}; {touches} touch(es) in the last year; {fan_in_note}. {}.",
-        triage_action(function.driver.as_deref(), function.quadrant.as_deref())
-    )
-}
-
-/// Render triage panel: quadrant summary + top risks table
+/// Render triage panel: active/quiet counts + the top functions by activity risk.
 fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
-    let has_high_risk = functions
-        .iter()
-        .any(|f| f.band == RiskBand::Critical || f.band == RiskBand::High);
-    if !has_high_risk {
+    if !functions.iter().any(|f| f.tier.is_some()) {
         return String::new();
     }
 
-    let has_quadrant = functions.iter().any(|f| f.quadrant.is_some());
-
-    // Quadrant counts — read from pre-computed field
-    let fire = functions
+    let active = functions
         .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("fire"))
+        .filter(|f| f.tier.as_deref() == Some("active"))
         .count();
-    let debt = functions
+    let quiet = functions
         .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("debt"))
-        .count();
-    let watch = functions
-        .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("watch"))
-        .count();
-    let ok = functions
-        .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("ok"))
+        .filter(|f| f.tier.as_deref() == Some("quiet"))
         .count();
 
-    // Top risks: fire (active high/critical) first, then debt (stable high/critical)
-    let mut active_risks: Vec<&FunctionSnapshot> = functions
-        .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("fire"))
-        .collect();
-    active_risks.sort_by(|a, b| {
-        b.activity_risk
-            .unwrap_or(b.lrs)
-            .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut inactive_risks: Vec<&FunctionSnapshot> = functions
-        .iter()
-        .filter(|f| f.quadrant.as_deref() == Some("debt"))
-        .collect();
-    inactive_risks.sort_by(|a, b| {
-        b.activity_risk
-            .unwrap_or(b.lrs)
-            .partial_cmp(&a.activity_risk.unwrap_or(a.lrs))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut top_risks = active_risks;
-    top_risks.extend(inactive_risks);
+    let mut top_risks: Vec<&FunctionSnapshot> = functions.iter().collect();
+    top_risks.sort_by(by_activity_risk_desc);
     top_risks.truncate(15);
-
-    let show_touches = top_risks.iter().any(|f| f.touch_count.is_some());
-    let show_last_change = top_risks.iter().any(|f| f.days_since_last_change.is_some());
     let count = top_risks.len();
 
     let rows: String = top_risks
@@ -2367,67 +2218,6 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
         .map(|f| {
             let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
             let risk_val = f.activity_risk.unwrap_or(f.lrs);
-
-            let driver_cell = match &f.driver {
-                Some(d) => {
-                    let title = f
-                        .driver_detail
-                        .as_ref()
-                        .map(|dd| format!(" title=\"{}\"", html_escape(dd)))
-                        .unwrap_or_default();
-                    format!(
-                        r#"<span class="driver-badge driver-{}"{title}>{}</span>"#,
-                        html_escape(d),
-                        html_escape(d),
-                        title = title,
-                    )
-                }
-                None => "—".to_string(),
-            };
-
-            let _touches_td = if show_touches {
-                let inner = match f.touch_count {
-                    Some(t) if t > 5 => {
-                        format!(r#"<span class="recency-hot">{}</span>"#, t)
-                    }
-                    Some(t) if t > 0 => {
-                        format!(r#"<span class="recency-warm">{}</span>"#, t)
-                    }
-                    Some(t) => t.to_string(),
-                    None => "—".to_string(),
-                };
-                format!("<td>{}</td>", inner)
-            } else {
-                String::new()
-            };
-
-            let _last_change_td = if show_last_change {
-                let inner = match f.days_since_last_change {
-                    Some(d) if d <= 7 => {
-                        format!(r#"<span class="recency-hot">{d}d</span>"#, d = d)
-                    }
-                    Some(d) if d <= 30 => {
-                        format!(r#"<span class="recency-warm">{d}d</span>"#, d = d)
-                    }
-                    Some(d) if d <= 90 => {
-                        format!(r#"<span class="recency-cool">{d}d</span>"#, d = d)
-                    }
-                    Some(d) => format!(r#"<span class="recency-cold">{d}d</span>"#, d = d),
-                    None => "—".to_string(),
-                };
-                format!("<td>{}</td>", inner)
-            } else {
-                String::new()
-            };
-
-            let _fanin_td = match &f.callgraph {
-                Some(cg) if cg.fan_in <= 2 => format!(
-                    r#"<td><span class="refactor-ready">{} (safe)</span></td>"#,
-                    cg.fan_in
-                ),
-                Some(cg) => format!("<td>{}</td>", cg.fan_in),
-                None => "<td>—</td>".to_string(),
-            };
             let touches_value = f
                 .touch_count
                 .map(|t| t.to_string())
@@ -2441,13 +2231,8 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
                 .as_ref()
                 .map(|cg| cg.fan_in.to_string())
                 .unwrap_or_else(|| "—".to_string());
-            let risk_width = (risk_val * 8.0).clamp(4.0, 100.0);
-
-            let row_class = if f.quadrant.as_deref() == Some("fire") {
-                "fire"
-            } else {
-                ""
-            };
+            let risk_width = (risk_val * 25.0).clamp(4.0, 100.0);
+            let tier = f.tier.as_deref().unwrap_or("quiet");
 
             format!(
                 r#"<div class="triage-risk-card {cls}">
@@ -2456,78 +2241,48 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     <div class="visual-bar"><div class="visual-bar-fill band-{band}" style="width:{risk_width:.0}%"></div></div>
     <div class="visual-metrics">
         <div class="visual-metric"><span>Band</span><strong class="band-{band}">{band}</strong></div>
-        <div class="visual-metric"><span>Risk</span><strong>{risk:.2}</strong></div>
+        <div class="visual-metric"><span>Activity</span><strong>{risk:.2}</strong></div>
         <div class="visual-metric"><span>Touches</span><strong>{touches}</strong></div>
         <div class="visual-metric"><span>Fan-in</span><strong>{fanin}</strong></div>
     </div>
-    <div class="visual-note">{driver} · last change {last_change} · {action}</div>
+    <div class="visual-note">{tier} · last change {last_change}</div>
 </div>"#,
-                cls = row_class,
+                cls = if tier == "active" { "fire" } else { "" },
                 source = source_link(&f.file, f.line, &format!("{}:{}", f.file, f.line)),
                 func = html_escape(function_name),
                 band = f.band.as_str(),
                 risk = risk_val,
                 risk_width = risk_width,
-                driver = driver_cell,
+                tier = tier,
                 touches = touches_value,
                 last_change = last_change_value,
                 fanin = fanin_value,
-                action = triage_action(f.driver.as_deref(), f.quadrant.as_deref()),
             )
         })
         .collect();
 
-    let zero_active_note = if has_quadrant && fire == 0 && debt > 0 {
-        format!(
-            r#"<p class="triage-zero-note">No high/critical functions with recent activity — but <strong>{debt}</strong> stable-debt function{s} {are} awaiting a refactor sprint. Address these before the next period of active change.</p>"#,
-            debt = debt,
-            s = if debt == 1 { "" } else { "s" },
-            are = if debt == 1 { "is" } else { "are" },
-        )
-    } else {
-        String::new()
-    };
-
-    let chips_html = if has_quadrant {
-        format!(
-            r#"<div class="quadrant-chips">
-    <div class="quadrant-chip quadrant-fire">
-        <div class="chip-label">Active Risk</div>
-        <div class="chip-count">{fire}</div>
-        <div class="chip-desc">high/critical + recently active</div>
+    let chips_html = format!(
+        r#"<div class="tier-chips">
+    <div class="tier-chip tier-active">
+        <div class="chip-label">Active</div>
+        <div class="chip-count">{active}</div>
+        <div class="chip-desc">touched more than the repo median, or changed in the last 30 days</div>
     </div>
-    <div class="quadrant-chip quadrant-debt">
-        <div class="chip-label">Stable Debt</div>
-        <div class="chip-count">{debt}</div>
-        <div class="chip-desc">high/critical + not recently active</div>
+    <div class="tier-chip tier-quiet">
+        <div class="chip-label">Quiet</div>
+        <div class="chip-count">{quiet}</div>
+        <div class="chip-desc">not recently active</div>
     </div>
-    <div class="quadrant-chip quadrant-watch">
-        <div class="chip-label">Watch</div>
-        <div class="chip-count">{watch}</div>
-        <div class="chip-desc">moderate/low + recently active</div>
-    </div>
-    <div class="quadrant-chip quadrant-ok">
-        <div class="chip-label">OK</div>
-        <div class="chip-count">{ok}</div>
-        <div class="chip-desc">low risk, not recently active</div>
-    </div>
-</div>
-{zero_active_note}"#,
-            fire = fire,
-            debt = debt,
-            watch = watch,
-            ok = ok,
-            zero_active_note = zero_active_note,
-        )
-    } else {
-        String::new()
-    };
+</div>"#,
+        active = active,
+        quiet = quiet,
+    );
 
     format!(
         r#"<details class="section triage-section" id="triage">
-    <summary>Triage Details<span class="section-summary-note">Quadrant counts and the next tier of risky functions</span></summary>
+    <summary>Triage Details<span class="section-summary-note">Active and quiet counts, and the functions with the highest activity risk</span></summary>
     {chips}
-    <h3 class="triage-subtitle">Top Risks ({count})</h3>
+    <h3 class="triage-subtitle">Top by Activity Risk ({count})</h3>
     <div class="triage-risk-grid">{rows}</div>
 </details>"#,
         chips = chips_html,
