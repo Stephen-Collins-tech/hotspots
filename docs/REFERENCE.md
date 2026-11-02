@@ -20,7 +20,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
 | `--explain-patterns` | off | Show pattern trigger conditions |
-| `--level` | — | `file` or `module` aggregate view (snapshot+text only) |
+| `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
