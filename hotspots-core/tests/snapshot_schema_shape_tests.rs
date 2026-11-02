@@ -18,7 +18,7 @@
 //! expected key sets below in the same PR as the schema change — that pairing
 //! is the point of this test.
 
-use hotspots_core::aggregates::{compute_agent_sections, compute_snapshot_aggregates_with_models};
+use hotspots_core::aggregates::{compute_agent_sections, compute_snapshot_aggregates};
 use hotspots_core::delta::Delta;
 use hotspots_core::language::Language;
 use hotspots_core::report::MetricsReport;
@@ -126,7 +126,7 @@ fn build_test_snapshot() -> serde_json::Value {
         co_change: None,
     };
 
-    let aggregates = compute_snapshot_aggregates_with_models(&snapshot, &repo_root, 90, 2, None);
+    let aggregates = compute_snapshot_aggregates(&snapshot, &repo_root, 90, 2);
     snapshot.aggregates = Some(aggregates);
 
     serde_json::to_value(&snapshot).expect("Snapshot must serialize to JSON")
@@ -192,49 +192,13 @@ fn snapshot_aggregates_file_risk_shape() {
 }
 
 #[test]
-fn snapshot_aggregates_modules_shape() {
-    let json = build_test_snapshot();
-    let aggregates = &json["aggregates"];
-
-    // modules: module-level risk view. module_risk gates on avg_complexity alone
-    // as of 1.42.1; `instability` carried no measured signal (rho≈-0.002)
-    // and was removed entirely in hotspots 2.0 (issue #247) -- its absence here
-    // is a regression guard, not an oversight. `afferent`/`efferent` remain as
-    // descriptive facts. This fixture has no real import edges, so modules may
-    // be empty -- only assert shape when present; a separate,
-    // repo-root-with-real-imports test would be needed to guarantee non-empty
-    // modules, which is out of scope for a pure shape check.
-    if let Some(modules) = aggregates.get("modules").and_then(|m| m.as_array()) {
-        if let Some(first) = modules.first() {
-            let expected_module: BTreeSet<String> = [
-                "module",
-                "file_count",
-                "function_count",
-                "avg_complexity",
-                "afferent",
-                "efferent",
-                "module_risk",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect();
-            assert_eq!(
-                keys_of(first),
-                expected_module,
-                "aggregates.modules[] shape changed"
-            );
-        }
-    }
-}
-
-#[test]
 fn snapshot_aggregates_optional_sections_absent_when_not_requested() {
     let json = build_test_snapshot();
     let aggregates = &json["aggregates"];
 
-    // co_change / models: both optional/empty-skipped. This fixture has no git
-    // repo and no model_source_root, so both must be absent or empty -- if
-    // either starts appearing unconditionally, that's a real behavior change.
+    // co_change is optional/empty-skipped. This fixture has no git repo, so it
+    // must be absent or empty -- if it starts appearing unconditionally,
+    // that's a real behavior change.
     let co_change_ok = aggregates
         .get("co_change")
         .map(|v| v.as_array().map(|a| a.is_empty()).unwrap_or(false))
@@ -242,11 +206,6 @@ fn snapshot_aggregates_optional_sections_absent_when_not_requested() {
     assert!(
         co_change_ok,
         "co_change should be absent or empty with no git repo"
-    );
-
-    assert!(
-        aggregates.get("models").is_none(),
-        "models were not requested (model_source_root=None); should be absent, not null"
     );
 }
 
@@ -293,7 +252,7 @@ fn snapshot_triage_envelope_shape() {
         co_change: None,
     };
 
-    let aggregates = compute_snapshot_aggregates_with_models(&snapshot, &repo_root, 90, 2, None);
+    let aggregates = compute_snapshot_aggregates(&snapshot, &repo_root, 90, 2);
     let (triage, architecture, co_change) =
         compute_agent_sections(&snapshot, &aggregates, &repo_root);
     // Mirrors `emit_json_output`'s non-`--all-functions` branch in
@@ -306,9 +265,8 @@ fn snapshot_triage_envelope_shape() {
 
     let json = serde_json::to_value(&snapshot).expect("Snapshot must serialize to JSON");
 
-    // Both fixture files share a directory (`rust/`), so `aggregates.modules`
-    // is non-empty and `architecture` is present. `functions` and `aggregates`
-    // must still be absent: this is the slimmed shape, not the
+    // `architecture` is present because file_risk is non-empty. `functions`
+    // and `aggregates` must still be absent: this is the slimmed shape, not the
     // `--all-functions` one.
     let expected: BTreeSet<String> = [
         "schema_version",
@@ -355,15 +313,12 @@ fn snapshot_triage_envelope_shape() {
     );
 
     let architecture_json = &json["architecture"];
-    let expected_architecture: BTreeSet<String> = ["file_risk", "modules"]
-        .into_iter()
-        .map(String::from)
-        .collect();
+    let expected_architecture: BTreeSet<String> =
+        ["file_risk"].into_iter().map(String::from).collect();
     assert_eq!(
         keys_of(architecture_json),
         expected_architecture,
-        "architecture shape changed (this fixture has no model_source_root, so \
-         `models` is expected to be absent — skip_serializing_if-omitted when None)"
+        "architecture shape changed"
     );
 }
 

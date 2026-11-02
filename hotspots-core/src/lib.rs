@@ -30,7 +30,6 @@ pub mod imports;
 pub mod isolation_forest;
 pub mod language;
 pub mod metrics;
-pub mod models;
 pub mod parser;
 pub mod patterns;
 pub mod phrases;

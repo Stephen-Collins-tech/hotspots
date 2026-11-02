@@ -13,7 +13,7 @@ hotspots analyze <PATH> [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | `text`, `json`, `html`, `sarif` |
-| `--mode` | — | `snapshot`, `delta`, `models` |
+| `--mode` | — | `snapshot`, `delta` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
@@ -26,7 +26,6 @@ hotspots analyze <PATH> [OPTIONS]
 | `--no-persist` | off | Skip writing snapshot to disk |
 | `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
 | `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
-| `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
 | `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
 | `--skip-gate` | off | Disable suppression gate P@10 check |
 | — | — | Suppression gate verdicts are smoothed: `Suppressed` is only reported after 3 consecutive raw `Suppressed` readings across runs, tracked in `.hotspots/gate_history.json` |
@@ -772,39 +771,6 @@ defect-correlation-validated threshold.
 }
 ```
 `risk: "expected"` = a static import exists; co-change is explained.
-
-**`architecture.modules`** — directory-level coupling (`ModuleInstability`):
-```json
-{
-  "module": "hotspots-core/src",
-  "file_count": 12,
-  "function_count": 340,
-  "avg_complexity": 6.1,
-  "afferent": 8,
-  "efferent": 3,
-  "module_risk": "high"
-}
-```
-`module_risk: "high"` fires when `avg_complexity > 5.0` — gated on complexity
-alone. `afferent`/`efferent` (external modules that depend on this one / that this
-one depends on) are descriptive facts only — `module_risk` does not depend on
-them. **`instability` (efferent / (afferent + efferent)) was removed entirely in
-hotspots 2.0** (carried no measured signal, ρ≈-0.002, and combining it with
-the complexity gate added no benefit over complexity alone) — do not expect this
-field in current output.
-
-**`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
-```json
-{
-  "items": [{
-    "name": "Snapshot", "file": "...", "line": 219,
-    "kind": "struct", "score": 52.11,
-    "critical": 4, "high": 15, "moderate": 17,
-    "functions": [...]
-  }],
-  "links": [{ "source": 0, "target": 2, "shared_functions": 15, "shared_risk": 83.53 }]
-}
-```
 
 ### Delta output
 

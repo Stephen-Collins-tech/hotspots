@@ -124,7 +124,7 @@ hotspots-core/src/
 ├── delta.rs            # delta computation
 ├── policy.rs           # policy rule evaluation
 ├── analysis.rs         # pipeline orchestration
-├── aggregates.rs       # file_risk, co_change, modules, models
+├── aggregates.rs       # file_risk, co_change
 ├── callgraph.rs        # fan-in/out, PageRank, betweenness, SCC
 ├── git.rs              # git log integration, touch cache, ref resolution
 ├── config.rs           # config loading and resolution

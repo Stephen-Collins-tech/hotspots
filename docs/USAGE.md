@@ -39,12 +39,9 @@ Snapshots are stored as `.hotspots/snapshots/<commit-sha>.json.zst` and are immu
 ```bash
 # File-level risk table (ranked by composite file_risk_score)
 hotspots analyze . --mode snapshot --format text --level file
-
-# Module-level complexity/coupling view (directory level)
-hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal and is no longer computed or reported.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
 
 ## Delta Mode
 
@@ -372,7 +369,6 @@ No `✦` lines appear without a trained ranker.
 ```bash
 hotspots analyze src/ --format json
 hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
-hotspots analyze . --mode snapshot --format json --include-models  # add model risk map
 ```
 
 Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version

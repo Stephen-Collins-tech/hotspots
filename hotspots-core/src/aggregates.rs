@@ -59,28 +59,6 @@ pub struct FileRiskView {
     pub file_risk_score_blended: Option<f64>,
 }
 
-/// Module (directory) instability metric (Robert Martin's Ca/Ce)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct ModuleInstability {
-    /// Directory path relative to repo root
-    pub module: String,
-    pub file_count: usize,
-    pub function_count: usize,
-    pub avg_complexity: f64,
-    /// Afferent coupling: external modules that depend on this one
-    pub afferent: usize,
-    /// Efferent coupling: modules this one depends on externally
-    pub efferent: usize,
-    /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
-    /// internal validation found combining this with instability
-    /// (efferent / (afferent + efferent)) added no benefit over complexity
-    /// alone, so `module_risk` never depended on it. hotspots 2.0 removed the
-    /// `instability` field entirely (it carried no measured signal, rho≈-0.002)
-    /// -- `afferent`/`efferent` remain as descriptive facts only.
-    pub module_risk: String,
-}
-
 /// Snapshot aggregates container
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -93,10 +71,6 @@ pub struct SnapshotAggregates {
     pub file_risk: Vec<FileRiskView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub co_change: Vec<crate::git::CoChangePair>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub modules: Vec<ModuleInstability>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<crate::models::ModelRiskMap>,
 }
 
 /// Delta aggregates for a file
@@ -226,10 +200,6 @@ pub struct AgentCoChangeView {
 pub struct AgentArchitectureView {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub file_risk: Vec<FileRiskView>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub modules: Vec<ModuleInstability>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<crate::models::ModelRiskMap>,
 }
 
 /// Build the slimmed triage/architecture/co_change sections of the unified
@@ -338,19 +308,10 @@ pub fn compute_agent_sections(
         })
         .collect();
 
-    let models = aggregates
-        .models
-        .as_ref()
-        .map(|model_map| normalize_model_risk_map(model_map, repo_root));
-    let architecture = if file_risk.is_empty() && aggregates.modules.is_empty() && models.is_none()
-    {
+    let architecture = if file_risk.is_empty() {
         None
     } else {
-        Some(AgentArchitectureView {
-            file_risk,
-            modules: aggregates.modules.clone(),
-            models,
-        })
+        Some(AgentArchitectureView { file_risk })
     };
 
     (
@@ -362,46 +323,6 @@ pub fn compute_agent_sections(
             total_pairs,
         },
     )
-}
-
-fn normalize_model_risk_map(
-    map: &crate::models::ModelRiskMap,
-    repo_root: &std::path::Path,
-) -> crate::models::ModelRiskMap {
-    crate::models::ModelRiskMap {
-        models: map
-            .models
-            .iter()
-            .map(|model| {
-                let functions = model
-                    .functions
-                    .iter()
-                    .map(|function| crate::models::ModelFunction {
-                        file: normalize_path_relative_to_repo(&function.file, repo_root)
-                            .unwrap_or_else(|| function.file.clone()),
-                        function_id: relativize_function_id(&function.function_id, repo_root),
-                        ..function.clone()
-                    })
-                    .collect();
-                crate::models::ModelRiskEntry {
-                    file: normalize_path_relative_to_repo(&model.file, repo_root)
-                        .unwrap_or_else(|| model.file.clone()),
-                    functions,
-                    ..model.clone()
-                }
-            })
-            .collect(),
-        links: map.links.clone(),
-    }
-}
-
-fn relativize_function_id(function_id: &str, repo_root: &std::path::Path) -> String {
-    let Some((file, function)) = function_id.split_once("::") else {
-        return function_id.to_string();
-    };
-    normalize_path_relative_to_repo(file, repo_root)
-        .map(|rel| format!("{rel}::{function}"))
-        .unwrap_or_else(|| function_id.to_string())
 }
 
 /// Check if a band is High+ (high or critical)
@@ -712,126 +633,6 @@ pub fn annotate_static_deps(
     }
 }
 
-/// Compute module (directory) instability from a pre-computed import edge list.
-fn compute_module_instability_from_edges(
-    functions: &[FunctionSnapshot],
-    edges: &[(String, String)],
-    repo_root: &std::path::Path,
-) -> Vec<ModuleInstability> {
-    // Helper: extract directory from a file path (relative to repo_root)
-    let file_dir = |file: &str| -> Option<String> {
-        let normalized = normalize_path_relative_to_repo(file, repo_root)?;
-        Some(extract_directory(&normalized))
-    };
-
-    // Count cross-directory edges
-    let mut efferent: HashMap<String, usize> = HashMap::new();
-    let mut afferent: HashMap<String, usize> = HashMap::new();
-
-    for (from_file, to_file) in edges {
-        let from_dir = match file_dir(from_file) {
-            Some(d) => d,
-            None => continue,
-        };
-        let to_dir = match file_dir(to_file) {
-            Some(d) => d,
-            None => continue,
-        };
-        if from_dir != to_dir {
-            *efferent.entry(from_dir.clone()).or_insert(0) += 1;
-            *afferent.entry(to_dir.clone()).or_insert(0) += 1;
-        }
-    }
-
-    // Aggregate function metrics per directory
-    struct DirStats {
-        files: std::collections::HashSet<String>,
-        function_count: usize,
-        sum_cc: usize,
-    }
-    let mut dir_stats: HashMap<String, DirStats> = HashMap::new();
-
-    for func in functions {
-        let dir = match file_dir(&func.file) {
-            Some(d) => d,
-            None => continue,
-        };
-        let stats = dir_stats.entry(dir).or_insert_with(|| DirStats {
-            files: std::collections::HashSet::new(),
-            function_count: 0,
-            sum_cc: 0,
-        });
-        stats.files.insert(func.file.clone());
-        stats.function_count += 1;
-        stats.sum_cc += func.metrics.cc as usize;
-    }
-
-    // Collect all directory names seen in any of the three maps
-    let all_dirs: std::collections::HashSet<String> = dir_stats
-        .keys()
-        .chain(efferent.keys())
-        .chain(afferent.keys())
-        .cloned()
-        .collect();
-
-    let mut modules: Vec<ModuleInstability> = all_dirs
-        .into_iter()
-        .filter_map(|dir| {
-            let stats = dir_stats.get(&dir)?;
-            let eff = *efferent.get(&dir).unwrap_or(&0);
-            let aff = *afferent.get(&dir).unwrap_or(&0);
-            let avg_complexity = if stats.function_count > 0 {
-                stats.sum_cc as f64 / stats.function_count as f64
-            } else {
-                0.0
-            };
-            let module_risk = if avg_complexity > 5.0 {
-                "high".to_string()
-            } else {
-                "low".to_string()
-            };
-            Some(ModuleInstability {
-                module: dir,
-                file_count: stats.files.len(),
-                function_count: stats.function_count,
-                avg_complexity: (avg_complexity * 100.0).round() / 100.0,
-                afferent: aff,
-                efferent: eff,
-                module_risk,
-            })
-        })
-        .collect();
-
-    // Sort: high-risk first, then by module name (the instability-based
-    // secondary sort was removed along with the field in hotspots 2.0).
-    modules.sort_by(|a, b| {
-        b.module_risk
-            .cmp(&a.module_risk) // "high" > "low"
-            .then(a.module.cmp(&b.module))
-    });
-
-    modules
-}
-
-/// Compute module instability from snapshot functions (computes import edges internally).
-///
-/// Exposed as a public API for callers that don't have pre-computed edges.
-pub fn compute_module_instability(
-    functions: &[FunctionSnapshot],
-    repo_root: &std::path::Path,
-) -> Vec<ModuleInstability> {
-    let mut unique_files: Vec<String> = functions
-        .iter()
-        .map(|f| f.file.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    unique_files.sort();
-    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
-    compute_module_instability_from_edges(functions, &edges, repo_root)
-}
-
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -843,23 +644,6 @@ pub fn compute_snapshot_aggregates(
     repo_root: &std::path::Path,
     co_change_window_days: u64,
     co_change_min_count: usize,
-) -> SnapshotAggregates {
-    compute_snapshot_aggregates_with_models(
-        snapshot,
-        repo_root,
-        co_change_window_days,
-        co_change_min_count,
-        None,
-    )
-}
-
-/// Compute snapshot aggregates, optionally including model risk data.
-pub fn compute_snapshot_aggregates_with_models(
-    snapshot: &Snapshot,
-    repo_root: &std::path::Path,
-    co_change_window_days: u64,
-    co_change_min_count: usize,
-    model_source_root: Option<&std::path::Path>,
 ) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
@@ -886,18 +670,11 @@ pub fn compute_snapshot_aggregates_with_models(
             .unwrap_or_default();
     annotate_static_deps(&mut co_change, &all_edges, repo_root);
 
-    let modules = compute_module_instability_from_edges(&snapshot.functions, &all_edges, repo_root);
-    let models = model_source_root.and_then(|source_root| {
-        crate::models::compute_model_risk_map(source_root, repo_root, snapshot, Some(10)).ok()
-    });
-
     SnapshotAggregates {
         files,
         directories,
         file_risk,
         co_change,
-        modules,
-        models,
     }
 }
 

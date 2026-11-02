@@ -24,7 +24,6 @@ pub(crate) struct AnalyzeArgs {
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
-    pub include_models: bool,
     pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
@@ -57,8 +56,6 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_no_persist_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
-    validate_models_mode_format(args)?;
-    validate_include_models_flag(args)?;
     validate_explain_patterns_flag(args)?;
     validate_format_mode_requirements(args)?;
     Ok(())
@@ -98,7 +95,7 @@ fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if !args.no_persist {
         return Ok(());
     }
-    if args.mode.is_none() || args.mode == Some(OutputMode::Models) {
+    if args.mode.is_none() {
         anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
     }
     if args.force {
@@ -128,25 +125,6 @@ fn validate_all_functions_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
         && (args.mode != Some(OutputMode::Snapshot) || !matches!(args.format, OutputFormat::Json))
     {
         anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
-    }
-    Ok(())
-}
-
-fn validate_models_mode_format(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.mode == Some(OutputMode::Models)
-        && !matches!(args.format, OutputFormat::Text | OutputFormat::Json)
-    {
-        anyhow::bail!("--mode models supports --format text or --format json");
-    }
-    Ok(())
-}
-
-fn validate_include_models_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.include_models
-        && (args.mode != Some(OutputMode::Snapshot)
-            || !matches!(args.format, OutputFormat::Json | OutputFormat::Html))
-    {
-        anyhow::bail!("--include-models is only valid with --mode snapshot --format json/html");
     }
     Ok(())
 }
@@ -184,7 +162,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         level,
         skip_touch_metrics,
         all_functions,
-        include_models,
         explain_patterns,
         source_url,
         jobs,
@@ -274,7 +251,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 no_persist,
                 level,
                 all_functions,
-                include_models,
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
@@ -310,7 +286,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 no_persist: true, // default analyze doesn't persist snapshots
                 level,
                 all_functions: false,
-                include_models: false,
                 explain_patterns,
                 source_url,
                 callgraph_skip_above,
@@ -636,7 +611,6 @@ pub(crate) struct ModeOutputOptions {
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
-    pub include_models: bool,
     pub explain_patterns: bool,
     pub source_url: Option<String>,
     pub callgraph_skip_above: Option<usize>,
@@ -668,7 +642,6 @@ pub(crate) fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => handle_snapshot_mode(
-            path,
             &repo_root,
             resolved_config,
             reports,
@@ -684,14 +657,10 @@ pub(crate) fn handle_mode_output(
             opts,
             timing,
         ),
-        OutputMode::Models => {
-            handle_models_mode(path, &repo_root, resolved_config, reports, opts, timing)
-        }
     }
 }
 
 fn handle_snapshot_mode(
-    path: &Path,
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
@@ -706,7 +675,6 @@ fn handle_snapshot_mode(
         no_persist,
         level,
         all_functions,
-        include_models,
         explain_patterns,
         source_url,
         callgraph_skip_above,
@@ -721,9 +689,7 @@ fn handle_snapshot_mode(
     // Validate output-format compatibility before any persistence side effects
     // (snapshot::persist_snapshot / append_to_index below), so a command that's
     // going to bail out with an error leaves no durable state behind. See #222.
-    if matches!(format, OutputFormat::Text)
-        && !explain
-        && !matches!(level, Some(OutputLevel::File) | Some(OutputLevel::Module))
+    if matches!(format, OutputFormat::Text) && !explain && !matches!(level, Some(OutputLevel::File))
     {
         anyhow::bail!(
             "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
@@ -852,7 +818,6 @@ fn handle_snapshot_mode(
             co_change_window_days: resolved_config.co_change_window_days,
             co_change_min_count: resolved_config.co_change_min_count,
             all_functions,
-            include_models,
             source_url: source_url.clone(),
             risk_thresholds: hotspots_core::risk::RiskThresholds {
                 moderate: resolved_config.moderate_threshold,
@@ -862,7 +827,6 @@ fn handle_snapshot_mode(
             blend_churn,
         },
         repo_root,
-        path,
     );
     if let (Some(tc), Some(start)) = (timing, report_start) {
         tc.report.record(start.elapsed());
@@ -1003,57 +967,6 @@ fn enrich_delta(
     Ok(enriched)
 }
 
-fn handle_models_mode(
-    path: &Path,
-    repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
-    reports: Vec<hotspots_core::FunctionRiskReport>,
-    opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
-) -> anyhow::Result<()> {
-    let ModeOutputOptions {
-        format,
-        top,
-        callgraph_skip_above,
-        skip_touch_metrics,
-        ..
-    } = opts;
-    let snapshot = build_enriched_snapshot(
-        repo_root,
-        resolved_config,
-        reports,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
-    let model_map = hotspots_core::models::compute_model_risk_map(path, repo_root, &snapshot, top)
-        .context("failed to compute model risk map")?;
-    let report_start = timing.map(|_| std::time::Instant::now());
-    let result: anyhow::Result<()> = match format {
-        OutputFormat::Text => {
-            print!(
-                "{}",
-                hotspots_core::models::render_model_risk_text(&model_map, top)
-            );
-            Ok(())
-        }
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                hotspots_core::models::render_model_risk_json(&model_map)?
-            );
-            Ok(())
-        }
-        OutputFormat::Html | OutputFormat::Sarif => {
-            unreachable!("validated by validate_analyze_flags")
-        }
-    };
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
-    result
-}
-
 struct SnapshotOutputOpts {
     format: OutputFormat,
     explain: bool,
@@ -1064,7 +977,6 @@ struct SnapshotOutputOpts {
     co_change_window_days: u64,
     co_change_min_count: usize,
     all_functions: bool,
-    include_models: bool,
     source_url: Option<String>,
     risk_thresholds: hotspots_core::risk::RiskThresholds,
     blend_churn: bool,
@@ -1074,12 +986,11 @@ fn emit_snapshot_output(
     snapshot: &mut Snapshot,
     opts: SnapshotOutputOpts,
     repo_root: &Path,
-    analysis_path: &Path,
 ) -> anyhow::Result<()> {
     match opts.format {
-        OutputFormat::Json => emit_json_output(snapshot, repo_root, analysis_path, opts),
+        OutputFormat::Json => emit_json_output(snapshot, repo_root, opts),
         OutputFormat::Text => emit_text_output(snapshot, repo_root, opts),
-        OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
+        OutputFormat::Html => emit_html_output(snapshot, repo_root, opts),
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
     }
 }
@@ -1087,24 +998,21 @@ fn emit_snapshot_output(
 fn emit_json_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
-    analysis_path: &Path,
     opts: SnapshotOutputOpts,
 ) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
         all_functions,
-        include_models,
         co_change_window_days,
         co_change_min_count,
         output,
         blend_churn,
         ..
     } = opts;
-    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
-        include_models.then_some(analysis_path),
     );
     maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if all_functions {
@@ -1161,8 +1069,6 @@ fn emit_text_output(
     maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if level == Some(OutputLevel::File) {
         explain::print_file_risk_output(&aggregates.file_risk, top)?;
-    } else if level == Some(OutputLevel::Module) {
-        explain::print_module_output(&aggregates.modules, top)?;
     } else if explain {
         let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
         explain::print_explain_output(snapshot, total_function_count, color)?;
@@ -1177,24 +1083,21 @@ fn emit_text_output(
 fn emit_html_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
-    analysis_path: &Path,
     opts: SnapshotOutputOpts,
 ) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
         co_change_window_days,
         co_change_min_count,
-        include_models,
         source_url,
         risk_thresholds,
         output,
         ..
     } = opts;
-    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
-        include_models.then_some(analysis_path),
     );
     snapshot.aggregates = Some(aggregates);
     let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
@@ -1241,7 +1144,7 @@ fn apply_top_n(
     level: Option<OutputLevel>,
     top: Option<usize>,
 ) {
-    let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+    let is_aggregate_level = level == Some(OutputLevel::File);
     let is_text = matches!(format, OutputFormat::Text);
     if !is_aggregate_level && (top.is_some() || (is_text && explain)) {
         snapshot.functions.sort_by(|a, b| {
@@ -1815,7 +1718,6 @@ mod validate_analyze_flags_tests {
             no_persist: false,
             level: None,
             all_functions: false,
-            include_models: false,
             explain_patterns: false,
             source_url: None,
             jobs: None,
@@ -1890,12 +1792,6 @@ mod validate_analyze_flags_tests {
             ..base_args()
         })
         .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Models),
-            ..base_args()
-        })
-        .is_err());
     }
 
     #[test]
@@ -1903,12 +1799,6 @@ mod validate_analyze_flags_tests {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             no_persist: true,
             mode: None,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: Some(OutputMode::Models),
             ..base_args()
         })
         .is_err());
@@ -1968,40 +1858,6 @@ mod validate_analyze_flags_tests {
         .is_ok());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             all_functions: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn models_mode_supports_only_text_or_json() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn include_models_requires_snapshot_mode_and_json_or_html_format() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
             mode: Some(OutputMode::Snapshot),
             format: OutputFormat::Text,
             ..base_args()

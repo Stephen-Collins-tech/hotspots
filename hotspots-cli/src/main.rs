@@ -38,7 +38,7 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: OutputFormat,
 
-        /// Output mode (snapshot, delta, or models)
+        /// Output mode (snapshot or delta)
         #[arg(long)]
         mode: Option<OutputMode>,
 
@@ -89,10 +89,6 @@ enum Commands {
         /// don't; see docs/REFERENCE.md "Field stability" before keying CI gates on them.
         #[arg(long)]
         all_functions: bool,
-
-        /// Include model risk map data in snapshot JSON/HTML reports.
-        #[arg(long)]
-        include_models: bool,
 
         /// Populate and emit pattern details for --explain-patterns
         #[arg(long)]
@@ -327,13 +323,11 @@ pub(crate) enum OutputFormat {
 pub(crate) enum OutputMode {
     Snapshot,
     Delta,
-    Models,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 pub(crate) enum OutputLevel {
     File,
-    Module,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -361,7 +355,6 @@ fn main() -> anyhow::Result<()> {
             level,
             skip_touch_metrics,
             all_functions,
-            include_models,
             explain_patterns,
             source_url,
             jobs,
@@ -386,7 +379,6 @@ fn main() -> anyhow::Result<()> {
             level,
             skip_touch_metrics,
             all_functions,
-            include_models,
             explain_patterns,
             source_url,
             jobs,
