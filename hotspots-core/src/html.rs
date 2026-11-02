@@ -754,7 +754,6 @@ footer a {
         padding: 0.5rem;
     }
 
-
 }
 
 /* Filters */
@@ -951,20 +950,6 @@ footer a {
 
 /* Safe-to-refactor indicator */
 .refactor-ready { color: #22c55e; font-weight: 600; }
-
-/* Pattern pill badges */
-
-/* Tier 1 — structural (warm palette) */
-/* Tier 2 — behavioral (cool palette) */
-/* volatile_god — derived, most severe: inverted dark badge */
-
-/* Pattern breakdown widget */
-
-/* Driver badges */
-
-/* Module risk zones (complexity-gated, hotspots 2.0) */
-.zone-pain             { color: #ef4444; font-weight: 600; }
-.zone-stable           { color: #22c55e; }
 
 /* Module and co-change risk */
 .module-risk-high   { color: #ef4444; font-weight: 600; }
@@ -1224,9 +1209,6 @@ th.sortable.desc::after {
     }
 
 
-    .zone-stable   { color: #4ade80; }
-    .zone-balanced { color: #60a5fa; }
-
     .page-btn, .page-nav { background: #1f2937; border-color: #374151; color: #f9fafb; }
     .page-btn:hover:not(:disabled), .page-nav:hover:not(:disabled) { background: #374151; }
     .page-size-select { background: #1f2937; border-color: #374151; color: #f9fafb; }
@@ -1277,10 +1259,6 @@ th.sortable.desc::after {
     .scatter-legend-label { color:#9ca3af; }
     .scatter-axis-key { color:#e5e7eb; }
     .scatter-axis-desc { color:#6b7280; }
-
-    /* Pattern badges — dark mode */
-
-    /* Pattern breakdown widget — dark mode */
 }
 "#
 }
