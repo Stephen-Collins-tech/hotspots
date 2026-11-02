@@ -148,23 +148,6 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Analyze trends from snapshot history
-    Trends {
-        /// Path to repository root
-        path: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "json")]
-        format: OutputFormat,
-
-        /// Window size (number of snapshots to analyze)
-        #[arg(long, default_value = "10")]
-        window: usize,
-
-        /// Top K functions for hotspot analysis
-        #[arg(long, default_value = "5")]
-        top: usize,
-    },
     /// Validate a configuration file
     #[command(name = "config")]
     Config {
@@ -286,8 +269,6 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Check whether a newer version of hotspots is available
-    Upgrade,
     /// Manage opt-in anonymous usage telemetry (off by default)
     Telemetry {
         #[command(subcommand)]
@@ -318,10 +299,6 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let command_name = command_name(&cli.command);
-
-    if !matches!(cli.command, Commands::Upgrade) {
-        cmd::upgrade::maybe_print_update_notice();
-    }
 
     match cli.command {
         Commands::Analyze {
@@ -374,12 +351,6 @@ fn main() -> anyhow::Result<()> {
         } => cmd::prune::handle_prune(unreachable, older_than, dry_run)?,
         Commands::Compact { level, dry_run } => cmd::compact::handle_compact(level, dry_run)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
-        Commands::Trends {
-            path,
-            format,
-            window,
-            top,
-        } => cmd::trends::handle_trends(path, format, window, top)?,
         Commands::Init { hooks, ci } => cmd::init::handle_init(hooks, ci)?,
         Commands::Diff {
             base,
@@ -447,7 +418,6 @@ fn main() -> anyhow::Result<()> {
                 path,
             })?
         }
-        Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
         Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
     }
 
@@ -463,13 +433,11 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Analyze { .. } => "analyze",
         Commands::Prune { .. } => "prune",
         Commands::Compact { .. } => "compact",
-        Commands::Trends { .. } => "trends",
         Commands::Config { .. } => "config",
         Commands::Init { .. } => "init",
         Commands::Diff { .. } => "diff",
         Commands::Train { .. } => "train",
         Commands::Coordinate { .. } => "coordinate",
-        Commands::Upgrade => "upgrade",
         Commands::Telemetry { .. } => "telemetry",
     }
 }

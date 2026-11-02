@@ -211,22 +211,6 @@ hotspots compact --level 0
 
 Level 0 = full snapshots (current). Levels 1–2 are not yet implemented.
 
-### `hotspots trends [PATH]`
-
-Analyze complexity trends across snapshot history.
-
-```
-hotspots trends . [--window N] [--top K] [--format text|json|html]
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--window N` | `10` | Number of snapshots to analyze |
-| `--top K` | `5` | Top K functions to track |
-| `--format` | `json` | Output format |
-
-Reports: risk velocities (LRS change per snapshot), hotspot stability (consistent top-K), refactor effectiveness (sustained LRS reduction).
-
 ### `hotspots config`
 
 ```bash
@@ -241,18 +225,6 @@ hotspots config validate --path FILE
 ```bash
 hotspots init --hooks   # print pre-commit and CI hook templates to stdout
 ```
-
-### `hotspots upgrade`
-
-```bash
-hotspots upgrade
-```
-
-Checks the latest GitHub release against the running version and prints the matching install
-command (`cargo install`, `npm install -g`, or `brew upgrade`) if one is newer — reports only,
-never replaces the binary. Every other command also does this check passively (a one-line
-stderr notice), cached at `~/.hotspots/update_check.json`, re-queried at most once every 24
-hours.
 
 ### Global flags
 
@@ -544,7 +516,7 @@ assuming it's always there.
 formula (the `activity_risk` constants, `LrsWeights`, `RiskThresholds`), bumped
 only when a weight, threshold or scale constant changes. `analysis.tool_version`
 changes on every release; `formula_version` does not — use it in `hotspots
-diff`/`trends` tooling to tell a score delta caused by a tool upgrade apart
+diff` tooling to tell a score delta caused by a tool upgrade apart
 from one caused by a real code change.
 
 **`formula_version` vs. config `schema_version` — not the same thing.**

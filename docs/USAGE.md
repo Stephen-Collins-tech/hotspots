@@ -14,7 +14,6 @@ hotspots analyze src/ --format json | jq '.[] | select(.band=="critical")'
 
 Snapshot mode captures a full analysis tied to the current git commit. It enables:
 - Delta comparisons (`--mode delta`)
-- Trend tracking (`hotspots trends`)
 - HTML trend charts
 - Trained ranker scoring
 
@@ -435,23 +434,7 @@ hotspots prune --unreachable --older-than 30
 
 # Compact snapshot storage
 hotspots compact --level 0
-
-# Analyze trends across snapshot history
-hotspots trends .
-hotspots trends . --window 20 --top 10 --format text
 ```
-
-`hotspots trends` reports risk velocities (LRS change per snapshot), hotspot stability (consistent top-K presence), and refactor effectiveness (sustained LRS reduction).
-
-## Upgrading
-
-```bash
-hotspots upgrade
-```
-
-Checks the latest GitHub release against the running version. If a newer version exists, it prints the install command matching how this binary was installed (`cargo install`, `npm install -g`, or `brew upgrade`). It only reports — it does not replace the binary itself.
-
-Every `hotspots` command also does this check passively: it prints a one-line notice to stderr before any other command output when a newer version is available. The check is cached at `~/.hotspots/update_check.json` and only re-queries GitHub once every 24 hours, so most runs make no network call.
 
 ## Training a Repo-Specific Ranker
 

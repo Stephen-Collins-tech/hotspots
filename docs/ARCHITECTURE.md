@@ -131,10 +131,8 @@ hotspots-cli/src/
     ├── diff.rs
     ├── train.rs
     ├── coordinate.rs   # coupling/ownership risk for a set of files, pre-work
-    ├── trends.rs
     ├── prune.rs
     ├── compact.rs
-    ├── upgrade.rs       # checks for a newer hotspots release
     ├── config.rs
     └── init.rs
 ```

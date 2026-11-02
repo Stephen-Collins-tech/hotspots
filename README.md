@@ -73,9 +73,6 @@ hotspots analyze src/ --mode snapshot --format html
 # JSON for tooling/AI
 hotspots analyze src/ --format json
 
-# Track trends over time
-hotspots trends .
-
 # Train a repo-specific ranker from your bug history
 hotspots train . --blame --eval
 ```
