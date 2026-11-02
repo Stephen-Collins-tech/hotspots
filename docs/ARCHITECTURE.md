@@ -34,7 +34,7 @@ Source Code
   ↓
 [Snapshot persistence / Delta computation / Report rendering]
   ↓
-[Output: text / JSON / JSONL / HTML / SARIF]
+[Output: text / JSON / HTML / SARIF]
 ```
 
 Stages above the enrichment line run on source code alone. Stages below require a git repository (`--mode snapshot` or `--mode delta`).
@@ -130,7 +130,7 @@ hotspots-core/src/
 ├── config.rs           # config loading and resolution
 ├── html.rs             # HTML report rendering
 ├── sarif.rs            # SARIF output
-└── report.rs           # JSON/JSONL rendering
+└── report.rs           # JSON rendering
 
 hotspots-cli/src/
 ├── main.rs             # CLI entry, Commands enum

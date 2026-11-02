@@ -182,15 +182,6 @@ fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if matches!(args.format, OutputFormat::Sarif) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format sarif requires --mode snapshot");
     }
-    if matches!(args.format, OutputFormat::Csv) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format csv requires --mode snapshot");
-    }
-    if matches!(args.format, OutputFormat::Xlsx) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format xlsx requires --mode snapshot");
-    }
-    if matches!(args.format, OutputFormat::LlmContext) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format llm-context requires --mode snapshot");
-    }
     Ok(())
 }
 
@@ -436,26 +427,19 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn sarif_csv_xlsx_llm_context_formats_require_snapshot_mode() {
-        for format in [
-            OutputFormat::Sarif,
-            OutputFormat::Csv,
-            OutputFormat::Xlsx,
-            OutputFormat::LlmContext,
-        ] {
-            assert!(validate_analyze_flags(&AnalyzeArgs {
-                format,
-                mode: None,
-                ..base_args()
-            })
-            .is_err());
-            assert!(validate_analyze_flags(&AnalyzeArgs {
-                format,
-                mode: Some(OutputMode::Snapshot),
-                ..base_args()
-            })
-            .is_ok());
-        }
+    fn sarif_format_requires_snapshot_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 }
 
@@ -905,11 +889,11 @@ fn handle_default_output(
             println!("{}", hotspots_core::render_json_envelope(&reports));
             Ok(())
         }
-        OutputFormat::Html | OutputFormat::Jsonl => {
-            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        OutputFormat::Html => {
+            anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif | OutputFormat::Csv | OutputFormat::Xlsx | OutputFormat::LlmContext => {
-            anyhow::bail!("SARIF/CSV/XLSX/llm-context format requires --mode snapshot");
+        OutputFormat::Sarif => {
+            anyhow::bail!("SARIF format requires --mode snapshot");
         }
     };
     if let (Some(tc), Some(start)) = (timing, report_start) {
@@ -1099,14 +1083,6 @@ fn handle_snapshot_mode(
             })
             .collect();
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
-    }
-
-    // `--format csv`/`--format xlsx`'s Ownership column needs `newcomer_rate`,
-    // which the standard snapshot pipeline otherwise never populates (only the
-    // `--cold-start` and `--axes` paths call this today) — gated to these two
-    // formats so others don't pay for an extra full-history `git log` walk.
-    if !skip_touch_metrics && matches!(format, OutputFormat::Csv | OutputFormat::Xlsx) {
-        snapshot.populate_history_signals(repo_root);
     }
 
     if !pr_context.is_pr && !no_persist {
@@ -1380,12 +1356,7 @@ fn handle_models_mode(
             );
             Ok(())
         }
-        OutputFormat::Html
-        | OutputFormat::Jsonl
-        | OutputFormat::Sarif
-        | OutputFormat::Csv
-        | OutputFormat::Xlsx
-        | OutputFormat::LlmContext => {
+        OutputFormat::Html | OutputFormat::Sarif => {
             unreachable!("validated by validate_analyze_flags")
         }
     };
@@ -1419,13 +1390,9 @@ fn emit_snapshot_output(
 ) -> anyhow::Result<()> {
     match opts.format {
         OutputFormat::Json => emit_json_output(snapshot, repo_root, analysis_path, opts),
-        OutputFormat::Jsonl => emit_jsonl_output(snapshot),
         OutputFormat::Text => emit_text_output(snapshot, repo_root, opts),
         OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
-        OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
-        OutputFormat::Xlsx => emit_xlsx_output(snapshot, repo_root, opts),
-        OutputFormat::LlmContext => emit_llm_context_output(snapshot, repo_root, opts),
     }
 }
 
@@ -1480,14 +1447,6 @@ fn maybe_blend_churn(
         let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
         hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
     }
-}
-
-fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
-    let stdout = std::io::stdout();
-    let mut out = std::io::BufWriter::new(stdout.lock());
-    snapshot
-        .write_jsonl_to(&mut out)
-        .context("failed to write snapshot JSONL")
 }
 
 fn emit_text_output(
@@ -1587,94 +1546,6 @@ fn emit_sarif_output(
     Ok(())
 }
 
-/// `--format csv`: one row per file, full inventory (ignores `--top` — a
-/// spreadsheet is for sorting/filtering everything, not a truncated view).
-/// See `hotspots_core::csv_report` for the triage/planning audience and
-/// column rationale. Single file, single table — coupling data lives only in
-/// `--format xlsx` (a real workbook can hold it as a separate sheet; CSV has
-/// no notion of multiple tables in one file, so it doesn't try to).
-fn emit_csv_output(
-    snapshot: &mut Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let csv = hotspots_core::csv_report::render_csv(&snapshot.functions, repo_root)
-        .context("failed to render CSV report")?;
-    if let Some(output_path) = opts.output {
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-        }
-        std::fs::write(&output_path, &csv)
-            .with_context(|| format!("failed to write CSV to {}", output_path.display()))?;
-        eprintln!("CSV report written to: {}", output_path.display());
-    } else {
-        print!("{csv}");
-    }
-    Ok(())
-}
-
-/// `--format llm-context`: bounded, prompt-ready projection of the top `--top`
-/// (default 20) highest-risk functions, meant for inclusion in a hosted
-/// coding model's context window. Reuses `explanation` from `--explain`
-/// directly rather than deriving separate phrasing.
-fn emit_llm_context_output(
-    snapshot: &Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let top_n = opts
-        .top
-        .unwrap_or(hotspots_core::views::llm_context::DEFAULT_TOP_N);
-    let report = hotspots_core::views::llm_context::to_llm_context_report(
-        &snapshot.functions,
-        repo_root,
-        top_n,
-    );
-    let json =
-        serde_json::to_string_pretty(&report).context("failed to serialize llm-context report")?;
-    if let Some(output_path) = opts.output {
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-        }
-        std::fs::write(&output_path, &json).with_context(|| {
-            format!(
-                "failed to write llm-context report to {}",
-                output_path.display()
-            )
-        })?;
-        eprintln!("LLM-context report written to: {}", output_path.display());
-    } else {
-        println!("{json}");
-    }
-    Ok(())
-}
-
-/// `--format xlsx`: a real multi-sheet workbook — "Files" (the main triage
-/// table) and "Coupling" (files with a real `directed_coupling` value only).
-/// Binary format, so it always writes to a file: `--output`, or
-/// `.hotspots/report.xlsx` by default (mirrors HTML's default path).
-fn emit_xlsx_output(
-    snapshot: &mut Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let bytes = hotspots_core::xlsx_report::render_xlsx(&snapshot.functions, repo_root)
-        .context("failed to render XLSX report")?;
-    let output_path = opts
-        .output
-        .unwrap_or_else(|| snapshot::hotspots_dir(repo_root).join("report.xlsx"));
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-    }
-    std::fs::write(&output_path, &bytes)
-        .with_context(|| format!("failed to write XLSX to {}", output_path.display()))?;
-    eprintln!("XLSX report written to: {}", output_path.display());
-    Ok(())
-}
-
 fn apply_top_n(
     snapshot: &mut Snapshot,
     format: OutputFormat,
@@ -1684,10 +1555,7 @@ fn apply_top_n(
 ) {
     let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
     let is_text = matches!(format, OutputFormat::Text);
-    // CSV/XLSX always emit the full file inventory — a spreadsheet is for
-    // sorting/filtering everything, not a truncated view (see csv_report.rs).
-    let is_spreadsheet = matches!(format, OutputFormat::Csv | OutputFormat::Xlsx);
-    if !is_aggregate_level && !is_spreadsheet && (top.is_some() || (is_text && explain)) {
+    if !is_aggregate_level && (top.is_some() || (is_text && explain)) {
         snapshot.functions.sort_by(|a, b| {
             let a_score = a.activity_risk.unwrap_or(a.lrs);
             let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -1849,9 +1717,6 @@ fn emit_delta_output(
         OutputFormat::Json => {
             println!("{}", delta_val.to_json()?);
         }
-        OutputFormat::Jsonl => {
-            anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
-        }
         OutputFormat::Text => {
             emit_delta_text(delta_val, with_policy)?;
         }
@@ -1860,17 +1725,6 @@ fn emit_delta_output(
         }
         OutputFormat::Sarif => {
             anyhow::bail!("SARIF format is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::Csv => {
-            anyhow::bail!("--format csv is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::Xlsx => {
-            anyhow::bail!("--format xlsx is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::LlmContext => {
-            anyhow::bail!(
-                "--format llm-context is not supported for delta mode (use --mode snapshot)"
-            );
         }
     }
 

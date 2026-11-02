@@ -36,15 +36,8 @@ pub(crate) fn handle_trends(
         OutputFormat::Text => {
             print_trends_text_output(&trends)?;
         }
-        OutputFormat::Html
-        | OutputFormat::Jsonl
-        | OutputFormat::Sarif
-        | OutputFormat::Csv
-        | OutputFormat::Xlsx
-        | OutputFormat::LlmContext => {
-            anyhow::bail!(
-                "HTML/JSONL/SARIF/CSV/XLSX/LLM-context format is not supported for trends analysis"
-            );
+        OutputFormat::Html | OutputFormat::Sarif => {
+            anyhow::bail!("HTML/SARIF format is not supported for trends analysis");
         }
     }
 

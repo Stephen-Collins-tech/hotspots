@@ -174,7 +174,7 @@ function legacyBillingLogic() { ... }
 hotspots train . --blame --eval   # train + check P@K vs base rate
 ```
 
-**Output formats** — `text` (terminal), `json` (machine), `jsonl` (streaming), `html` (interactive), `sarif` (GitHub Code Scanning).
+**Output formats** — `text` (terminal), `json` (machine), `html` (interactive), `sarif` (GitHub Code Scanning).
 
 **Configuration** — `.hotspotsrc.json` in project root (auto-discovered):
 ```json

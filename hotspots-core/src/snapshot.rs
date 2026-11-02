@@ -1542,27 +1542,6 @@ impl Snapshot {
         });
     }
 
-    /// Serialize snapshot as JSONL (one JSON object per line, no outer array)
-    ///
-    /// Each line embeds the commit context alongside function data,
-    /// suitable for streaming ingestion (DuckDB, jq -s, etc.)
-    pub fn to_jsonl(&self) -> Result<String> {
-        let commit_json =
-            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
-
-        let mut lines = Vec::with_capacity(self.functions.len());
-        for func in &self.functions {
-            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
-            // Embed commit context in each row
-            obj.as_object_mut()
-                .context("serialized function is not a JSON object")?
-                .insert("commit".to_string(), commit_json.clone());
-            lines.push(serde_json::to_string(&obj).context("failed to serialize JSONL line")?);
-        }
-
-        Ok(lines.join("\n"))
-    }
-
     /// Serialize snapshot to JSON string (deterministic ordering)
     pub fn to_json(&self) -> Result<String> {
         serde_json::to_string_pretty(self).context("failed to serialize snapshot to JSON")
@@ -1577,24 +1556,6 @@ impl Snapshot {
         serde_json::to_writer_pretty(&mut *writer, self)
             .context("failed to write snapshot JSON")?;
         writeln!(writer).context("failed to write trailing newline")
-    }
-
-    /// Write the snapshot as JSONL (one JSON object per function) directly to
-    /// `writer`, without building an intermediate `String`.
-    pub fn write_jsonl_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
-        let commit_json =
-            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
-
-        for func in &self.functions {
-            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
-            obj.as_object_mut()
-                .context("serialized function is not a JSON object")?
-                .insert("commit".to_string(), commit_json.clone());
-            serde_json::to_writer(writer as &mut dyn std::io::Write, &obj)
-                .context("failed to write JSONL line")?;
-            writeln!(writer).context("failed to write JSONL newline")?;
-        }
-        Ok(())
     }
 
     /// Deserialize snapshot from JSON string

@@ -234,54 +234,6 @@ fn test_diff_top_sort_new_high_lrs_above_modified_small_delta() {
 }
 
 #[test]
-fn test_diff_to_jsonl() {
-    let tmp = TempDir::new().unwrap();
-    init_repo(tmp.path());
-
-    let base = Snapshot::new(
-        git_ctx("base005", "root005"),
-        vec![make_report("src/g.ts", "alpha", 3, 2.0, "low")],
-    );
-    let head = Snapshot::new(
-        git_ctx("head005", "base005"),
-        vec![
-            make_report("src/g.ts", "alpha", 8, 5.0, "moderate"), // modified
-            make_report("src/h.ts", "beta", 5, 3.0, "low"),       // new
-        ],
-    );
-
-    let base = persist_and_load(tmp.path(), &base);
-    let head = persist_and_load(tmp.path(), &head);
-
-    let mut delta = Delta::new(&head, Some(&base)).expect("delta failed");
-    delta
-        .deltas
-        .retain(|e| e.status != FunctionStatus::Unchanged);
-
-    let jsonl = delta.to_jsonl().expect("to_jsonl failed");
-    let lines: Vec<&str> = jsonl.lines().collect();
-
-    assert_eq!(
-        lines.len(),
-        2,
-        "JSONL should have one line per changed function"
-    );
-
-    // Each line should be valid JSON containing a function_id
-    for line in &lines {
-        let v: serde_json::Value = serde_json::from_str(line).expect("line should be valid JSON");
-        assert!(
-            v.get("function_id").is_some(),
-            "each JSONL entry should have function_id"
-        );
-        assert!(
-            v.get("status").is_some(),
-            "each JSONL entry should have status"
-        );
-    }
-}
-
-#[test]
 fn test_diff_delta_aggregates_attached() {
     // Verify compute_delta_aggregates produces a non-None result when
     // called with empty co-change slices (the common case for diff).

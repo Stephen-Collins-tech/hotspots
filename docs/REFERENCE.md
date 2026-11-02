@@ -12,7 +12,7 @@ hotspots analyze <PATH> [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--format` | `text` | `text`, `json`, `jsonl`, `html`, `sarif`, `csv`, `xlsx`, `llm-context` |
+| `--format` | `text` | `text`, `json`, `html`, `sarif` |
 | `--mode` | — | `snapshot`, `delta`, `models` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
@@ -45,22 +45,6 @@ hotspots analyze <PATH> [OPTIONS]
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
 - `--touch-mode` conflicts with each of the four deprecated flags above; the deprecated flags still work on their own (each prints a one-line warning to stderr) and remain mutually compatible with each other, resolved with the same precedence as before
-- `--format csv`/`--format xlsx`/`--format llm-context` require `--mode snapshot`
-
-#### `--format csv` / `--format xlsx`
-
-A file-level triage/planning view for spreadsheet workflows — a tech lead or EM doing triage, ownership handoff, or sprint planning, not a raw per-function data dump (`--format json --all-functions`) or an in-IDE fix workflow (text/HTML). One row per file, always the full file list (ignores `--top`), with the risk band, quadrant, the file's highest-risk function and its line, ownership `newcomer_rate`, function/critical counts, LOC, and subsystem.
-
-Coupling (`directed_coupling`) is not in the main table — only a minority of files have any coupling relationship, so folding it in would leave most rows reading "n/a" on that column. `--format xlsx` is a real multi-sheet workbook: "Files" (the main table) plus a "Coupling" sheet (files with a real `directed_coupling` value only). `--format csv` is single-file/single-table only — CSV has no notion of multiple tables, so coupling isn't included; use `--format xlsx` for coupling data. `--format xlsx` always writes to a file (`--output`, or `.hotspots/report.xlsx` by default); `--format csv` prints to stdout without `--output`.
-
-Missing axis values (a file excluded from an axis, not a measured zero) are written as the literal string `n/a`, never a blank cell.
-
-#### `--format llm-context`
-
-A bounded, prompt-ready JSON projection of the highest-risk functions, meant to be inserted directly into a hosted coding model's context before it reasons about the repo — e.g. "these functions have elevated defect-risk due to churn/complexity/history." Each entry has `file`, `function`, `line`, `band`, `risk_score`, and an optional `explanation` string.
-
-Bounded by `--top` (default 20) so it can be dropped into a prompt without exceeding a token budget — unlike `--format csv`/`--format xlsx`, which always emit the full file list. `explanation` is populated from the same phrase table as `--explain` (pass `--explain` alongside `--format llm-context` to populate it); it is omitted when `--explain` was not passed or no trained ranker was active for this repo. Prints to stdout, or writes to `--output` if given.
-
 #### `--touch-mode`
 
 Controls how touch metrics (git churn/recency) are computed:
@@ -87,7 +71,7 @@ Accepts: branch names, tags, full/short SHAs, `HEAD~N` relative refs.
 
 | Flag | Description |
 |---|---|
-| `--format` | `text` (default), `json`, `jsonl`, `html` |
+| `--format` | `text` (default), `json`, `html` |
 | `--output PATH` | Write output to file |
 | `--policy` | Evaluate policies; exit 1 on blocking violations |
 | `--top N` | Limit to N changed functions by \|ΔLRS\| |

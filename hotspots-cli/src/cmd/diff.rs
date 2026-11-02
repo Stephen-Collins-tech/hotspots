@@ -227,10 +227,6 @@ fn emit_diff_output(
             let json = delta_val.to_json()?;
             write_or_print(output, &json)?;
         }
-        OutputFormat::Jsonl => {
-            let jsonl = delta_val.to_jsonl()?;
-            write_or_print(output, &jsonl)?;
-        }
         OutputFormat::Html => {
             let html = hotspots_core::html::render_html_delta(delta_val, None);
             let output_path =
@@ -241,21 +237,6 @@ fn emit_diff_output(
         OutputFormat::Sarif => {
             anyhow::bail!(
                 "--format sarif is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::Csv => {
-            anyhow::bail!(
-                "--format csv is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::Xlsx => {
-            anyhow::bail!(
-                "--format xlsx is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::LlmContext => {
-            anyhow::bail!(
-                "--format llm-context is not supported for diff (use --format json or --format html)"
             );
         }
     }

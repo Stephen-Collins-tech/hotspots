@@ -372,13 +372,7 @@ pub(crate) enum OutputFormat {
     Text,
     Json,
     Html,
-    Jsonl,
     Sarif,
-    Csv,
-    Xlsx,
-    /// Bounded, prompt-ready projection of the highest-risk functions,
-    /// meant for inclusion in a hosted coding model's context window.
-    LlmContext,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]

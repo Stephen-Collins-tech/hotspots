@@ -7,7 +7,7 @@ hotspots analyze src/              # text output, all functions
 hotspots analyze src/ --top 20     # top 20 by LRS
 hotspots analyze src/ --min-lrs 5  # only LRS ≥ 5.0
 hotspots analyze src/ --format json
-hotspots analyze src/ --format jsonl | grep '"band":"critical"'
+hotspots analyze src/ --format json | jq '.[] | select(.band=="critical")'
 ```
 
 ## Snapshot Mode
@@ -114,7 +114,7 @@ Every `diff` collapses all function-level changes into `pr_risk_score`
 (net LRS delta across the whole diff — new functions add their LRS, deleted
 functions subtract theirs, modified functions add their ΔLRS) plus a `band`
 (the highest risk band reached by any new or modified function). Text output
-prints it under the summary line; JSON/JSONL expose it at
+prints it under the summary line; JSON exposes it at
 `delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
 
 **Read `pr_risk_score` as a structural signal (what's the worst code in this
@@ -394,15 +394,6 @@ jq '.functions | sort_by(.lrs) | reverse | .[0:10]' output.json
 
 # Functions with a specific pattern
 jq '.functions[] | select(.patterns[]? == "god_function") | .function_id' output.json
-```
-
-### JSONL (streaming)
-
-One JSON object per line — ideal for pipelines and large repos:
-
-```bash
-hotspots analyze src/ --format jsonl | grep '"band":"critical"'
-hotspots analyze src/ --format jsonl | jq -c 'select(.lrs > 9)'
 ```
 
 ### HTML
