@@ -73,9 +73,6 @@ hotspots analyze src/ --mode snapshot --format html
 # JSON for tooling/AI
 hotspots analyze src/ --format json
 
-# Track trends over time
-hotspots trends .
-
 # Train a repo-specific ranker from your bug history
 hotspots train . --blame --eval
 ```
@@ -99,14 +96,13 @@ LRS = 1.0×R_cc + 0.8×R_nd + 0.6×R_fo + 0.7×R_ns
 
 where each component is log-scaled and capped to prevent outliers from dominating ([full formula, caps, and weight rationale](docs/REFERENCE.md#lrs-formula)).
 
-In **snapshot mode**, LRS is combined with git history (churn, touch frequency, recency) and call graph metrics (fan-in, PageRank, SCC membership) to compute an **Activity Risk Score** and place each function in a triage quadrant:
+In **snapshot mode**, LRS is combined with the file's git history (churn, touch frequency, recency) into an absolute **Activity Risk Score**, and each function is marked `active` (its file is touched more than the repo median, or changed in the last 30 days) or `quiet`:
 
-| Quadrant | Complexity | Activity | Action |
-|---|---|---|---|
-| `fire` | High | High | Refactor now |
-| `debt` | High | Low | Schedule before next push |
-| `watch` | Low | High | Monitor |
-| `ok` | Low | Low | Leave it alone |
+```
+Activity Risk = LRS/20.2 + churn + touch + recency      (each term scaled to 0–1)
+```
+
+Activity Risk says where attention is likely needed next, not how good the code is. Editing a file raises it for every function in the file and it decays as the file goes quiet, so use the risk **band** (from LRS) to judge structure and Activity Risk to decide where to look first. See [Activity Risk](docs/REFERENCE.md#activity-risk-score-snapshot-mode) and [Activity tier](docs/REFERENCE.md#activity-tier).
 
 **Risk bands:** Low (< 3) · Moderate (3–6) · High (6–9) · Critical (≥ 9)
 
@@ -157,11 +153,7 @@ Exit code 1 on blocking violations, 0 on warnings only.
 
 ## Key Features
 
-**Policy engine** — blocks: new critical-risk functions, LRS regressions ≥ 1.0, net repo regression ≥ 5.0. Warns: approaching thresholds, rapid growth > 50%.
-
-**Driver labels** — each function gets a primary diagnosis: `high_complexity`, `deep_nesting`, `exit_heavy`, `high_churn_low_cc`, `high_fanout_churning`, `high_fanin_complex`, `cyclic_dep`, or `composite`.
-
-**Pattern detection** — 13 named patterns in two tiers: structural (always, e.g. `complex_branching`, `god_function`) and enriched (snapshot mode, e.g. `churn_magnet`, `cyclic_hub`, `volatile_god`).
+**Policy engine** — blocks: new critical-risk functions and LRS regressions ≥ 1.0.
 
 **Suppression comments** — exclude functions from CI failures while keeping them visible:
 ```typescript
@@ -174,15 +166,15 @@ function legacyBillingLogic() { ... }
 hotspots train . --blame --eval   # train + check P@K vs base rate
 ```
 
-**Output formats** — `text` (terminal), `json` (machine), `jsonl` (streaming), `html` (interactive), `sarif` (GitHub Code Scanning).
+**Output formats** — `text` (terminal), `json` (machine), `html` (interactive), `sarif` (GitHub Code Scanning).
 
 **Configuration** — `.hotspotsrc.json` in project root (auto-discovered):
 ```json
 {
   "include": ["src/**/*.ts"],
   "exclude": ["**/*.test.ts"],
-  "thresholds": { "moderate": 3.0, "high": 6.0, "critical": 9.0 },
-  "weights": { "cc": 1.0, "nd": 0.8, "fo": 0.6, "ns": 0.7 }
+  "min_lrs": 0.0,
+  "policy": { "critical_introduction": "block" }
 }
 ```
 
@@ -190,6 +182,7 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 
 ## Documentation
 
+- [docs/COMMANDS.md](docs/COMMANDS.md) — every command: why it exists, when to use it, how to read its output
 - [docs/USAGE.md](docs/USAGE.md) — workflows, CI setup, output formats, policy engine, suppression, training, snapshot management
 - [docs/REFERENCE.md](docs/REFERENCE.md) — complete CLI reference, all flags, config options, JSON schema, metrics formula
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, analysis pipeline, invariants, design decisions

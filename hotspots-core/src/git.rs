@@ -885,6 +885,12 @@ pub fn compute_fn_changed_lines(
 /// wider `--since` range).
 pub const TOUCH_WINDOW_DAYS: i64 = 365;
 
+/// Days of history mined for file co-change pairs.
+pub const CO_CHANGE_WINDOW_DAYS: u64 = 90;
+
+/// Minimum number of co-changes before a file pair is reported.
+pub const CO_CHANGE_MIN_COUNT: usize = 3;
+
 /// Compute touch metrics for all files in a repository using two git log calls.
 ///
 /// Replaces the previous O(files) approach (one subprocess per file) with two
@@ -1559,12 +1565,7 @@ index 3333333..4444444 100644
             callgraph: None,
             activity_risk: None,
             risk_factors: None,
-            percentile: None,
-            driver: None,
-            driver_detail: None,
-            quadrant: None,
-            patterns: vec![],
-            pattern_details: None,
+            tier: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,

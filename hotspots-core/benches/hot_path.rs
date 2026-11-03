@@ -1,8 +1,8 @@
 //! Micro-benchmarks for the hottest phases of the analyze pipeline
-//! (hotspots#267 part 2). Targets are picked from the `--timing-report`
-//! breakdown added in part 1: on a real analyze run, `parse`, `metrics`,
-//! and `cfg` dominate wall time (in that order), while `discover`,
-//! `scoring`, `aggregate`, and `report` are negligible. See
+//! (hotspots#267 part 2). Targets were picked from a per-phase timing breakdown:
+//! on a real analyze run, `parse`, `metrics`, and `cfg` dominate wall time (in
+//! that order), while `discover`, `scoring`, `aggregate`, and `report` are
+//! negligible. See
 //! `benches/README.md` for how to run these and read the output.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};

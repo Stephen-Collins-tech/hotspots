@@ -14,9 +14,8 @@ and touch frequency to separate active risk from dormant debt.
 - **LRS scoring** — combines cyclomatic complexity, nesting depth, fan-out, and
   non-structured exits into one actionable number per function.
 - **Git-enriched triage** — snapshot mode adds churn and touch frequency, placing
-  every function in a fire / debt / watch / ok quadrant. Call-graph metrics
-  (fan-in, PageRank, betweenness) are computed and reported alongside, but don't
-  feed the live score.
+  every function in an active or quiet tier. Fan-in is reported alongside, but
+  doesn't feed the live score.
 - **Policy engine** — block PRs that introduce critical-risk functions or regress
   LRS. Works with GitHub Actions, GitLab CI, and any CI that checks exit codes.
 
@@ -25,6 +24,7 @@ and touch frequency to separate active risk from dormant debt.
 | | |
 |---|---|
 | [Quick Start](/quickstart) | Install the binary and run your first analysis. |
+| [Commands](/COMMANDS) | Each command explained: why it exists, when to use it, how to read the output. |
 | [Usage & Workflows](/USAGE) | Snapshot mode, delta mode, the policy engine, `hotspots coordinate`. |
 | [CLI & Config Reference](/REFERENCE) | Every command, every flag, every config field. |
 | [Architecture](/ARCHITECTURE) | How the analysis pipeline actually works, end to end. |

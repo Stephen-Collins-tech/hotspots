@@ -5,7 +5,7 @@ from pathlib import Path
 from .utils import Runner, init_test_repo, write_ts, read_json
 
 
-def test_snapshot_delta_trends(tmp_path: Path):
+def test_snapshot_delta(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
     r = Runner(repo_root)
     r.ensure_built()
@@ -59,13 +59,6 @@ function highComplexityFunction(x, y, z) {
     delta_section = d["delta"]
     assert "deltas" in delta_section and isinstance(delta_section["deltas"], list)
     assert delta_section.get("aggregates") is not None
-
-    # Trends JSON
-    trends = repo / "trends.json"
-    proc = r.run(["trends", "--window", "10", "--top", "5", "--format", "json", "."], repo, out=trends)
-    assert proc.returncode == 0
-    t = read_json(trends)
-    assert set(["velocities", "hotspots", "refactors"]).issubset(t.keys())
 
 
 def test_snapshot_mode_format_error_does_not_persist(tmp_path: Path):

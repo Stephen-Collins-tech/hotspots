@@ -12,10 +12,7 @@ mod util;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use cmd::{
-    analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, estimate::EstimateArgs,
-    telemetry::TelemetryAction,
-};
+use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, telemetry::TelemetryAction};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -41,7 +38,7 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: OutputFormat,
 
-        /// Output mode (snapshot, delta, or models)
+        /// Output mode (snapshot or delta)
         #[arg(long)]
         mode: Option<OutputMode>,
 
@@ -81,48 +78,17 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Touch metrics mode: `auto` (default — config or hybrid:5), `per-function`
-        /// (accurate, O(functions) git calls, cached in .hotspots/touch-cache.json.zst),
-        /// `file` (fast file-level batching), `hybrid[:N]` (file-level first,
-        /// per-function only for files with touch_count >= N, default N=5), or
-        /// `none` (skip touch metrics, directed coupling, and burst_score entirely —
-        /// no git log calls; for benchmarking pure analysis + call graph performance).
-        #[arg(long, value_parser = cmd::analyze::parse_touch_mode_arg, conflicts_with_all = ["per_function_touches", "no_per_function_touches", "skip_touch_metrics", "hybrid_touches"])]
-        touch_mode: Option<cmd::analyze::TouchModeArg>,
-
-        /// Deprecated: use `--touch-mode per-function`. Use per-function git log -L
-        /// for touch metrics (more accurate than file-level batching). Results are
-        /// cached in .hotspots/touch-cache.json.zst — the first run on a new commit
-        /// is slow (~9 ms per uncached function); subsequent runs are fast. A warning
-        /// is printed when 50+ functions need to be fetched.
-        #[arg(long, conflicts_with = "touch_mode")]
-        per_function_touches: bool,
-
-        /// Deprecated: use `--touch-mode file`. Disable per-function touch metrics,
-        /// use file-level batching instead. Overrides config and --per-function-touches.
-        #[arg(long, conflicts_with = "touch_mode")]
-        no_per_function_touches: bool,
-
-        /// Deprecated: use `--touch-mode none`. Skip all touch metrics entirely (no
-        /// git log calls for churn/recency), skip directed coupling (also a git log
-        /// walk), and skip burst_score (also a full-history git log walk).
-        #[arg(long, conflicts_with = "touch_mode")]
+        /// Skip all touch metrics (no git log calls for churn/recency), directed
+        /// coupling, and burst_score. For benchmarking pure analysis performance.
+        #[arg(long)]
         skip_touch_metrics: bool,
 
         /// Output all functions as a flat array (only valid with --mode snapshot --format json).
-        /// Note: `quadrant`, `driver`, `driver_detail`, and `percentile` are population-relative
-        /// and can change run-to-run even when a function's own `lrs`/`activity_risk`/`band`
-        /// don't; see docs/REFERENCE.md "Field stability" before keying CI gates on them.
+        /// Note: `tier` is population-relative and can change run-to-run even when a
+        /// function's own `lrs`/`activity_risk`/`band` don't; see docs/REFERENCE.md
+        /// "Field stability" before keying CI gates on it.
         #[arg(long)]
         all_functions: bool,
-
-        /// Include model risk map data in snapshot JSON/HTML reports.
-        #[arg(long)]
-        include_models: bool,
-
-        /// Populate and emit pattern details for --explain-patterns
-        #[arg(long)]
-        explain_patterns: bool,
 
         /// URL of the written analysis post to link from the HTML report (HTML format only)
         #[arg(long, value_name = "URL")]
@@ -132,21 +98,10 @@ enum Commands {
         #[arg(long, short = 'j', value_name = "N")]
         jobs: Option<usize>,
 
-        /// Skip all call graph algorithms when the repo exceeds N functions.
-        /// Omits PageRank, betweenness, fan-in/fan-out, SCC, and dependency depth.
-        /// Useful for very large repos where graph computation dominates CPU time.
-        #[arg(long, value_name = "N")]
-        callgraph_skip_above: Option<usize>,
-
         /// Skip the suppression gate check (the P@10 calibration that warns when
         /// the activity ranker may be producing misleading rankings).
         #[arg(long)]
         skip_gate: bool,
-
-        /// Deprecated: use `--touch-mode hybrid:N`. Hybrid touch mode: run file-level
-        /// touch first, then per-function only for files with touch_count >= N.
-        #[arg(long, value_name = "N", conflicts_with = "touch_mode")]
-        hybrid_touches: Option<usize>,
 
         /// Rank using a Gini-gated cold-start strategy (formula / IsolationForest
         /// anomaly / uniform prior) instead of a trained ranker. For repos with no
@@ -160,22 +115,8 @@ enum Commands {
         /// section; overlap is not deduplicated. Use --top to control section size.
         #[arg(long)]
         axes: bool,
-
-        /// Print a per-phase wall-clock timing breakdown (discover, parse, cfg,
-        /// metrics, scoring, aggregate, report) as JSON to stderr after the
-        /// normal output. Diagnostic only — never affects stdout or exit code.
-        #[arg(long)]
-        timing_report: bool,
-
-        /// Re-rank file-level risk (--level file) by a 50/50 blend of file_risk_score
-        /// and per-file churn (lines added+deleted, 180-day window), instead of
-        /// file_risk_score alone. In our evaluation it improved
-        /// recall on most tested repos, with one known regression and no reliable way
-        /// yet to predict which repos it will hurt — opt-in, not a default.
-        #[arg(long)]
-        blend_churn: bool,
     },
-    /// Prune unreachable snapshots
+    /// Reduce snapshot storage: drop unreachable snapshots and/or compact history
     Prune {
         /// Prune unreachable snapshots (must be explicitly specified)
         #[arg(long)]
@@ -185,51 +126,20 @@ enum Commands {
         #[arg(long)]
         older_than: Option<u64>,
 
-        /// Dry-run mode (report what would be pruned without actually deleting)
+        /// Compact history to the given level (0 = full snapshots, 1 = deltas only,
+        /// 2 = band transitions only)
+        #[arg(long, value_name = "LEVEL")]
+        compact: Option<u32>,
+
+        /// Dry-run mode (report what would change without modifying any files)
         #[arg(long)]
         dry_run: bool,
-    },
-    /// Compact history to reduce storage
-    Compact {
-        /// Compaction level (0 = full snapshots, 1 = deltas only, 2 = band transitions only)
-        #[arg(long)]
-        level: u32,
-
-        /// Report what would be done without modifying any files
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Analyze trends from snapshot history
-    Trends {
-        /// Path to repository root
-        path: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "json")]
-        format: OutputFormat,
-
-        /// Window size (number of snapshots to analyze)
-        #[arg(long, default_value = "10")]
-        window: usize,
-
-        /// Top K functions for hotspot analysis
-        #[arg(long, default_value = "5")]
-        top: usize,
     },
     /// Validate a configuration file
     #[command(name = "config")]
     Config {
         #[command(subcommand)]
         action: ConfigAction,
-    },
-    /// Print hook templates for CI/CD integration
-    Init {
-        /// Print pre-commit framework and raw shell hook templates to stdout
-        #[arg(long)]
-        hooks: bool,
-        /// Write a GitHub Actions workflow to .github/workflows/hotspots.yml
-        #[arg(long)]
-        ci: bool,
     },
     /// Compare analysis snapshots between two git refs
     Diff {
@@ -319,7 +229,7 @@ enum Commands {
         #[arg(long, short = 'q', default_value = "false")]
         quiet: bool,
     },
-    /// Analyze coupling and ownership risk for a set of files before starting work
+    /// Report ownership risk for a set of files before starting work
     Coordinate {
         /// Comma-separated list of file paths to analyze
         #[arg(long)]
@@ -337,33 +247,10 @@ enum Commands {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Check whether a newer version of hotspots is available
-    Upgrade,
     /// Manage opt-in anonymous usage telemetry (off by default)
     Telemetry {
         #[command(subcommand)]
         action: TelemetryAction,
-    },
-    /// Project `analyze --touch-mode per-function`'s wall-clock cost before running it
-    Estimate {
-        /// Path to source file or directory
-        path: PathBuf,
-
-        /// Output format
-        #[arg(long, default_value = "text")]
-        format: OutputFormat,
-
-        /// Path to config file (default: auto-discover)
-        #[arg(long)]
-        config: Option<PathBuf>,
-
-        /// If given, recommend a touch mode against this wall-clock budget (seconds)
-        #[arg(long, value_name = "SECONDS")]
-        budget_seconds: Option<u64>,
-
-        /// How long to let the Tier 1 structural pass run before giving up on it
-        #[arg(long, value_name = "SECONDS", default_value = "30")]
-        tier1_timeout_seconds: u64,
     },
 }
 
@@ -372,36 +259,24 @@ pub(crate) enum OutputFormat {
     Text,
     Json,
     Html,
-    Jsonl,
     Sarif,
-    Csv,
-    Xlsx,
-    /// Bounded, prompt-ready projection of the highest-risk functions,
-    /// meant for inclusion in a hosted coding model's context window.
-    LlmContext,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 pub(crate) enum OutputMode {
     Snapshot,
     Delta,
-    Models,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 pub(crate) enum OutputLevel {
     File,
-    Module,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let command_name = command_name(&cli.command);
-
-    if !matches!(cli.command, Commands::Upgrade) {
-        cmd::upgrade::maybe_print_update_notice();
-    }
 
     match cli.command {
         Commands::Analyze {
@@ -417,22 +292,13 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            per_function_touches,
-            no_per_function_touches,
             skip_touch_metrics,
             all_functions,
-            include_models,
-            explain_patterns,
             source_url,
             jobs,
-            callgraph_skip_above,
-            hybrid_touches,
-            touch_mode,
             skip_gate,
             cold_start,
             axes,
-            timing_report,
-            blend_churn,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -446,37 +312,21 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            per_function_touches,
-            no_per_function_touches,
             skip_touch_metrics,
             all_functions,
-            include_models,
-            explain_patterns,
             source_url,
             jobs,
-            callgraph_skip_above,
-            hybrid_touches,
-            touch_mode,
             skip_gate,
             cold_start,
             axes,
-            timing_report,
-            blend_churn,
         })?,
         Commands::Prune {
             unreachable,
             older_than,
+            compact,
             dry_run,
-        } => cmd::prune::handle_prune(unreachable, older_than, dry_run)?,
-        Commands::Compact { level, dry_run } => cmd::compact::handle_compact(level, dry_run)?,
+        } => cmd::prune::handle_prune(unreachable, older_than, compact, dry_run)?,
         Commands::Config { action } => cmd::config::handle_config(action)?,
-        Commands::Trends {
-            path,
-            format,
-            window,
-            top,
-        } => cmd::trends::handle_trends(path, format, window, top)?,
-        Commands::Init { hooks, ci } => cmd::init::handle_init(hooks, ci)?,
         Commands::Diff {
             base,
             head,
@@ -543,21 +393,7 @@ fn main() -> anyhow::Result<()> {
                 path,
             })?
         }
-        Commands::Upgrade => cmd::upgrade::handle_upgrade()?,
         Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
-        Commands::Estimate {
-            path,
-            format,
-            config,
-            budget_seconds,
-            tier1_timeout_seconds,
-        } => cmd::estimate::handle_estimate(EstimateArgs {
-            path,
-            format,
-            config_path: config,
-            budget_seconds,
-            tier1_timeout_seconds,
-        })?,
     }
 
     if command_name != "telemetry" {
@@ -571,16 +407,11 @@ fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Analyze { .. } => "analyze",
         Commands::Prune { .. } => "prune",
-        Commands::Compact { .. } => "compact",
-        Commands::Trends { .. } => "trends",
         Commands::Config { .. } => "config",
-        Commands::Init { .. } => "init",
         Commands::Diff { .. } => "diff",
         Commands::Train { .. } => "train",
         Commands::Coordinate { .. } => "coordinate",
-        Commands::Upgrade => "upgrade",
         Commands::Telemetry { .. } => "telemetry",
-        Commands::Estimate { .. } => "estimate",
     }
 }
 

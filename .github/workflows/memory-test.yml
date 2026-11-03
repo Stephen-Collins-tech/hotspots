@@ -30,14 +30,10 @@ on:
         description: 'git clone depth'
         required: false
         default: '25'
-      hybrid_touch_threshold:
-        description: 'Hybrid touch threshold (0 = skip touch metrics)'
+      skip_touch_metrics:
+        description: 'Pass --skip-touch-metrics (true/false)'
         required: false
-        default: '5'
-      explain_patterns:
-        description: 'Pass --explain-patterns (true/false)'
-        required: false
-        default: 'true'
+        default: 'false'
 
 jobs:
   analyze:
@@ -84,22 +80,14 @@ jobs:
             TARGET_REPO="$(basename $GITHUB_WORKSPACE) (self)"
           fi
 
-          THRESHOLD="${{ inputs.hybrid_touch_threshold || '5' }}"
-          if [ "$THRESHOLD" = "0" ]; then
+          TOUCH_ARGS=""
+          if [ "${{ inputs.skip_touch_metrics || 'false' }}" = "true" ]; then
             TOUCH_ARGS="--skip-touch-metrics"
-          else
-            TOUCH_ARGS="--hybrid-touches $THRESHOLD"
-          fi
-
-          PATTERN_ARGS=""
-          if [ "${{ inputs.explain_patterns || 'true' }}" = "true" ]; then
-            PATTERN_ARGS="--explain-patterns"
           fi
 
           echo "==> Target:   $TARGET_REPO"
           echo "==> Path:     $ANALYZE_PATH"
           echo "==> Touch:    $TOUCH_ARGS"
-          echo "==> Patterns: $PATTERN_ARGS"
           echo ""
 
           hotspots analyze "$ANALYZE_PATH" \
@@ -107,7 +95,6 @@ jobs:
             --format json \
             --no-persist \
             $TOUCH_ARGS \
-            $PATTERN_ARGS \
             > /dev/null &
           HOTSPOTS_PID=$!
 

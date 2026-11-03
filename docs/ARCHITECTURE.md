@@ -26,15 +26,13 @@ Source Code
   ↓
 [LRS + Risk Band]
   ↓
-[Pattern Classification] → Tier 1 (structural)
-  ↓
 [optional: git history + call graph enrichment]
   ↓
-[Activity Risk Score + Tier 2 patterns + Driver Label + Quadrant]
+[Activity Risk Score + Activity Tier]
   ↓
 [Snapshot persistence / Delta computation / Report rendering]
   ↓
-[Output: text / JSON / JSONL / HTML / SARIF]
+[Output: text / JSON / HTML / SARIF]
 ```
 
 Stages above the enrichment line run on source code alone. Stages below require a git repository (`--mode snapshot` or `--mode delta`).
@@ -80,15 +78,11 @@ Log-scale transforms and weighted sum → LRS → risk band. See [REFERENCE.md](
 
 ### Phase 5 — Enrichment (snapshot mode)
 
-**Git history:** `git log` provides per-file or per-function (with `-L`) churn and touch counts. Results cached in `.hotspots/touch-cache.json.zst`. Hybrid mode: file-level for all functions, per-function for files with ≥ N touches in the touch window (365 days by default — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Git history:** one batched `git log` per file provides churn and touch counts, applied to every function in the file. Touch counts use a 365-day window (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Call graph:** Import resolution builds a cross-file call graph. Computes fan-in, PageRank, and SCC membership (Tarjan's algorithm) — these are still live and reported in `callgraph` output. `fan_out`, betweenness centrality (the Brandes k=256-pivot approximation implementation still exists in `callgraph.rs` but is no longer called), `scc_id`, and dependency depth (topological sort) were removed from the live pipeline entirely in hotspots 2.0 — no consumer reads them anymore (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Call graph:** Import resolution builds a cross-file call graph and computes fan-in, the only call graph metric still reported. PageRank, betweenness, strongly connected components and dependency depth were removed because nothing validated them (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
 
-**Pattern classification:** Tier 2 patterns check call graph and git data against thresholds. `volatile_god` is derived (fires only when both `god_function` and `churn_magnet` are true).
-
-**Driver label assignment:** Percentile-relative checks in priority order (see [REFERENCE.md](REFERENCE.md#driver-labels)).
-
-**Quadrant assignment:** Band × activity → `fire`/`debt`/`watch`/`ok`.
+**Tier assignment:** touch count above the repo median or changed in the last 30 days → `active`, else `quiet`.
 
 ### Phase 6 — Snapshot Persistence
 
@@ -118,19 +112,17 @@ hotspots-core/src/
 │   └── mod.rs          # CfgNode, CfgEdge, Cfg, validation
 ├── metrics.rs          # raw metric extraction
 ├── risk.rs             # LRS, risk components, risk bands
-├── patterns.rs         # Tier 1 + Tier 2 pattern detection
-├── drivers.rs          # driver label assignment
 ├── snapshot.rs         # snapshot serialization, persistence, loading
 ├── delta.rs            # delta computation
 ├── policy.rs           # policy rule evaluation
 ├── analysis.rs         # pipeline orchestration
-├── aggregates.rs       # file_risk, co_change, modules, models
-├── callgraph.rs        # fan-in/out, PageRank, betweenness, SCC
+├── aggregates.rs       # file_risk, co_change
+├── callgraph.rs        # call graph and fan-in
 ├── git.rs              # git log integration, touch cache, ref resolution
 ├── config.rs           # config loading and resolution
 ├── html.rs             # HTML report rendering
 ├── sarif.rs            # SARIF output
-└── report.rs           # JSON/JSONL rendering
+└── report.rs           # JSON rendering
 
 hotspots-cli/src/
 ├── main.rs             # CLI entry, Commands enum
@@ -139,13 +131,9 @@ hotspots-cli/src/
     ├── diff.rs
     ├── train.rs
     ├── coordinate.rs   # coupling/ownership risk for a set of files, pre-work
-    ├── trends.rs
-    ├── prune.rs
-    ├── compact.rs
-    ├── estimate.rs     # projects per-function touch-mode cost before running it
-    ├── upgrade.rs       # checks for a newer hotspots release
+    ├── prune.rs        # drop unreachable snapshots / compact history
     ├── config.rs
-    └── init.rs
+    └── telemetry.rs
 ```
 
 ## Global Invariants
@@ -163,7 +151,7 @@ These are non-negotiable. Any violation is a bug.
 
 **Golden tests** (`tests/golden/`) — expected JSON outputs for known fixture files. Automatically verified in CI. Updated when metric behavior intentionally changes.
 
-**Unit tests** — per-module: CFG construction, metric extraction, risk scoring, pattern detection, config parsing.
+**Unit tests** — per-module: CFG construction, metric extraction, risk scoring, config parsing.
 
 **Integration tests** (`integration/`, pytest-based E2E) — full pipeline tests against real fixture projects. `make test-integration` runs pytest; `make test-comprehensive` auto-detects pytest or falls back to legacy script.
 
@@ -183,8 +171,5 @@ These are non-negotiable. Any violation is a bug.
 
 **Lazy join node creation in CFG builder.** Eager creation of join nodes that never receive incoming edges (e.g., when all branches terminate) causes CFG validation failures (`"Nodes not reachable from entry"`). Lazy creation — only when at least one live path needs to merge — is the correct approach.
 
-**Percentile-relative driver labels.** Absolute thresholds for driver labels would fire on different functions in a 100-function repo vs a 100k-function repo. Percentile-relative checks (default P75) adapt to the codebase's own distribution.
+**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Fan-in is computed at the call graph layer and is not folded into LRS, which keeps LRS a pure structural measure.
 
-**No cross-function analysis in LRS.** LRS is per-function and named "Local" deliberately. Call graph metrics (fan-in, PageRank) are computed at this layer, not folded into LRS — that separation keeps LRS a pure structural measure. As of v1.41.0, fan-in and SCC size no longer contribute to the live Activity Risk score itself: our evaluation found both add no measurable ranking value (confirmed, non-inferior to remove). `fan_in`/`pagerank`/`scc_size` are still computed and reported (`callgraph` output, `--axes coupling`, CSV/HTML output, `hotspots train`'s feature set) — see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode) for what's actually in the live sum today.
-
-**Betweenness centrality / dependency depth no longer computed (hotspots 2.0).** The Brandes k=256-pivot approximation and the topological-sort depth calculation described below are retained in `callgraph.rs` but are no longer called anywhere in the live pipeline — `fan_out`, `betweenness`, `scc_id`, and `dependency_depth` had no consumer once their contribution to the live score was removed, so hotspots 2.0 dropped them from `callgraph` output entirely rather than keep computing values nothing reads.

@@ -14,10 +14,6 @@
       "nd": 6,
       "ns": 3
     },
-    "patterns": [
-      "complex_branching",
-      "deeply_nested"
-    ],
     "risk": {
       "r_cc": 4.247927513443585,
       "r_fo": 0.0,

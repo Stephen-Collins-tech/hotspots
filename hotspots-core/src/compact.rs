@@ -394,8 +394,6 @@ mod tests {
             lrs: 1.0,
             band: RiskBand::Low,
             suppression_reason: None,
-            patterns: vec![],
-            pattern_details: None,
             callees: vec![],
             explanation: None,
         };

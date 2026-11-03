@@ -14,13 +14,6 @@
       "nd": 6,
       "ns": 10
     },
-    "patterns": [
-      "complex_branching",
-      "deeply_nested",
-      "exit_heavy",
-      "god_function",
-      "long_function"
-    ],
     "risk": {
       "r_cc": 4.392317422778761,
       "r_fo": 3.4594316186372973,
@@ -43,9 +36,6 @@
       "nd": 1,
       "ns": 5
     },
-    "patterns": [
-      "exit_heavy"
-    ],
     "risk": {
       "r_cc": 2.807354922057604,
       "r_fo": 0.0,
@@ -68,9 +58,6 @@
       "nd": 4,
       "ns": 0
     },
-    "patterns": [
-      "complex_branching"
-    ],
     "risk": {
       "r_cc": 3.807354922057604,
       "r_fo": 0.0,
@@ -93,9 +80,6 @@
       "nd": 5,
       "ns": 0
     },
-    "patterns": [
-      "deeply_nested"
-    ],
     "risk": {
       "r_cc": 2.807354922057604,
       "r_fo": 0.0,
@@ -118,10 +102,6 @@
       "nd": 0,
       "ns": 0
     },
-    "patterns": [
-      "god_function",
-      "long_function"
-    ],
     "risk": {
       "r_cc": 1.0,
       "r_fo": 3.4594316186372973,

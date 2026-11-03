@@ -117,7 +117,6 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         current_co_change,
         prev_co_change,
         fn_changed_lines,
-        &resolved_config.change_size_thresholds,
     ));
 
     // Filter out Unchanged, then optionally keep top N by risk magnitude
@@ -146,13 +145,8 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
 
     // Evaluate policy if requested
     if policy {
-        let policy_results = hotspots_core::policy::evaluate_policies(
-            &delta_val,
-            &head_snapshot,
-            &repo_root,
-            &resolved_config,
-        )
-        .context("failed to evaluate policies")?;
+        let policy_results = hotspots_core::policy::evaluate_policies(&delta_val, &resolved_config)
+            .context("failed to evaluate policies")?;
         if let Some(results) = policy_results {
             delta_val.policy = Some(results);
         }
@@ -227,10 +221,6 @@ fn emit_diff_output(
             let json = delta_val.to_json()?;
             write_or_print(output, &json)?;
         }
-        OutputFormat::Jsonl => {
-            let jsonl = delta_val.to_jsonl()?;
-            write_or_print(output, &jsonl)?;
-        }
         OutputFormat::Html => {
             let html = hotspots_core::html::render_html_delta(delta_val, None);
             let output_path =
@@ -241,21 +231,6 @@ fn emit_diff_output(
         OutputFormat::Sarif => {
             anyhow::bail!(
                 "--format sarif is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::Csv => {
-            anyhow::bail!(
-                "--format csv is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::Xlsx => {
-            anyhow::bail!(
-                "--format xlsx is not supported for diff (use --format json or --format html)"
-            );
-        }
-        OutputFormat::LlmContext => {
-            anyhow::bail!(
-                "--format llm-context is not supported for diff (use --format json or --format html)"
             );
         }
     }
@@ -314,16 +289,9 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     if let Some(summary) = delta_val.aggregates.as_ref().map(|a| &a.pr_summary) {
         writeln!(
             out,
-            "Changed lines in touched functions: {} · {} (strongest tested predictor of \
-             defect risk in our evaluation; size band is a display \
-             convenience, not itself research-derived — see docs/REFERENCE.md)",
-            summary.fn_changed_lines, summary.size_band
-        )?;
-        writeln!(
-            out,
-            "PR risk score: {:+.2} (band: {}) — structural signal, not validated as beating \
-             the line-count measure above",
-            summary.pr_risk_score,
+            "Changed lines in touched functions: {} (strongest tested predictor of defect \
+             risk in our evaluation) · highest band: {}",
+            summary.fn_changed_lines,
             summary.band.as_str()
         )?;
     }

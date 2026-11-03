@@ -5,11 +5,9 @@ use crate::language::{self, Language, LanguageParser};
 use crate::metrics;
 use crate::report;
 use crate::risk;
-use crate::timing::TimingCollector;
 use anyhow::{Context, Result};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
-use std::time::Instant;
 use swc_common::{sync::Lrc, SourceMap};
 
 /// Analyze a source file (TypeScript, JavaScript, Go, or Rust)
@@ -19,10 +17,10 @@ pub fn analyze_file(
     file_index: usize,
     options: &crate::AnalysisOptions,
 ) -> Result<Vec<report::FunctionRiskReport>> {
-    analyze_file_with_config(path, source_map, file_index, options, None, None, None)
+    analyze_file_with_config(path, source_map, file_index, options, None, None)
 }
 
-/// Analyze a file with optional custom weights, thresholds, and pattern thresholds
+/// Analyze a file with optional custom weights and thresholds
 pub fn analyze_file_with_config(
     path: &Path,
     source_map: &Lrc<SourceMap>,
@@ -30,44 +28,11 @@ pub fn analyze_file_with_config(
     options: &crate::AnalysisOptions,
     weights: Option<&risk::LrsWeights>,
     thresholds: Option<&risk::RiskThresholds>,
-    pattern_thresholds: Option<&crate::patterns::Thresholds>,
 ) -> Result<Vec<report::FunctionRiskReport>> {
-    analyze_file_with_config_and_timing(
-        path,
-        source_map,
-        file_index,
-        options,
-        weights,
-        thresholds,
-        pattern_thresholds,
-        None,
-    )
-}
-
-/// Like [`analyze_file_with_config`] but also accepts an optional
-/// [`TimingCollector`] to record per-phase wall-clock timing for this file's
-/// parse pass and each of its functions' CFG/metrics/scoring passes.
-#[allow(clippy::too_many_arguments)]
-pub fn analyze_file_with_config_and_timing(
-    path: &Path,
-    source_map: &Lrc<SourceMap>,
-    file_index: usize,
-    options: &crate::AnalysisOptions,
-    weights: Option<&risk::LrsWeights>,
-    thresholds: Option<&risk::RiskThresholds>,
-    pattern_thresholds: Option<&crate::patterns::Thresholds>,
-    timing: Option<&TimingCollector>,
-) -> Result<Vec<report::FunctionRiskReport>> {
-    if let Some(tc) = timing {
-        tc.record_file();
-    }
-
     let default_weights = risk::LrsWeights::default();
     let default_thresholds = risk::RiskThresholds::default();
-    let default_pattern_thresholds = crate::patterns::Thresholds::default();
     let w = weights.unwrap_or(&default_weights);
     let t = thresholds.unwrap_or(&default_thresholds);
-    let pt = pattern_thresholds.unwrap_or(&default_pattern_thresholds);
 
     let src = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
@@ -120,13 +85,9 @@ pub fn analyze_file_with_config_and_timing(
 
     let parser = create_parser(language, source_map)?;
 
-    let parse_start = timing.map(|_| Instant::now());
     let parse_result = panic::catch_unwind(AssertUnwindSafe(|| {
         parser.parse(&src, &path.to_string_lossy())
     }));
-    if let (Some(tc), Some(start)) = (timing, parse_start) {
-        tc.parse.record(start.elapsed());
-    }
 
     let module = match parse_result {
         Ok(result) => result?,
@@ -164,9 +125,7 @@ pub fn analyze_file_with_config_and_timing(
         options,
         weights: w,
         thresholds: t,
-        pattern_thresholds: pt,
         source_map,
-        timing,
     };
     let mut reports = Vec::new();
     for function in &functions {
@@ -320,12 +279,10 @@ struct FunctionAnalysisConfig<'a> {
     options: &'a crate::AnalysisOptions,
     weights: &'a risk::LrsWeights,
     thresholds: &'a risk::RiskThresholds,
-    pattern_thresholds: &'a crate::patterns::Thresholds,
     source_map: &'a Lrc<SourceMap>,
-    timing: Option<&'a TimingCollector>,
 }
 
-/// Builds CFG, extracts metrics, computes risk and patterns for one function.
+/// Builds CFG, extracts metrics, computes risk for one function.
 /// Returns None if the CFG is invalid or the function is filtered by min_lrs.
 fn analyze_function(
     function: &FunctionNode,
@@ -335,20 +292,11 @@ fn analyze_function(
 ) -> Option<report::FunctionRiskReport> {
     let w = config.weights;
     let t = config.thresholds;
-    let pt = config.pattern_thresholds;
     let options = config.options;
     let source_map = config.source_map;
-    let timing = config.timing;
-    if let Some(tc) = timing {
-        tc.record_function();
-    }
 
-    let cfg_start = timing.map(|_| Instant::now());
     let cfg = language::get_builder_for_function(function).build(function);
     let cfg_valid = cfg.validate();
-    if let (Some(tc), Some(start)) = (timing, cfg_start) {
-        tc.cfg.record(start.elapsed());
-    }
     if let Err(e) = cfg_valid {
         eprintln!(
             "warning: skipping function '{}' in {}: invalid CFG: {}",
@@ -359,40 +307,12 @@ fn analyze_function(
         return None;
     }
 
-    let metrics_start = timing.map(|_| Instant::now());
     let raw_metrics = metrics::extract_metrics(function, &cfg);
-    if let (Some(tc), Some(start)) = (timing, metrics_start) {
-        tc.metrics.record(start.elapsed());
-    }
 
-    let scoring_start = timing.map(|_| Instant::now());
     let (risk_components, lrs, band) = risk::analyze_risk_with_config(&raw_metrics, w, t);
 
     if options.min_lrs.is_some_and(|min| lrs < min) {
-        if let (Some(tc), Some(start)) = (timing, scoring_start) {
-            tc.scoring.record(start.elapsed());
-        }
         return None;
-    }
-
-    let t1 = crate::patterns::Tier1Input {
-        cc: raw_metrics.cc,
-        nd: raw_metrics.nd,
-        fo: raw_metrics.fo,
-        ns: raw_metrics.ns,
-        loc: raw_metrics.loc,
-    };
-    let t2 = crate::patterns::Tier2Input {
-        fan_in: None,
-        scc_size: None,
-        churn_lines: None,
-        days_since_last_change: None,
-        neighbor_churn: None,
-        is_entrypoint: false,
-    };
-    let patterns = crate::patterns::classify(&t1, &t2, pt);
-    if let (Some(tc), Some(start)) = (timing, scoring_start) {
-        tc.scoring.record(start.elapsed());
     }
 
     Some(report::FunctionRiskReport::new(
@@ -404,7 +324,6 @@ fn analyze_function(
             risk: risk_components,
             lrs,
             band,
-            patterns,
         },
         source_map,
     ))

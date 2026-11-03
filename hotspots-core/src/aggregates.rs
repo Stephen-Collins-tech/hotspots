@@ -49,36 +49,6 @@ pub struct FileRiskView {
     pub avg_cc: f64,
     pub critical_count: usize,
     pub file_risk_score: f64,
-    /// Percentile rank (0.0-1.0, 1.0 = riskiest) of this file's churn among all files in
-    /// the snapshot. `None` unless `apply_churn_blend` has run (opt-in, `--blend-churn`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub churn_percentile: Option<f64>,
-    /// 50/50 average of `file_risk_score`'s percentile rank and `churn_percentile`
-    /// (validated in our evaluation). `None` unless `apply_churn_blend` has run.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_risk_score_blended: Option<f64>,
-}
-
-/// Module (directory) instability metric (Robert Martin's Ca/Ce)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct ModuleInstability {
-    /// Directory path relative to repo root
-    pub module: String,
-    pub file_count: usize,
-    pub function_count: usize,
-    pub avg_complexity: f64,
-    /// Afferent coupling: external modules that depend on this one
-    pub afferent: usize,
-    /// Efferent coupling: modules this one depends on externally
-    pub efferent: usize,
-    /// "high" if avg_complexity > 5.0, else "low". Gated on complexity alone --
-    /// internal validation found combining this with instability
-    /// (efferent / (afferent + efferent)) added no benefit over complexity
-    /// alone, so `module_risk` never depended on it. hotspots 2.0 removed the
-    /// `instability` field entirely (it carried no measured signal, rho≈-0.002)
-    /// -- `afferent`/`efferent` remain as descriptive facts only.
-    pub module_risk: String,
 }
 
 /// Snapshot aggregates container
@@ -93,10 +63,6 @@ pub struct SnapshotAggregates {
     pub file_risk: Vec<FileRiskView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub co_change: Vec<crate::git::CoChangePair>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub modules: Vec<ModuleInstability>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<crate::models::ModelRiskMap>,
 }
 
 /// Delta aggregates for a file
@@ -109,21 +75,12 @@ pub struct FileDeltaAggregates {
     pub improvement_count: usize,
 }
 
-/// Single risk score for an entire PR (all changed functions collapsed into one view).
+/// Summary of an entire PR (all changed functions collapsed into one view).
 ///
-/// `pr_risk_score` is the net LRS delta summed across every New/Modified/Deleted
-/// function (New adds `after.lrs`, Deleted subtracts `before.lrs`, Modified adds
-/// `delta.lrs`) — the same quantity already rolled up per-file as `net_lrs_delta`,
-/// just summed across the whole diff instead of grouped by file.
-///
-/// **Not validated as beating a simple size measure.** In our evaluation, this exact
-/// formula was tested against the real compiled binary and, with a different construction
-/// (`net_delta_lrs`), against four other repos: on every repo tested, `pr_risk_score`
-/// scored below `fn_changed_lines` (also in this struct) at predicting which PRs later needed a
-/// defect fix — it was the weakest of five tested LRS-based scores. Read `band` as a
-/// structural-risk signal (what's the worst code in this diff), not a calibrated estimate of
-/// which PR is more likely to cause a bug — `fn_changed_lines` is the better-evidenced signal
-/// for that specific question.
+/// `fn_changed_lines` is the number of diff-changed lines that fall inside a touched
+/// function. In our evaluation it is the strongest tested predictor of which PRs later
+/// need a defect fix; every LRS-based PR score we tried was weaker, so no composite
+/// LRS score is reported.
 ///
 /// `band` is the highest risk band reached by any New or Modified function's
 /// `after` state (Deleted functions don't count toward it — removing risky code
@@ -131,19 +88,8 @@ pub struct FileDeltaAggregates {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct PrRiskSummary {
-    pub pr_risk_score: f64,
     /// Diff-changed lines that fall inside a touched function (`git::compute_fn_changed_lines`).
-    /// In our evaluation this is the strongest tested predictor of which
-    /// PRs later need a defect fix in this corpus — it beat every LRS-weighted score tried,
-    /// including `pr_risk_score` itself, in every repo tested. See `pr_risk_score`'s own doc
-    /// comment for the comparison.
     pub fn_changed_lines: usize,
-    /// Human-readable size bucket for `fn_changed_lines` ("small"/"medium"/"large"/
-    /// "very_large") — a display convenience for comparing PRs at a glance, **not itself a
-    /// research-derived signal** (unlike `fn_changed_lines`, which is). Cutoffs are
-    /// configurable defaults (`ChangeSizeThresholds`), the same category as `RiskThresholds`'
-    /// LRS band cutoffs — a presentation judgment, not a validated claim.
-    pub size_band: String,
     pub band: RiskBand,
     pub new_count: usize,
     pub modified_count: usize,
@@ -182,30 +128,28 @@ pub struct DeltaAggregates {
     pub pr_summary: PrRiskSummary,
 }
 
-/// Number of functions per quadrant in the agent triage view
+/// Number of functions per tier in the agent triage view
 const TRIAGE_TOP_N: usize = 5;
 /// Maximum hidden coupling pairs in the agent output (context-window cap)
 const HIDDEN_COUPLING_TOP_N: usize = 20;
 /// Maximum file risk entries in the agent output
 const FILE_RISK_TOP_N: usize = 10;
 
-/// A triage quadrant with count and top-N functions
+/// A triage tier with count and top-N functions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub struct TriageQuadrant {
+pub struct TriageTier {
     pub count: usize,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub top: Vec<AgentFunctionView>,
 }
 
-/// Triage view grouping functions by quadrant
+/// Triage view grouping functions by activity tier
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct TriageView {
-    pub fire: TriageQuadrant,
-    pub debt: TriageQuadrant,
-    pub watch: TriageQuadrant,
-    pub ok: TriageQuadrant,
+    pub active: TriageTier,
+    pub quiet: TriageTier,
 }
 
 /// Co-change section for agent-optimized output (hidden coupling only, capped at top N)
@@ -226,10 +170,6 @@ pub struct AgentCoChangeView {
 pub struct AgentArchitectureView {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub file_risk: Vec<FileRiskView>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub modules: Vec<ModuleInstability>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<crate::models::ModelRiskMap>,
 }
 
 /// Build the slimmed triage/architecture/co_change sections of the unified
@@ -237,28 +177,20 @@ pub struct AgentArchitectureView {
 /// snapshot and its aggregates — the default `analyze --mode snapshot --format
 /// json` shape (i.e. without `--all-functions`).
 ///
-/// Groups functions by triage quadrant, sorts each group by `activity_risk` descending,
-/// and returns top-N per quadrant. Co-change is split into hidden pairs only, capped at
+/// Groups functions by activity tier, sorts each group by `activity_risk` descending,
+/// and returns top-N per tier. Co-change is split into hidden pairs only, capped at
 /// top 20 by coupling_ratio. File risk is capped at top 10.
 pub fn compute_agent_sections(
     snapshot: &crate::snapshot::Snapshot,
     aggregates: &SnapshotAggregates,
     repo_root: &std::path::Path,
 ) -> (TriageView, Option<AgentArchitectureView>, AgentCoChangeView) {
-    // Partition functions into quadrant buckets
-    let mut fire_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut debt_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut watch_fns: Vec<&FunctionSnapshot> = Vec::new();
-    let mut ok_count = 0usize;
-
-    for func in &snapshot.functions {
-        match func.quadrant.as_deref() {
-            Some("fire") => fire_fns.push(func),
-            Some("debt") => debt_fns.push(func),
-            Some("watch") => watch_fns.push(func),
-            _ => ok_count += 1,
-        }
-    }
+    // Partition functions into tier buckets
+    let (mut active_fns, mut quiet_fns): (Vec<&FunctionSnapshot>, Vec<&FunctionSnapshot>) =
+        snapshot
+            .functions
+            .iter()
+            .partition(|f| f.tier.as_deref() == Some("active"));
 
     // Sort each group by activity_risk descending
     let sort_by_risk = |fns: &mut Vec<&FunctionSnapshot>| {
@@ -270,26 +202,17 @@ pub fn compute_agent_sections(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     };
-    sort_by_risk(&mut fire_fns);
-    sort_by_risk(&mut debt_fns);
-    sort_by_risk(&mut watch_fns);
+    sort_by_risk(&mut active_fns);
+    sort_by_risk(&mut quiet_fns);
 
     let triage = TriageView {
-        fire: TriageQuadrant {
-            count: fire_fns.len(),
-            top: to_agent_view(&fire_fns, repo_root, TRIAGE_TOP_N),
+        active: TriageTier {
+            count: active_fns.len(),
+            top: to_agent_view(&active_fns, repo_root, TRIAGE_TOP_N),
         },
-        debt: TriageQuadrant {
-            count: debt_fns.len(),
-            top: to_agent_view(&debt_fns, repo_root, TRIAGE_TOP_N),
-        },
-        watch: TriageQuadrant {
-            count: watch_fns.len(),
-            top: to_agent_view(&watch_fns, repo_root, TRIAGE_TOP_N),
-        },
-        ok: TriageQuadrant {
-            count: ok_count,
-            top: Vec::new(),
+        quiet: TriageTier {
+            count: quiet_fns.len(),
+            top: to_agent_view(&quiet_fns, repo_root, TRIAGE_TOP_N),
         },
     };
 
@@ -338,19 +261,10 @@ pub fn compute_agent_sections(
         })
         .collect();
 
-    let models = aggregates
-        .models
-        .as_ref()
-        .map(|model_map| normalize_model_risk_map(model_map, repo_root));
-    let architecture = if file_risk.is_empty() && aggregates.modules.is_empty() && models.is_none()
-    {
+    let architecture = if file_risk.is_empty() {
         None
     } else {
-        Some(AgentArchitectureView {
-            file_risk,
-            modules: aggregates.modules.clone(),
-            models,
-        })
+        Some(AgentArchitectureView { file_risk })
     };
 
     (
@@ -362,46 +276,6 @@ pub fn compute_agent_sections(
             total_pairs,
         },
     )
-}
-
-fn normalize_model_risk_map(
-    map: &crate::models::ModelRiskMap,
-    repo_root: &std::path::Path,
-) -> crate::models::ModelRiskMap {
-    crate::models::ModelRiskMap {
-        models: map
-            .models
-            .iter()
-            .map(|model| {
-                let functions = model
-                    .functions
-                    .iter()
-                    .map(|function| crate::models::ModelFunction {
-                        file: normalize_path_relative_to_repo(&function.file, repo_root)
-                            .unwrap_or_else(|| function.file.clone()),
-                        function_id: relativize_function_id(&function.function_id, repo_root),
-                        ..function.clone()
-                    })
-                    .collect();
-                crate::models::ModelRiskEntry {
-                    file: normalize_path_relative_to_repo(&model.file, repo_root)
-                        .unwrap_or_else(|| model.file.clone()),
-                    functions,
-                    ..model.clone()
-                }
-            })
-            .collect(),
-        links: map.links.clone(),
-    }
-}
-
-fn relativize_function_id(function_id: &str, repo_root: &std::path::Path) -> String {
-    let Some((file, function)) = function_id.split_once("::") else {
-        return function_id.to_string();
-    };
-    normalize_path_relative_to_repo(file, repo_root)
-        .map(|rel| format!("{rel}::{function}"))
-        .unwrap_or_else(|| function_id.to_string())
 }
 
 /// Check if a band is High+ (high or critical)
@@ -587,8 +461,6 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
                     avg_cc: (avg_cc * 100.0).round() / 100.0,
                     critical_count,
                     file_risk_score: (score * 100.0).round() / 100.0,
-                    churn_percentile: None,
-                    file_risk_score_blended: None,
                 }
             },
         )
@@ -602,86 +474,6 @@ pub fn compute_file_risk_views(functions: &[FunctionSnapshot]) -> Vec<FileRiskVi
     });
 
     views
-}
-
-/// Percentile-rank `views` by `key` (descending: highest value -> 1.0), ties broken by
-/// file path for determinism. Position `i` in the sorted-descending order maps to
-/// `1.0 - i / (n - 1)` (the top value gets 1.0, the bottom gets 0.0; a single-element
-/// slice gets 1.0). Ties are broken by file path as above.
-fn percentile_ranks(
-    views: &[FileRiskView],
-    key: impl Fn(&FileRiskView) -> f64,
-) -> HashMap<String, f64> {
-    let n = views.len();
-    let mut ranked: Vec<&FileRiskView> = views.iter().collect();
-    ranked.sort_by(|a, b| {
-        key(b)
-            .partial_cmp(&key(a))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.file.cmp(&b.file))
-    });
-    ranked
-        .into_iter()
-        .enumerate()
-        .map(|(i, v)| {
-            (
-                v.file.clone(),
-                1.0 - (i as f64) / (n.saturating_sub(1).max(1) as f64),
-            )
-        })
-        .collect()
-}
-
-/// Sum `FunctionSnapshot.churn`'s `lines_added + lines_deleted` per file, for use as
-/// `apply_churn_blend`'s `churn_totals` argument. Files with no churn data (or no
-/// functions) are simply absent from the result, not present at zero.
-pub fn churn_totals_by_file(functions: &[FunctionSnapshot]) -> HashMap<String, u64> {
-    let mut totals: HashMap<String, u64> = HashMap::new();
-    for func in functions {
-        if let Some(churn) = &func.churn {
-            let entry = totals.entry(func.file.clone()).or_insert(0);
-            *entry += (churn.lines_added + churn.lines_deleted) as u64;
-        }
-    }
-    totals
-}
-
-/// Opt-in re-ranking: blend `file_risk_score` with per-file churn (lines added +
-/// deleted, summed over `windowed_churn_at`'s trailing window) via a 50/50 average of
-/// each signal's percentile rank. In our evaluation it beat the static
-/// score on a majority of tested repos and held on repos never used to develop the
-/// blend, with one known regression that is not yet detectable in advance — re-evaluate
-/// before changing this function's weighting.
-///
-/// `churn_totals` is `lines_added + lines_deleted` per file; the caller is responsible
-/// for aggregating it from `FunctionSnapshot.churn` (this function does no git I/O).
-/// Files with no entry in `churn_totals` are treated as zero churn, not excluded.
-///
-/// Mutates `views` in place: sets `churn_percentile`/`file_risk_score_blended` on every
-/// entry, then re-sorts by `file_risk_score_blended` descending (ties by file path).
-pub fn apply_churn_blend(views: &mut [FileRiskView], churn_totals: &HashMap<String, u64>) {
-    if views.is_empty() {
-        return;
-    }
-
-    let static_pct = percentile_ranks(views, |v| v.file_risk_score);
-    let churn_pct = percentile_ranks(views, |v| {
-        churn_totals.get(&v.file).copied().unwrap_or(0) as f64
-    });
-
-    for v in views.iter_mut() {
-        let sp = static_pct.get(&v.file).copied().unwrap_or(0.0);
-        let cp = churn_pct.get(&v.file).copied().unwrap_or(0.0);
-        v.churn_percentile = Some(cp);
-        v.file_risk_score_blended = Some((sp + cp) / 2.0);
-    }
-
-    views.sort_by(|a, b| {
-        b.file_risk_score_blended
-            .partial_cmp(&a.file_risk_score_blended)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.file.cmp(&b.file))
-    });
 }
 
 /// Annotate co-change pairs with `has_static_dep` from the import edge set.
@@ -712,126 +504,6 @@ pub fn annotate_static_deps(
     }
 }
 
-/// Compute module (directory) instability from a pre-computed import edge list.
-fn compute_module_instability_from_edges(
-    functions: &[FunctionSnapshot],
-    edges: &[(String, String)],
-    repo_root: &std::path::Path,
-) -> Vec<ModuleInstability> {
-    // Helper: extract directory from a file path (relative to repo_root)
-    let file_dir = |file: &str| -> Option<String> {
-        let normalized = normalize_path_relative_to_repo(file, repo_root)?;
-        Some(extract_directory(&normalized))
-    };
-
-    // Count cross-directory edges
-    let mut efferent: HashMap<String, usize> = HashMap::new();
-    let mut afferent: HashMap<String, usize> = HashMap::new();
-
-    for (from_file, to_file) in edges {
-        let from_dir = match file_dir(from_file) {
-            Some(d) => d,
-            None => continue,
-        };
-        let to_dir = match file_dir(to_file) {
-            Some(d) => d,
-            None => continue,
-        };
-        if from_dir != to_dir {
-            *efferent.entry(from_dir.clone()).or_insert(0) += 1;
-            *afferent.entry(to_dir.clone()).or_insert(0) += 1;
-        }
-    }
-
-    // Aggregate function metrics per directory
-    struct DirStats {
-        files: std::collections::HashSet<String>,
-        function_count: usize,
-        sum_cc: usize,
-    }
-    let mut dir_stats: HashMap<String, DirStats> = HashMap::new();
-
-    for func in functions {
-        let dir = match file_dir(&func.file) {
-            Some(d) => d,
-            None => continue,
-        };
-        let stats = dir_stats.entry(dir).or_insert_with(|| DirStats {
-            files: std::collections::HashSet::new(),
-            function_count: 0,
-            sum_cc: 0,
-        });
-        stats.files.insert(func.file.clone());
-        stats.function_count += 1;
-        stats.sum_cc += func.metrics.cc as usize;
-    }
-
-    // Collect all directory names seen in any of the three maps
-    let all_dirs: std::collections::HashSet<String> = dir_stats
-        .keys()
-        .chain(efferent.keys())
-        .chain(afferent.keys())
-        .cloned()
-        .collect();
-
-    let mut modules: Vec<ModuleInstability> = all_dirs
-        .into_iter()
-        .filter_map(|dir| {
-            let stats = dir_stats.get(&dir)?;
-            let eff = *efferent.get(&dir).unwrap_or(&0);
-            let aff = *afferent.get(&dir).unwrap_or(&0);
-            let avg_complexity = if stats.function_count > 0 {
-                stats.sum_cc as f64 / stats.function_count as f64
-            } else {
-                0.0
-            };
-            let module_risk = if avg_complexity > 5.0 {
-                "high".to_string()
-            } else {
-                "low".to_string()
-            };
-            Some(ModuleInstability {
-                module: dir,
-                file_count: stats.files.len(),
-                function_count: stats.function_count,
-                avg_complexity: (avg_complexity * 100.0).round() / 100.0,
-                afferent: aff,
-                efferent: eff,
-                module_risk,
-            })
-        })
-        .collect();
-
-    // Sort: high-risk first, then by module name (the instability-based
-    // secondary sort was removed along with the field in hotspots 2.0).
-    modules.sort_by(|a, b| {
-        b.module_risk
-            .cmp(&a.module_risk) // "high" > "low"
-            .then(a.module.cmp(&b.module))
-    });
-
-    modules
-}
-
-/// Compute module instability from snapshot functions (computes import edges internally).
-///
-/// Exposed as a public API for callers that don't have pre-computed edges.
-pub fn compute_module_instability(
-    functions: &[FunctionSnapshot],
-    repo_root: &std::path::Path,
-) -> Vec<ModuleInstability> {
-    let mut unique_files: Vec<String> = functions
-        .iter()
-        .map(|f| f.file.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    unique_files.sort();
-    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-    let edges = crate::imports::resolve_file_deps(&files_as_str, repo_root);
-    compute_module_instability_from_edges(functions, &edges, repo_root)
-}
-
 /// Compute snapshot aggregates
 ///
 /// # Arguments
@@ -843,23 +515,6 @@ pub fn compute_snapshot_aggregates(
     repo_root: &std::path::Path,
     co_change_window_days: u64,
     co_change_min_count: usize,
-) -> SnapshotAggregates {
-    compute_snapshot_aggregates_with_models(
-        snapshot,
-        repo_root,
-        co_change_window_days,
-        co_change_min_count,
-        None,
-    )
-}
-
-/// Compute snapshot aggregates, optionally including model risk data.
-pub fn compute_snapshot_aggregates_with_models(
-    snapshot: &Snapshot,
-    repo_root: &std::path::Path,
-    co_change_window_days: u64,
-    co_change_min_count: usize,
-    model_source_root: Option<&std::path::Path>,
 ) -> SnapshotAggregates {
     let files = compute_file_aggregates(&snapshot.functions);
     let directories = compute_directory_aggregates(&files, repo_root);
@@ -886,18 +541,11 @@ pub fn compute_snapshot_aggregates_with_models(
             .unwrap_or_default();
     annotate_static_deps(&mut co_change, &all_edges, repo_root);
 
-    let modules = compute_module_instability_from_edges(&snapshot.functions, &all_edges, repo_root);
-    let models = model_source_root.and_then(|source_root| {
-        crate::models::compute_model_risk_map(source_root, repo_root, snapshot, Some(10)).ok()
-    });
-
     SnapshotAggregates {
         files,
         directories,
         file_risk,
         co_change,
-        modules,
-        models,
     }
 }
 
@@ -1013,7 +661,6 @@ pub fn compute_delta_aggregates(
     current_co_change: &[crate::git::CoChangePair],
     prev_co_change: &[crate::git::CoChangePair],
     fn_changed_lines: usize,
-    size_thresholds: &ChangeSizeThresholds,
 ) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
@@ -1086,57 +733,16 @@ pub fn compute_delta_aggregates(
     DeltaAggregates {
         files: aggregates,
         co_change_delta,
-        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines, size_thresholds),
-    }
-}
-
-/// `size_band`'s cutoffs — a display convenience, not a research-derived signal. See
-/// `PrRiskSummary::size_band`'s doc comment. Defaults (small<50, medium<200, large<500,
-/// else very_large) are arbitrary round numbers, not fitted to any corpus; override via
-/// `.hotspotsrc.json`'s `change_size_thresholds` if they don't fit your repo.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ChangeSizeThresholds {
-    pub small: usize,
-    pub medium: usize,
-    pub large: usize,
-}
-
-impl Default for ChangeSizeThresholds {
-    fn default() -> Self {
-        ChangeSizeThresholds {
-            small: 50,
-            medium: 200,
-            large: 500,
-        }
-    }
-}
-
-/// Buckets `fn_changed_lines` into a human-readable size label for display. Boundaries are
-/// inclusive-below (`< small` is "small", `< medium` is "medium", etc.) — see
-/// `ChangeSizeThresholds` for why these specific numbers carry no research claim.
-pub fn size_band(fn_changed_lines: usize, thresholds: &ChangeSizeThresholds) -> &'static str {
-    if fn_changed_lines < thresholds.small {
-        "small"
-    } else if fn_changed_lines < thresholds.medium {
-        "medium"
-    } else if fn_changed_lines < thresholds.large {
-        "large"
-    } else {
-        "very_large"
+        pr_summary: compute_pr_risk_summary(delta, fn_changed_lines),
     }
 }
 
 /// Collapse every function-level delta entry into a single PR-wide risk view.
 ///
-/// See [`PrRiskSummary`] for what `pr_risk_score` and `band` mean.
-pub fn compute_pr_risk_summary(
-    delta: &Delta,
-    fn_changed_lines: usize,
-    size_thresholds: &ChangeSizeThresholds,
-) -> PrRiskSummary {
+/// See [`PrRiskSummary`] for what `fn_changed_lines` and `band` mean.
+pub fn compute_pr_risk_summary(delta: &Delta, fn_changed_lines: usize) -> PrRiskSummary {
     use crate::delta::FunctionStatus;
 
-    let mut pr_risk_score = 0.0;
     let mut new_count = 0;
     let mut modified_count = 0;
     let mut deleted_count = 0;
@@ -1157,21 +763,18 @@ pub fn compute_pr_risk_summary(
             FunctionStatus::New => {
                 new_count += 1;
                 if let Some(after) = &entry.after {
-                    pr_risk_score += after.lrs;
                     band = band.max(after.band);
                 }
             }
             FunctionStatus::Deleted => {
                 deleted_count += 1;
-                if let Some(before) = &entry.before {
-                    pr_risk_score -= before.lrs;
+                if entry.before.is_some() {
                     improvement_count += 1;
                 }
             }
             FunctionStatus::Modified => {
                 modified_count += 1;
                 if let Some(d) = &entry.delta {
-                    pr_risk_score += d.lrs;
                     if d.lrs > 0.0 {
                         regression_count += 1;
                     } else if d.lrs < 0.0 {
@@ -1203,9 +806,7 @@ pub fn compute_pr_risk_summary(
         .unwrap_or(false);
 
     PrRiskSummary {
-        pr_risk_score,
         fn_changed_lines,
-        size_band: size_band(fn_changed_lines, size_thresholds).to_string(),
         band,
         new_count,
         modified_count,
@@ -1222,34 +823,6 @@ mod tests {
     use super::*;
     use crate::report::MetricsReport;
     use crate::snapshot::FunctionSnapshot;
-
-    // ── size_band ─────────────────────────────────────────────────────────────
-
-    #[test]
-    fn size_band_default_boundaries() {
-        let t = ChangeSizeThresholds::default(); // small=50, medium=200, large=500
-        assert_eq!(size_band(0, &t), "small");
-        assert_eq!(size_band(49, &t), "small");
-        assert_eq!(size_band(50, &t), "medium"); // boundary: >= small is medium, not small
-        assert_eq!(size_band(199, &t), "medium");
-        assert_eq!(size_band(200, &t), "large");
-        assert_eq!(size_band(499, &t), "large");
-        assert_eq!(size_band(500, &t), "very_large");
-        assert_eq!(size_band(usize::MAX, &t), "very_large");
-    }
-
-    #[test]
-    fn size_band_respects_custom_thresholds() {
-        let t = ChangeSizeThresholds {
-            small: 10,
-            medium: 20,
-            large: 30,
-        };
-        assert_eq!(size_band(9, &t), "small");
-        assert_eq!(size_band(10, &t), "medium");
-        assert_eq!(size_band(25, &t), "large");
-        assert_eq!(size_band(30, &t), "very_large");
-    }
 
     fn create_test_function(file: &str, function: &str, lrs: f64, band: &str) -> FunctionSnapshot {
         FunctionSnapshot {
@@ -1274,12 +847,7 @@ mod tests {
             callgraph: None,
             activity_risk: None,
             risk_factors: None,
-            percentile: None,
-            driver: None,
-            driver_detail: None,
-            quadrant: None,
-            patterns: vec![],
-            pattern_details: None,
+            tier: None,
             subsystem: None,
             authors_90d: None,
             directed_coupling: None,

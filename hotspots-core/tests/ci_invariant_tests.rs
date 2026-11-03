@@ -46,8 +46,6 @@ fn create_test_snapshot(sha: &str, parent_sha: &str) -> snapshot::Snapshot {
         lrs: 4.8,
         band: RiskBand::Moderate,
         suppression_reason: None,
-        patterns: vec![],
-        pattern_details: None,
         callees: vec![],
         explanation: None,
     };
@@ -182,8 +180,6 @@ fn test_delta_single_parent_only() {
         lrs: 4.8,
         band: RiskBand::Moderate,
         suppression_reason: None,
-        patterns: vec![],
-        pattern_details: None,
         callees: vec![],
         explanation: None,
     };
@@ -266,8 +262,6 @@ fn test_delta_negative_deltas_allowed() {
         lrs: 2.5, // Lower than parent
         band: RiskBand::Low,
         suppression_reason: None,
-        patterns: vec![],
-        pattern_details: None,
         callees: vec![],
         explanation: None,
     };

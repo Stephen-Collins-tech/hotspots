@@ -82,11 +82,10 @@ hotspots/
 │   ├── cfg/               # CFG types and validation
 │   ├── metrics.rs         # raw metric extraction
 │   ├── risk.rs            # LRS formula
-│   ├── patterns.rs        # pattern detection
 │   ├── snapshot.rs        # snapshot persistence
 │   ├── delta.rs           # delta computation
 │   ├── policy.rs          # policy engine
-│   ├── callgraph.rs       # fan-in/out, PageRank, betweenness, SCC
+│   ├── callgraph.rs       # call graph and fan-in
 │   ├── git.rs             # git log, touch cache, ref resolution
 │   └── config.rs          # config loading
 ├── hotspots-cli/src/

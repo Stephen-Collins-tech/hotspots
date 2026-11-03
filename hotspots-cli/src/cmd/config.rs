@@ -64,17 +64,6 @@ pub(crate) fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
                 println!("  Source: defaults (no config file found)");
             }
             println!();
-            println!("Weights:");
-            println!("  cc: {}", resolved.weight_cc);
-            println!("  nd: {}", resolved.weight_nd);
-            println!("  fo: {}", resolved.weight_fo);
-            println!("  ns: {}", resolved.weight_ns);
-            println!();
-            println!("Thresholds:");
-            println!("  moderate: {}", resolved.moderate_threshold);
-            println!("  high: {}", resolved.high_threshold);
-            println!("  critical: {}", resolved.critical_threshold);
-            println!();
             println!("Filters:");
             println!(
                 "  min_lrs: {}",

@@ -14,29 +14,12 @@ use crate::language::Language;
 use crate::report::{FunctionRiskReport, MetricsReport};
 use crate::risk::RiskBand;
 use anyhow::{Context, Result};
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 use crate::report::RiskReport;
-
-/// Controls how touch metrics (git churn/recency) are populated.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TouchMode {
-    /// File-level batching: one git call per unique file, result applied to all
-    /// functions in that file. Fast (O(files) git calls), but imprecise when a
-    /// file contains functions with very different churn histories.
-    File,
-    /// Per-function `git log -L`: one subprocess per function. Accurate, but
-    /// O(functions) cold-start cost (~9 ms each) which OOM-kills on large repos.
-    PerFunction,
-    /// File-level first; per-function only for functions in files whose
-    /// touch_count meets or exceeds `threshold`. Bounds subprocess count to
-    /// the functions that actually benefit from precision.
-    Hybrid { threshold: usize },
-}
 
 /// Schema version for snapshots.
 /// v1: LRS + basic metrics only
@@ -48,16 +31,23 @@ pub enum TouchMode {
 /// shared no serde-level relationship. v3/v4 never existed on this type (v4 was
 /// the now-merged agent envelope's own counter) — the jump from 2 to 5 reflects
 /// that merge, not three skipped revisions of this struct.
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
-const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 1;
+/// v6 (hotspots 3.0): removes `driver`, `patterns`, `percentile`, the call graph
+/// metrics other than `fan_in`, `churn.net_change`, `summary.call_graph` and the
+/// PR `pr_risk_score`/`size_band`; makes `file` and `function_id` repo-relative
+/// (they were absolute paths); replaces `quadrant` with `tier`; renames
+/// `risk_factors.activity` to `touch`; and moves `activity_risk` to the fixed-scale
+/// formula. Older snapshots are not read: re-run `analyze --mode snapshot`.
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+const SNAPSHOT_SCHEMA_MIN_VERSION: u32 = 6;
 
-/// Version of the scoring formula (default `ScoringWeights`, `LrsWeights`,
+/// Version of the scoring formula (`activity_risk` constants, `LrsWeights`,
 /// `RiskThresholds`). Bumped whenever a default weight or threshold changes, or
 /// whenever a scoring input's *computation* changes even if its name/shape does not
 /// (e.g. 1->2: `churn`'s source switched from a single-commit diff to a 180-day
-/// trailing window) — so `hotspots diff`/`trends` can distinguish a score delta caused
+/// trailing window; 2->3: `activity_risk` moved to the fixed-scale formula) — so
+/// `hotspots diff`/`trends` can distinguish a score delta caused
 /// by a tool upgrade from one caused by a real code change.
-pub const FORMULA_VERSION: u32 = 2;
+pub const FORMULA_VERSION: u32 = 3;
 
 fn default_formula_version() -> u32 {
     FORMULA_VERSION
@@ -132,16 +122,6 @@ fn default_touch_window_days() -> u32 {
 pub struct ChurnMetrics {
     pub lines_added: usize,
     pub lines_deleted: usize,
-    pub net_change: i64,
-}
-
-/// Per-function percentile flags based on activity_risk
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct PercentileFlags {
-    pub is_top_10_pct: bool,
-    pub is_top_5_pct: bool,
-    pub is_top_1_pct: bool,
 }
 
 /// Call graph metrics for a function
@@ -149,19 +129,6 @@ pub struct PercentileFlags {
 #[serde(rename_all = "snake_case")]
 pub struct CallGraphMetrics {
     pub fan_in: usize,
-    pub pagerank: f64,
-    /// Size of this function's strongly-connected component (1 if not in a
-    /// cycle). Kept despite `cyclic_dependency`'s removal from the live
-    /// composite score — it's a direct input to the `cyclic_hub`
-    /// pattern detector (`patterns.rs`), not just a reported-but-dead value.
-    pub scc_size: usize,
-    /// Kept for the same reason as `scc_size`: a direct input to the
-    /// `middle_man`/`neighbor_risk` pattern detectors, which suppress their
-    /// own patterns when a function is an entry point.
-    #[serde(default)]
-    pub is_entrypoint: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub neighbor_churn: Option<usize>,
 }
 
 /// Function entry in snapshot
@@ -189,32 +156,11 @@ pub struct FunctionSnapshot {
     pub activity_risk: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk_factors: Option<crate::scoring::RiskFactors>,
+    /// Activity tier: "active" when the function's file has more touches than the
+    /// repo median or changed within the last 30 days, otherwise "quiet".
+    /// Says nothing about complexity; `band` carries that separately.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub percentile: Option<PercentileFlags>,
-    /// Primary driving dimension label (e.g. "high_complexity", "high_churn_low_cc").
-    /// Populated by the enricher after activity_risk is computed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub driver: Option<String>,
-    /// Near-miss detail for composite functions: top dimensions that almost fired,
-    /// with their percentile rank. E.g. "cc (P72), nd (P68)".
-    /// None for non-composite labels or when no metric is near-threshold.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub driver_detail: Option<String>,
-    /// Triage quadrant. Values: "fire", "debt", "watch", "ok".
-    /// fire  = high/critical + active (touches > p50 or changed ≤30d)
-    /// debt  = high/critical + not active
-    /// watch = moderate/low  + active
-    /// ok    = everything else
-    /// Populated by the enricher after driver labels. None before enrichment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quadrant: Option<String>,
-    /// Pattern labels derived from metrics. Tier 1 patterns are carried forward
-    /// from the analysis report; Tier 2 are added by `populate_patterns()`.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub patterns: Vec<String>,
-    /// Full pattern detail for `--explain-patterns`. None unless requested.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
+    pub tier: Option<String>,
     /// Nearest manifest-root ancestor relative to repo root (e.g. "packages/next",
     /// "turbopack/crates/turbopack-ecmascript"). Empty string when the file belongs
     /// to the repo root itself. None when no repo_root was provided at snapshot time.
@@ -314,14 +260,6 @@ pub struct BandStats {
     pub sum_risk: f64,
 }
 
-/// Call graph statistics for the whole repo
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct CallGraphStats {
-    pub total_edges: usize,
-    pub avg_fan_in: f64,
-}
-
 /// Repo-level summary statistics
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -332,8 +270,6 @@ pub struct SnapshotSummary {
     pub top_5_pct_share: f64,
     pub top_10_pct_share: f64,
     pub by_band: std::collections::BTreeMap<String, BandStats>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub call_graph: Option<CallGraphStats>,
 }
 
 /// Complete snapshot for a commit
@@ -350,8 +286,8 @@ pub struct Snapshot {
     pub summary: Option<SnapshotSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregates: Option<crate::aggregates::SnapshotAggregates>,
-    /// Functions grouped by triage quadrant (fire/debt/watch/ok), top-N per
-    /// quadrant. Populated only for the slimmed default `analyze --mode
+    /// Functions grouped by activity tier (active/quiet), top-N per
+    /// tier. Populated only for the slimmed default `analyze --mode
     /// snapshot --format json` output (i.e. without `--all-functions`), in
     /// which case `functions` above is empty and this carries the agent-sized
     /// view instead. Mutually exclusive with a populated `functions`/`aggregates`
@@ -541,12 +477,7 @@ impl Snapshot {
                     callgraph: None, // Call graph metrics will be populated separately if available
                     activity_risk: None,
                     risk_factors: None,
-                    percentile: None,
-                    driver: None,
-                    driver_detail: None,
-                    quadrant: None,
-                    patterns: report.patterns,
-                    pattern_details: None,
+                    tier: None,
                     subsystem: None,
                     authors_90d: None,
                     directed_coupling: None,
@@ -602,13 +533,29 @@ impl Snapshot {
             let file_path = &function.file;
 
             if let Some(file_churn) = file_churns.get(file_path) {
-                let net_change = file_churn.lines_added as i64 - file_churn.lines_deleted as i64;
                 function.churn = Some(ChurnMetrics {
                     lines_added: file_churn.lines_added,
                     lines_deleted: file_churn.lines_deleted,
-                    net_change,
                 });
             }
+        }
+    }
+
+    /// Rewrite every function's `file` and `function_id` to be relative to `repo_root`
+    /// (forward slashes, no leading `./`), so snapshots and deltas do not depend on where
+    /// the repo happens to be checked out. Call this after anything that looks functions up
+    /// by their analysis-time (absolute) path, such as the call graph.
+    pub fn relativize_paths(&mut self, repo_root: &Path) {
+        let (prefix_can, prefix_raw) = crate::trainer::repo_prefixes(repo_root);
+        for function in &mut self.functions {
+            let rel = crate::trainer::make_rel(&function.file, &prefix_can, &prefix_raw);
+            if rel == function.file {
+                continue;
+            }
+            if let Some((_, symbol)) = function.function_id.split_once("::") {
+                function.function_id = format!("{rel}::{symbol}");
+            }
+            function.file = rel;
         }
     }
 
@@ -856,129 +803,6 @@ impl Snapshot {
         }
     }
 
-    fn populate_per_function_touch_metrics(
-        &mut self,
-        repo_root: &std::path::Path,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-    ) -> anyhow::Result<()> {
-        let all: Vec<usize> = (0..self.functions.len()).collect();
-        self.populate_per_function_touch_for_indices(repo_root, &all, progress_fn)
-    }
-
-    // Per-function touch metrics: one `git log -L` subprocess per function (~9 ms each).
-    // A disk cache keyed by (sha, file, start, end) avoids re-running subprocesses for
-    // functions whose line ranges have not changed since the last run (warm path).
-    //
-    // Chunked implementation to bound peak memory: `indices` are processed CHUNK_SIZE at a
-    // time. Each chunk goes through three phases before moving to the next:
-    //   Phase A (serial):   check cache, apply hits, collect misses (≤ CHUNK_SIZE entries).
-    //   Phase B (parallel): run git subprocesses for this chunk's misses via rayon.
-    //   Phase C (serial):   apply results, update cache.
-    // This keeps the live miss buffer O(CHUNK_SIZE) regardless of how many indices are passed.
-    fn populate_per_function_touch_for_indices(
-        &mut self,
-        repo_root: &std::path::Path,
-        indices: &[usize],
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-    ) -> anyhow::Result<()> {
-        let sha = self.commit.sha.clone();
-        let timestamp = self.commit.timestamp;
-        let mut cache = crate::touch_cache::read_touch_cache(repo_root).unwrap_or_default();
-        let total = indices.len();
-
-        // Emit a cold-start warning if the cache holds no entries for the current SHA.
-        const COLD_CACHE_WARN_THRESHOLD: usize = 50;
-        let cache_warm = cache.keys().any(|k| k.starts_with(&sha));
-        if !cache_warm && total >= COLD_CACHE_WARN_THRESHOLD {
-            let threads = rayon::current_num_threads().max(1);
-            let est_secs = (total * 9).div_ceil(1000 * threads);
-            eprintln!("touch cache: cold start for {total} functions (~{est_secs}s; fast on subsequent runs)");
-        }
-
-        // CHUNK_SIZE bounds the miss buffer: at most this many (key, rel, lines) strings
-        // live in memory at once, regardless of total index count.
-        const CHUNK_SIZE: usize = 512;
-        let mut completed = 0usize;
-
-        for chunk in indices.chunks(CHUNK_SIZE) {
-            // Phase A: check cache for this chunk; collect misses.
-            // Each miss: (function_index, cache_key, rel_path, start_line, end_line)
-            let mut chunk_misses: Vec<(usize, String, String, u32, u32)> = Vec::new();
-            for &i in chunk {
-                let function = &self.functions[i];
-                let rel =
-                    if let Ok(r) = std::path::Path::new(&function.file).strip_prefix(repo_root) {
-                        r.to_string_lossy().replace('\\', "/")
-                    } else {
-                        function.file.replace('\\', "/")
-                    };
-                let start_line = function.line;
-                let end_line =
-                    (start_line + function.metrics.loc.saturating_sub(1)).max(start_line);
-                let key = crate::touch_cache::cache_key(&sha, &rel, start_line, end_line);
-                if let Some(&(count, days)) = cache.get(&key) {
-                    self.functions[i].touch_count = Some(count);
-                    self.functions[i].days_since_last_change = days;
-                    completed += 1;
-                } else {
-                    chunk_misses.push((i, key, rel, start_line, end_line));
-                }
-            }
-            if let Some(f) = progress_fn {
-                f(completed, total);
-            }
-            if chunk_misses.is_empty() {
-                continue;
-            }
-
-            // Phase B: run git subprocesses in parallel for this chunk's misses only.
-            let results: Vec<(usize, String, (usize, Option<u32>))> = chunk_misses
-                .par_iter()
-                .map(|(idx, key, rel, start_line, end_line)| {
-                    let value = match crate::git::function_touch_metrics_at(
-                        repo_root,
-                        rel,
-                        *start_line,
-                        *end_line,
-                        timestamp,
-                    ) {
-                        Ok((count, days)) => (count, days),
-                        Err(_) => (0usize, None),
-                    };
-                    (*idx, key.clone(), value)
-                })
-                .collect();
-
-            // Phase C: apply this chunk's results and update the cache.
-            for (idx, key, (count, days)) in results {
-                self.functions[idx].touch_count = Some(count);
-                self.functions[idx].days_since_last_change = days;
-                cache.insert(key, (count, days));
-                completed += 1;
-                if let Some(f) = progress_fn {
-                    f(completed, total);
-                }
-            }
-        }
-
-        // Evict stale entries (most-recent SHAs first) then write.
-        let known_shas: Vec<String> = {
-            let mut commits = Index::load_or_new(&index_path(repo_root))
-                .map(|idx| idx.commits)
-                .unwrap_or_default();
-            commits.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
-            let mut shas = vec![sha.clone()];
-            shas.extend(commits.into_iter().map(|e| e.sha).filter(|s| s != &sha));
-            shas
-        };
-        crate::touch_cache::evict_old_entries(&mut cache, &known_shas);
-        if let Err(e) = crate::touch_cache::write_touch_cache(repo_root, &cache) {
-            eprintln!("warning: failed to write touch cache: {e}");
-        }
-
-        Ok(())
-    }
-
     /// File-level touch metrics: one batched git call + per-file fallback
     fn populate_file_level_touch_metrics(
         &mut self,
@@ -1061,50 +885,9 @@ impl Snapshot {
     pub fn populate_touch_metrics(
         &mut self,
         repo_root: &std::path::Path,
-        mode: TouchMode,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
         window_days: u32,
     ) -> anyhow::Result<()> {
-        match mode {
-            TouchMode::File => self.populate_file_level_touch_metrics(repo_root, window_days),
-            TouchMode::PerFunction => {
-                self.populate_per_function_touch_metrics(repo_root, progress_fn)
-            }
-            TouchMode::Hybrid { threshold } => {
-                self.populate_hybrid_touch_metrics(repo_root, threshold, progress_fn, window_days)
-            }
-        }
-    }
-
-    /// Hybrid touch: file-level first (cheap), then per-function only for
-    /// functions in files whose touch_count >= threshold.
-    fn populate_hybrid_touch_metrics(
-        &mut self,
-        repo_root: &std::path::Path,
-        threshold: usize,
-        progress_fn: Option<&dyn Fn(usize, usize)>,
-        window_days: u32,
-    ) -> anyhow::Result<()> {
-        self.populate_file_level_touch_metrics(repo_root, window_days)?;
-
-        let hot_indices: Vec<usize> = self
-            .functions
-            .iter()
-            .enumerate()
-            .filter_map(|(i, f)| {
-                if f.touch_count.unwrap_or(0) >= threshold {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if hot_indices.is_empty() {
-            return Ok(());
-        }
-
-        self.populate_per_function_touch_for_indices(repo_root, &hot_indices, progress_fn)
+        self.populate_file_level_touch_metrics(repo_root, window_days)
     }
 
     /// Replace branch-inflated recency values with pre-branch last-change dates.
@@ -1157,341 +940,65 @@ impl Snapshot {
         }
     }
 
-    /// Populate call graph metrics
-    ///
-    /// Populate call graph metrics (PageRank, fan-in, SCC, neighbor churn).
-    /// `fan_out`/`betweenness`/`scc_id`/`dependency_depth` were dropped from
-    /// `CallGraphMetrics` in hotspots 2.0 (unused reported fields, distinct from
-    /// `scc_size`/`is_entrypoint`, which remain real pattern-detector inputs);
-    /// `betweenness_centrality`/`compute_dependency_depth` are no longer called
-    /// here since nothing downstream consumes their output.
-    ///
-    /// `exact_threshold`/`approx_k` no longer affect this method's own work (they
-    /// controlled the now-removed betweenness computation) but are kept as
-    /// parameters, and `exact_threshold` still determines the returned
-    /// `approximate` bool, to avoid a public API signature change for this phase.
-    pub fn populate_callgraph(
-        &mut self,
-        call_graph: &crate::callgraph::CallGraph,
-        exact_threshold: usize,
-        _approx_k: usize,
-    ) -> bool {
-        use std::collections::HashMap;
-
-        let n = call_graph.node_count();
-        let approximate = n > exact_threshold;
-
-        // Compute global metrics once.
-        let pagerank_scores = call_graph.pagerank(0.85, 30, 1e-6);
-        let scc_info = call_graph.find_strongly_connected_components();
-        // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls below
+    /// Populate call graph metrics (fan-in).
+    pub fn populate_callgraph(&mut self, call_graph: &crate::callgraph::CallGraph) {
+        // Precompute fan-in counts in O(N+E) to avoid O(N*E) repeated fan_in() calls
         let fan_in_map = call_graph.build_fan_in_map();
 
-        // Build a map of function_id -> total churn (lines_added + lines_deleted)
-        let mut churn_map: HashMap<String, usize> = HashMap::new();
-        for function in &self.functions {
-            if let Some(ref churn) = function.churn {
-                let total_churn = churn.lines_added + churn.lines_deleted;
-                churn_map.insert(function.function_id.clone(), total_churn);
-            }
-        }
-
-        // Populate metrics for each function
         for function in &mut self.functions {
-            let function_id = &function.function_id;
-
-            // Only populate if function is in the call graph
-            if call_graph.contains(function_id) {
-                let (_scc_id, scc_size) = scc_info.get(function_id).copied().unwrap_or((0, 1));
-
-                // Compute neighbor churn: sum of churn for all callees
-                let neighbor_churn = if let Some(callees) = call_graph.callees_of(function_id) {
-                    let total: usize = callees
-                        .filter_map(|callee_id| churn_map.get(callee_id))
-                        .sum();
-                    if total > 0 {
-                        Some(total)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
+            if call_graph.contains(&function.function_id) {
                 function.callgraph = Some(CallGraphMetrics {
-                    fan_in: fan_in_map.get(function_id).copied().unwrap_or(0),
-                    pagerank: pagerank_scores.get(function_id).copied().unwrap_or(0.0),
-                    scc_size,
-                    is_entrypoint: call_graph.is_entry_point(function_id),
-                    neighbor_churn,
+                    fan_in: fan_in_map.get(&function.function_id).copied().unwrap_or(0),
                 });
             }
         }
-
-        approximate
     }
 
     /// Compute and populate activity risk scores
     ///
-    /// Combines LRS with activity metrics and call graph metrics to produce
-    /// a unified risk score. Should be called after populate_churn, populate_touch_metrics,
-    /// and populate_callgraph have been called.
-    ///
-    /// # Arguments
-    ///
-    /// * `weights` - Optional weights for risk factors (uses defaults if None)
-    pub fn compute_activity_risk(&mut self, weights: Option<&crate::scoring::ScoringWeights>) {
-        let default_weights = crate::scoring::ScoringWeights::default();
-        let weights = weights.unwrap_or(&default_weights);
-
+    /// Should be called after populate_churn and populate_touch_metrics.
+    pub fn compute_activity_risk(&mut self) {
         for function in &mut self.functions {
-            // Extract churn data
-            let churn = function
-                .churn
-                .as_ref()
-                .map(|c| (c.lines_added, c.lines_deleted));
-
-            // Extract call graph data. `dependency_depth` is always `None` now:
-            // `CallGraphMetrics` dropped the field in hotspots 2.0 (its contribution to
-            // `activity_risk` had already been zeroed before this), kept as a
-            // literal `None` here rather than removing `ActivityRiskInput.dependency_depth`
-            // itself, which `compute_activity_risk` no longer reads either way.
-            let (fan_in, scc_size) = if let Some(ref cg) = function.callgraph {
-                (Some(cg.fan_in), Some(cg.scc_size))
-            } else {
-                (None, None)
-            };
-
-            // Compute activity risk
-            let (activity_risk, risk_factors) = crate::scoring::compute_activity_risk(
-                &crate::scoring::ActivityRiskInput {
+            let (activity_risk, risk_factors) =
+                crate::scoring::compute_activity_risk(&crate::scoring::ActivityRiskInput {
                     lrs: function.lrs,
-                    churn,
+                    churn: function
+                        .churn
+                        .as_ref()
+                        .map(|c| (c.lines_added, c.lines_deleted)),
                     touch_count: function.touch_count,
                     days_since_last_change: function.days_since_last_change,
-                    fan_in,
-                    scc_size,
-                    dependency_depth: None,
-                    burst_score: function.burst_score,
-                },
-                weights,
-            );
-
-            // Only populate if there are additional risk factors beyond base LRS
-            if activity_risk > function.lrs || risk_factors.churn > 0.0 {
-                function.activity_risk = Some(activity_risk);
-                function.risk_factors = Some(risk_factors);
-            }
+                });
+            function.activity_risk = Some(activity_risk);
+            function.risk_factors = Some(risk_factors);
         }
     }
 
-    /// Populate pattern labels using full Tier 1 + Tier 2 data.
+    /// Compute and populate the activity tier for all functions.
     ///
-    /// Re-classifies each function with complete enriched inputs, replacing the
-    /// Tier 1–only patterns carried from the analysis report. Must be called
-    /// after `populate_churn()`, `populate_callgraph()`, and
-    /// `populate_touch_metrics()` for accurate Tier 2 patterns.
-    pub fn populate_patterns(&mut self, thresholds: &crate::patterns::Thresholds) {
-        for function in &mut self.functions {
-            let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc as usize,
-                nd: function.metrics.nd as usize,
-                fo: function.metrics.fo as usize,
-                ns: function.metrics.ns as usize,
-                loc: function.metrics.loc as usize,
-            };
-            // churn_lines is intentionally None here: function.churn is file-level
-            // (all functions in a file share the same total), not per-function. Using
-            // it would cause systematic false positives for churn_magnet, shotgun_target,
-            // and volatile_god on any multi-function file. Churn-based patterns require
-            // per-function data that is not yet available in snapshot enrichment.
-            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
-                if let Some(ref cg) = function.callgraph {
-                    (
-                        Some(cg.fan_in),
-                        Some(cg.scc_size),
-                        cg.neighbor_churn,
-                        cg.is_entrypoint,
-                    )
-                } else {
-                    (None, None, None, false)
-                };
-            let t2 = crate::patterns::Tier2Input {
-                fan_in,
-                scc_size,
-                churn_lines: None,
-                days_since_last_change: function.days_since_last_change,
-                neighbor_churn,
-                is_entrypoint,
-            };
-            function.patterns = crate::patterns::classify(&t1, &t2, thresholds);
-        }
-    }
-
-    /// Populate full pattern details for `--explain-patterns`.
-    ///
-    /// Stores `PatternDetail` (triggered conditions) in each function.
-    /// Must be called after `populate_patterns()`.
-    pub fn populate_pattern_details(&mut self, thresholds: &crate::patterns::Thresholds) {
-        for function in &mut self.functions {
-            let t1 = crate::patterns::Tier1Input {
-                cc: function.metrics.cc as usize,
-                nd: function.metrics.nd as usize,
-                fo: function.metrics.fo as usize,
-                ns: function.metrics.ns as usize,
-                loc: function.metrics.loc as usize,
-            };
-            let (fan_in, scc_size, neighbor_churn, is_entrypoint) =
-                if let Some(ref cg) = function.callgraph {
-                    (
-                        Some(cg.fan_in),
-                        Some(cg.scc_size),
-                        cg.neighbor_churn,
-                        cg.is_entrypoint,
-                    )
-                } else {
-                    (None, None, None, false)
-                };
-            let t2 = crate::patterns::Tier2Input {
-                fan_in,
-                scc_size,
-                churn_lines: None,
-                days_since_last_change: function.days_since_last_change,
-                neighbor_churn,
-                is_entrypoint,
-            };
-            function.pattern_details =
-                Some(crate::patterns::classify_detailed(&t1, &t2, thresholds));
-        }
-    }
-
-    /// Compute and populate percentile flags for all functions
-    ///
-    /// Must be called after compute_activity_risk().
-    /// Flags: is_top_1_pct, is_top_5_pct, is_top_10_pct based on activity_risk.
-    pub fn compute_percentiles(&mut self) {
-        let n = self.functions.len();
-        if n == 0 {
+    /// `active` = touch_count above the repo median OR last changed within 30 days;
+    /// everything else is `quiet`. Activity only: no complexity gate (the research
+    /// found the gate adds nothing for predicting where fixes land).
+    pub fn compute_tiers(&mut self) {
+        if self.functions.is_empty() {
             return;
         }
-
-        // Collect all activity_risk scores (falling back to lrs)
-        let mut scores: Vec<f64> = self
-            .functions
-            .iter()
-            .map(|f| f.activity_risk.unwrap_or(f.lrs))
-            .collect();
-        scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Compute threshold values via quantile index
-        let threshold_10 = scores[n.saturating_sub(1) * 90 / 100];
-        let threshold_5 = scores[n.saturating_sub(1) * 95 / 100];
-        let threshold_1 = scores[n.saturating_sub(1) * 99 / 100];
-
-        for function in &mut self.functions {
-            let score = function.activity_risk.unwrap_or(function.lrs);
-            function.percentile = Some(PercentileFlags {
-                is_top_10_pct: score >= threshold_10,
-                is_top_5_pct: score >= threshold_5,
-                is_top_1_pct: score >= threshold_1,
-            });
-        }
-    }
-
-    /// Populate driver labels for all functions using driving_dimension_label.
-    ///
-    /// Must be called after compute_activity_risk() and populate_callgraph().
-    pub fn populate_driver_labels(&mut self, percentile: u8) {
-        let thresholds = compute_dimension_thresholds(&self.functions, percentile);
-
-        let mut sorted_cc: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.cc as usize)
-            .collect();
-        let mut sorted_nd: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.nd as usize)
-            .collect();
-        let mut sorted_fo: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.metrics.fo as usize)
-            .collect();
-        let mut sorted_fi: Vec<usize> = self
-            .functions
-            .iter()
-            .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
-            .collect();
-        let mut sorted_touch: Vec<usize> = self
+        let mut touches: Vec<usize> = self
             .functions
             .iter()
             .map(|f| f.touch_count.unwrap_or(0))
             .collect();
-        sorted_cc.sort_unstable();
-        sorted_nd.sort_unstable();
-        sorted_fo.sort_unstable();
-        sorted_fi.sort_unstable();
-        sorted_touch.sort_unstable();
+        touches.sort_unstable();
+        let touch_median = touches[(50 * (touches.len() - 1)) / 100];
 
         for function in &mut self.functions {
-            let label = driving_dimension_label(function, &thresholds).to_string();
-            function.driver_detail = if label == "composite" {
-                compute_near_miss_detail(
-                    function,
-                    &sorted_cc,
-                    &sorted_nd,
-                    &sorted_fo,
-                    &sorted_fi,
-                    &sorted_touch,
-                )
-            } else {
-                None
-            };
-            function.driver = Some(label);
-        }
-    }
-
-    /// Compute and populate triage quadrant for all functions.
-    ///
-    /// Quadrant logic (Option C — combines both signals):
-    ///   is_active = touch_count > touch_p50 OR days_since_last_change <= 30
-    ///              [+ activity_risk >= 0.7 when ranker_applied]
-    ///   fire  = high/critical + is_active
-    ///   debt  = high/critical + !is_active
-    ///   watch = moderate/low  + is_active
-    ///   ok    = everything else
-    ///
-    /// When `ranker_applied` is true, a trained RF score >= 0.7 also counts as
-    /// active — promoting structurally-risky-but-dormant functions from debt to
-    /// fire when the model predicts they are likely to be touched in a fix commit.
-    ///
-    /// Must be called after populate_driver_labels().
-    pub fn compute_quadrants(&mut self, driver_threshold_percentile: u8, ranker_applied: bool) {
-        if self.functions.is_empty() {
-            return;
-        }
-        let thresholds = compute_dimension_thresholds(&self.functions, driver_threshold_percentile);
-        let touch_p50 = thresholds.touch_med;
-
-        for function in &mut self.functions {
-            let touch_above_p50 = function.touch_count.map(|t| t > touch_p50).unwrap_or(false);
-            let recently_changed = function
-                .days_since_last_change
-                .map(|d| d <= 30)
-                .unwrap_or(false);
-            let high_ranker_score =
-                ranker_applied && function.activity_risk.map(|r| r >= 0.7).unwrap_or(false);
-            let is_active = touch_above_p50 || recently_changed || high_ranker_score;
-            let is_high_risk = matches!(function.band, RiskBand::Critical | RiskBand::High);
-
-            function.quadrant = Some(
-                match (is_high_risk, is_active) {
-                    (true, true) => "fire",
-                    (true, false) => "debt",
-                    (false, true) => "watch",
-                    (false, false) => "ok",
+            let touched_often = function.touch_count.is_some_and(|t| t > touch_median);
+            let recently_changed = function.days_since_last_change.is_some_and(|d| d <= 30);
+            function.tier = Some(
+                if touched_often || recently_changed {
+                    "active"
+                } else {
+                    "quiet"
                 }
                 .to_string(),
             );
@@ -1502,10 +1009,7 @@ impl Snapshot {
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
     ///
-    /// `betweenness_approximate` is accepted but unused since hotspots 2.0 dropped
-    /// `CallGraphStats.betweenness_approximate` (no consumer) — kept as a parameter
-    /// to avoid a public API signature change for this phase.
-    pub fn compute_summary(&mut self, _betweenness_approximate: bool) {
+    pub fn compute_summary(&mut self) {
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -1515,7 +1019,6 @@ impl Snapshot {
                 top_5_pct_share: 0.0,
                 top_10_pct_share: 0.0,
                 by_band: std::collections::BTreeMap::new(),
-                call_graph: None,
             });
             return;
         }
@@ -1538,29 +1041,7 @@ impl Snapshot {
             top_5_pct_share,
             top_10_pct_share,
             by_band: compute_band_distribution(&self.functions),
-            call_graph: compute_call_graph_stats(&self.functions, n),
         });
-    }
-
-    /// Serialize snapshot as JSONL (one JSON object per line, no outer array)
-    ///
-    /// Each line embeds the commit context alongside function data,
-    /// suitable for streaming ingestion (DuckDB, jq -s, etc.)
-    pub fn to_jsonl(&self) -> Result<String> {
-        let commit_json =
-            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
-
-        let mut lines = Vec::with_capacity(self.functions.len());
-        for func in &self.functions {
-            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
-            // Embed commit context in each row
-            obj.as_object_mut()
-                .context("serialized function is not a JSON object")?
-                .insert("commit".to_string(), commit_json.clone());
-            lines.push(serde_json::to_string(&obj).context("failed to serialize JSONL line")?);
-        }
-
-        Ok(lines.join("\n"))
     }
 
     /// Serialize snapshot to JSON string (deterministic ordering)
@@ -1579,37 +1060,20 @@ impl Snapshot {
         writeln!(writer).context("failed to write trailing newline")
     }
 
-    /// Write the snapshot as JSONL (one JSON object per function) directly to
-    /// `writer`, without building an intermediate `String`.
-    pub fn write_jsonl_to<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
-        let commit_json =
-            serde_json::to_value(&self.commit).context("failed to serialize commit")?;
-
-        for func in &self.functions {
-            let mut obj = serde_json::to_value(func).context("failed to serialize function")?;
-            obj.as_object_mut()
-                .context("serialized function is not a JSON object")?
-                .insert("commit".to_string(), commit_json.clone());
-            serde_json::to_writer(writer as &mut dyn std::io::Write, &obj)
-                .context("failed to write JSONL line")?;
-            writeln!(writer).context("failed to write JSONL newline")?;
-        }
-        Ok(())
-    }
-
     /// Deserialize snapshot from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
         let snapshot: Snapshot =
             serde_json::from_str(json).context("failed to deserialize snapshot from JSON")?;
 
-        // Validate schema version (accept v1 snapshots — missing fields default to None)
+        // Validate schema version. Snapshots from earlier schema versions are rejected;
+        // regenerate them with `analyze --mode snapshot`.
         if snapshot.schema_version < SNAPSHOT_SCHEMA_MIN_VERSION
             || snapshot.schema_version > SNAPSHOT_SCHEMA_VERSION
         {
             anyhow::bail!(
-                "unsupported schema version: got {}, supported range {}-{}",
+                "unsupported snapshot schema version {} (this build reads version {}); \
+                 regenerate it with `hotspots analyze --mode snapshot --force`",
                 snapshot.schema_version,
-                SNAPSHOT_SCHEMA_MIN_VERSION,
                 SNAPSHOT_SCHEMA_VERSION
             );
         }
@@ -1657,257 +1121,15 @@ fn compute_band_distribution(
     by_band
 }
 
-/// Computes call-graph-level summary statistics, or None if no call graph data.
-fn compute_call_graph_stats(functions: &[FunctionSnapshot], n: usize) -> Option<CallGraphStats> {
-    if !functions.iter().any(|f| f.callgraph.is_some()) {
-        return None;
-    }
-    let total_fan_in: usize = functions
-        .iter()
-        .filter_map(|f| f.callgraph.as_ref())
-        .map(|cg| cg.fan_in)
-        .sum();
-    // Every edge contributes exactly one fan_in (and, before `fan_out`'s removal
-    // in hotspots 2.0, exactly one fan_out) across the graph, so summed fan_in
-    // alone is still the exact total edge count — no separate fan_out field needed.
-    Some(CallGraphStats {
-        total_edges: total_fan_in,
-        avg_fan_in: total_fan_in as f64 / n as f64,
-    })
-}
-
-/// Percentile-derived thresholds for driving dimension detection.
-/// Computed once per snapshot from the distribution of all functions.
-pub struct DimensionThresholds {
-    pub cc_high: usize,      // Pth percentile of cc — "high_complexity" gate
-    pub cc_med: usize,       // 50th percentile of cc — floor for "high_fanin_complex"
-    pub cc_low: usize,       // (100-P)th percentile of cc — "low cc" in "high_churn_low_cc"
-    pub nd_high: usize,      // Pth percentile of nd — "deep_nesting" gate
-    pub fan_out_high: usize, // Pth percentile of fan_out — "high_fanout_churning" gate
-    pub fan_in_high: usize,  // Pth percentile of fan_in — "high_fanin_complex" gate
-    pub touch_high: usize,   // Pth percentile of touch_count — "high churn" gate
-    pub touch_med: usize,    // 50th percentile of touch_count — floor for "high_fanout_churning"
-}
-
-/// Compute percentile-derived thresholds from a slice of function snapshots.
-pub fn compute_dimension_thresholds(
-    functions: &[FunctionSnapshot],
-    percentile: u8,
-) -> DimensionThresholds {
-    let n = functions.len();
-    if n == 0 {
-        return DimensionThresholds {
-            cc_high: 0,
-            cc_med: 0,
-            cc_low: 0,
-            nd_high: 0,
-            fan_out_high: 0,
-            fan_in_high: 0,
-            touch_high: 0,
-            touch_med: 0,
-        };
-    }
-
-    let p = percentile as usize;
-    let anti_p = 100 - p;
-
-    let percentile_idx = |pct: usize| (pct * (n - 1)) / 100;
-
-    let mut cc_vals: Vec<usize> = functions.iter().map(|f| f.metrics.cc as usize).collect();
-    cc_vals.sort_unstable();
-    let cc_high = cc_vals[percentile_idx(p)];
-    let cc_med = cc_vals[percentile_idx(50)];
-    let cc_low = cc_vals[percentile_idx(anti_p)];
-
-    let mut nd_vals: Vec<usize> = functions.iter().map(|f| f.metrics.nd as usize).collect();
-    nd_vals.sort_unstable();
-    let nd_high = nd_vals[percentile_idx(p)];
-
-    // Uses the AST-derived `metrics.fo` (always present), not the now-removed
-    // graph-level `CallGraphMetrics.fan_out` — same "how many functions does
-    // this one call" concept, just not call-graph-derived.
-    let mut fo_vals: Vec<usize> = functions.iter().map(|f| f.metrics.fo as usize).collect();
-    fo_vals.sort_unstable();
-    let fan_out_high = fo_vals[percentile_idx(p)];
-
-    let mut fi_vals: Vec<usize> = functions
-        .iter()
-        .map(|f| f.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0))
-        .collect();
-    fi_vals.sort_unstable();
-    let fan_in_high = fi_vals[percentile_idx(p)];
-
-    let mut touch_vals: Vec<usize> = functions
-        .iter()
-        .map(|f| f.touch_count.unwrap_or(0))
-        .collect();
-    touch_vals.sort_unstable();
-    let touch_high = touch_vals[percentile_idx(p)];
-    let touch_med = touch_vals[percentile_idx(50)];
-
-    DimensionThresholds {
-        cc_high,
-        cc_med,
-        cc_low,
-        nd_high,
-        fan_out_high,
-        fan_in_high,
-        touch_high,
-        touch_med,
-    }
-}
-
-/// Normalize a driver label string to a canonical `'static` str.
-pub fn normalize_driver_label(label: &str) -> &'static str {
-    match label {
-        "cyclic_dep" => "cyclic_dep",
-        "high_complexity" => "high_complexity",
-        "high_churn_low_cc" => "high_churn_low_cc",
-        "high_fanout_churning" => "high_fanout_churning",
-        "deep_nesting" => "deep_nesting",
-        "high_fanin_complex" => "high_fanin_complex",
-        _ => "composite",
-    }
-}
-
-/// Map a (driver, quadrant) pair to a recommended action string.
-///
-/// `quadrant` is one of `"fire"`, `"debt"`, `"watch"`, `"ok"`, or `""` (unknown).
-/// When quadrant context is available the action is more specific; the generic
-/// driver-only text is used as a fallback.
-pub fn driver_action_for_quadrant(driver: &str, quadrant: &str) -> &'static str {
-    match (driver, quadrant) {
-        ("cyclic_dep", "fire") => "Break cycle now — circular dep is actively changing",
-        ("cyclic_dep", _) => "Resolve dependency cycle",
-        ("high_complexity", "fire") => "Extract sub-functions now — actively changing",
-        ("high_complexity", "debt") => "Schedule CC reduction — stable, plan for next sprint",
-        ("high_complexity", _) => "Reduce cyclomatic complexity",
-        ("high_churn_low_cc", "fire") => "Add tests now — churning without a safety net",
-        ("high_churn_low_cc", _) => "Add tests before next change",
-        ("high_fanout_churning", "fire") => {
-            "Extract interface boundary — high coupling + active change"
-        }
-        ("high_fanout_churning", _) => "Consider extracting an interface boundary",
-        ("deep_nesting", "fire") => "Flatten nesting before next change",
-        ("deep_nesting", "debt") => "Schedule flattening — deep nesting, currently quiet",
-        ("deep_nesting", _) => "Flatten nesting depth",
-        ("high_fanin_complex", "fire") => "Stabilize interface — many callers + active changes",
-        ("high_fanin_complex", _) => "Stabilize interface — high fan-in makes changes risky",
-        (_, "fire") => "Actively risky — plan refactor this sprint",
-        _ => "Monitor: review complexity trends before next modification",
-    }
-}
-
-/// Map a driver label to its recommended action text (quadrant-agnostic fallback).
-pub fn driver_action(label: &str) -> &'static str {
-    driver_action_for_quadrant(label, "")
-}
-
-/// Identify the primary driving dimension for a function's risk.
-///
-/// Returns a stable label: one of `"cyclic_dep"`, `"high_complexity"`,
-/// `"high_churn_low_cc"`, `"high_fanout_churning"`, `"deep_nesting"`,
-/// `"high_fanin_complex"`, or `"composite"`. Uses percentile-relative thresholds
-/// derived from the snapshot's own distribution; `cyclic_dep` stays absolute.
-pub fn driving_dimension_label(
-    func: &FunctionSnapshot,
-    thresholds: &DimensionThresholds,
-) -> &'static str {
-    let in_cycle = func
-        .callgraph
-        .as_ref()
-        .map(|cg| cg.scc_size > 1)
-        .unwrap_or(false);
-    let fan_out = func.metrics.fo as usize;
-    let fan_in = func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0);
-    let touch_count = func.touch_count.unwrap_or(0);
-    let cc = func.metrics.cc as usize;
-    let nd = func.metrics.nd as usize;
-
-    if in_cycle {
-        "cyclic_dep"
-    } else if cc > thresholds.cc_high {
-        "high_complexity"
-    } else if touch_count > thresholds.touch_high && cc < thresholds.cc_low {
-        "high_churn_low_cc"
-    } else if fan_out > thresholds.fan_out_high && touch_count > thresholds.touch_med {
-        "high_fanout_churning"
-    } else if nd > thresholds.nd_high {
-        "deep_nesting"
-    } else if fan_in > thresholds.fan_in_high && cc > thresholds.cc_med {
-        "high_fanin_complex"
-    } else {
-        "composite"
-    }
-}
-
-/// Compute near-miss detail string for composite-labeled functions.
-///
-/// Returns a string like "cc (P72), nd (P68)" listing the top dimensions that
-/// are above the 40th percentile (above median) but below the firing threshold.
-/// Returns None when no dimension is notable.
-fn compute_near_miss_detail(
-    func: &FunctionSnapshot,
-    sorted_cc: &[usize],
-    sorted_nd: &[usize],
-    sorted_fo: &[usize],
-    sorted_fi: &[usize],
-    sorted_touch: &[usize],
-) -> Option<String> {
-    let pct_rank = |v: usize, sorted: &[usize]| -> u8 {
-        if sorted.is_empty() {
-            return 0;
-        }
-        ((sorted.partition_point(|&x| x < v) * 100) / sorted.len()) as u8
-    };
-
-    let mut near: Vec<(&str, u8)> = vec![
-        ("cc", pct_rank(func.metrics.cc as usize, sorted_cc)),
-        ("nd", pct_rank(func.metrics.nd as usize, sorted_nd)),
-        ("fan_out", pct_rank(func.metrics.fo as usize, sorted_fo)),
-        (
-            "fan_in",
-            pct_rank(
-                func.callgraph.as_ref().map(|cg| cg.fan_in).unwrap_or(0),
-                sorted_fi,
-            ),
-        ),
-        (
-            "touch",
-            pct_rank(func.touch_count.unwrap_or(0), sorted_touch),
-        ),
-    ]
-    .into_iter()
-    .filter(|(_, rank)| *rank >= 40)
-    .collect();
-
-    near.sort_by_key(|a| std::cmp::Reverse(a.1));
-    near.truncate(3);
-
-    if near.is_empty() {
-        return None;
-    }
-    Some(
-        near.iter()
-            .map(|(name, rank)| format!("{} (P{})", name, rank))
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
-}
-
 /// churn → touch_metrics → callgraph → activity_risk + percentiles + summary.
 pub struct SnapshotEnricher {
     snapshot: Snapshot,
-    betweenness_approximate: bool,
 }
 
 impl SnapshotEnricher {
     /// Create a new enricher wrapping the given snapshot.
     pub fn new(snapshot: Snapshot) -> Self {
-        SnapshotEnricher {
-            snapshot,
-            betweenness_approximate: false,
-        }
+        SnapshotEnricher { snapshot }
     }
 
     /// Detect and populate the `subsystem` field for every function.
@@ -1920,6 +1142,13 @@ impl SnapshotEnricher {
         if repo_root.exists() {
             self.snapshot.populate_subsystems(repo_root);
         }
+        self
+    }
+
+    /// Make every function's `file` and `function_id` repo-relative. Must come after the
+    /// steps that key off the analysis-time paths (call graph, churn, touch).
+    pub fn with_relative_paths(mut self, repo_root: &Path) -> Self {
+        self.snapshot.relativize_paths(repo_root);
         self
     }
 
@@ -1943,19 +1172,8 @@ impl SnapshotEnricher {
 
     /// Populate touch count and recency metrics from git.
     /// On error, emits a warning to stderr and continues.
-    pub fn with_touch_metrics(
-        mut self,
-        repo_root: &Path,
-        mode: TouchMode,
-        progress_fn: Option<Box<dyn Fn(usize, usize)>>,
-        window_days: u32,
-    ) -> Self {
-        if let Err(e) = self.snapshot.populate_touch_metrics(
-            repo_root,
-            mode,
-            progress_fn.as_deref(),
-            window_days,
-        ) {
+    pub fn with_touch_metrics(mut self, repo_root: &Path, window_days: u32) -> Self {
+        if let Err(e) = self.snapshot.populate_touch_metrics(repo_root, window_days) {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
         self
@@ -1974,37 +1192,19 @@ impl SnapshotEnricher {
         self
     }
 
-    /// Populate call graph metrics (PageRank, fan-in, betweenness, SCC, etc).
-    ///
-    /// Betweenness is computed exactly when `call_graph.nodes.len() <= exact_threshold`,
-    /// and via k-source approximation otherwise.
-    pub fn with_callgraph(
-        mut self,
-        call_graph: &crate::callgraph::CallGraph,
-        exact_threshold: usize,
-        approx_k: usize,
-    ) -> Self {
-        self.betweenness_approximate =
-            self.snapshot
-                .populate_callgraph(call_graph, exact_threshold, approx_k);
+    /// Populate call graph metrics (fan-in).
+    pub fn with_callgraph(mut self, call_graph: &crate::callgraph::CallGraph) -> Self {
+        self.snapshot.populate_callgraph(call_graph);
         self
     }
 
     /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
-    pub fn enrich(
-        mut self,
-        weights: Option<&crate::scoring::ScoringWeights>,
-        driver_threshold_percentile: u8,
-    ) -> Self {
-        self.snapshot.compute_activity_risk(weights);
-        self.snapshot.compute_percentiles();
-        self.snapshot
-            .populate_driver_labels(driver_threshold_percentile);
-        self.snapshot
-            .compute_quadrants(driver_threshold_percentile, false);
-        self.snapshot.compute_summary(self.betweenness_approximate);
+    pub fn enrich(mut self) -> Self {
+        self.snapshot.compute_activity_risk();
+        self.snapshot.compute_tiers();
+        self.snapshot.compute_summary();
         self
     }
 
@@ -2561,8 +1761,6 @@ mod tests {
             lrs: 4.8,
             band: RiskBand::Moderate,
             suppression_reason: None,
-            patterns: vec![],
-            pattern_details: None,
             callees: vec![],
             explanation: None,
         };
@@ -2614,22 +1812,22 @@ mod tests {
             .expect("churn should be set");
         assert_eq!(churn.lines_added, 10);
         assert_eq!(churn.lines_deleted, 5);
-        assert_eq!(churn.net_change, 5);
     }
 
     #[test]
     fn test_snapshot_enricher_enrich_computes_summary() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
         let summary = snapshot.summary.as_ref().expect("summary should be set");
         assert_eq!(summary.total_functions, 1);
     }
 
     #[test]
-    fn test_snapshot_enricher_enrich_computes_percentiles() {
+    fn test_snapshot_enricher_enrich_computes_activity_risk_and_tier() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich(None, 75).build();
-        assert!(snapshot.functions[0].percentile.is_some());
+        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
+        assert!(snapshot.functions[0].activity_risk.is_some());
+        assert!(snapshot.functions[0].tier.is_some());
     }
 
     #[test]
@@ -2673,99 +1871,23 @@ mod tests {
 
     // Cache key for the test snapshot's single function:
     //   sha="abc123", file="src/foo.ts", line=42, loc=10 → end=51
-    fn test_cache_key() -> String {
-        crate::touch_cache::cache_key("abc123", "src/foo.ts", 42, 51)
-    }
 
     #[test]
-    fn test_populate_touch_metrics_applies_cache_hits() {
-        let snapshot = create_test_snapshot();
-        let mut cache = crate::touch_cache::TouchCache::new();
-        cache.insert(test_cache_key(), (7, Some(3)));
-
-        let dir = tempfile::tempdir().unwrap();
-        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
-
-        let mut snapshot = snapshot;
-        snapshot
-            .populate_touch_metrics(
-                dir.path(),
-                crate::snapshot::TouchMode::PerFunction,
-                None,
-                crate::git::TOUCH_WINDOW_DAYS as u32,
-            )
-            .unwrap();
-
-        assert_eq!(snapshot.functions[0].touch_count, Some(7));
-        assert_eq!(snapshot.functions[0].days_since_last_change, Some(3));
-    }
-
-    #[test]
-    fn test_populate_touch_metrics_progress_fires_on_all_cache_hits() {
-        use std::sync::{Arc, Mutex};
-
-        let snapshot = create_test_snapshot();
-        let mut cache = crate::touch_cache::TouchCache::new();
-        cache.insert(test_cache_key(), (3, Some(1)));
-
-        let dir = tempfile::tempdir().unwrap();
-        crate::touch_cache::write_touch_cache(dir.path(), &cache).unwrap();
-
-        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
-        let calls_ref = calls.clone();
-
-        let mut snapshot = snapshot;
-        snapshot
-            .populate_touch_metrics(
-                dir.path(),
-                crate::snapshot::TouchMode::PerFunction,
-                Some(&|i, n| {
-                    calls_ref.lock().unwrap().push((i, n));
-                }),
-                crate::git::TOUCH_WINDOW_DAYS as u32,
-            )
-            .unwrap();
-
-        let calls = calls.lock().unwrap();
-        // Phase 1 fires once; misses=0 so we return early with (total, total)
-        assert!(!calls.is_empty(), "progress should have been called");
-        assert_eq!(*calls.last().unwrap(), (1, 1));
-    }
-
-    #[test]
-    fn test_populate_touch_metrics_progress_fires_per_miss() {
-        // When there are cache misses, progress_fn should be called once per
-        // resolved miss in the phase-3 drain loop, not just at the end.
-        use std::sync::{Arc, Mutex};
-
-        let snapshot = create_test_snapshot();
-        // Empty cache → 1 function = 1 miss
-        let dir = tempfile::tempdir().unwrap();
-
-        let calls: Arc<Mutex<Vec<(usize, usize)>>> = Arc::new(Mutex::new(Vec::new()));
-        let calls_ref = calls.clone();
-
-        let mut snapshot = snapshot;
-        // populate_touch_metrics will shell out to git for the miss; in a temp
-        // dir with no git repo it will return (0, None) via the error path.
-        let _ = snapshot.populate_touch_metrics(
-            dir.path(),
-            crate::snapshot::TouchMode::PerFunction,
-            Some(&|i, n| {
-                calls_ref.lock().unwrap().push((i, n));
-            }),
-            crate::git::TOUCH_WINDOW_DAYS as u32,
-        );
-
-        let calls = calls.lock().unwrap();
-        // Phase 1: (0, 1) — 0 hits out of 1 total
-        // Phase 3: (1, 1) — 1 resolved miss
-        assert!(
-            calls.len() >= 2,
-            "expected at least 2 progress calls, got {}",
-            calls.len()
-        );
-        assert_eq!(calls[0], (0, 1));
-        assert_eq!(*calls.last().unwrap(), (1, 1));
+    fn test_relativize_paths_makes_file_and_function_id_repo_relative() {
+        let mut snapshot = create_test_snapshot();
+        for (file, expected) in [
+            ("/repo/src/foo.ts", "src/foo.ts"),
+            ("/repo/./src/foo.ts", "src/foo.ts"),
+            ("src/foo.ts", "src/foo.ts"),
+        ] {
+            snapshot.functions[0].file = file.to_string();
+            snapshot.functions[0].function_id = format!("{file}::foo");
+            snapshot.relativize_paths(std::path::Path::new("/repo"));
+            assert_eq!(snapshot.functions[0].file, expected);
+            assert_eq!(
+                snapshot.functions[0].function_id,
+                format!("{expected}::foo")
+            );
+        }
     }
 }

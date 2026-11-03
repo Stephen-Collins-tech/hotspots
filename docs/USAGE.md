@@ -7,14 +7,13 @@ hotspots analyze src/              # text output, all functions
 hotspots analyze src/ --top 20     # top 20 by LRS
 hotspots analyze src/ --min-lrs 5  # only LRS ≥ 5.0
 hotspots analyze src/ --format json
-hotspots analyze src/ --format jsonl | grep '"band":"critical"'
+hotspots analyze src/ --format json | jq '.[] | select(.band=="critical")'
 ```
 
 ## Snapshot Mode
 
 Snapshot mode captures a full analysis tied to the current git commit. It enables:
 - Delta comparisons (`--mode delta`)
-- Trend tracking (`hotspots trends`)
 - HTML trend charts
 - Trained ranker scoring
 
@@ -39,12 +38,9 @@ Snapshots are stored as `.hotspots/snapshots/<commit-sha>.json.zst` and are immu
 ```bash
 # File-level risk table (ranked by composite file_risk_score)
 hotspots analyze . --mode snapshot --format text --level file
-
-# Module-level complexity/coupling view (directory level)
-hotspots analyze . --mode snapshot --format text --level module
 ```
 
-File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`. `module_risk: "high"` fires at `avg_complexity > 5.0` — gated on complexity alone. `afferent`/`efferent` (external modules that depend on this one / that this one depends on) are reported as informational facts only. The module-level `instability` metric (Robert Martin's efferent/(afferent+efferent)) was removed entirely in hotspots 2.0 — it carried no measured signal and is no longer computed or reported.
+File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
 
 ## Delta Mode
 
@@ -108,31 +104,23 @@ hotspots diff main HEAD
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
-### PR risk score, and the better-evidenced number next to it
+### What the PR summary shows
 
-Every `diff` collapses all function-level changes into `pr_risk_score`
-(net LRS delta across the whole diff — new functions add their LRS, deleted
-functions subtract theirs, modified functions add their ΔLRS) plus a `band`
-(the highest risk band reached by any new or modified function). Text output
-prints it under the summary line; JSON/JSONL expose it at
-`delta.aggregates.pr_summary`; the HTML report shows it as a summary card.
+Every `diff` collapses all function-level changes into one PR-wide summary: the number of
+new, modified and deleted functions, the highest risk `band` reached by any new or modified
+function, and `fn_changed_lines`, the diff-changed lines that fall inside a touched
+function. Text output prints it under the summary line; JSON exposes it at
+`delta.aggregates.pr_summary`; the HTML report shows it as summary cards.
 
-**Read `pr_risk_score` as a structural signal (what's the worst code in this
-diff), not a validated risk estimate.** In our evaluation, tested directly
-against the real compiled binary, it does not beat a simple size
-measure at predicting which PRs later need a defect fix. The better-evidenced
-number sits right next to it: `fn_changed_lines` — diff-changed lines that
-fall inside a touched function — was the strongest tested predictor in
-that same evaluation. `size_band` (`small`/`medium`/`large`/`very_large`)
-buckets it for a quick glance across PRs; unlike `fn_changed_lines` itself,
-the band's cutoffs are a display convenience, not a research finding —
-override them via `.hotspotsrc.json`'s `change_size_thresholds` if the
-defaults don't fit your repo (see [REFERENCE.md](REFERENCE.md#activity-risk-score-snapshot-mode)).
+**Why `fn_changed_lines` and not a combined risk score.** In our evaluation, tested
+directly against the real compiled binary, `fn_changed_lines` was the strongest predictor of
+which PRs later need a defect fix, and every LRS-based PR score we tried was weaker. So the
+summary reports the line count for "is this PR risky" and the `band` for "what is the worst
+code in this diff", and does not add up LRS into a single PR score.
 
 ```
 3 modified, 1 new, 0 deleted
-Changed lines in touched functions: 84 · medium (strongest tested predictor of defect risk in our evaluation; ...)
-PR risk score: +7.50 (band: critical) — structural signal, not validated as beating the line-count measure above
+Changed lines in touched functions: 84 (strongest tested predictor of defect risk in our evaluation) · highest band: critical
 ====================================================================================================
 ```
 
@@ -151,11 +139,11 @@ Output (JSON only today):
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "coordinate": {
     "input_files": ["src/api.ts", "src/db.ts"],
     "ownership": [
-      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
+      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null, "ownership_risk": 0.61, "ownership_risk_band": "low" }
     ]
   }
 }
@@ -164,7 +152,9 @@ Output (JSON only today):
 - **`ownership`** — `author_count`, `author_entropy` (0 = one owner, higher = more diffuse),
   `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
   a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
-  `"diffuse"` value today).
+  `"diffuse"` value today), `ownership_risk` (normalized entropy, higher = more diffuse) and
+  `ownership_risk_band` (`low`/`medium`/`high`). Rank a set of files by `ownership_risk` to
+  decide which ones need coordination first.
 
 Earlier versions also reported raw co-change coupling facts (`within_set`, `hidden_dependencies`)
 as descriptive data with no recommendation attached. Hotspots 2.0 removed them too, once the bar
@@ -185,25 +175,7 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
   gather enough evidence to say whether that miscalibration matters in practice
   (see the doc comment on `REGRESSION_THRESHOLD` in `hotspots-core/src/policy.rs`).
 
-**Warnings (exit code 0, informational):**
-- `watch-threshold` — function entering watch range (default LRS 2.5–3.0)
-- `attention-threshold` — function entering attention range (default LRS 5.5–6.0)
-- `rapid-growth` — LRS increase > 50% on any function
-- `suppression-missing-reason` — `// hotspots-ignore:` with no reason text
-- `net-repo-regression` — total LRS increased across all changes (any positive delta)
-
-Configure thresholds in `.hotspotsrc.json`:
-```json
-{
-  "warning_thresholds": {
-    "watch_min": 2.5,
-    "watch_max": 3.0,
-    "attention_min": 5.5,
-    "attention_max": 6.0,
-    "rapid_growth_percent": 50.0
-  }
-}
-```
+**Warnings (exit code 0, informational):** none by default. A policy you downgrade to `"warn"` (below) reports as a warning instead of failing.
 
 ### Downgrading a blocking policy for your repo
 
@@ -372,12 +344,11 @@ No `✦` lines appear without a trained ranker.
 ```bash
 hotspots analyze src/ --format json
 hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
-hotspots analyze . --mode snapshot --format json --include-models  # add model risk map
 ```
 
-Every JSON output is the unified master-schema envelope (`schema_version: 5`, same version
+Every JSON output is the unified master-schema envelope (`schema_version: 6`, same version
 across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
-`functions` array in favor of the triage-first structure (`fire`/`debt`/`watch`/`ok` buckets);
+`functions` array in favor of the triage-first structure (`active`/`quiet` groups);
 use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
 in tooling.
 
@@ -392,22 +363,11 @@ jq '.aggregates.by_band' output.json
 # Top 10 by LRS
 jq '.functions | sort_by(.lrs) | reverse | .[0:10]' output.json
 
-# Functions with a specific pattern
-jq '.functions[] | select(.patterns[]? == "god_function") | .function_id' output.json
-```
-
-### JSONL (streaming)
-
-One JSON object per line — ideal for pipelines and large repos:
-
-```bash
-hotspots analyze src/ --format jsonl | grep '"band":"critical"'
-hotspots analyze src/ --format jsonl | jq -c 'select(.lrs > 9)'
 ```
 
 ### HTML
 
-Interactive self-contained report with sortable table, risk landscape scatter plot, pattern breakdown panel, and trend charts (requires ≥ 2 snapshots):
+Interactive self-contained report with sortable table, risk landscape scatter plot, and trend charts (requires ≥ 2 snapshots):
 
 ```bash
 hotspots analyze . --mode snapshot --format html
@@ -456,37 +416,14 @@ Good reasons: complex algorithm with test coverage, generated code, migration pe
 
 ## Touch Metrics
 
-Touch metrics measure how often functions change in git history. Controlled by `--touch-mode`:
+Touch metrics measure how often a file has changed in the last 365 days and how long ago it last changed. They feed `activity_risk` and are computed from one batched `git log` per file.
 
 ```bash
-# Default: hybrid mode (file-level for most, per-function for active files)
+# Default: touch, churn and recency are computed
 hotspots analyze . --mode snapshot
 
-# Full per-function precision (slower cold start, cached after first run)
-hotspots analyze . --mode snapshot --touch-mode per-function
-
-# File-level only (fastest, disables per-function cache)
-hotspots analyze . --mode snapshot --touch-mode file
-
-# Explicit hybrid threshold (file-level first, per-function for files with touch_count_30d >= N)
-hotspots analyze . --mode snapshot --touch-mode hybrid:10
-
-# Skip all git I/O (for very large repos, 50k+ functions)
-hotspots analyze . --mode snapshot --touch-mode none
-```
-
-`--per-function-touches`, `--no-per-function-touches`, `--hybrid-touches N`, and `--skip-touch-metrics` still work as deprecated aliases for the values above, but print a warning — prefer `--touch-mode` in new scripts and CI configs.
-
-Per-function touch results are cached in `.hotspots/touch-cache.json.zst`. First run on a new commit is slow; subsequent runs are fast.
-
-Not sure which mode a repo needs? `hotspots estimate <path> --budget-seconds N` projects `--touch-mode per-function`'s wall-clock cost from a real function count before you commit to a full run, and recommends a mode against your budget — see [REFERENCE.md](REFERENCE.md#hotspots-estimate-path).
-
-Configure in `.hotspotsrc.json`:
-```json
-{
-  "per_function_touches": false,
-  "hybrid_touch_threshold": 5
-}
+# Skip all git I/O (benchmarking, or very large repos)
+hotspots analyze . --mode snapshot --skip-touch-metrics
 ```
 
 ## Snapshot Management
@@ -496,25 +433,10 @@ Configure in `.hotspotsrc.json`:
 hotspots prune --unreachable --dry-run
 hotspots prune --unreachable --older-than 30
 
-# Compact snapshot storage
-hotspots compact --level 0
-
-# Analyze trends across snapshot history
-hotspots trends .
-hotspots trends . --window 20 --top 10 --format text
+# Compact snapshot storage (1 = deltas between snapshots, 2 = keep only band changes)
+hotspots prune --compact 1 --dry-run
+hotspots prune --compact 1
 ```
-
-`hotspots trends` reports risk velocities (LRS change per snapshot), hotspot stability (consistent top-K presence), and refactor effectiveness (sustained LRS reduction).
-
-## Upgrading
-
-```bash
-hotspots upgrade
-```
-
-Checks the latest GitHub release against the running version. If a newer version exists, it prints the install command matching how this binary was installed (`cargo install`, `npm install -g`, or `brew upgrade`). It only reports — it does not replace the binary itself.
-
-Every `hotspots` command also does this check passively: it prints a one-line notice to stderr before any other command output when a newer version is available. The check is cached at `~/.hotspots/update_check.json` and only re-queries GitHub once every 24 hours, so most runs make no network call.
 
 ## Training a Repo-Specific Ranker
 
@@ -541,7 +463,7 @@ P@K evaluation (365-day fix-label window):
 
 If `P@K` is well above `base_rate`, apply the model. If `P@K ≈ base_rate`, skip it — the default LRS ranking is just as good.
 
-Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically, re-scores triage quadrants, and prints which model class is in effect:
+Once `.hotspots/ranker.json` exists, every `hotspots analyze` loads it automatically, and prints which model class is in effect:
 
 ```
 hotspots: using trained ranker (model class: Ridge)
@@ -610,17 +532,92 @@ hotspots analyze . --mode delta --format json
 hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
 ```
 
-## Hook Templates
+## Hooks and CI templates
 
-```bash
-# Print pre-commit and CI hook templates
-hotspots init --hooks
-```
+Policy checks run in delta mode, which compares against the last persisted snapshot. Seed a
+baseline first, otherwise policy evaluation is silently skipped:
 
-Seed a baseline snapshot first:
 ```bash
 hotspots analyze . --mode snapshot
-hotspots init --hooks   # copy the hook template, install it
+```
+
+**Pre-push hook, with the pre-commit framework** (`.pre-commit-config.yaml`):
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: hotspots
+        name: hotspots risk check
+        language: system
+        entry: hotspots analyze . --mode delta --policy --format text
+        pass_filenames: false
+        stages: [pre-push]
+```
+
+**Pre-push hook, plain shell** (save as `.git/hooks/pre-push`, then `chmod +x`):
+
+```sh
+#!/usr/bin/env sh
+set -e
+hotspots analyze . --mode delta --policy --format text
+```
+
+**GitHub Actions** (`.github/workflows/hotspots.yml`). A push to the main branch builds and
+caches the baseline snapshot; a pull request restores the base commit's snapshot and gates
+on the delta. The first PR has no baseline yet and skips policy; gating starts once a
+main-branch snapshot is cached.
+
+```yaml
+name: Hotspots
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  hotspots:
+    name: Analyze code hotspots
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Hotspots CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # On push-to-main we save the snapshot under hotspots-{sha}.
+      # On a PR we restore the snapshot for the base-branch commit so that
+      # delta mode has a baseline to diff against.
+      - name: Restore snapshot cache
+        uses: actions/cache@v4
+        with:
+          path: .hotspots/
+          key: hotspots-${{ github.sha }}
+          restore-keys: |
+            hotspots-${{ github.event.pull_request.base.sha }}
+            hotspots-
+
+      - name: Analyze (snapshot on main, delta on PR)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            hotspots analyze . --mode delta --policy
+          else
+            # --mode snapshot requires --format json (or --explain) when not
+            # printing text; the snapshot is persisted to .hotspots/ either way.
+            hotspots analyze . --mode snapshot --format json > /dev/null
+          fi
 ```
 
 ## Troubleshooting

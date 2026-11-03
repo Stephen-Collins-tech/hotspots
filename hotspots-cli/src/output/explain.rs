@@ -1,5 +1,3 @@
-use crate::util::truncate_string;
-
 /// Print ranked file risk table.
 pub(crate) fn print_file_risk_output(
     file_risk: &[hotspots_core::aggregates::FileRiskView],
@@ -29,17 +27,6 @@ pub(crate) fn print_file_risk_output(
             view.function_count, view.loc, view.max_cc, view.avg_cc
         );
         println!("   Risk Score: {:.2}", view.file_risk_score);
-        if let (Some(blended), Some(churn_pct)) =
-            (view.file_risk_score_blended, view.churn_percentile)
-        {
-            // blended = (static_pct + churn_pct) / 2 -- recover static_pct rather than
-            // carrying a third field on FileRiskView just for this display line.
-            let static_pct = 2.0 * blended - churn_pct;
-            println!(
-                "   Blended Score: {:.2} (static percentile {:.2}, churn percentile {:.2})",
-                blended, static_pct, churn_pct
-            );
-        }
         if view.critical_count > 0 {
             println!("   Critical functions: {}", view.critical_count);
         }
@@ -48,62 +35,6 @@ pub(crate) fn print_file_risk_output(
 
     println!("{}", "-".repeat(80));
     println!("Showing {}/{} files", display_count, total);
-
-    Ok(())
-}
-
-/// Print ranked module risk table.
-pub(crate) fn print_module_output(
-    modules: &[hotspots_core::aggregates::ModuleInstability],
-    top: Option<usize>,
-) -> anyhow::Result<()> {
-    if modules.is_empty() {
-        println!("No modules to display (import resolution produced no in-project edges).");
-        return Ok(());
-    }
-
-    let total = modules.len();
-    let display_count = top.map(|n| n.min(total)).unwrap_or(total);
-    let title = if display_count < total {
-        format!("Top {} Modules by Risk", display_count)
-    } else {
-        "All Modules by Risk".to_string()
-    };
-
-    println!("{}", title);
-    println!("{}", "=".repeat(80));
-    println!();
-    println!(
-        "{:<3} {:<40} {:>5} {:>5} {:>7} {:>9} {:>9} {:>5}",
-        "#", "module", "files", "fns", "avg_cc", "afferent", "efferent", "risk"
-    );
-    println!("{}", "-".repeat(86));
-
-    for (i, m) in modules.iter().take(display_count).enumerate() {
-        println!(
-            "{:<3} {:<40} {:>5} {:>5} {:>7.1} {:>9} {:>9} {:>5}",
-            i + 1,
-            truncate_string(&m.module, 40),
-            m.file_count,
-            m.function_count,
-            m.avg_complexity,
-            m.afferent,
-            m.efferent,
-            m.module_risk,
-        );
-    }
-
-    println!("{}", "-".repeat(86));
-    println!("Showing {}/{} modules", display_count, total);
-
-    let high_risk_count = modules
-        .iter()
-        .take(display_count)
-        .filter(|m| m.module_risk == "high")
-        .count();
-    if high_risk_count > 0 {
-        println!("High-risk modules (high complexity): {}", high_risk_count);
-    }
 
     Ok(())
 }
@@ -183,19 +114,7 @@ pub(crate) fn print_explain_output(
             let score = f.activity_risk.unwrap_or(f.lrs);
             let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
             let loc = format!("{}:{}", rel_path(&f.file), f.line);
-            let patterns_str = if f.patterns.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", f.patterns.join(", "))
-            };
-            println!(
-                "  {:.2}  {:<col_w$}  {}{}",
-                score,
-                loc,
-                name,
-                patterns_str,
-                col_w = col_w
-            );
+            println!("  {:.2}  {:<col_w$}  {}", score, loc, name, col_w = col_w);
             if let Some(exp) = &f.explanation {
                 println!("         \u{2726} {}", exp);
             }

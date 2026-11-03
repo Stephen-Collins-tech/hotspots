@@ -5,7 +5,6 @@ use anyhow::Context;
 use hotspots_core::delta::Delta;
 use hotspots_core::gate::{check_gate_smoothed, GateConfig, GateVerdict};
 use hotspots_core::snapshot::{self, Snapshot};
-use hotspots_core::TouchMode;
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
 use hotspots_core::{delta, git};
 use std::io::IsTerminal;
@@ -24,25 +23,13 @@ pub(crate) struct AnalyzeArgs {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub per_function_touches: bool,
     pub all_functions: bool,
-    pub include_models: bool,
-    pub explain_patterns: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
     /// Number of rayon worker threads; None = use all logical CPUs.
     pub jobs: Option<usize>,
-    /// CLI override for callgraph_skip_above; None = use resolved config value.
-    pub callgraph_skip_above: Option<usize>,
-    /// When true, force-disable per-function touches regardless of config.
-    pub no_per_function_touches: bool,
     /// When true, skip all touch metrics (no git log calls at all).
     pub skip_touch_metrics: bool,
-    /// Hybrid touch threshold: file-level first, per-function for files with ≥N touches/30d.
-    pub hybrid_touches: Option<usize>,
-    /// `--touch-mode`: supersedes per_function_touches/no_per_function_touches/
-    /// skip_touch_metrics/hybrid_touches (kept as deprecated aliases).
-    pub touch_mode: Option<TouchModeArg>,
     /// Skip the suppression gate check entirely.
     pub skip_gate: bool,
     /// Rank via Gini-gated cold-start routing instead of a trained ranker.
@@ -51,11 +38,6 @@ pub(crate) struct AnalyzeArgs {
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
     /// instead of a single merged list.
     pub axes: bool,
-    /// Print a per-phase timing breakdown as JSON to stderr (hotspots#267 part 1).
-    pub timing_report: bool,
-    /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
-    /// instead of file_risk_score alone (validated in our evaluation). Opt-in.
-    pub blend_churn: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -63,13 +45,9 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_mode_bypass_flags(args)?;
     validate_policy_flag(args)?;
     validate_explain_flag(args)?;
-    validate_per_function_touches_flag(args)?;
     validate_no_persist_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
-    validate_models_mode_format(args)?;
-    validate_include_models_flag(args)?;
-    validate_explain_patterns_flag(args)?;
     validate_format_mode_requirements(args)?;
     Ok(())
 }
@@ -104,20 +82,11 @@ fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_per_function_touches_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.per_function_touches && args.mode.is_none() {
-        anyhow::bail!(
-            "--per-function-touches is only valid with --mode snapshot, --mode delta, or --mode models"
-        );
-    }
-    Ok(())
-}
-
 fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if !args.no_persist {
         return Ok(());
     }
-    if args.mode.is_none() || args.mode == Some(OutputMode::Models) {
+    if args.mode.is_none() {
         anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
     }
     if args.force {
@@ -151,312 +120,12 @@ fn validate_all_functions_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_models_mode_format(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.mode == Some(OutputMode::Models)
-        && !matches!(args.format, OutputFormat::Text | OutputFormat::Json)
-    {
-        anyhow::bail!("--mode models supports --format text or --format json");
-    }
-    Ok(())
-}
-
-fn validate_include_models_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.include_models
-        && (args.mode != Some(OutputMode::Snapshot)
-            || !matches!(args.format, OutputFormat::Json | OutputFormat::Html))
-    {
-        anyhow::bail!("--include-models is only valid with --mode snapshot --format json/html");
-    }
-    Ok(())
-}
-
-fn validate_explain_patterns_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.explain_patterns && args.mode != Some(OutputMode::Snapshot) && args.mode.is_some() {
-        anyhow::bail!("--explain-patterns is only valid with --mode snapshot or without --mode");
-    }
-    Ok(())
-}
-
 /// Output formats that require `--mode snapshot` specifically.
 fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if matches!(args.format, OutputFormat::Sarif) && args.mode != Some(OutputMode::Snapshot) {
         anyhow::bail!("--format sarif requires --mode snapshot");
     }
-    if matches!(args.format, OutputFormat::Csv) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format csv requires --mode snapshot");
-    }
-    if matches!(args.format, OutputFormat::Xlsx) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format xlsx requires --mode snapshot");
-    }
-    if matches!(args.format, OutputFormat::LlmContext) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format llm-context requires --mode snapshot");
-    }
     Ok(())
-}
-
-#[cfg(test)]
-mod validate_analyze_flags_tests {
-    use super::*;
-
-    /// All-permissive baseline: no mode, text format, every bool false, every
-    /// optional field unset. Individual tests override just the field(s) under test.
-    fn base_args() -> AnalyzeArgs {
-        AnalyzeArgs {
-            path: PathBuf::new(),
-            format: OutputFormat::Text,
-            mode: None,
-            policy: false,
-            top: None,
-            min_lrs: None,
-            config_path: None,
-            output: None,
-            explain: false,
-            force: false,
-            no_persist: false,
-            level: None,
-            per_function_touches: false,
-            all_functions: false,
-            include_models: false,
-            explain_patterns: false,
-            source_url: None,
-            jobs: None,
-            callgraph_skip_above: None,
-            no_per_function_touches: false,
-            skip_touch_metrics: false,
-            hybrid_touches: None,
-            touch_mode: None,
-            skip_gate: false,
-            cold_start: false,
-            axes: false,
-            timing_report: false,
-            blend_churn: false,
-        }
-    }
-
-    #[test]
-    fn base_args_pass_validation() {
-        assert!(validate_analyze_flags(&base_args()).is_ok());
-    }
-
-    #[test]
-    fn cold_start_and_axes_reject_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            cold_start: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            axes: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn cold_start_and_axes_are_mutually_exclusive() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            cold_start: true,
-            axes: true,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn policy_requires_delta_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_rejects_delta_and_models_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: Some(OutputMode::Models),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: Some(OutputMode::Models),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            force: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-    }
-
-    #[test]
-    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Json,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            explain: true,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-    }
-
-    #[test]
-    fn all_functions_requires_snapshot_mode_and_json_format() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            all_functions: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Json,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            all_functions: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn models_mode_supports_only_text_or_json() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            mode: Some(OutputMode::Models),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn include_models_requires_snapshot_mode_and_json_or_html_format() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Html,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            include_models: true,
-            mode: Some(OutputMode::Snapshot),
-            format: OutputFormat::Text,
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_patterns_rejects_non_snapshot_mode_only_when_mode_is_set() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain_patterns: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn sarif_csv_xlsx_llm_context_formats_require_snapshot_mode() {
-        for format in [
-            OutputFormat::Sarif,
-            OutputFormat::Csv,
-            OutputFormat::Xlsx,
-            OutputFormat::LlmContext,
-        ] {
-            assert!(validate_analyze_flags(&AnalyzeArgs {
-                format,
-                mode: None,
-                ..base_args()
-            })
-            .is_err());
-            assert!(validate_analyze_flags(&AnalyzeArgs {
-                format,
-                mode: Some(OutputMode::Snapshot),
-                ..base_args()
-            })
-            .is_ok());
-        }
-    }
 }
 
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
@@ -475,32 +144,14 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         force,
         no_persist,
         level,
-        per_function_touches,
-        no_per_function_touches,
         skip_touch_metrics,
-        hybrid_touches,
-        touch_mode,
         all_functions,
-        include_models,
-        explain_patterns,
         source_url,
         jobs,
-        callgraph_skip_above,
         skip_gate,
         cold_start,
         axes,
-        timing_report,
-        blend_churn,
     } = args;
-
-    let timing = timing_report.then(hotspots_core::TimingCollector::default);
-
-    warn_deprecated_touch_flags(
-        no_per_function_touches,
-        per_function_touches,
-        skip_touch_metrics,
-        hybrid_touches,
-    );
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
@@ -538,38 +189,14 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
     let effective_min_lrs = min_lrs.or(resolved_config.min_lrs);
     let effective_top = top.or(resolved_config.top_n);
-    let (effective_touch_mode, effective_skip_touch_metrics) = resolve_touch_mode_and_skip(
-        touch_mode,
-        no_per_function_touches,
-        per_function_touches,
-        hybrid_touches,
-        skip_touch_metrics,
-        resolved_config.per_function_touches,
-        resolved_config.hybrid_touch_threshold,
-    );
 
     if cold_start {
-        let result = handle_cold_start(
-            &normalized_path,
-            &resolved_config,
-            effective_touch_mode,
-            effective_top,
-            timing.as_ref(),
-        );
-        print_timing_report(timing.as_ref());
+        let result = handle_cold_start(&normalized_path, &resolved_config, effective_top);
         return result;
     }
 
     if axes {
-        let result = handle_axes(
-            &normalized_path,
-            &resolved_config,
-            effective_touch_mode,
-            effective_top,
-            format,
-            timing.as_ref(),
-        );
-        print_timing_report(timing.as_ref());
+        let result = handle_axes(&normalized_path, &resolved_config, effective_top, format);
         return result;
     }
 
@@ -588,19 +215,12 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist,
                 level,
-                touch_mode: effective_touch_mode,
                 all_functions,
-                include_models,
-                explain_patterns,
                 source_url,
-                callgraph_skip_above,
-                skip_touch_metrics: effective_skip_touch_metrics,
+                skip_touch_metrics,
                 skip_gate,
-                blend_churn,
             },
-            timing.as_ref(),
         );
-        print_timing_report(timing.as_ref());
         return result;
     }
 
@@ -625,46 +245,23 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 force,
                 no_persist: true, // default analyze doesn't persist snapshots
                 level,
-                touch_mode: effective_touch_mode,
                 all_functions: false,
-                include_models: false,
-                explain_patterns,
                 source_url,
-                callgraph_skip_above,
-                skip_touch_metrics: effective_skip_touch_metrics,
+                skip_touch_metrics,
                 skip_gate,
-                blend_churn,
             },
-            timing.as_ref(),
         );
-        print_timing_report(timing.as_ref());
         return result;
     }
 
     // Default behavior (no --mode): simple text/JSON output
-    let result = handle_default_output(
+    handle_default_output(
         &normalized_path,
         format,
-        explain_patterns,
         effective_min_lrs,
         effective_top,
         &resolved_config,
-        timing.as_ref(),
-    );
-    print_timing_report(timing.as_ref());
-    result
-}
-
-/// Prints the collected per-phase timing as a JSON object to stderr, when
-/// `--timing-report` was passed. Never touches stdout, so it can't interfere
-/// with piped analyze output.
-fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
-    if let Some(tc) = timing {
-        match serde_json::to_string_pretty(&tc.report()) {
-            Ok(json) => eprintln!("{json}"),
-            Err(e) => eprintln!("warning: failed to serialize timing report: {e}"),
-        }
-    }
+    )
 }
 
 /// `hotspots analyze --cold-start`: Gini-gated cold-start routing.
@@ -677,13 +274,11 @@ fn print_timing_report(timing: Option<&hotspots_core::TimingCollector>) {
 fn handle_cold_start(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    touch_mode: TouchMode,
     top: Option<usize>,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -691,15 +286,10 @@ fn handle_cold_start(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
-        &repo_root,
-        resolved_config,
-        reports,
-        touch_mode,
-        None,
+        &repo_root, reports,
         true, // skip touch metrics — not part of the cold-start feature set
     )
     .context("failed to build snapshot for cold-start ranking")?;
@@ -712,8 +302,6 @@ fn handle_cold_start(
     };
     let result = hotspots_core::trainer::cold_start_rank(&snapshot, &repo_root, &train_cfg);
 
-    let report_start = timing.map(|_| std::time::Instant::now());
-
     let route_label = match result.route {
         hotspots_core::trainer::ColdStartRoute::Formula => "formula",
         hotspots_core::trainer::ColdStartRoute::Anomaly => "anomaly",
@@ -723,9 +311,6 @@ fn handle_cold_start(
 
     if result.ranked.is_empty() {
         println!("(uniform prior — no ranking to show; all files equally likely)");
-        if let (Some(tc), Some(start)) = (timing, report_start) {
-            tc.report.record(start.elapsed());
-        }
         return Ok(());
     }
 
@@ -736,9 +321,6 @@ fn handle_cold_start(
     };
     for scored in result.ranked.iter().take(limit) {
         println!("{:.4}  {}", scored.score, scored.function_id);
-    }
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
     }
 
     Ok(())
@@ -751,10 +333,8 @@ fn handle_cold_start(
 fn handle_axes(
     path: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
-    touch_mode: TouchMode,
     top: Option<usize>,
     format: OutputFormat,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     use hotspots_core::ranking::{rank_by_axis, HotspotAxis};
 
@@ -764,7 +344,7 @@ fn handle_axes(
 
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: None,
@@ -772,16 +352,10 @@ fn handle_axes(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
     let mut snapshot = build_enriched_snapshot(
-        &repo_root,
-        resolved_config,
-        reports,
-        touch_mode,
-        None,
-        false, // needed for directed_coupling and newcomer_rate below
+        &repo_root, reports, false, // needed for directed_coupling and newcomer_rate below
     )
     .context("failed to build snapshot for --axes ranking")?;
     snapshot.populate_history_signals(&repo_root);
@@ -810,8 +384,6 @@ fn handle_axes(
         (HotspotAxis::Ownership, "Ownership Hotspots", "ownership"),
     ];
 
-    let report_start = timing.map(|_| std::time::Instant::now());
-
     if matches!(format, OutputFormat::Json) {
         let axes: serde_json::Map<String, serde_json::Value> = sections
             .iter()
@@ -825,9 +397,6 @@ fn handle_axes(
             "axes": axes,
         });
         println!("{}", serde_json::to_string_pretty(&envelope)?);
-        if let (Some(tc), Some(start)) = (timing, report_start) {
-            tc.report.record(start.elapsed());
-        }
         return Ok(());
     }
 
@@ -842,9 +411,6 @@ fn handle_axes(
         }
         println!();
     }
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
 
     Ok(())
 }
@@ -852,11 +418,9 @@ fn handle_axes(
 fn handle_default_output(
     path: &Path,
     format: OutputFormat,
-    explain_patterns: bool,
     min_lrs: Option<f64>,
     top: Option<usize>,
     resolved_config: &hotspots_core::ResolvedConfig,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let analysis_progress = make_analysis_progress();
     let explicit_top = top.or(resolved_config.top_n);
@@ -866,7 +430,7 @@ fn handle_default_output(
         Some(n) => n,
         None => 20,
     };
-    let mut reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs,
@@ -878,20 +442,8 @@ fn handle_default_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
 
-    if explain_patterns {
-        populate_pattern_details(&mut reports, resolved_config);
-    } else {
-        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` in this
-        // bare (no-git-context) path too, for consistency with snapshot mode.
-        for report in &mut reports {
-            report.patterns.clear();
-        }
-    }
-
-    let report_start = timing.map(|_| std::time::Instant::now());
     let result: anyhow::Result<()> = match format {
         OutputFormat::Text => {
             let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
@@ -905,45 +457,14 @@ fn handle_default_output(
             println!("{}", hotspots_core::render_json_envelope(&reports));
             Ok(())
         }
-        OutputFormat::Html | OutputFormat::Jsonl => {
-            anyhow::bail!("HTML/JSONL format requires --mode snapshot or --mode delta");
+        OutputFormat::Html => {
+            anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
         }
-        OutputFormat::Sarif | OutputFormat::Csv | OutputFormat::Xlsx | OutputFormat::LlmContext => {
-            anyhow::bail!("SARIF/CSV/XLSX/llm-context format requires --mode snapshot");
+        OutputFormat::Sarif => {
+            anyhow::bail!("SARIF format requires --mode snapshot");
         }
     };
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
     result
-}
-
-fn populate_pattern_details(
-    reports: &mut [hotspots_core::FunctionRiskReport],
-    resolved_config: &hotspots_core::ResolvedConfig,
-) {
-    for report in reports.iter_mut() {
-        let t1 = hotspots_core::patterns::Tier1Input {
-            cc: report.metrics.cc as usize,
-            nd: report.metrics.nd as usize,
-            fo: report.metrics.fo as usize,
-            ns: report.metrics.ns as usize,
-            loc: report.metrics.loc as usize,
-        };
-        let t2 = hotspots_core::patterns::Tier2Input {
-            fan_in: None,
-            scc_size: None,
-            churn_lines: None,
-            days_since_last_change: None,
-            neighbor_churn: None,
-            is_entrypoint: false,
-        };
-        report.pattern_details = Some(hotspots_core::patterns::classify_detailed(
-            &t1,
-            &t2,
-            &resolved_config.pattern_thresholds,
-        ));
-    }
 }
 
 pub(crate) struct ModeOutputOptions {
@@ -956,15 +477,10 @@ pub(crate) struct ModeOutputOptions {
     pub force: bool,
     pub no_persist: bool,
     pub level: Option<OutputLevel>,
-    pub touch_mode: TouchMode,
     pub all_functions: bool,
-    pub include_models: bool,
-    pub explain_patterns: bool,
     pub source_url: Option<String>,
-    pub callgraph_skip_above: Option<usize>,
     pub skip_touch_metrics: bool,
     pub skip_gate: bool,
-    pub blend_churn: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -972,11 +488,10 @@ pub(crate) fn handle_mode_output(
     mode: OutputMode,
     resolved_config: &hotspots_core::ResolvedConfig,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let repo_root = find_repo_root(path)?;
     let analysis_progress = make_analysis_progress();
-    let reports = hotspots_core::analyze_with_progress_and_timing(
+    let reports = hotspots_core::analyze_with_progress(
         path,
         AnalysisOptions {
             min_lrs: opts.min_lrs,
@@ -984,42 +499,22 @@ pub(crate) fn handle_mode_output(
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
-        timing,
     )?;
     let pr_context = git::detect_pr_context();
 
     match mode {
-        OutputMode::Snapshot => handle_snapshot_mode(
-            path,
-            &repo_root,
-            resolved_config,
-            reports,
-            pr_context,
-            opts,
-            timing,
-        ),
-        OutputMode::Delta => handle_delta_mode(
-            &repo_root,
-            resolved_config,
-            reports,
-            pr_context,
-            opts,
-            timing,
-        ),
-        OutputMode::Models => {
-            handle_models_mode(path, &repo_root, resolved_config, reports, opts, timing)
+        OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts),
+        OutputMode::Delta => {
+            handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
         }
     }
 }
 
 fn handle_snapshot_mode(
-    path: &Path,
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
@@ -1027,56 +522,27 @@ fn handle_snapshot_mode(
         force,
         no_persist,
         level,
-        touch_mode,
         all_functions,
-        include_models,
-        explain_patterns,
         source_url,
-        callgraph_skip_above,
         skip_touch_metrics,
         skip_gate,
         top,
         output,
-        blend_churn,
         ..
     } = opts;
 
     // Validate output-format compatibility before any persistence side effects
     // (snapshot::persist_snapshot / append_to_index below), so a command that's
     // going to bail out with an error leaves no durable state behind. See #222.
-    if matches!(format, OutputFormat::Text)
-        && !explain
-        && !matches!(level, Some(OutputLevel::File) | Some(OutputLevel::Module))
+    if matches!(format, OutputFormat::Text) && !explain && !matches!(level, Some(OutputLevel::File))
     {
         anyhow::bail!(
             "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
         );
     }
 
-    let mut snapshot = build_snapshot_via_db(
-        repo_root,
-        resolved_config,
-        reports,
-        touch_mode,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
-
-    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
-    if explain_patterns {
-        snapshot.populate_pattern_details(&resolved_config.pattern_thresholds);
-    } else {
-        // hotspots 2.0: `patterns[]` moves behind `--explain-patterns` (no
-        // validating finding for it as a standalone default-output signal).
-        // `populate_patterns` above also refreshes Tier-1 patterns already
-        // carried from the initial analysis pass onto `function.patterns`, so
-        // clearing here (rather than skipping the call) is what actually
-        // removes it from default output, not just withholding the Tier-2 add-on.
-        for function in &mut snapshot.functions {
-            function.patterns.clear();
-        }
-    }
+    let mut snapshot = build_snapshot_via_db(repo_root, reports, skip_touch_metrics)
+        .context("failed to build enriched snapshot")?;
 
     // Populate DC before persisting so the snapshot on disk includes the values,
     // and before apply_trained_ranker so the ranker reads real DC instead of 0.0.
@@ -1101,14 +567,6 @@ fn handle_snapshot_mode(
         snapshot.populate_directed_coupling(repo_root, &partner_scores);
     }
 
-    // `--format csv`/`--format xlsx`'s Ownership column needs `newcomer_rate`,
-    // which the standard snapshot pipeline otherwise never populates (only the
-    // `--cold-start` and `--axes` paths call this today) — gated to these two
-    // formats so others don't pay for an extra full-history `git log` walk.
-    if !skip_touch_metrics && matches!(format, OutputFormat::Csv | OutputFormat::Xlsx) {
-        snapshot.populate_history_signals(repo_root);
-    }
-
     if !pr_context.is_pr && !no_persist {
         snapshot::persist_snapshot(repo_root, &snapshot, force)
             .context("failed to persist snapshot")?;
@@ -1124,13 +582,6 @@ fn handle_snapshot_mode(
             hotspots_core::trainer::ModelClass::RandomForest => "RandomForest",
         };
         eprintln!("hotspots: using trained ranker (model class: {label})");
-    }
-
-    // Re-run quadrant assignment now that activity_risk reflects trained RF scores.
-    // This promotes debt→fire for functions with high predicted fix probability (≥0.7)
-    // even if they haven't been touched recently (touch window: hotspots_core::git::TOUCH_WINDOW_DAYS).
-    if ranker_applied {
-        snapshot.compute_quadrants(resolved_config.driver_threshold_percentile, true);
     }
 
     // Populate explanation phrases for CRITICAL/HIGH functions when --explain is set
@@ -1171,8 +622,7 @@ fn handle_snapshot_mode(
 
     apply_top_n(&mut snapshot, format, explain, level, top);
 
-    let report_start = timing.map(|_| std::time::Instant::now());
-    let result = emit_snapshot_output(
+    emit_snapshot_output(
         &mut snapshot,
         SnapshotOutputOpts {
             format,
@@ -1181,25 +631,14 @@ fn handle_snapshot_mode(
             top,
             total_function_count,
             output,
-            co_change_window_days: resolved_config.co_change_window_days,
-            co_change_min_count: resolved_config.co_change_min_count,
+            co_change_window_days: hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
+            co_change_min_count: hotspots_core::git::CO_CHANGE_MIN_COUNT,
             all_functions,
-            include_models,
             source_url: source_url.clone(),
-            risk_thresholds: hotspots_core::risk::RiskThresholds {
-                moderate: resolved_config.moderate_threshold,
-                high: resolved_config.high_threshold,
-                critical: resolved_config.critical_threshold,
-            },
-            blend_churn,
+            risk_thresholds: hotspots_core::risk::RiskThresholds::default(),
         },
         repo_root,
-        path,
-    );
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
-    result
+    )
 }
 
 fn handle_delta_mode(
@@ -1208,27 +647,17 @@ fn handle_delta_mode(
     reports: Vec<hotspots_core::FunctionRiskReport>,
     pr_context: hotspots_core::git::PrContext,
     opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
 ) -> anyhow::Result<()> {
     let ModeOutputOptions {
         format,
         policy,
         output,
         source_url,
-        touch_mode,
-        callgraph_skip_above,
         skip_touch_metrics,
         ..
     } = opts;
-    let snapshot = build_enriched_snapshot(
-        repo_root,
-        resolved_config,
-        reports,
-        touch_mode,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
+    let snapshot = build_enriched_snapshot(repo_root, reports, skip_touch_metrics)
+        .context("failed to build enriched snapshot")?;
 
     let delta_val = if pr_context.is_pr {
         compute_pr_delta(repo_root, &snapshot)?
@@ -1238,7 +667,6 @@ fn handle_delta_mode(
 
     let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
 
-    let report_start = timing.map(|_| std::time::Instant::now());
     let blocking = emit_delta_output(
         &delta_with_extras,
         format,
@@ -1246,11 +674,7 @@ fn handle_delta_mode(
         output,
         source_url.as_deref(),
     )?;
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
     if blocking {
-        print_timing_report(timing);
         std::process::exit(1);
     }
     Ok(())
@@ -1275,8 +699,8 @@ fn enrich_delta(
     let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, repo_root);
     let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
         repo_root,
-        resolved_config.co_change_window_days,
-        resolved_config.co_change_min_count,
+        hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
+        hotspots_core::git::CO_CHANGE_MIN_COUNT,
     )
     .unwrap_or_default();
     hotspots_core::aggregates::annotate_static_deps(
@@ -1299,13 +723,8 @@ fn enrich_delta(
 
     let mut enriched = delta_val.clone();
     if policy {
-        let policy_results = hotspots_core::policy::evaluate_policies(
-            &delta_val,
-            snapshot,
-            repo_root,
-            resolved_config,
-        )
-        .context("failed to evaluate policies")?;
+        let policy_results = hotspots_core::policy::evaluate_policies(&delta_val, resolved_config)
+            .context("failed to evaluate policies")?;
         if let Some(results) = policy_results {
             enriched.policy = Some(results);
         }
@@ -1332,67 +751,8 @@ fn enrich_delta(
         &current_co_change,
         &prev_co_change,
         fn_changed_lines,
-        &resolved_config.change_size_thresholds,
     ));
     Ok(enriched)
-}
-
-fn handle_models_mode(
-    path: &Path,
-    repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
-    reports: Vec<hotspots_core::FunctionRiskReport>,
-    opts: ModeOutputOptions,
-    timing: Option<&hotspots_core::TimingCollector>,
-) -> anyhow::Result<()> {
-    let ModeOutputOptions {
-        format,
-        top,
-        touch_mode,
-        callgraph_skip_above,
-        skip_touch_metrics,
-        ..
-    } = opts;
-    let snapshot = build_enriched_snapshot(
-        repo_root,
-        resolved_config,
-        reports,
-        touch_mode,
-        callgraph_skip_above,
-        skip_touch_metrics,
-    )
-    .context("failed to build enriched snapshot")?;
-    let model_map = hotspots_core::models::compute_model_risk_map(path, repo_root, &snapshot, top)
-        .context("failed to compute model risk map")?;
-    let report_start = timing.map(|_| std::time::Instant::now());
-    let result: anyhow::Result<()> = match format {
-        OutputFormat::Text => {
-            print!(
-                "{}",
-                hotspots_core::models::render_model_risk_text(&model_map, top)
-            );
-            Ok(())
-        }
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                hotspots_core::models::render_model_risk_json(&model_map)?
-            );
-            Ok(())
-        }
-        OutputFormat::Html
-        | OutputFormat::Jsonl
-        | OutputFormat::Sarif
-        | OutputFormat::Csv
-        | OutputFormat::Xlsx
-        | OutputFormat::LlmContext => {
-            unreachable!("validated by validate_analyze_flags")
-        }
-    };
-    if let (Some(tc), Some(start)) = (timing, report_start) {
-        tc.report.record(start.elapsed());
-    }
-    result
 }
 
 struct SnapshotOutputOpts {
@@ -1405,53 +765,41 @@ struct SnapshotOutputOpts {
     co_change_window_days: u64,
     co_change_min_count: usize,
     all_functions: bool,
-    include_models: bool,
     source_url: Option<String>,
     risk_thresholds: hotspots_core::risk::RiskThresholds,
-    blend_churn: bool,
 }
 
 fn emit_snapshot_output(
     snapshot: &mut Snapshot,
     opts: SnapshotOutputOpts,
     repo_root: &Path,
-    analysis_path: &Path,
 ) -> anyhow::Result<()> {
     match opts.format {
-        OutputFormat::Json => emit_json_output(snapshot, repo_root, analysis_path, opts),
-        OutputFormat::Jsonl => emit_jsonl_output(snapshot),
+        OutputFormat::Json => emit_json_output(snapshot, repo_root, opts),
         OutputFormat::Text => emit_text_output(snapshot, repo_root, opts),
-        OutputFormat::Html => emit_html_output(snapshot, repo_root, analysis_path, opts),
+        OutputFormat::Html => emit_html_output(snapshot, repo_root, opts),
         OutputFormat::Sarif => emit_sarif_output(snapshot, repo_root, opts),
-        OutputFormat::Csv => emit_csv_output(snapshot, repo_root, opts),
-        OutputFormat::Xlsx => emit_xlsx_output(snapshot, repo_root, opts),
-        OutputFormat::LlmContext => emit_llm_context_output(snapshot, repo_root, opts),
     }
 }
 
 fn emit_json_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
-    analysis_path: &Path,
     opts: SnapshotOutputOpts,
 ) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
         all_functions,
-        include_models,
         co_change_window_days,
         co_change_min_count,
         output,
-        blend_churn,
         ..
     } = opts;
-    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
-        include_models.then_some(analysis_path),
     );
-    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if all_functions {
         snapshot.aggregates = Some(aggregates);
     } else {
@@ -1469,27 +817,6 @@ fn emit_json_output(
     write_json_snapshot(snapshot, output)
 }
 
-/// Shared by `emit_json_output`/`emit_text_output`: when `--blend-churn` is set,
-/// re-rank `aggregates.file_risk` by the blended score; no-op otherwise.
-fn maybe_blend_churn(
-    aggregates: &mut hotspots_core::aggregates::SnapshotAggregates,
-    snapshot: &Snapshot,
-    blend_churn: bool,
-) {
-    if blend_churn {
-        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
-        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
-    }
-}
-
-fn emit_jsonl_output(snapshot: &mut Snapshot) -> anyhow::Result<()> {
-    let stdout = std::io::stdout();
-    let mut out = std::io::BufWriter::new(stdout.lock());
-    snapshot
-        .write_jsonl_to(&mut out)
-        .context("failed to write snapshot JSONL")
-}
-
 fn emit_text_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
@@ -1502,20 +829,16 @@ fn emit_text_output(
         total_function_count,
         co_change_window_days,
         co_change_min_count,
-        blend_churn,
         ..
     } = opts;
-    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
     );
-    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if level == Some(OutputLevel::File) {
         explain::print_file_risk_output(&aggregates.file_risk, top)?;
-    } else if level == Some(OutputLevel::Module) {
-        explain::print_module_output(&aggregates.modules, top)?;
     } else if explain {
         let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
         explain::print_explain_output(snapshot, total_function_count, color)?;
@@ -1530,24 +853,21 @@ fn emit_text_output(
 fn emit_html_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
-    analysis_path: &Path,
     opts: SnapshotOutputOpts,
 ) -> anyhow::Result<()> {
     let SnapshotOutputOpts {
         co_change_window_days,
         co_change_min_count,
-        include_models,
         source_url,
         risk_thresholds,
         output,
         ..
     } = opts;
-    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates_with_models(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
-        include_models.then_some(analysis_path),
     );
     snapshot.aggregates = Some(aggregates);
     let history: Vec<_> = hotspots_core::trends::load_snapshot_window(repo_root, 30)
@@ -1587,94 +907,6 @@ fn emit_sarif_output(
     Ok(())
 }
 
-/// `--format csv`: one row per file, full inventory (ignores `--top` — a
-/// spreadsheet is for sorting/filtering everything, not a truncated view).
-/// See `hotspots_core::csv_report` for the triage/planning audience and
-/// column rationale. Single file, single table — coupling data lives only in
-/// `--format xlsx` (a real workbook can hold it as a separate sheet; CSV has
-/// no notion of multiple tables in one file, so it doesn't try to).
-fn emit_csv_output(
-    snapshot: &mut Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let csv = hotspots_core::csv_report::render_csv(&snapshot.functions, repo_root)
-        .context("failed to render CSV report")?;
-    if let Some(output_path) = opts.output {
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-        }
-        std::fs::write(&output_path, &csv)
-            .with_context(|| format!("failed to write CSV to {}", output_path.display()))?;
-        eprintln!("CSV report written to: {}", output_path.display());
-    } else {
-        print!("{csv}");
-    }
-    Ok(())
-}
-
-/// `--format llm-context`: bounded, prompt-ready projection of the top `--top`
-/// (default 20) highest-risk functions, meant for inclusion in a hosted
-/// coding model's context window. Reuses `explanation` from `--explain`
-/// directly rather than deriving separate phrasing.
-fn emit_llm_context_output(
-    snapshot: &Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let top_n = opts
-        .top
-        .unwrap_or(hotspots_core::views::llm_context::DEFAULT_TOP_N);
-    let report = hotspots_core::views::llm_context::to_llm_context_report(
-        &snapshot.functions,
-        repo_root,
-        top_n,
-    );
-    let json =
-        serde_json::to_string_pretty(&report).context("failed to serialize llm-context report")?;
-    if let Some(output_path) = opts.output {
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-        }
-        std::fs::write(&output_path, &json).with_context(|| {
-            format!(
-                "failed to write llm-context report to {}",
-                output_path.display()
-            )
-        })?;
-        eprintln!("LLM-context report written to: {}", output_path.display());
-    } else {
-        println!("{json}");
-    }
-    Ok(())
-}
-
-/// `--format xlsx`: a real multi-sheet workbook — "Files" (the main triage
-/// table) and "Coupling" (files with a real `directed_coupling` value only).
-/// Binary format, so it always writes to a file: `--output`, or
-/// `.hotspots/report.xlsx` by default (mirrors HTML's default path).
-fn emit_xlsx_output(
-    snapshot: &mut Snapshot,
-    repo_root: &Path,
-    opts: SnapshotOutputOpts,
-) -> anyhow::Result<()> {
-    let bytes = hotspots_core::xlsx_report::render_xlsx(&snapshot.functions, repo_root)
-        .context("failed to render XLSX report")?;
-    let output_path = opts
-        .output
-        .unwrap_or_else(|| snapshot::hotspots_dir(repo_root).join("report.xlsx"));
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory: {}", parent.display()))?;
-    }
-    std::fs::write(&output_path, &bytes)
-        .with_context(|| format!("failed to write XLSX to {}", output_path.display()))?;
-    eprintln!("XLSX report written to: {}", output_path.display());
-    Ok(())
-}
-
 fn apply_top_n(
     snapshot: &mut Snapshot,
     format: OutputFormat,
@@ -1682,12 +914,9 @@ fn apply_top_n(
     level: Option<OutputLevel>,
     top: Option<usize>,
 ) {
-    let is_aggregate_level = level == Some(OutputLevel::File) || level == Some(OutputLevel::Module);
+    let is_aggregate_level = level == Some(OutputLevel::File);
     let is_text = matches!(format, OutputFormat::Text);
-    // CSV/XLSX always emit the full file inventory — a spreadsheet is for
-    // sorting/filtering everything, not a truncated view (see csv_report.rs).
-    let is_spreadsheet = matches!(format, OutputFormat::Csv | OutputFormat::Xlsx);
-    if !is_aggregate_level && !is_spreadsheet && (top.is_some() || (is_text && explain)) {
+    if !is_aggregate_level && (top.is_some() || (is_text && explain)) {
         snapshot.functions.sort_by(|a, b| {
             let a_score = a.activity_risk.unwrap_or(a.lrs);
             let b_score = b.activity_risk.unwrap_or(b.lrs);
@@ -1849,9 +1078,6 @@ fn emit_delta_output(
         OutputFormat::Json => {
             println!("{}", delta_val.to_json()?);
         }
-        OutputFormat::Jsonl => {
-            anyhow::bail!("JSONL format is not supported for delta mode (use --mode snapshot)");
-        }
         OutputFormat::Text => {
             emit_delta_text(delta_val, with_policy)?;
         }
@@ -1860,17 +1086,6 @@ fn emit_delta_output(
         }
         OutputFormat::Sarif => {
             anyhow::bail!("SARIF format is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::Csv => {
-            anyhow::bail!("--format csv is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::Xlsx => {
-            anyhow::bail!("--format xlsx is not supported for delta mode (use --mode snapshot)");
-        }
-        OutputFormat::LlmContext => {
-            anyhow::bail!(
-                "--format llm-context is not supported for delta mode (use --mode snapshot)"
-            );
         }
     }
 
@@ -1949,10 +1164,7 @@ fn load_merge_base_or_fallback(
 ///   After:  ~45 MB  (only call graph + SQLite overlap; reports freed before graph builds)
 pub(crate) fn build_snapshot_via_db(
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     reports: Vec<hotspots_core::FunctionRiskReport>,
-    touch_mode: TouchMode,
-    callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     use hotspots_core::db::TempDb;
@@ -1993,28 +1205,11 @@ pub(crate) fn build_snapshot_via_db(
     }
 
     // Phase 3: build call graph from lean DB rows, run algorithms, write back, free graph.
-    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
-    let function_count = db
-        .function_count(&sha)
-        .context("failed to count functions in pipeline DB")?;
-
-    if function_count <= effective_skip_above {
-        let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
-            .context("failed to build call graph from DB")?;
-        db.update_callgraph_metrics(
-            &sha,
-            &call_graph,
-            resolved_config.betweenness_exact_threshold,
-            resolved_config.betweenness_approx_k,
-        )
+    let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
+        .context("failed to build call graph from DB")?;
+    db.update_callgraph_metrics(&sha, &call_graph)
         .context("failed to update callgraph metrics in pipeline DB")?;
-        // call_graph dropped here, freeing ~25 MB.
-    } else {
-        eprintln!(
-            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
-            function_count, effective_skip_above
-        );
-    }
+    // call_graph dropped here, freeing its memory.
 
     // Phase 4: load enriched functions from DB (churn + callgraph already set).
     let functions = db
@@ -2022,7 +1217,6 @@ pub(crate) fn build_snapshot_via_db(
         .context("failed to load snapshot functions from pipeline DB")?;
     // SQLite connection dropped with `db` at end of scope; no longer needed.
 
-    let total_functions = functions.len();
     let snapshot = Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         commit: commit_info,
@@ -2047,43 +1241,21 @@ pub(crate) fn build_snapshot_via_db(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        let needs_progress = matches!(
-            touch_mode,
-            TouchMode::PerFunction | TouchMode::Hybrid { .. }
-        );
-        let progress = if needs_progress {
-            Some(make_progress_reporter(total_functions))
-        } else {
-            None
-        };
-        enricher = enricher.with_touch_metrics(
-            repo_root,
-            touch_mode,
-            progress,
-            resolved_config.touch_window_days,
-        );
+        enricher =
+            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
-    let result = enricher
-        .enrich(
-            Some(&resolved_config.scoring_weights),
-            resolved_config.driver_threshold_percentile,
-        )
-        .build();
+    let result = enricher.with_relative_paths(repo_root).enrich().build();
     Ok(result)
 }
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.
 ///
-/// `callgraph_skip_above` overrides `resolved_config.callgraph_skip_above` when `Some`.
 /// `skip_touch_metrics` bypasses all git-log touch calls (file-level and per-function).
 pub(crate) fn build_enriched_snapshot(
     repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
     mut reports: Vec<hotspots_core::FunctionRiskReport>,
-    touch_mode: TouchMode,
-    callgraph_skip_above: Option<usize>,
     skip_touch_metrics: bool,
 ) -> anyhow::Result<Snapshot> {
     let git_context =
@@ -2091,24 +1263,13 @@ pub(crate) fn build_enriched_snapshot(
 
     let merge_base = hotspots_core::git::find_merge_base(repo_root);
 
-    let effective_skip_above = callgraph_skip_above.unwrap_or(resolved_config.callgraph_skip_above);
-    let call_graph = if reports.len() > effective_skip_above {
-        eprintln!(
-            "info: call graph skipped ({} functions > --callgraph-skip-above {})",
-            reports.len(),
-            effective_skip_above
-        );
-        None
-    } else {
-        hotspots_core::build_call_graph(&reports, repo_root).ok()
-    };
+    let call_graph = { hotspots_core::build_call_graph(&reports, repo_root).ok() };
 
     for r in &mut reports {
         r.callees.clear();
         r.callees.shrink_to_fit();
     }
 
-    let total_functions = reports.len();
     let mut enricher = snapshot::SnapshotEnricher::new(Snapshot::new(git_context.clone(), reports))
         .with_subsystems(repo_root);
 
@@ -2136,76 +1297,16 @@ pub(crate) fn build_enriched_snapshot(
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
         enricher = enricher.with_burst_score(repo_root);
-        let needs_progress = matches!(
-            touch_mode,
-            TouchMode::PerFunction | TouchMode::Hybrid { .. }
-        );
-        let progress = if needs_progress {
-            Some(make_progress_reporter(total_functions))
-        } else {
-            None
-        };
-        enricher = enricher.with_touch_metrics(
-            repo_root,
-            touch_mode,
-            progress,
-            resolved_config.touch_window_days,
-        );
+        enricher =
+            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
     if let Some(ref graph) = call_graph {
-        enricher = enricher.with_callgraph(
-            graph,
-            resolved_config.betweenness_exact_threshold,
-            resolved_config.betweenness_approx_k,
-        );
+        enricher = enricher.with_callgraph(graph);
     }
 
-    Ok(enricher
-        .enrich(
-            Some(&resolved_config.scoring_weights),
-            resolved_config.driver_threshold_percentile,
-        )
-        .build())
-}
-
-fn make_progress_reporter(total: usize) -> Box<dyn Fn(usize, usize)> {
-    use std::io::IsTerminal;
-    if total == 0 {
-        return Box::new(|_i: usize, _total: usize| {});
-    }
-    if std::io::stderr().is_terminal() {
-        use indicatif::{ProgressBar, ProgressStyle};
-        let pb = ProgressBar::new(total as u64);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("Building touch cache [{bar:40}] {pos}/{len}")
-                .unwrap()
-                .progress_chars("##-"),
-        );
-        Box::new(move |i: usize, t: usize| {
-            pb.set_position(i as u64);
-            if i >= t {
-                pb.finish_and_clear();
-            }
-        })
-    } else {
-        let last_print = std::sync::Mutex::new(std::time::Instant::now());
-        Box::new(move |i: usize, t: usize| {
-            if i >= t {
-                eprintln!("touch cache: {t}/{t} functions (100%) [done]");
-                return;
-            }
-            if let Ok(mut last) = last_print.try_lock() {
-                if last.elapsed().as_secs() >= 30 {
-                    let pct = (i * 100).checked_div(t).unwrap_or(0);
-                    eprintln!("touch cache: {i}/{t} functions ({pct}%)");
-                    *last = std::time::Instant::now();
-                }
-            }
-        })
-    }
+    Ok(enricher.with_relative_paths(repo_root).enrich().build())
 }
 
 /// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and
@@ -2241,23 +1342,8 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Build enriched snapshot using the worktree as the repo root so that
     // git context (HEAD, parents, timestamp) is read from the checked-out ref.
-    // Touch cache is skipped (per_function_touches = false).
-    // callgraph_skip_above = None: always use the config value for historical refs.
-    let mut snapshot = build_enriched_snapshot(
-        &worktree.path,
-        resolved_config,
-        reports,
-        TouchMode::File,
-        None,
-        false,
-    )
-    .with_context(|| format!("enrichment failed for ref {sha}"))?;
-
-    let worktree_prefix = worktree.path.to_string_lossy().replace('\\', "/");
-    let repo_prefix = repo_root.to_string_lossy().replace('\\', "/");
-    rewrite_worktree_paths(&mut snapshot, &worktree_prefix, &repo_prefix);
-
-    snapshot.populate_patterns(&resolved_config.pattern_thresholds);
+    let snapshot = build_enriched_snapshot(&worktree.path, reports, false)
+        .with_context(|| format!("enrichment failed for ref {sha}"))?;
 
     // Persist into the *real* repo's .hotspots/ directory, not the worktree.
     hotspots_core::snapshot::persist_snapshot(repo_root, &snapshot, false)
@@ -2267,140 +1353,6 @@ pub(crate) fn analyze_and_persist_at_ref(
 
     // Drop of `worktree` runs `git worktree remove` here.
     Ok(snapshot)
-}
-
-fn rewrite_worktree_paths(snapshot: &mut Snapshot, worktree_prefix: &str, repo_prefix: &str) {
-    for f in &mut snapshot.functions {
-        if f.file.starts_with(worktree_prefix) {
-            let rel = f.file[worktree_prefix.len()..].to_string();
-            let old_file = f.file.clone();
-            f.file = format!("{}{}", repo_prefix, rel);
-            if let Some(symbol) = f.function_id.strip_prefix(&format!("{old_file}::")) {
-                f.function_id = format!("{}::{}", f.file, symbol);
-            }
-        }
-    }
-}
-
-const DEFAULT_HYBRID_THRESHOLD: usize = 5;
-
-fn resolve_touch_mode(
-    no_per_function: bool,
-    per_function: bool,
-    hybrid_threshold: Option<usize>,
-    config_per_function: bool,
-) -> TouchMode {
-    if no_per_function {
-        TouchMode::File
-    } else if let Some(threshold) = hybrid_threshold {
-        TouchMode::Hybrid { threshold }
-    } else if per_function || config_per_function {
-        TouchMode::PerFunction
-    } else {
-        TouchMode::Hybrid {
-            threshold: DEFAULT_HYBRID_THRESHOLD,
-        }
-    }
-}
-
-/// `--touch-mode` value (see issue #184). Supersedes `--per-function-touches`,
-/// `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches`,
-/// which are kept as deprecated aliases.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum TouchModeArg {
-    /// Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`,
-    /// falling back to hybrid with the default threshold — today's implicit default.
-    Auto,
-    PerFunction,
-    File,
-    /// `hybrid` (bare) uses `DEFAULT_HYBRID_THRESHOLD`; `hybrid:N` uses N.
-    Hybrid(Option<usize>),
-    /// Skip all touch metrics, directed coupling, and burst_score (no git log calls).
-    None,
-}
-
-pub(crate) fn parse_touch_mode_arg(s: &str) -> Result<TouchModeArg, String> {
-    let s = s.trim();
-    if let Some(rest) = s.strip_prefix("hybrid") {
-        return if rest.is_empty() {
-            Ok(TouchModeArg::Hybrid(None))
-        } else {
-            let n_str = rest.strip_prefix(':').ok_or_else(|| {
-                format!("invalid --touch-mode '{s}': expected 'hybrid' or 'hybrid:N'")
-            })?;
-            let n: usize = n_str.parse().map_err(|_| {
-                format!("invalid --touch-mode '{s}': N must be a non-negative integer")
-            })?;
-            Ok(TouchModeArg::Hybrid(Some(n)))
-        };
-    }
-    match s {
-        "auto" => Ok(TouchModeArg::Auto),
-        "per-function" => Ok(TouchModeArg::PerFunction),
-        "file" => Ok(TouchModeArg::File),
-        "none" => Ok(TouchModeArg::None),
-        _ => Err(format!(
-            "invalid --touch-mode '{s}': expected one of auto, per-function, file, hybrid[:N], none"
-        )),
-    }
-}
-
-/// Resolves `--touch-mode` (or, absent that, the four deprecated legacy flags) plus
-/// config defaults into a `(TouchMode, skip_touch_metrics)` pair. `TouchMode` is
-/// meaningless when `skip_touch_metrics` is true — callers already gate all touch
-/// computation behind `!skip_touch_metrics` and never consult `TouchMode` otherwise.
-fn resolve_touch_mode_and_skip(
-    touch_mode_arg: Option<TouchModeArg>,
-    legacy_no_per_function: bool,
-    legacy_per_function: bool,
-    legacy_hybrid: Option<usize>,
-    legacy_skip: bool,
-    config_per_function: bool,
-    config_hybrid_threshold: Option<usize>,
-) -> (TouchMode, bool) {
-    match touch_mode_arg {
-        Some(TouchModeArg::Auto) | None => {
-            let touch_mode = resolve_touch_mode(
-                legacy_no_per_function,
-                legacy_per_function,
-                legacy_hybrid.or(config_hybrid_threshold),
-                config_per_function,
-            );
-            (touch_mode, legacy_skip)
-        }
-        Some(TouchModeArg::PerFunction) => (TouchMode::PerFunction, false),
-        Some(TouchModeArg::File) => (TouchMode::File, false),
-        Some(TouchModeArg::Hybrid(threshold)) => (
-            TouchMode::Hybrid {
-                threshold: threshold.unwrap_or(DEFAULT_HYBRID_THRESHOLD),
-            },
-            false,
-        ),
-        Some(TouchModeArg::None) => (TouchMode::File, true),
-    }
-}
-
-/// Prints a one-line deprecation notice for each deprecated touch-metrics flag
-/// actually used. No-op when `--touch-mode` was used instead (clap's `conflicts_with`
-/// already rejects combining them).
-fn warn_deprecated_touch_flags(
-    no_per_function_touches: bool,
-    per_function_touches: bool,
-    skip_touch_metrics: bool,
-    hybrid_touches: Option<usize>,
-) {
-    if no_per_function_touches {
-        eprintln!("warning: --no-per-function-touches is deprecated, use --touch-mode file");
-    }
-    if per_function_touches {
-        eprintln!("warning: --per-function-touches is deprecated, use --touch-mode per-function");
-    }
-    if skip_touch_metrics {
-        eprintln!("warning: --skip-touch-metrics is deprecated, use --touch-mode none");
-    }
-    if let Some(n) = hybrid_touches {
-        eprintln!("warning: --hybrid-touches is deprecated, use --touch-mode hybrid:{n}");
-    }
 }
 
 pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
@@ -2451,172 +1403,182 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
 }
 
 #[cfg(test)]
-mod touch_mode_tests {
+mod validate_analyze_flags_tests {
     use super::*;
 
-    #[test]
-    fn parse_touch_mode_arg_all_named_values() {
-        assert_eq!(parse_touch_mode_arg("auto"), Ok(TouchModeArg::Auto));
-        assert_eq!(
-            parse_touch_mode_arg("per-function"),
-            Ok(TouchModeArg::PerFunction)
-        );
-        assert_eq!(parse_touch_mode_arg("file"), Ok(TouchModeArg::File));
-        assert_eq!(parse_touch_mode_arg("none"), Ok(TouchModeArg::None));
+    /// All-permissive baseline: no mode, text format, every bool false, every
+    /// optional field unset. Individual tests override just the field(s) under test.
+    fn base_args() -> AnalyzeArgs {
+        AnalyzeArgs {
+            path: PathBuf::new(),
+            format: OutputFormat::Text,
+            mode: None,
+            policy: false,
+            top: None,
+            min_lrs: None,
+            config_path: None,
+            output: None,
+            explain: false,
+            force: false,
+            no_persist: false,
+            level: None,
+            all_functions: false,
+            source_url: None,
+            jobs: None,
+            skip_touch_metrics: false,
+            skip_gate: false,
+            cold_start: false,
+            axes: false,
+        }
     }
 
     #[test]
-    fn parse_touch_mode_arg_hybrid_bare_and_with_threshold() {
-        assert_eq!(
-            parse_touch_mode_arg("hybrid"),
-            Ok(TouchModeArg::Hybrid(None))
-        );
-        assert_eq!(
-            parse_touch_mode_arg("hybrid:12"),
-            Ok(TouchModeArg::Hybrid(Some(12)))
-        );
-        assert_eq!(
-            parse_touch_mode_arg("hybrid:0"),
-            Ok(TouchModeArg::Hybrid(Some(0)))
-        );
+    fn base_args_pass_validation() {
+        assert!(validate_analyze_flags(&base_args()).is_ok());
     }
 
     #[test]
-    fn parse_touch_mode_arg_rejects_garbage() {
-        assert!(parse_touch_mode_arg("bogus").is_err());
-        assert!(parse_touch_mode_arg("hybrid:").is_err());
-        assert!(parse_touch_mode_arg("hybrid:abc").is_err());
-        assert!(parse_touch_mode_arg("hybrid-5").is_err());
-        assert!(parse_touch_mode_arg("hybrid:-1").is_err());
+    fn cold_start_and_axes_reject_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            axes: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_auto_falls_back_to_config() {
-        // No --touch-mode, no legacy flags, config says per_function_touches=true.
-        let (mode, skip) = resolve_touch_mode_and_skip(None, false, false, None, false, true, None);
-        assert_eq!(mode, TouchMode::PerFunction);
-        assert!(!skip);
-
-        // No config either: default hybrid threshold.
-        let (mode, skip) =
-            resolve_touch_mode_and_skip(None, false, false, None, false, false, None);
-        assert_eq!(
-            mode,
-            TouchMode::Hybrid {
-                threshold: DEFAULT_HYBRID_THRESHOLD
-            }
-        );
-        assert!(!skip);
+    fn cold_start_and_axes_are_mutually_exclusive() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            axes: true,
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_explicit_auto_matches_none() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Auto),
-            false,
-            false,
-            None,
-            false,
-            true,
-            Some(9),
-        );
-        // Explicit `--touch-mode auto` still honors config hybrid_touch_threshold,
-        // same as omitting --touch-mode entirely (both resolve through resolve_touch_mode).
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 9 });
-        assert!(!skip);
+    fn policy_requires_delta_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            policy: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_per_function() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::PerFunction),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(mode, TouchMode::PerFunction);
-        assert!(!skip);
+    fn explain_rejects_delta_and_models_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            explain: true,
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_file() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::File),
-            false,
-            false,
-            None,
-            false,
-            true, // config says per-function; --touch-mode file must still win
-            None,
-        );
-        assert_eq!(mode, TouchMode::File);
-        assert!(!skip);
+    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            force: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            no_persist: true,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_hybrid_default_and_explicit_threshold() {
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Hybrid(None)),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(
-            mode,
-            TouchMode::Hybrid {
-                threshold: DEFAULT_HYBRID_THRESHOLD
-            }
-        );
-        assert!(!skip);
-
-        let (mode, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::Hybrid(Some(42))),
-            false,
-            false,
-            None,
-            false,
-            false,
-            None,
-        );
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 42 });
-        assert!(!skip);
+    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Delta),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            explain: true,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            level: Some(OutputLevel::File),
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_none_sets_skip_true() {
-        let (_, skip) = resolve_touch_mode_and_skip(
-            Some(TouchModeArg::None),
-            false,
-            false,
-            None,
-            false,
-            true,
-            Some(3),
-        );
-        assert!(skip);
+    fn all_functions_requires_snapshot_mode_and_json_format() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Json,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            all_functions: true,
+            mode: Some(OutputMode::Snapshot),
+            format: OutputFormat::Text,
+            ..base_args()
+        })
+        .is_err());
     }
 
     #[test]
-    fn resolve_touch_mode_and_skip_legacy_flags_unchanged_when_touch_mode_absent() {
-        // Legacy --skip-touch-metrics still works when --touch-mode isn't passed.
-        let (_, skip) = resolve_touch_mode_and_skip(None, false, false, None, true, false, None);
-        assert!(skip);
-
-        // Legacy --no-per-function-touches still works.
-        let (mode, skip) = resolve_touch_mode_and_skip(None, true, false, None, false, true, None);
-        assert_eq!(mode, TouchMode::File);
-        assert!(!skip);
-
-        // Legacy --hybrid-touches still works.
-        let (mode, skip) =
-            resolve_touch_mode_and_skip(None, false, false, Some(7), false, false, None);
-        assert_eq!(mode, TouchMode::Hybrid { threshold: 7 });
-        assert!(!skip);
+    fn sarif_format_requires_snapshot_mode() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: None,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            format: OutputFormat::Sarif,
+            mode: Some(OutputMode::Snapshot),
+            ..base_args()
+        })
+        .is_ok());
     }
 }

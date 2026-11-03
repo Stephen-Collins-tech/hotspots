@@ -27,7 +27,7 @@ fn test_cpp_content_in_header_is_skipped_not_errored_or_dropped() {
         top_n: None,
     };
 
-    let result = analyze_file_with_config(&path, &cm, 0, &options, None, None, None);
+    let result = analyze_file_with_config(&path, &cm, 0, &options, None, None);
 
     // Before this fix: this file's `first_non1` produced a confusing
     // "invalid CFG: Nodes not reachable from entry" warning, and `Foo::bar`

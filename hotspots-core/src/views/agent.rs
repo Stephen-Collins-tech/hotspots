@@ -21,12 +21,7 @@ pub struct AgentFunctionView {
     pub file: String,
     pub line: u32,
     pub band: String,
-    pub quadrant: String,
-    pub driver: String,
-    // Owned, not `&'static str`: this struct is now a field of `Snapshot`,
-    // which derives `Deserialize` for persisted-snapshot round-tripping, and
-    // `&'static str` cannot round-trip through arbitrary deserialized data.
-    pub action: String,
+    pub tier: String,
     pub lrs: f64,
     pub activity_risk: f64,
     pub metrics: AgentMetrics,
@@ -40,8 +35,6 @@ pub struct AgentFunctionView {
     pub days_since_last_change: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fan_in: Option<usize>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub patterns: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explanation: Option<String>,
     /// Per-prediction feature contributions from the trained ranker.
@@ -68,20 +61,12 @@ pub(crate) fn to_agent_view(
                 .to_string();
             let file = crate::aggregates::normalize_path_relative_to_repo(&func.file, repo_root)
                 .unwrap_or_else(|| func.file.clone());
-            let driver = func.driver.as_deref().unwrap_or("composite");
-            let action = crate::snapshot::driver_action_for_quadrant(
-                driver,
-                func.quadrant.as_deref().unwrap_or(""),
-            )
-            .to_string();
             AgentFunctionView {
                 function: function_name,
                 file,
                 line: func.line,
                 band: func.band.as_str().to_string(),
-                quadrant: func.quadrant.clone().unwrap_or_else(|| "ok".to_string()),
-                driver: driver.to_string(),
-                action,
+                tier: func.tier.clone().unwrap_or_else(|| "quiet".to_string()),
                 lrs: func.lrs,
                 activity_risk: func.activity_risk.unwrap_or(func.lrs),
                 metrics: AgentMetrics {
@@ -92,7 +77,6 @@ pub(crate) fn to_agent_view(
                 touch_count: func.touch_count,
                 days_since_last_change: func.days_since_last_change,
                 fan_in: func.callgraph.as_ref().map(|cg| cg.fan_in),
-                patterns: func.patterns.clone(),
                 explanation: func.explanation.clone(),
                 shap: None,
             }

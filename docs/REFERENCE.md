@@ -12,26 +12,19 @@ hotspots analyze <PATH> [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--format` | `text` | `text`, `json`, `jsonl`, `html`, `sarif`, `csv`, `xlsx`, `llm-context` |
-| `--mode` | — | `snapshot`, `delta`, `models` |
+| `--format` | `text` | `text`, `json`, `html`, `sarif` |
+| `--mode` | — | `snapshot`, `delta` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
-| `--explain-patterns` | off | Show pattern trigger conditions |
-| `--level` | — | `file` or `module` aggregate view (snapshot+text only) |
+| `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
-| `--touch-mode` | `auto` | `auto`, `per-function`, `file`, `hybrid[:N]` (default N=5), or `none` — see below |
-| `--per-function-touches` | off | **Deprecated**, use `--touch-mode per-function`. Use `git log -L` for precise touch counts (slow cold start) |
-| `--no-per-function-touches` | off | **Deprecated**, use `--touch-mode file`. Force file-level touch batching |
-| `--skip-touch-metrics` | off | **Deprecated**, use `--touch-mode none`. Skip all git log I/O (touch counts reported as 0) |
-| `--hybrid-touches N` | — | **Deprecated**, use `--touch-mode hybrid:N`. File-level first, per-function for files with touch_count_30d >= N |
+| `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
 | `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
-| `--include-models` | off | Add model risk map to JSON/HTML (snapshot only) |
-| `--callgraph-skip-above N` | 50000 | Skip betweenness centrality if call graph > N edges |
 | `--skip-gate` | off | Disable suppression gate P@10 check |
 | — | — | Suppression gate verdicts are smoothed: `Suppressed` is only reported after 3 consecutive raw `Suppressed` readings across runs, tracked in `.hotspots/gate_history.json` |
 | `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
@@ -44,37 +37,6 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
-- `--touch-mode` conflicts with each of the four deprecated flags above; the deprecated flags still work on their own (each prints a one-line warning to stderr) and remain mutually compatible with each other, resolved with the same precedence as before
-- `--format csv`/`--format xlsx`/`--format llm-context` require `--mode snapshot`
-
-#### `--format csv` / `--format xlsx`
-
-A file-level triage/planning view for spreadsheet workflows — a tech lead or EM doing triage, ownership handoff, or sprint planning, not a raw per-function data dump (`--format json --all-functions`) or an in-IDE fix workflow (text/HTML). One row per file, always the full file list (ignores `--top`), with the risk band, quadrant, the file's highest-risk function and its line, ownership `newcomer_rate`, function/critical counts, LOC, and subsystem.
-
-Coupling (`directed_coupling`) is not in the main table — only a minority of files have any coupling relationship, so folding it in would leave most rows reading "n/a" on that column. `--format xlsx` is a real multi-sheet workbook: "Files" (the main table) plus a "Coupling" sheet (files with a real `directed_coupling` value only). `--format csv` is single-file/single-table only — CSV has no notion of multiple tables, so coupling isn't included; use `--format xlsx` for coupling data. `--format xlsx` always writes to a file (`--output`, or `.hotspots/report.xlsx` by default); `--format csv` prints to stdout without `--output`.
-
-Missing axis values (a file excluded from an axis, not a measured zero) are written as the literal string `n/a`, never a blank cell.
-
-#### `--format llm-context`
-
-A bounded, prompt-ready JSON projection of the highest-risk functions, meant to be inserted directly into a hosted coding model's context before it reasons about the repo — e.g. "these functions have elevated defect-risk due to churn/complexity/history." Each entry has `file`, `function`, `line`, `band`, `risk_score`, and an optional `explanation` string.
-
-Bounded by `--top` (default 20) so it can be dropped into a prompt without exceeding a token budget — unlike `--format csv`/`--format xlsx`, which always emit the full file list. `explanation` is populated from the same phrase table as `--explain` (pass `--explain` alongside `--format llm-context` to populate it); it is omitted when `--explain` was not passed or no trained ranker was active for this repo. Prints to stdout, or writes to `--output` if given.
-
-#### `--touch-mode`
-
-Controls how touch metrics (git churn/recency) are computed:
-
-| Value | Behavior |
-|---|---|
-| `auto` (default) | Use the resolved config's `per_function_touches`/`hybrid_touch_threshold`, falling back to `hybrid:5` |
-| `per-function` | `git log -L` per function — accurate, but O(functions) cold-start git calls, cached in `.hotspots/touch-cache.json.zst` |
-| `file` | File-level batching — fast, one `git log` call per unique file |
-| `hybrid` / `hybrid:N` | File-level first; per-function only for files with `touch_count_30d >= N` (N defaults to 5) |
-| `none` | Skip touch metrics, directed coupling, and burst_score entirely — no git log calls at all |
-
-`--per-function-touches`, `--no-per-function-touches`, `--skip-touch-metrics`, and `--hybrid-touches` are deprecated aliases for `per-function`, `file`, `none`, and `hybrid:N` respectively. They still work but print a deprecation warning; use `--touch-mode` in new scripts and CI configs.
-
 ### `hotspots diff <base> <head>`
 
 Compare snapshots between any two git refs. Both must have existing snapshots.
@@ -87,7 +49,7 @@ Accepts: branch names, tags, full/short SHAs, `HEAD~N` relative refs.
 
 | Flag | Description |
 |---|---|
-| `--format` | `text` (default), `json`, `jsonl`, `html` |
+| `--format` | `text` (default), `json`, `html` |
 | `--output PATH` | Write output to file |
 | `--policy` | Evaluate policies; exit 1 on blocking violations |
 | `--top N` | Limit to N changed functions by \|ΔLRS\| |
@@ -205,20 +167,6 @@ The 0.55 and 0.60 constants themselves are unchanged; the dead zone only shrinks
 }
 ```
 
-### `hotspots estimate <path>`
-
-Projects `analyze --touch-mode per-function`'s wall-clock cost before running it, so callers can pick a touch mode instead of guessing from repo size (`size_kb` is a weak proxy — see the runtime-prediction spike this command is based on).
-
-```
-hotspots estimate <PATH> [--format text|json] [--config PATH] [--budget-seconds N] [--tier1-timeout-seconds N]
-```
-
-Two tiers:
-- **Tier 0** (near-instant, no parsing): file discovery + a raw line count per file, always completes fast.
-- **Tier 1** (the real `--touch-mode none` structural pass — parsing, CFG, call graph, but zero git-log calls): gives the real per-language function count. Runs on a background thread with a `--tier1-timeout-seconds` budget (default 30s) so Tier 0's report is never blocked by a repo where even Tier 1 is slow.
-
-Per-language ms/function calibration is seeded from a 9-repo, 6-language spike (directional, not a fitted regression). `--budget-seconds` compares the projection against a caller-supplied wall-clock budget and recommends `per-function`, `hybrid`, or `file`.
-
 ### `hotspots coordinate [PATH]`
 
 Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON. See
@@ -236,8 +184,8 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 
 JSON output only today. `PATH` defaults to `.`.
 
-Output is the master-schema envelope's `coordinate` section (`schema_version: 5`):
-- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
+Output is the master-schema envelope's `coordinate` section (`schema_version: 6`):
+- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`), `ownership_risk` (normalized author entropy, 0 to 1, higher = more diffuse; `null` with fewer than two authors) and `ownership_risk_band` (`"low"` below 0.754, `"medium"` below 0.907, else `"high"`; the cutoffs are terciles from our evaluation).
 
 There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
 facts either — both removed in hotspots 2.0 for lack of validated evidence. See
@@ -245,39 +193,31 @@ facts either — both removed in hotspots 2.0 for lack of validated evidence. Se
 
 ### `hotspots prune`
 
-Remove unreachable snapshots (after force-push or branch deletion).
+Reduce the disk space used by the `.hotspots/` snapshot history. Two independent actions,
+at least one of which must be given:
 
 ```
 hotspots prune --unreachable [--older-than DAYS] [--dry-run]
+hotspots prune --compact LEVEL [--dry-run]
 ```
 
-`--unreachable` is required. Only prunes snapshots unreachable from `refs/heads/*`, `refs/tags/*`, or `refs/remotes/*`.
+| Flag | Description |
+|---|---|
+| `--unreachable` | Remove snapshots whose commit is no longer reachable from `refs/heads/*`, `refs/tags/*` or `refs/remotes/*` (after a force-push or branch deletion), and snapshots that reference a commit no longer in git history |
+| `--older-than DAYS` | With `--unreachable`: only remove unreachable snapshots older than this many days |
+| `--compact LEVEL` | Compact the retained history: `0` keeps full snapshots (the default, and the way to undo a compaction setting), `1` stores intermediate snapshots as deltas against their parent, `2` drops snapshots in which no function changed band |
+| `--dry-run` | Report what would change without modifying any files |
 
-### `hotspots compact`
+**Why it exists.** Every `analyze --mode snapshot` run writes a snapshot, so history grows
+with every commit analyzed. `prune` is the cleanup for that growth.
 
-Set compaction level for snapshot storage.
+**When to use it.** Run `--unreachable --dry-run` after force-pushes or deleting branches;
+run `--compact 1` on a long-lived repo whose `.hotspots/` directory has grown large. Level 2
+loses per-commit detail, so use it only when you need band-change history rather than every
+score.
 
-```
-hotspots compact --level 0
-```
-
-Level 0 = full snapshots (current). Levels 1–2 are not yet implemented.
-
-### `hotspots trends [PATH]`
-
-Analyze complexity trends across snapshot history.
-
-```
-hotspots trends . [--window N] [--top K] [--format text|json|html]
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--window N` | `10` | Number of snapshots to analyze |
-| `--top K` | `5` | Top K functions to track |
-| `--format` | `json` | Output format |
-
-Reports: risk velocities (LRS change per snapshot), hotspot stability (consistent top-K), refactor effectiveness (sustained LRS reduction).
+**Reading the output.** It prints the number of snapshots pruned or converted and, for
+compaction, the storage saved. `--dry-run` prints the same numbers without changing anything.
 
 ### `hotspots config`
 
@@ -287,24 +227,6 @@ hotspots config show --path FILE  # show specific file
 hotspots config validate          # validate auto-discovered config (exit 1 on failure)
 hotspots config validate --path FILE
 ```
-
-### `hotspots init`
-
-```bash
-hotspots init --hooks   # print pre-commit and CI hook templates to stdout
-```
-
-### `hotspots upgrade`
-
-```bash
-hotspots upgrade
-```
-
-Checks the latest GitHub release against the running version and prints the matching install
-command (`cargo install`, `npm install -g`, or `brew upgrade`) if one is newer — reports only,
-never replaces the binary. Every other command also does this check passively (a one-line
-stderr notice), cached at `~/.hotspots/update_check.json`, re-queried at most once every 24
-hours.
 
 ### Global flags
 
@@ -348,7 +270,7 @@ Distinct functions called from within this function. Each call segment in a chai
 Count of early returns, throws, breaks, and continues (excluding the final tail return). Scattered exits make control flow hard to trace and postconditions hard to reason about.
 
 **LOC — Lines of Code**
-Physical line count. Used for pattern detection only, not the LRS score.
+Physical line count. Reported for context only; it is not part of the LRS score.
 
 ### LRS formula
 
@@ -386,54 +308,61 @@ matters when diffing output commit-to-commit or gating CI on it:
 | Field | Category | Behavior |
 |---|---|---|
 | `lrs` | Absolute | Depends only on that function's own metrics (`cc`, `nd`, `fo`, `ns`). Unchanged unless the function itself changes. |
-| `activity_risk` | Absolute | Extends `lrs` with that function's own git/call-graph signals. Unchanged unless the function or its direct callers/history change. |
-| `band` (risk band) | Absolute | A fixed threshold on `lrs`/`activity_risk` (see Risk bands above). Moves only when the function's own score crosses a threshold. |
-| `percentile` | Population-relative | A rank against every other function in the current run. Can change when unrelated functions elsewhere in the repo are added, removed, or change score — even if this function is untouched. |
-| `driver` / `driver_detail` | Population-relative | Computed from percentile thresholds (default P75, see Driver labels below). Can flip for the same reason as `percentile`. |
-| `quadrant` | Population-relative | Depends on population-relative activity thresholds (median/P75, see Quadrant assignment below) as well as `band`. Can flip even when the function's own `lrs`/`activity_risk`/`band` are unchanged. |
+| `activity_risk` | Absolute | `lrs` plus its file's git signals on a fixed scale (see Activity Risk below). Does not depend on any other function. Changes when the function, or any commit touching its file, changes. |
+| `band` (risk band) | Absolute | A fixed threshold on `lrs` (see Risk bands above). Moves only when the function's own score crosses a threshold. |
+| `tier` | Population-relative | `active` when the file's touch count is above the repo median or it changed in the last 30 days. The median moves with the rest of the repo, so a function can flip tier even if its own file did not change. |
 
 **Implication for CI gates:** if you want a gate that only fires when a function's
 *own* risk changed — not when the rest of the repo's distribution shifted — key it on
-`lrs`, `activity_risk`, and `band`. Gates keyed on `percentile`, `driver`, or
-`quadrant` can trip on a commit that didn't touch the flagged function at all, because
+`lrs`, `activity_risk`, and `band`. Gates keyed on
+`tier` can trip on a commit that didn't touch the flagged function at all, because
 those labels are recomputed relative to the whole population on every run.
 
 No output field is renamed or restructured by this distinction — it is purely
-documentation of behavior that already exists in `compute_percentiles`,
-`populate_driver_labels`, and `compute_quadrants` (`hotspots-core/src/snapshot.rs`).
+documentation of behavior that already exists in `compute_percentiles`
+and `compute_tiers` (`hotspots-core/src/snapshot.rs`).
 
 ### Activity Risk Score (snapshot mode)
 
-Extends LRS with git history and call graph signals:
-
+Combines LRS with the file's git history into one absolute score. Each term is scaled
+to [0, 1] on a fixed scale, so no term swamps the others and the score never depends on
+the rest of the repo:
 ```
-Activity Risk = LRS
-  + (lines_added + lines_deleted) / 100 × 0.5   # churn
-  + min(touch_count / 10, 5.0) × 0.3             # touch frequency (see note below on the window)
-  + max(0, 5.0 − days_since_last_change / 7) × 0.2  # recency
+Activity Risk = LRS / 20.2
+  + min(log2(1 + lines_added_and_deleted) / 14, 1)   # churn (180-day window)
+  + min(touch_count / 50, 1)                          # touch frequency (365-day window)
+  + max(0, 1 − days_since_last_change / 35)           # recency
 ```
+The scale constants are fixed in the code (`hotspots-core/src/scoring.rs`) and are not
+configurable. The range is roughly 0 to 4; a missing signal contributes 0, so with no
+git data Activity Risk is just `LRS / 20.2`. `risk_factors` in the JSON output breaks the
+score into `{complexity, churn, touch, recency}`.
 
-`fan_in`, `scc` (cyclic dependency), `dependency_depth`, `burst`, and `neighbor_churn` do
-not contribute to the live Activity Risk / composite score, and — as of hotspots 2.0 —
-none of them have a corresponding field on `RiskFactors` either (the struct now has
-exactly `{complexity, churn, activity, recency}`). `fan_in`/`scc` were dropped because in our
-evaluation (17 repos, pre-registered gate) fan_in had a 4% Shapley share of rho and scc 1%,
-both non-inferior to drop within a pre-registered margin; `depth` because in a scoped 6-repo
-evaluation its Shapley share was -2.1% on average and sign-inconsistent across repos; and
-`burst` because `burst_score` is a full-history, effectively monotonic non-decreasing
-value — folding it into the live score made Activity Risk a one-way ratchet. `neighbor_churn` was removed
-once hotspots 2.0 adopted a stricter "only fields proven to work" bar: its only citation
-was a general consistency argument, never an independent finding of its own, unlike
-`complexity`/`activity`/`recency` (which our evaluation does support) or `churn` (no
-non-inferiority result *against* it, so it stayed).
+**What is and isn't validated.** Our evaluation found that git activity (how often and how
+recently a file changes) carries most of the signal, and that call-graph and dependency-depth
+terms add none, which is why only activity terms remain. The fixed scales (20.2, 14, 50, 35)
+and the equal weighting of the four terms are design choices that keep the score bounded and
+comparable across repos. A small end-to-end comparison found the combined formula no worse than the previous one and modestly better, so treat it as a reasonable default rather than a precisely validated optimum.
 
-The underlying raw values these dropped terms were computed from are still
-computed/stored where another consumer needs them: `fan_in` and `pagerank` on
-`callgraph` (trainer feature, `--axes coupling`/centrality), `scc_size`/`is_entrypoint`
-on `callgraph` (pattern detectors), `callgraph.neighbor_churn` (same pattern detectors —
-`neighbor_risk`/`middle_man`), and `burst_score` at the function level (`trainer`'s
-cold-start features). `dependency_depth` was removed outright — it had no other
-consumer.
+**How to read it, and why you can't "fix" it.** Activity Risk estimates where attention is
+likely to be needed next, not how good the code is. It is built from how recently and how
+often a file has changed, so working on a file raises it for every function in that file
+(churn, touch and recency are file-level), including functions you did not edit. A fix
+therefore cannot lower it directly; it decays on its own as the file goes quiet (recency
+over about 35 days, churn over 180 days, touch over 365 days). On a feature branch,
+recency is measured from before the branch diverged, so your own edits do not reset it.
+The part a developer can change and see improve is LRS and its band, so use LRS for "did
+this refactor help" and Activity Risk for "where should I look first". Within each triage
+bucket, functions are sorted by Activity Risk, so editing one function can reorder its
+file's other functions in that list.
+
+Only the four terms above feed the score. Fan-in, cyclic dependency, dependency depth,
+burst and neighbor churn do not: in our evaluation fan-in and cyclic dependency added
+nothing measurable, dependency depth was sign-inconsistent across repos, and the burst
+score is a full-history, effectively monotonic value that would make Activity Risk a
+one-way ratchet. Cyclic dependency, dependency depth, neighbor churn, PageRank and
+betweenness are no longer computed. `fan_in` is still reported per function, and
+`burst_score` is still computed as a cold-start ranking feature (`trainer`).
 
 `burst_score` is a sliding 30-day-window max/mean commit ratio per file (always ≥ 1.0;
 higher means commits cluster into frantic bursts rather than steady, spread-out
@@ -461,104 +390,38 @@ gave the strongest, monotonic gain of every window tested, with a size-confound 
 ruling out "it's just counting more commits." On a high-commit-velocity repo this is a
 real, measured wall-clock cost (a single git subprocess call, but scanning more history:
 +16ms on a moderate-velocity repo, up to +943ms on a very active one in testing) —
-override it with `touch_window_days` in `.hotspotsrc.json` (any positive integer; default
-365) if that cost matters more than the ranking-quality gain for a given repo.
-
-Activity Risk is always ≥ LRS. When no git data is available, Activity Risk = LRS.
-
-The three live weights (`churn`, `touch`, `recency`) are overridable via the `scoring`
-key in `.hotspotsrc.json`. `fan_in`, `scc`, `depth`, and `burst` are also still accepted
-for forward compatibility (none of the four is read by the live formula):
-
-```json
-{
-  "scoring": {
-    "burst": 0.5
-  }
-}
-```
-
-`neighbor_churn` is **not** accepted — removed along with the field itself; a config
-file setting it now fails validation. Unset weights fall back to the defaults shown in
-the formula above. Same validation as the LRS `weights` block: non-negative, at most 10.0.
+use `--skip-touch-metrics` to skip git history entirely if that cost matters more than
+the ranking-quality gain. The window is fixed and not configurable.
 
 ### Call graph metrics (snapshot mode)
 
 - **Fan-in** — functions that call this function (blast radius)
-- **PageRank** — importance/centrality based on call graph topology
-- **SCC size** — strongly connected component size; > 1 = part of a dependency cycle (feeds the `cyclic_hub` pattern detector)
-- **Is entrypoint** — whether call-graph entry-point detection marked this function as one (suppresses `middle_man`/`neighbor_risk` patterns)
-- **Neighbor churn** — sum of churn in directly-called functions (feeds the `neighbor_risk`/`middle_man` pattern detectors; no longer contributes to the live Activity Risk score)
 
-`betweenness` centrality and `dependency_depth` were removed from `callgraph` entirely in
-hotspots 2.0 (no validated consumer once their live-score contribution was
-dropped).
+Fan-in is the only call graph metric still computed. PageRank, betweenness, strongly
+connected components, dependency depth and neighbor churn were removed (no validated
+consumer).
 
-### Quadrant assignment
+### Activity tier
 
-| | Low activity | High activity |
-|---|---|---|
-| **High/Critical band** | `debt` | `fire` |
-| **Low/Moderate band** | `ok` | `watch` |
+Each function gets a `tier` of `active` or `quiet`, based on activity alone:
 
-Activity is "high" if: touch count (365-day window by default, see `touch_window_days`
-above) above population median, OR changed within that same window.
+- `active`: its file has more touches (in the touch window) than the repo median, or it
+  changed in the last 30 days.
+- `quiet`: everything else.
 
-`fire` = live regression risk (refactor now). `debt` = structural debt (schedule proactively). `watch` = monitor. `ok` = no action.
+**Why it exists.** The tier answers "is this code being worked on right now?". It makes no
+claim about how complex the code is; `band` carries that separately, so you can still
+select "complex and active" by combining the two. In our evaluation, adding a complexity
+gate to the activity set did not improve how well it predicted where fixes land, which is
+why the tier is activity-only.
 
-`quadrant` is population-relative (activity is judged against the current run's
-median/P75) — see "Field stability" above before keying a CI gate on it.
+**How to use it.** The triage view groups functions into `active` and `quiet`, each sorted
+by `activity_risk`. Start with the top of `active`. A function in `quiet` with a high
+`band` is dormant structural risk: not urgent, but worth knowing about before the file
+becomes active.
 
-### Driver labels
-
-Each function gets a single primary diagnosis, checked in priority order:
-
-| Label | Condition | Action |
-|---|---|---|
-| `cyclic_dep` | Part of dependency cycle (SCC > 1) | Break the cycle before adding callers |
-| `high_complexity` | CC above P75 | Schedule refactor; extract sub-functions |
-| `deep_nesting` | ND above P75 | Flatten with early returns or guard clauses |
-| `high_fanout_churning` | FO above P75 AND touches above P50 | Extract interface boundary |
-| `high_fanin_complex` | Fan-in above P75 AND CC above P50 | Extract and stabilize; wide blast radius |
-| `high_churn_low_cc` | Touches above P75 AND CC below P25 | Add regression tests before next change |
-| `composite` | No single dimension clearly dominates | Address the highest dimension first |
-
-Thresholds are percentile-relative (default P=75, configurable via `driver_threshold_percentile`). `cyclic_dep` is the sole absolute check.
-
-`driver_detail` (JSON): for `composite` functions, lists up to 3 near-miss dimensions with their percentile rank (e.g. `"cc (P72), nd (P68)"` — notable but below P75 threshold). Omitted when null.
-
-`driver` and `driver_detail` are population-relative (thresholds are recomputed from
-the current run's distribution) — see "Field stability" above before keying a CI gate
-on them.
-
-### Pattern detection
-
-Patterns are informational labels. A function can have multiple. They do not affect LRS.
-
-**Tier 1 — structural (all modes):**
-
-| Pattern | Trigger |
-|---|---|
-| `complex_branching` | CC ≥ 10 AND ND ≥ 4 |
-| `deeply_nested` | ND ≥ 5 |
-| `exit_heavy` | NS ≥ 5 |
-| `god_function` | LOC ≥ 60 AND FO ≥ 10 |
-| `long_function` | LOC ≥ 80 |
-
-**Tier 2 — enriched (snapshot mode, requires call graph + git data):**
-
-| Pattern | Trigger |
-|---|---|
-| `churn_magnet` | churn ≥ 200 lines AND CC ≥ 8 |
-| `cyclic_hub` | SCC size ≥ 2 AND fan-in ≥ 6 |
-| `hub_function` | fan-in ≥ 10 AND CC ≥ 8 |
-| `middle_man` | fan-in ≥ 8 AND FO ≥ 8 AND CC ≤ 4 |
-| `neighbor_risk` | neighbor churn ≥ 400 AND FO ≥ 8 |
-| `shotgun_target` | fan-in ≥ 8 AND churn ≥ 150 lines |
-| `stale_complex` | CC ≥ 10 AND LOC ≥ 60 AND days since change ≥ 180 |
-| `volatile_god` | Derived: `god_function` AND `churn_magnet` |
-
-All thresholds configurable in `.hotspotsrc.json`. Use `--explain-patterns` to see which conditions triggered each pattern.
+`tier` is population-relative (the median is taken from the current run) — see "Field
+stability" above before keying a CI gate on it.
 
 ---
 
@@ -586,30 +449,8 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
     "**/dist/**", "**/build/**", "**/vendor/**",
     "**/*.pb.go", "**/zz_generated*.go"
   ],
-  "thresholds": {
-    "moderate": 3.0,
-    "high": 6.0,
-    "critical": 9.0
-  },
-  "weights": {
-    "cc": 1.0,
-    "nd": 0.8,
-    "fo": 0.6,
-    "ns": 0.7
-  },
-  "warning_thresholds": {
-    "watch_min": 2.5,
-    "watch_max": 3.0,
-    "attention_min": 5.5,
-    "attention_max": 6.0,
-    "rapid_growth_percent": 50.0
-  },
   "min_lrs": 0.0,
   "top": null,
-  "co_change_window_days": 90,
-  "co_change_min_count": 3,
-  "driver_threshold_percentile": 75,
-  "per_function_touches": true,
   "policy": {
     "critical_introduction": "warn",
     "critical_introduction_reason": "eval/ scripts are one-shot research code reviewed case-by-case, not shipped services — approved by @stephenc222 2026-07-06",
@@ -618,18 +459,9 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 }
 ```
 
-**Unvalidated heuristics.** `thresholds` (RiskBand cutoffs), `weights` (base LRS
-composite weights), and `warning_thresholds` (`watch_min`/`watch_max`/`attention_min`/
-`attention_max`/`rapid_growth_percent`) are shipped defaults with no corresponding
-validation of these specific numbers — unlike `lrs`'s
-component metrics or `fn_changed_lines`, which were evaluated (see
-"Field stability" and the delta section below). Treat them as reasonable starting
-points to tune for your repo, not as calibrated thresholds.
+**Fixed, not configurable.** The LRS component weights, the risk band cutoffs (3 / 6 / 9), the activity-risk scale constants, the touch window (365 days), the churn window (180 days) and the co-change window (90 days, minimum 3 co-changes) are built in. They were previously configurable but nothing in our evaluation supported tuning them per repo, and one shared definition keeps scores comparable across repos and over time. A config file that still sets one of these keys is rejected as an unknown field.
 
 **Validation rules:**
-- `moderate < high < critical` (all positive)
-- `watch_min < watch_max ≤ moderate < attention_min < attention_max ≤ high`
-- All weights non-negative; at least one positive; none > 10.0
 - `policy.*` values must be one of `"block"`, `"warn"`, `"off"`
 - `policy.<name>_reason` is **required** (non-empty) whenever `policy.<name>` is not `"block"`
 - Unknown fields are rejected (to catch typos)
@@ -637,7 +469,7 @@ points to tune for your repo, not as calibrated thresholds.
 
 **`schema_version`:** defaults to the current config schema version (currently `1`) when
 omitted, so existing `.hotspotsrc.json` files without it keep working unchanged. Bumped
-only when a breaking change to weight/threshold semantics needs migration or explicit
+only when a breaking change to config semantics needs migration or explicit
 detection, mirroring `schema_version` on snapshot and delta files.
 
 **`policy`:** severity overrides for the two blocking CI policies. Both default to
@@ -646,9 +478,8 @@ an existing function that regressed to Critical — a Critical function needs re
 either way, so there is no separate new-vs-regressed knob, only overall severity.
 Set to `"warn"` to report without failing CI (e.g. a research repo where new
 one-shot scripts are expected to score high on introduction), or `"off"` to disable
-the policy entirely. Raising `thresholds.critical` instead changes what counts as
-Critical repo-wide (affecting reporting too); `policy` only changes what happens
-once something *is* Critical.
+the policy entirely. `policy` only changes what happens once something *is* Critical; the band cutoffs
+themselves are fixed.
 
 Downgrading a policy below `"block"` requires a `<name>_reason` string — mirroring the
 `// hotspots-ignore: <reason>` convention for per-function suppression — so that anyone
@@ -658,12 +489,6 @@ whitespace-only reason. This does not make the override unbypassable — anyone 
 commit access to the config can still weaken it, the same as anyone with access to a CI
 workflow file can remove a required check — but it does mean the change can't be silent.
 
-**`driver_threshold_percentile`:** default 75 means a function must be in the top 25% of its metric to receive a specific driver label. Lower (50–60) for small/uniform repos; higher (85–90) for large repos with high median complexity.
-
-**`co_change_window_days`:** days of git history to mine for file co-change pairs. Increase for repos with slow commit cadence.
-
-**`per_function_touches`:** `true` = use cached `git log -L` per-function counts; `false` = file-level batching always (useful in CI without persistent cache).
-
 ---
 
 ## JSON Schema
@@ -671,7 +496,7 @@ workflow file can remove a required check — but it does mean the change can't 
 ### Schema versions
 
 As of hotspots 2.0, every JSON-emitting command shares **one envelope and one
-`schema_version` (currently `5`)** — the pre-2.0 model of separate version
+`schema_version` (currently `6`)** — the pre-2.0 model of separate version
 constants per command (`AGENT_SNAPSHOT_SCHEMA_VERSION`, `DELTA_SCHEMA_VERSION`,
 a bare unversioned `--axes` map, etc.) was unified in the 2.0 master-schema cut.
 The envelope always carries `schema_version`, `commit`, and `analysis`; everything
@@ -681,7 +506,7 @@ else is an **optional section**, present only when that command/flag computed it
 |---|---|---|
 | `functions` | always | Full per-function array (`FunctionSnapshot`) |
 | `summary` | always | Population-level aggregate stats |
-| `triage` | `--mode snapshot`, not `--all-functions` | `fire`/`debt`/`watch`/`ok` buckets, each with a per-function `action` |
+| `triage` | `--mode snapshot`, not `--all-functions` | `active`/`quiet` groups, each with a count and the top functions by `activity_risk` |
 | `architecture` | `--all-functions` | `file_risk`/`modules` aggregates |
 | `co_change` | `--all-functions` | File co-change pairs |
 | `coordinate` | `hotspots coordinate` | Ownership/knowledge-mode facts for a file set |
@@ -696,15 +521,15 @@ check for a section's presence (`Option`/possibly-absent key) rather than
 assuming it's always there.
 
 `analysis.formula_version` is a separate integer that tracks the scoring
-formula (default `ScoringWeights`, `LrsWeights`, `RiskThresholds`), bumped
-only when a default weight or threshold changes. `analysis.tool_version`
+formula (the `activity_risk` constants, `LrsWeights`, `RiskThresholds`), bumped
+only when a weight, threshold or scale constant changes. `analysis.tool_version`
 changes on every release; `formula_version` does not — use it in `hotspots
-diff`/`trends` tooling to tell a score delta caused by a tool upgrade apart
+diff` tooling to tell a score delta caused by a tool upgrade apart
 from one caused by a real code change.
 
 **`formula_version` vs. config `schema_version` — not the same thing.**
-`formula_version` tracks changes to hotspots' *built-in default* weights/thresholds
-(`ScoringWeights::default()` etc.) and is unaffected by a user's own
+`formula_version` tracks changes to hotspots' *built-in* weights/thresholds/scales
+(the `scoring.rs` constants, `LrsWeights::default()` etc.) and is unaffected by a user's own
 `.hotspotsrc.json` — a repo with fully custom weights sees the same
 `formula_version` as one with no config at all, because *their* scoring didn't
 change even when the shipped defaults did. Config `schema_version` (above) tracks
@@ -729,20 +554,13 @@ is not guaranteed to bump it.
   "lrs": 12.4,
   "band": "critical",
   "suppression_reason": null,
-  "churn": { "lines_added": 156, "lines_deleted": 89, "net_change": 67 },
+  "churn": { "lines_added": 156, "lines_deleted": 89 },
   "touch_count": 12,
   "days_since_last_change": 3,
-  "callgraph": {
-    "fan_in": 8, "pagerank": 0.0042,
-    "scc_size": 1, "is_entrypoint": false, "neighbor_churn": 23
-  },
-  "activity_risk": 18.5,
-  "risk_factors": { "complexity": 6.0, "churn": 1.2, "activity": 0.8, "recency": 0.0 },
-  "driver": "high_complexity",
-  "driver_detail": null,
-  "quadrant": "fire",
-  "patterns": ["complex_branching", "churn_magnet"],
-  "pattern_details": null,
+  "callgraph": { "fan_in": 8 },
+  "activity_risk": 2.18,
+  "risk_factors": { "complexity": 0.59, "churn": 0.60, "touch": 0.24, "recency": 0.74 },
+  "tier": "active",
   "subsystem": "",
   "authors_90d": 2,
   "directed_coupling": 0.31
@@ -750,28 +568,23 @@ is not guaranteed to bump it.
 ```
 
 This is the full per-function shape in `functions[]` — present on every `--mode
-snapshot` run, with or without `--all-functions`. `pattern_details`,
-`pattern_details`-adjacent explanations, and `patterns` itself are populated only
-with `--explain`/`--explain-patterns`; omitted (empty array for `patterns`, absent
-key for `pattern_details`) otherwise. `suppression_reason` is omitted (not null)
+snapshot` run, with or without `--all-functions`. `suppression_reason` is omitted (not null)
 when no suppression is present. `risk_factors` is the `{complexity, churn,
-activity, recency}` breakdown that sums into `activity_risk` (see Activity Risk
+touch, recency}` breakdown that sums into `activity_risk` (see Activity Risk
 above) — `fan_in`/`cyclic_dependency`/`depth`/`burst` have no field here; they were
 removed from `RiskFactors` in hotspots 2.0.
 
-**This is distinct from the triage view's per-function entries** (`triage.{fire,debt,watch}.top[]`,
+**This is distinct from the triage view's per-function entries** (`triage.{active,quiet}.top[]`,
 present only on `--mode snapshot` *without* `--all-functions`): those use a
-slimmer shape (`function`, `file`, `line`, `band`, `quadrant`, `driver`, `action`,
+slimmer shape (`function`, `file`, `line`, `band`, `tier`,
 `lrs`, `activity_risk`, `metrics`, `touch_count`, `days_since_last_change`,
-`fan_in`, `patterns`) that adds a human-readable `action` string but omits
+`fan_in`) that omits
 `risk_factors`/`callgraph`'s other fields/`suppression_reason`/`subsystem`/
 `authors_90d`/`directed_coupling`. Don't assume the two shapes are interchangeable
 when writing a consumer against this schema.
 
 `lrs`, `activity_risk`, and `band` are absolute — stable across runs unless the
-function's own metrics/history change. `quadrant`, `driver`, `driver_detail`, and
-`percentile` (`is_top_10_pct`/`is_top_5_pct`/`is_top_1_pct`, omitted from the example
-above but present when populated) are population-relative — they can change between
+function's own metrics/history change. `tier` is population-relative — it can change between
 runs purely because other functions in the repo changed, even when this function did
 not. See "Field stability" under Metrics above.
 
@@ -825,42 +638,9 @@ defect-correlation-validated threshold.
 ```
 `risk: "expected"` = a static import exists; co-change is explained.
 
-**`architecture.modules`** — directory-level coupling (`ModuleInstability`):
-```json
-{
-  "module": "hotspots-core/src",
-  "file_count": 12,
-  "function_count": 340,
-  "avg_complexity": 6.1,
-  "afferent": 8,
-  "efferent": 3,
-  "module_risk": "high"
-}
-```
-`module_risk: "high"` fires when `avg_complexity > 5.0` — gated on complexity
-alone. `afferent`/`efferent` (external modules that depend on this one / that this
-one depends on) are descriptive facts only — `module_risk` does not depend on
-them. **`instability` (efferent / (afferent + efferent)) was removed entirely in
-hotspots 2.0** (carried no measured signal, ρ≈-0.002, and combining it with
-the complexity gate added no benefit over complexity alone) — do not expect this
-field in current output.
-
-**`aggregates.models`** / **`architecture.models`** — present with `--include-models`:
-```json
-{
-  "items": [{
-    "name": "Snapshot", "file": "...", "line": 219,
-    "kind": "struct", "score": 52.11,
-    "critical": 4, "high": 15, "moderate": 17,
-    "functions": [...]
-  }],
-  "links": [{ "source": 0, "target": 2, "shared_functions": 15, "shared_risk": 83.53 }]
-}
-```
-
 ### Delta output
 
-`hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 5`,
+`hotspots diff`'s JSON output is the 2.0 master-schema envelope (`schema_version: 6`,
 unified with the snapshot schema version): the diff itself nested under `delta`. There
 is no separate top-level `commit` — `delta.commit.sha` already carries the head commit,
 and the master schema has zero field duplication (no value appears twice under
@@ -868,7 +648,7 @@ different paths), so it isn't repeated at the envelope's top level too.
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "delta": {
     "commit": { "sha": "abc123", "parent": "def456" },
     "baseline": false,
@@ -886,9 +666,7 @@ different paths), so it isn't repeated at the envelope's top level too.
     },
     "aggregates": {
       "pr_summary": {
-        "pr_risk_score": 1.4,
         "fn_changed_lines": 23,
-        "size_band": "small",
         "band": "critical",
         "new_count": 0,
         "modified_count": 1,
@@ -906,34 +684,16 @@ different paths), so it isn't repeated at the envelope's top level too.
 Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by default).
 
 **`delta.aggregates.pr_summary`** — collapses every changed function into a single PR-wide
-risk view: `pr_risk_score` is the net LRS delta summed across the whole diff (new
-functions add `after.lrs`, deleted functions subtract `before.lrs`, modified
-functions add `delta.lrs`); `band` is the highest risk band reached by any
-new/modified function's `after` state.
+view. `band` is the highest risk band reached by any new/modified function's `after`
+state; the counts and `band_upgrades` summarize what changed.
 
 **`fn_changed_lines`** is the count of diff-changed lines (`git diff -U0`) that fall inside a
-touched function's line span, summed across the whole diff — in our evaluation, tested directly against the real
-compiled binary, it was the strongest
-predictor of which PRs later need a defect fix, beating `pr_risk_score` and every other
-LRS-weighted score tried on every repo tested. **Read `pr_risk_score` as a structural signal
-(what's the worst code in this diff), not a validated risk estimate** — `fn_changed_lines` is
-the better-evidenced number for "is this PR risky." Present whenever `aggregates` is attached
+touched function's line span, summed across the whole diff. In our evaluation, tested directly
+against the real compiled binary, it was the strongest predictor of which PRs later need a
+defect fix, beating every LRS-weighted score tried on every repo tested. That is why no
+composite "PR risk score" is reported: read `fn_changed_lines` for "is this PR risky" and
+`band` for "what is the worst code in this diff". Present whenever `aggregates` is attached
 (always true for `hotspots diff` output).
-
-**`size_band`** buckets `fn_changed_lines` into `"small"` / `"medium"` / `"large"` /
-`"very_large"` for a quick, human-readable comparison across PRs. **Unlike `fn_changed_lines`
-itself, this is not a research-derived signal** — no finding specifies where "small" ends and
-"large" begins; the cutoffs (default: <50/<200/<500/else) are an arbitrary, configurable
-presentation judgment, the same category as `RiskThresholds`' own LRS band cutoffs. Override
-via `.hotspotsrc.json`'s `change_size_thresholds` (`small`/`medium`/`large`, each a
-`fn_changed_lines` count; must satisfy `small < medium < large`) if the defaults don't fit
-your repo's typical change size:
-
-```json
-{
-  "change_size_thresholds": { "small": 30, "medium": 150, "large": 600 }
-}
-```
 
 ---
 

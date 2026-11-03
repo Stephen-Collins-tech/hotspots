@@ -25,10 +25,6 @@ pub struct FunctionRiskReport {
     pub band: RiskBand,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppression_reason: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub patterns: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pattern_details: Option<Vec<crate::patterns::PatternDetail>>,
     #[serde(skip, default)]
     pub callees: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +61,6 @@ pub struct FunctionAnalysis {
     pub risk: RiskComponents,
     pub lrs: f64,
     pub band: RiskBand,
-    pub patterns: Vec<String>,
 }
 
 impl FunctionRiskReport {
@@ -115,8 +110,6 @@ impl FunctionRiskReport {
             lrs: analysis.lrs,
             band: analysis.band,
             suppression_reason: function.suppression_reason.clone(),
-            patterns: analysis.patterns,
-            pattern_details: None,
             callees: analysis.metrics.callee_names,
             explanation: None,
         }
@@ -143,59 +136,19 @@ pub fn sort_reports(mut reports: Vec<FunctionRiskReport>) -> Vec<FunctionRiskRep
 /// Render reports as text output
 pub fn render_text(reports: &[FunctionRiskReport]) -> String {
     let mut output = String::new();
-    let show_patterns = reports.iter().any(|r| !r.patterns.is_empty());
 
-    // Header
-    if show_patterns {
-        output.push_str(&format!(
-            "{:<8} {:<10} {:<20} {:<6} {:<30} {}\n",
-            "LRS", "BAND", "FILE", "LINE", "FUNCTION", "PATTERNS"
-        ));
-    } else {
+    output.push_str(&format!(
+        "{:<8} {:<20} {:<6} {}\n",
+        "LRS", "File", "Line", "Function"
+    ));
+    for report in reports {
         output.push_str(&format!(
             "{:<8} {:<20} {:<6} {}\n",
-            "LRS", "File", "Line", "Function"
+            format!("{:.2}", report.lrs),
+            truncate_or_pad(&report.file, 20),
+            report.line,
+            report.function
         ));
-    }
-
-    // Reports
-    for report in reports {
-        let lrs_str = format!("{:.2}", report.lrs);
-        if show_patterns {
-            let patterns_str = if report.patterns.is_empty() {
-                "-".to_string()
-            } else {
-                report.patterns.join(", ")
-            };
-            output.push_str(&format!(
-                "{:<8} {:<10} {:<20} {:<6} {:<30} {}\n",
-                lrs_str,
-                report.band.as_str(),
-                truncate_or_pad(&report.file, 20),
-                report.line,
-                truncate_or_pad(&report.function, 30),
-                patterns_str,
-            ));
-            if let Some(ref details) = report.pattern_details {
-                for d in details {
-                    let conds = d
-                        .triggered_by
-                        .iter()
-                        .map(|t| format!("{}={} ({}{})", t.metric, t.value, t.op, t.threshold))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    output.push_str(&format!("           {}: {}\n", d.id, conds));
-                }
-            }
-        } else {
-            output.push_str(&format!(
-                "{:<8} {:<20} {:<6} {}\n",
-                lrs_str,
-                truncate_or_pad(&report.file, 20),
-                report.line,
-                report.function
-            ));
-        }
     }
 
     output
@@ -260,17 +213,11 @@ pub fn render_text_grouped(reports: &[FunctionRiskReport], limit: usize, color: 
         s.push_str(&format!("{} ({})\n", paint(header), rows.len()));
         for r in rows {
             let loc = format!("{}:{}", rel(&r.file), r.line);
-            let patterns_str = if r.patterns.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", r.patterns.join(", "))
-            };
             s.push_str(&format!(
-                "  {:.2}  {:<col_w$}  {}{}",
+                "  {:.2}  {:<col_w$}  {}",
                 r.lrs,
                 loc,
                 r.function,
-                patterns_str,
                 col_w = col_w
             ));
             s.push('\n');
@@ -396,8 +343,6 @@ mod tests {
             lrs,
             band: RiskBand::High,
             suppression_reason: None,
-            patterns: vec![],
-            pattern_details: None,
             callees: vec![],
             explanation: None,
         }
@@ -459,15 +404,6 @@ mod tests {
             "low band should be shown with show-all"
         );
         assert!(out.contains("MEDIUM / LOW"));
-    }
-
-    #[test]
-    fn test_render_text_grouped_patterns_shown() {
-        let mut r = make_report("/repo/src/a.ts", "foo", 10, 12.0);
-        r.band = RiskBand::Critical;
-        r.patterns = vec!["god_function".to_string(), "exit_heavy".to_string()];
-        let out = render_text_grouped(&[r], 20, false);
-        assert!(out.contains("[god_function, exit_heavy]"));
     }
 
     #[test]

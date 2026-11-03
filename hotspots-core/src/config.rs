@@ -105,18 +105,6 @@ pub struct HotspotsConfig {
     #[serde(default)]
     pub exclude: Vec<String>,
 
-    /// Custom risk band thresholds
-    #[serde(default)]
-    pub thresholds: Option<ThresholdConfig>,
-
-    /// Custom metric weights for LRS calculation
-    #[serde(default)]
-    pub weights: Option<WeightConfig>,
-
-    /// Warning thresholds for proactive alerts
-    #[serde(default)]
-    pub warning_thresholds: Option<WarningThresholdConfig>,
-
     /// Minimum LRS to report (default: 0.0, report all)
     #[serde(default)]
     pub min_lrs: Option<f64>,
@@ -124,73 +112,6 @@ pub struct HotspotsConfig {
     /// Maximum number of results to show
     #[serde(default)]
     pub top: Option<usize>,
-
-    /// Activity risk scoring weights
-    #[serde(default)]
-    pub scoring: Option<ScoringWeightsConfig>,
-
-    /// Number of days back to look for co-change pairs (default: 90)
-    #[serde(default)]
-    pub co_change_window_days: Option<u64>,
-
-    /// Touch-metrics window in days (default: 365, see `git::TOUCH_WINDOW_DAYS`'s doc
-    /// comment). On high-commit-velocity repos this widened
-    /// default costs real wall-clock time (measured: +943ms on a 1.3GB, high-velocity
-    /// repo, vs +16ms on a moderate one) for one extra `git log --since` call — set this
-    /// lower (e.g. 30, the pre-365-day default) to trade that validated ranking-quality
-    /// gain back for speed.
-    #[serde(default)]
-    pub touch_window_days: Option<u32>,
-
-    /// `hotspots diff`'s `pr_summary.size_band` cutoffs — a display convenience, not a
-    /// research-derived signal. See `ChangeSizeThresholdConfig`'s doc comment.
-    #[serde(default)]
-    pub change_size_thresholds: Option<ChangeSizeThresholdConfig>,
-
-    /// Minimum number of co-changes required to report a pair (default: 3)
-    #[serde(default)]
-    pub co_change_min_count: Option<usize>,
-
-    /// Use per-function git log -L for touch metrics (default: false).
-    /// Warm runs use the on-disk cache and are as fast as file-level.
-    /// Set to true for full precision; the default is hybrid touch mode (see hybrid_touch_threshold).
-    #[serde(default)]
-    pub per_function_touches: Option<bool>,
-
-    /// Enable hybrid touch mode: file-level for all functions, then per-function
-    /// only for functions in files with touch_count >= this threshold.
-    /// Overrides per_function_touches when set. Recommended: 3–10.
-    #[serde(default)]
-    pub hybrid_touch_threshold: Option<usize>,
-
-    /// Percentile threshold for driving dimension detection (1–99, default: 75).
-    /// A function must exceed this percentile in a metric to trigger that driver label.
-    /// Lower values = more functions get specific labels; higher = only extreme outliers.
-    #[serde(default)]
-    pub driver_threshold_percentile: Option<u8>,
-
-    /// Node count above which betweenness centrality switches from exact to approximate
-    /// (default: 2000). Below this threshold the exact O(N²) Brandes algorithm runs;
-    /// above it, k-source pivot sampling is used instead.
-    #[serde(default)]
-    pub betweenness_exact_threshold: Option<usize>,
-
-    /// Number of pivot sources for approximate betweenness centrality (default: 256).
-    /// Higher values improve accuracy at proportional cost. Only used when the graph
-    /// exceeds `betweenness_exact_threshold`. Must be at least 1.
-    #[serde(default)]
-    pub betweenness_approx_k: Option<usize>,
-
-    /// Skip all call graph computation when the repo has more than this many functions
-    /// (default: no limit). Use this on very large repos where graph algorithms dominate
-    /// CPU. When skipped, PageRank, betweenness, SCC, fan-in/fan-out, and dependency
-    /// depth are all omitted from output.
-    #[serde(default)]
-    pub callgraph_skip_above: Option<usize>,
-
-    /// Pattern detection thresholds. Overrides defaults from `docs/patterns.md`.
-    #[serde(default)]
-    pub patterns: Option<PatternThresholdsConfig>,
 
     /// Per-repo severity overrides for blocking policies.
     #[serde(default)]
@@ -213,23 +134,8 @@ impl Default for HotspotsConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
             include: Vec::new(),
             exclude: Vec::new(),
-            thresholds: None,
-            weights: None,
-            warning_thresholds: None,
             min_lrs: None,
             top: None,
-            scoring: None,
-            co_change_window_days: None,
-            touch_window_days: None,
-            change_size_thresholds: None,
-            co_change_min_count: None,
-            per_function_touches: None,
-            hybrid_touch_threshold: None,
-            driver_threshold_percentile: None,
-            betweenness_exact_threshold: None,
-            betweenness_approx_k: None,
-            callgraph_skip_above: None,
-            patterns: None,
             policy: None,
             cold_start_gini_dead_zone: None,
         }
@@ -290,121 +196,6 @@ pub struct PolicyConfig {
     pub excessive_risk_regression_reason: Option<String>,
 }
 
-/// Custom risk band thresholds
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ThresholdConfig {
-    /// LRS threshold for moderate risk (default: 3.0)
-    pub moderate: Option<f64>,
-    /// LRS threshold for high risk (default: 6.0)
-    pub high: Option<f64>,
-    /// LRS threshold for critical risk (default: 9.0)
-    pub critical: Option<f64>,
-}
-
-/// Custom `fn_changed_lines` size-band cutoffs for `hotspots diff`'s `pr_summary.size_band`.
-///
-/// **These are a display convenience, not a research-derived signal.** Unlike
-/// `fn_changed_lines` itself (the strongest tested predictor of PR defect risk
-/// in our evaluation), no finding specifies where "small" ends
-/// and "large" begins — that's a presentation judgment, the same category as
-/// `ThresholdConfig`'s own LRS band cutoffs above, not a validated claim. Override these
-/// if the built-in defaults don't fit your repo's typical change size.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChangeSizeThresholdConfig {
-    /// Below this many `fn_changed_lines`, `size_band` is "small" (default: 50)
-    pub small: Option<usize>,
-    /// Below this, "medium"; at or above, "large" or "very_large" (default: 200)
-    pub medium: Option<usize>,
-    /// Below this, "large"; at or above, "very_large" (default: 500)
-    pub large: Option<usize>,
-}
-
-/// Custom metric weights for LRS calculation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WeightConfig {
-    /// Weight for cyclomatic complexity (default: 1.0)
-    pub cc: Option<f64>,
-    /// Weight for nesting depth (default: 0.8)
-    pub nd: Option<f64>,
-    /// Weight for fan-out (default: 0.6)
-    pub fo: Option<f64>,
-    /// Weight for non-structured exits (default: 0.7)
-    pub ns: Option<f64>,
-}
-
-/// Weights for activity-weighted risk scoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScoringWeightsConfig {
-    /// Weight for churn factor (default: 0.5)
-    pub churn: Option<f64>,
-    /// Weight for touch frequency factor (default: 0.3)
-    pub touch: Option<f64>,
-    /// Weight for recency factor (default: 0.2)
-    pub recency: Option<f64>,
-    /// Weight for fan-in factor (default: 0.4)
-    pub fan_in: Option<f64>,
-    /// Weight for SCC penalty (default: 0.3)
-    pub scc: Option<f64>,
-    /// Weight for dependency depth penalty (default: 0.1)
-    pub depth: Option<f64>,
-    /// Weight for commit-timing burstiness factor (default: 0.3)
-    pub burst: Option<f64>,
-}
-
-/// Pattern detection thresholds — override defaults from `docs/patterns.md`
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PatternThresholdsConfig {
-    pub complex_branching_cc: Option<usize>,
-    pub complex_branching_nd: Option<usize>,
-    pub deeply_nested_nd: Option<usize>,
-    pub exit_heavy_ns: Option<usize>,
-    pub god_function_loc: Option<usize>,
-    pub god_function_fo: Option<usize>,
-    pub long_function_loc: Option<usize>,
-    pub churn_magnet_churn: Option<usize>,
-    pub churn_magnet_cc: Option<usize>,
-    pub cyclic_hub_scc: Option<usize>,
-    pub cyclic_hub_fan_in: Option<usize>,
-    pub hub_function_fan_in: Option<usize>,
-    pub hub_function_cc: Option<usize>,
-    pub middle_man_fan_in: Option<usize>,
-    pub middle_man_fo: Option<usize>,
-    pub middle_man_cc_max: Option<usize>,
-    pub neighbor_risk_churn: Option<usize>,
-    pub neighbor_risk_fo: Option<usize>,
-    pub shotgun_target_fan_in: Option<usize>,
-    pub shotgun_target_churn: Option<usize>,
-    pub stale_complex_cc: Option<usize>,
-    pub stale_complex_loc: Option<usize>,
-    pub stale_complex_days: Option<u32>,
-}
-
-/// Warning thresholds for proactive alerts.
-///
-/// **Unvalidated heuristic** — these cutoffs (and `rapid_growth_percent`) have no
-/// corresponding validation behind them, unlike `lrs`'s component
-/// metrics. Treat them as reasonable starting points to tune for your repo, not as
-/// calibrated thresholds.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WarningThresholdConfig {
-    /// Watch threshold minimum - approaching moderate (default: 2.5)
-    pub watch_min: Option<f64>,
-    /// Watch threshold maximum - approaching moderate (default: 3.0)
-    pub watch_max: Option<f64>,
-    /// Attention threshold minimum - approaching high (default: 5.5)
-    pub attention_min: Option<f64>,
-    /// Attention threshold maximum - approaching high (default: 6.0)
-    pub attention_max: Option<f64>,
-    /// Rapid growth threshold - percent increase (default: 50.0)
-    pub rapid_growth_percent: Option<f64>,
-}
-
 /// Resolved configuration with compiled glob patterns
 #[derive(Debug)]
 pub struct ResolvedConfig {
@@ -412,50 +203,11 @@ pub struct ResolvedConfig {
     pub include: Option<GlobSet>,
     /// Compiled exclude patterns
     pub exclude: GlobSet,
-    /// Risk band thresholds
-    pub moderate_threshold: f64,
-    pub high_threshold: f64,
-    pub critical_threshold: f64,
-    /// LRS weights
-    pub weight_cc: f64,
-    pub weight_nd: f64,
-    pub weight_fo: f64,
-    pub weight_ns: f64,
-    /// Warning thresholds
-    pub watch_min: f64,
-    pub watch_max: f64,
-    pub attention_min: f64,
-    pub attention_max: f64,
-    pub rapid_growth_percent: f64,
     /// Filters
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
     /// Cold-start Gini-routing dead-zone width (see `HotspotsConfig::cold_start_gini_dead_zone`)
     pub cold_start_gini_dead_zone: f64,
-    /// Co-change mining parameters
-    pub co_change_window_days: u64,
-    pub co_change_min_count: usize,
-    /// Touch-metrics window in days (default 365; see `HotspotsConfig::touch_window_days`)
-    pub touch_window_days: u32,
-    /// `hotspots diff` size-band cutoffs (display only, not research-derived; see
-    /// `HotspotsConfig::change_size_thresholds`)
-    pub change_size_thresholds: crate::aggregates::ChangeSizeThresholds,
-    /// Whether to use per-function git log -L for touch metrics
-    pub per_function_touches: bool,
-    /// Hybrid touch threshold: Some(n) = file-level first, per-function for files with ≥n touches
-    pub hybrid_touch_threshold: Option<usize>,
-    /// Percentile threshold for driving dimension detection (1–99)
-    pub driver_threshold_percentile: u8,
-    /// Node count above which betweenness switches to approximate algorithm
-    pub betweenness_exact_threshold: usize,
-    /// Number of pivot sources for approximate betweenness
-    pub betweenness_approx_k: usize,
-    /// Skip all call graph computation above this function count (usize::MAX = never skip)
-    pub callgraph_skip_above: usize,
-    /// Activity risk scoring weights
-    pub scoring_weights: crate::scoring::ScoringWeights,
-    /// Pattern detection thresholds
-    pub pattern_thresholds: crate::patterns::Thresholds,
     /// Severity for the `critical-introduction` policy (default: Block)
     pub critical_introduction_mode: PolicyMode,
     /// Reason given for downgrading `critical_introduction_mode` below Block (None if Block)
@@ -482,21 +234,6 @@ impl HotspotsConfig {
                 CONFIG_SCHEMA_VERSION
             );
         }
-        if let Some(ref t) = self.thresholds {
-            validate_thresholds(t)?;
-        }
-        if let Some(ref w) = self.weights {
-            validate_weights(w)?;
-        }
-        if let Some(ref wt) = self.warning_thresholds {
-            validate_warning_thresholds(wt)?;
-        }
-        if let Some(ref s) = self.scoring {
-            validate_scoring(s)?;
-        }
-        if let Some(ref p) = self.patterns {
-            validate_pattern_thresholds(p)?;
-        }
         if let Some(ref p) = self.policy {
             validate_policy_config(p)?;
         }
@@ -509,44 +246,6 @@ fn validate_scalar_fields(c: &HotspotsConfig) -> Result<()> {
     if let Some(min) = c.min_lrs {
         if min < 0.0 {
             anyhow::bail!("min_lrs must be non-negative (got {})", min);
-        }
-    }
-    if let Some(w) = c.co_change_window_days {
-        if w == 0 {
-            anyhow::bail!("co_change_window_days must be at least 1");
-        }
-    }
-    if let Some(w) = c.touch_window_days {
-        if w == 0 {
-            anyhow::bail!("touch_window_days must be at least 1");
-        }
-    }
-    if let Some(t) = &c.change_size_thresholds {
-        let small = t.small.unwrap_or(50);
-        let medium = t.medium.unwrap_or(200);
-        let large = t.large.unwrap_or(500);
-        if !(small < medium && medium < large) {
-            anyhow::bail!(
-                "change_size_thresholds must satisfy small < medium < large (got {small}, {medium}, {large})"
-            );
-        }
-    }
-    if let Some(m) = c.co_change_min_count {
-        if m == 0 {
-            anyhow::bail!("co_change_min_count must be at least 1");
-        }
-    }
-    if let Some(p) = c.driver_threshold_percentile {
-        if p == 0 || p >= 100 {
-            anyhow::bail!(
-                "driver_threshold_percentile must be between 1 and 99 (got {})",
-                p
-            );
-        }
-    }
-    if let Some(k) = c.betweenness_approx_k {
-        if k == 0 {
-            anyhow::bail!("betweenness_approx_k must be at least 1");
         }
     }
     if let Some(dz) = c.cold_start_gini_dead_zone {
@@ -573,36 +272,6 @@ fn validate_glob_patterns(include: &[String], exclude: &[String]) -> Result<()> 
     }
     for pattern in exclude {
         Glob::new(pattern).with_context(|| format!("invalid exclude pattern: {}", pattern))?;
-    }
-    Ok(())
-}
-
-fn validate_thresholds(t: &ThresholdConfig) -> Result<()> {
-    let moderate = t.moderate.unwrap_or(3.0);
-    let high = t.high.unwrap_or(6.0);
-    let critical = t.critical.unwrap_or(9.0);
-    if moderate <= 0.0 {
-        anyhow::bail!("thresholds.moderate must be positive (got {})", moderate);
-    }
-    if high <= 0.0 {
-        anyhow::bail!("thresholds.high must be positive (got {})", high);
-    }
-    if critical <= 0.0 {
-        anyhow::bail!("thresholds.critical must be positive (got {})", critical);
-    }
-    if moderate >= high {
-        anyhow::bail!(
-            "thresholds.moderate ({}) must be less than thresholds.high ({})",
-            moderate,
-            high
-        );
-    }
-    if high >= critical {
-        anyhow::bail!(
-            "thresholds.high ({}) must be less than thresholds.critical ({})",
-            high,
-            critical
-        );
     }
     Ok(())
 }
@@ -643,152 +312,6 @@ fn require_reason_if_downgraded(field: &str, mode: PolicyMode, reason: Option<&s
     }
 }
 
-fn validate_weights(w: &WeightConfig) -> Result<()> {
-    for (name, val) in [("cc", w.cc), ("nd", w.nd), ("fo", w.fo), ("ns", w.ns)] {
-        if let Some(v) = val {
-            if v < 0.0 {
-                anyhow::bail!("weights.{} must be non-negative (got {})", name, v);
-            }
-            if v > 10.0 {
-                anyhow::bail!("weights.{} must be at most 10.0 (got {})", name, v);
-            }
-        }
-    }
-
-    // Joint degeneracy check: bounds-checking each weight individually lets
-    // cc = nd = fo = ns = 0 pass silently, which collapses every function's
-    // LRS score to 0 and disables risk scoring entirely. Resolve unset fields
-    // to their defaults (matching ResolvedConfig::resolve) before checking,
-    // since only an explicit all-zero override is degenerate.
-    let resolved_cc = w.cc.unwrap_or(1.0);
-    let resolved_nd = w.nd.unwrap_or(0.8);
-    let resolved_fo = w.fo.unwrap_or(0.6);
-    let resolved_ns = w.ns.unwrap_or(0.7);
-    if resolved_cc == 0.0 && resolved_nd == 0.0 && resolved_fo == 0.0 && resolved_ns == 0.0 {
-        anyhow::bail!(
-            "weights.cc, weights.nd, weights.fo, and weights.ns cannot all be 0 — this would collapse every function's LRS score to 0 and silently disable risk scoring"
-        );
-    }
-
-    Ok(())
-}
-
-fn validate_warning_thresholds(wt: &WarningThresholdConfig) -> Result<()> {
-    let watch_min = wt.watch_min.unwrap_or(2.5);
-    let watch_max = wt.watch_max.unwrap_or(3.0);
-    let attention_min = wt.attention_min.unwrap_or(5.5);
-    let attention_max = wt.attention_max.unwrap_or(6.0);
-    let rapid_growth = wt.rapid_growth_percent.unwrap_or(50.0);
-    if watch_min <= 0.0 {
-        anyhow::bail!(
-            "warning_thresholds.watch_min must be positive (got {})",
-            watch_min
-        );
-    }
-    if watch_max <= 0.0 {
-        anyhow::bail!(
-            "warning_thresholds.watch_max must be positive (got {})",
-            watch_max
-        );
-    }
-    if attention_min <= 0.0 {
-        anyhow::bail!(
-            "warning_thresholds.attention_min must be positive (got {})",
-            attention_min
-        );
-    }
-    if attention_max <= 0.0 {
-        anyhow::bail!(
-            "warning_thresholds.attention_max must be positive (got {})",
-            attention_max
-        );
-    }
-    if rapid_growth <= 0.0 {
-        anyhow::bail!(
-            "warning_thresholds.rapid_growth_percent must be positive (got {})",
-            rapid_growth
-        );
-    }
-    if watch_min >= watch_max {
-        anyhow::bail!(
-            "warning_thresholds.watch_min ({}) must be less than watch_max ({})",
-            watch_min,
-            watch_max
-        );
-    }
-    if attention_min >= attention_max {
-        anyhow::bail!(
-            "warning_thresholds.attention_min ({}) must be less than attention_max ({})",
-            attention_min,
-            attention_max
-        );
-    }
-    Ok(())
-}
-
-fn validate_scoring(s: &ScoringWeightsConfig) -> Result<()> {
-    for (name, val) in [
-        ("churn", s.churn),
-        ("touch", s.touch),
-        ("recency", s.recency),
-        ("fan_in", s.fan_in),
-        ("scc", s.scc),
-        ("depth", s.depth),
-        ("burst", s.burst),
-    ] {
-        if let Some(v) = val {
-            if v < 0.0 {
-                anyhow::bail!("scoring.{} must be non-negative (got {})", name, v);
-            }
-            if v > 10.0 {
-                anyhow::bail!("scoring.{} must be at most 10.0 (got {})", name, v);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_pattern_thresholds(p: &PatternThresholdsConfig) -> Result<()> {
-    // All thresholds must be at least 1 when specified
-    let usize_fields: &[(&str, Option<usize>)] = &[
-        ("complex_branching_cc", p.complex_branching_cc),
-        ("complex_branching_nd", p.complex_branching_nd),
-        ("deeply_nested_nd", p.deeply_nested_nd),
-        ("exit_heavy_ns", p.exit_heavy_ns),
-        ("god_function_loc", p.god_function_loc),
-        ("god_function_fo", p.god_function_fo),
-        ("long_function_loc", p.long_function_loc),
-        ("churn_magnet_churn", p.churn_magnet_churn),
-        ("churn_magnet_cc", p.churn_magnet_cc),
-        ("cyclic_hub_scc", p.cyclic_hub_scc),
-        ("cyclic_hub_fan_in", p.cyclic_hub_fan_in),
-        ("hub_function_fan_in", p.hub_function_fan_in),
-        ("hub_function_cc", p.hub_function_cc),
-        ("middle_man_fan_in", p.middle_man_fan_in),
-        ("middle_man_fo", p.middle_man_fo),
-        ("middle_man_cc_max", p.middle_man_cc_max),
-        ("neighbor_risk_churn", p.neighbor_risk_churn),
-        ("neighbor_risk_fo", p.neighbor_risk_fo),
-        ("shotgun_target_fan_in", p.shotgun_target_fan_in),
-        ("shotgun_target_churn", p.shotgun_target_churn),
-        ("stale_complex_cc", p.stale_complex_cc),
-        ("stale_complex_loc", p.stale_complex_loc),
-    ];
-    for (name, val) in usize_fields {
-        if let Some(v) = val {
-            if *v == 0 {
-                anyhow::bail!("patterns.{} must be at least 1 (got 0)", name);
-            }
-        }
-    }
-    if let Some(v) = p.stale_complex_days {
-        if v == 0 {
-            anyhow::bail!("patterns.stale_complex_days must be at least 1 (got 0)");
-        }
-    }
-    Ok(())
-}
-
 impl HotspotsConfig {
     /// Resolve config into compiled form ready for use
     pub fn resolve(&self) -> Result<ResolvedConfig> {
@@ -817,87 +340,6 @@ impl HotspotsConfig {
             builder.build()?
         };
 
-        let (moderate, high, critical) = match &self.thresholds {
-            Some(t) => (
-                t.moderate.unwrap_or(3.0),
-                t.high.unwrap_or(6.0),
-                t.critical.unwrap_or(9.0),
-            ),
-            None => (3.0, 6.0, 9.0),
-        };
-
-        let (w_cc, w_nd, w_fo, w_ns) = match &self.weights {
-            Some(w) => (
-                w.cc.unwrap_or(1.0),
-                w.nd.unwrap_or(0.8),
-                w.fo.unwrap_or(0.6),
-                w.ns.unwrap_or(0.7),
-            ),
-            None => (1.0, 0.8, 0.6, 0.7),
-        };
-
-        let (watch_min, watch_max, attention_min, attention_max, rapid_growth_percent) =
-            match &self.warning_thresholds {
-                Some(wt) => (
-                    wt.watch_min.unwrap_or(2.5),
-                    wt.watch_max.unwrap_or(3.0),
-                    wt.attention_min.unwrap_or(5.5),
-                    wt.attention_max.unwrap_or(6.0),
-                    wt.rapid_growth_percent.unwrap_or(50.0),
-                ),
-                None => (2.5, 3.0, 5.5, 6.0, 50.0),
-            };
-
-        let scoring_weights = match &self.scoring {
-            Some(s) => {
-                let defaults = crate::scoring::ScoringWeights::default();
-                crate::scoring::ScoringWeights {
-                    churn: s.churn.unwrap_or(defaults.churn),
-                    touch: s.touch.unwrap_or(defaults.touch),
-                    recency: s.recency.unwrap_or(defaults.recency),
-                    fan_in: s.fan_in.unwrap_or(defaults.fan_in),
-                    scc: s.scc.unwrap_or(defaults.scc),
-                    depth: s.depth.unwrap_or(defaults.depth),
-                    burst: s.burst.unwrap_or(defaults.burst),
-                }
-            }
-            None => crate::scoring::ScoringWeights::default(),
-        };
-
-        let pattern_thresholds = match &self.patterns {
-            Some(p) => {
-                let d = crate::patterns::Thresholds::default();
-                crate::patterns::Thresholds {
-                    complex_branching_cc: p.complex_branching_cc.unwrap_or(d.complex_branching_cc),
-                    complex_branching_nd: p.complex_branching_nd.unwrap_or(d.complex_branching_nd),
-                    deeply_nested_nd: p.deeply_nested_nd.unwrap_or(d.deeply_nested_nd),
-                    exit_heavy_ns: p.exit_heavy_ns.unwrap_or(d.exit_heavy_ns),
-                    god_function_loc: p.god_function_loc.unwrap_or(d.god_function_loc),
-                    god_function_fo: p.god_function_fo.unwrap_or(d.god_function_fo),
-                    long_function_loc: p.long_function_loc.unwrap_or(d.long_function_loc),
-                    churn_magnet_churn: p.churn_magnet_churn.unwrap_or(d.churn_magnet_churn),
-                    churn_magnet_cc: p.churn_magnet_cc.unwrap_or(d.churn_magnet_cc),
-                    cyclic_hub_scc: p.cyclic_hub_scc.unwrap_or(d.cyclic_hub_scc),
-                    cyclic_hub_fan_in: p.cyclic_hub_fan_in.unwrap_or(d.cyclic_hub_fan_in),
-                    hub_function_fan_in: p.hub_function_fan_in.unwrap_or(d.hub_function_fan_in),
-                    hub_function_cc: p.hub_function_cc.unwrap_or(d.hub_function_cc),
-                    middle_man_fan_in: p.middle_man_fan_in.unwrap_or(d.middle_man_fan_in),
-                    middle_man_fo: p.middle_man_fo.unwrap_or(d.middle_man_fo),
-                    middle_man_cc_max: p.middle_man_cc_max.unwrap_or(d.middle_man_cc_max),
-                    neighbor_risk_churn: p.neighbor_risk_churn.unwrap_or(d.neighbor_risk_churn),
-                    neighbor_risk_fo: p.neighbor_risk_fo.unwrap_or(d.neighbor_risk_fo),
-                    shotgun_target_fan_in: p
-                        .shotgun_target_fan_in
-                        .unwrap_or(d.shotgun_target_fan_in),
-                    shotgun_target_churn: p.shotgun_target_churn.unwrap_or(d.shotgun_target_churn),
-                    stale_complex_cc: p.stale_complex_cc.unwrap_or(d.stale_complex_cc),
-                    stale_complex_loc: p.stale_complex_loc.unwrap_or(d.stale_complex_loc),
-                    stale_complex_days: p.stale_complex_days.unwrap_or(d.stale_complex_days),
-                }
-            }
-            None => crate::patterns::Thresholds::default(),
-        };
-
         let (
             critical_introduction_mode,
             critical_introduction_reason,
@@ -922,45 +364,12 @@ impl HotspotsConfig {
         Ok(ResolvedConfig {
             include,
             exclude,
-            moderate_threshold: moderate,
-            high_threshold: high,
-            critical_threshold: critical,
-            weight_cc: w_cc,
-            weight_nd: w_nd,
-            weight_fo: w_fo,
-            weight_ns: w_ns,
-            watch_min,
-            watch_max,
-            attention_min,
-            attention_max,
-            rapid_growth_percent,
             min_lrs: self.min_lrs,
             top_n: self.top,
-            scoring_weights,
-            pattern_thresholds,
             critical_introduction_mode,
             critical_introduction_reason,
             excessive_risk_regression_mode,
             excessive_risk_regression_reason,
-            co_change_window_days: self.co_change_window_days.unwrap_or(90),
-            touch_window_days: self
-                .touch_window_days
-                .unwrap_or(crate::git::TOUCH_WINDOW_DAYS as u32),
-            change_size_thresholds: {
-                let c = self.change_size_thresholds.as_ref();
-                crate::aggregates::ChangeSizeThresholds {
-                    small: c.and_then(|c| c.small).unwrap_or(50),
-                    medium: c.and_then(|c| c.medium).unwrap_or(200),
-                    large: c.and_then(|c| c.large).unwrap_or(500),
-                }
-            },
-            co_change_min_count: self.co_change_min_count.unwrap_or(3),
-            per_function_touches: self.per_function_touches.unwrap_or(false),
-            hybrid_touch_threshold: self.hybrid_touch_threshold,
-            driver_threshold_percentile: self.driver_threshold_percentile.unwrap_or(75),
-            betweenness_exact_threshold: self.betweenness_exact_threshold.unwrap_or(2000),
-            betweenness_approx_k: self.betweenness_approx_k.unwrap_or(256),
-            callgraph_skip_above: self.callgraph_skip_above.unwrap_or(usize::MAX),
             cold_start_gini_dead_zone: self.cold_start_gini_dead_zone.unwrap_or(0.0),
             config_path: None,
             exclude_is_custom: !self.exclude.is_empty(),
@@ -1089,56 +498,10 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn test_default_config_is_valid() {
-        let config = HotspotsConfig::default();
-        config.validate().expect("default config should be valid");
-        let resolved = config.resolve().expect("default config should resolve");
-        assert!(resolved.include.is_none());
-        assert_eq!(resolved.weight_cc, 1.0);
-        assert_eq!(resolved.weight_nd, 0.8);
-        assert_eq!(resolved.weight_fo, 0.6);
-        assert_eq!(resolved.weight_ns, 0.7);
-        assert_eq!(resolved.moderate_threshold, 3.0);
-        assert_eq!(resolved.high_threshold, 6.0);
-        assert_eq!(resolved.critical_threshold, 9.0);
-    }
-
-    #[test]
     fn test_parse_minimal_config() {
         let json = r#"{}"#;
         let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
-    }
-
-    #[test]
-    fn test_parse_full_config() {
-        let json = r#"{
-            "include": ["src/**/*.ts", "src/**/*.tsx"],
-            "exclude": ["**/*.test.ts", "**/node_modules/**"],
-            "thresholds": {
-                "moderate": 4.0,
-                "high": 7.0,
-                "critical": 10.0
-            },
-            "weights": {
-                "cc": 1.2,
-                "nd": 0.9,
-                "fo": 0.5,
-                "ns": 0.8
-            },
-            "min_lrs": 2.0,
-            "top": 20
-        }"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        config.validate().unwrap();
-        let resolved = config.resolve().unwrap();
-        assert!(resolved.include.is_some());
-        assert_eq!(resolved.moderate_threshold, 4.0);
-        assert_eq!(resolved.high_threshold, 7.0);
-        assert_eq!(resolved.critical_threshold, 10.0);
-        assert_eq!(resolved.weight_cc, 1.2);
-        assert_eq!(resolved.min_lrs, Some(2.0));
-        assert_eq!(resolved.top_n, Some(20));
     }
 
     #[test]
@@ -1166,58 +529,12 @@ mod tests {
     }
 
     #[test]
-    fn test_reject_negative_weight() {
-        let json = r#"{"weights": {"cc": -1.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_weight_over_10() {
-        let json = r#"{"weights": {"cc": 11.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_all_zero_weights() {
-        // Regression test for hotspots#145: each weight individually passes
-        // bounds checking, but all-zero collapses every LRS score to 0.
-        let json = r#"{"weights": {"cc": 0.0, "nd": 0.0, "fo": 0.0, "ns": 0.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_accept_partial_zero_weights() {
-        // Only one weight is nonzero — this is unusual but not degenerate,
-        // since LRS doesn't collapse to a constant 0 for every function.
-        let json = r#"{"weights": {"cc": 0.0, "nd": 0.0, "fo": 0.0, "ns": 1.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
     fn test_accept_unset_weights_use_nonzero_defaults() {
         // No weights key at all — every field defaults to a nonzero value,
         // so this must not be flagged as degenerate.
         let json = r#"{}"#;
         let config: HotspotsConfig = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_reject_negative_threshold() {
-        let json = r#"{"thresholds": {"moderate": -1.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_unordered_thresholds() {
-        let json = r#"{"thresholds": {"moderate": 6.0, "high": 3.0, "critical": 9.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -1384,29 +701,6 @@ mod tests {
     }
 
     #[test]
-    fn test_load_and_resolve_defaults() {
-        let dir = tempfile::tempdir().unwrap();
-        let resolved = load_and_resolve(dir.path(), None).unwrap();
-        assert!(resolved.config_path.is_none());
-        assert_eq!(resolved.weight_cc, 1.0);
-    }
-
-    #[test]
-    fn test_load_and_resolve_explicit_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("custom.json");
-        fs::write(&config_path, r#"{"weights": {"cc": 2.0}}"#).unwrap();
-
-        let resolved = load_and_resolve(dir.path(), Some(&config_path)).unwrap();
-        assert_eq!(resolved.weight_cc, 2.0);
-        assert_eq!(resolved.config_path, Some(config_path));
-        // Regression test for hotspots#146: a config file that sets only
-        // `weights` and never touches `exclude` must not report exclude as
-        // custom just because *a* config file was found.
-        assert!(!resolved.exclude_is_custom);
-    }
-
-    #[test]
     fn test_exclude_is_custom_when_config_sets_exclude() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("custom.json");
@@ -1424,169 +718,28 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_weights_use_defaults_for_rest() {
-        let json = r#"{"weights": {"cc": 2.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.weight_cc, 2.0);
-        assert_eq!(resolved.weight_nd, 0.8); // default
-        assert_eq!(resolved.weight_fo, 0.6); // default
-        assert_eq!(resolved.weight_ns, 0.7); // default
+    fn test_default_config_resolves() {
+        let resolved = HotspotsConfig::default().resolve().unwrap();
+        assert!(resolved.min_lrs.is_none());
+        assert!(resolved.top_n.is_none());
     }
 
     #[test]
-    fn test_partial_thresholds_use_defaults_for_rest() {
-        let json = r#"{"thresholds": {"critical": 12.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.moderate_threshold, 3.0); // default
-        assert_eq!(resolved.high_threshold, 6.0); // default
-        assert_eq!(resolved.critical_threshold, 12.0);
-    }
-
-    #[test]
-    fn test_default_warning_thresholds() {
-        let config = HotspotsConfig::default();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.watch_min, 2.5);
-        assert_eq!(resolved.watch_max, 3.0);
-        assert_eq!(resolved.attention_min, 5.5);
-        assert_eq!(resolved.attention_max, 6.0);
-        assert_eq!(resolved.rapid_growth_percent, 50.0);
-    }
-
-    #[test]
-    fn test_parse_warning_thresholds() {
-        let json = r#"{
-            "warning_thresholds": {
-                "watch_min": 2.0,
-                "watch_max": 3.5,
-                "attention_min": 5.0,
-                "attention_max": 7.0,
-                "rapid_growth_percent": 75.0
-            }
-        }"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        config.validate().unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.watch_min, 2.0);
-        assert_eq!(resolved.watch_max, 3.5);
-        assert_eq!(resolved.attention_min, 5.0);
-        assert_eq!(resolved.attention_max, 7.0);
-        assert_eq!(resolved.rapid_growth_percent, 75.0);
-    }
-
-    #[test]
-    fn test_partial_warning_thresholds_use_defaults() {
-        let json = r#"{"warning_thresholds": {"rapid_growth_percent": 100.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.watch_min, 2.5); // default
-        assert_eq!(resolved.watch_max, 3.0); // default
-        assert_eq!(resolved.attention_min, 5.5); // default
-        assert_eq!(resolved.attention_max, 6.0); // default
-        assert_eq!(resolved.rapid_growth_percent, 100.0);
-    }
-
-    #[test]
-    fn test_reject_negative_watch_min() {
-        let json = r#"{"warning_thresholds": {"watch_min": -1.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_negative_rapid_growth() {
-        let json = r#"{"warning_thresholds": {"rapid_growth_percent": -10.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_unordered_watch_thresholds() {
-        let json = r#"{"warning_thresholds": {"watch_min": 3.0, "watch_max": 2.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_unordered_attention_thresholds() {
-        let json = r#"{"warning_thresholds": {"attention_min": 7.0, "attention_max": 5.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_full_config_with_warnings() {
-        let json = r#"{
-            "thresholds": {
-                "moderate": 3.0,
-                "high": 6.0,
-                "critical": 9.0
-            },
-            "warning_thresholds": {
-                "watch_min": 2.5,
-                "watch_max": 3.0,
-                "attention_min": 5.5,
-                "attention_max": 6.0,
-                "rapid_growth_percent": 50.0
-            }
-        }"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        config.validate().unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.watch_min, 2.5);
-        assert_eq!(resolved.watch_max, 3.0);
-        assert_eq!(resolved.attention_min, 5.5);
-        assert_eq!(resolved.attention_max, 6.0);
-        assert_eq!(resolved.rapid_growth_percent, 50.0);
-    }
-
-    #[test]
-    fn test_scoring_weights_defaults() {
-        let config = HotspotsConfig::default();
-        let resolved = config.resolve().unwrap();
-        let defaults = crate::scoring::ScoringWeights::default();
-        assert_eq!(resolved.scoring_weights.churn, defaults.churn);
-        assert_eq!(resolved.scoring_weights.touch, defaults.touch);
-        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
-        assert_eq!(resolved.scoring_weights.fan_in, defaults.fan_in);
-        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
-        assert_eq!(resolved.scoring_weights.depth, defaults.depth);
-    }
-
-    #[test]
-    fn test_scoring_weights_from_config() {
-        let json = r#"{
-            "scoring": {
-                "churn": 0.8,
-                "touch": 0.5,
-                "fan_in": 0.6
-            }
-        }"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        config.validate().unwrap();
-        let resolved = config.resolve().unwrap();
-        assert_eq!(resolved.scoring_weights.churn, 0.8);
-        assert_eq!(resolved.scoring_weights.touch, 0.5);
-        assert_eq!(resolved.scoring_weights.fan_in, 0.6);
-        // Unspecified fields fall back to defaults
-        let defaults = crate::scoring::ScoringWeights::default();
-        assert_eq!(resolved.scoring_weights.recency, defaults.recency);
-        assert_eq!(resolved.scoring_weights.scc, defaults.scc);
-    }
-
-    #[test]
-    fn test_reject_negative_scoring_weight() {
-        let json = r#"{"scoring": {"churn": -0.1}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_reject_scoring_weight_over_10() {
-        let json = r#"{"scoring": {"fan_in": 11.0}}"#;
-        let config: HotspotsConfig = serde_json::from_str(json).unwrap();
-        assert!(config.validate().is_err());
+    fn test_removed_tuning_keys_are_rejected() {
+        for key in [
+            r#"{"weights": {"cc": 1.0}}"#,
+            r#"{"thresholds": {"high": 6.0}}"#,
+            r#"{"warning_thresholds": {"rapid_growth_percent": 50.0}}"#,
+            r#"{"scoring": {"churn": 0.5}}"#,
+            r#"{"patterns": {}}"#,
+            r#"{"co_change_window_days": 90}"#,
+            r#"{"touch_window_days": 365}"#,
+            r#"{"driver_threshold_percentile": 75}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<HotspotsConfig>(key).is_err(),
+                "{key} should be rejected as an unknown key"
+            );
+        }
     }
 }

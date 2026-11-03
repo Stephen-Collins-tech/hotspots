@@ -19,7 +19,6 @@ pub mod cfg;
 pub mod compact;
 pub mod config;
 pub mod coupling;
-pub mod csv_report;
 pub mod db;
 pub mod delta;
 pub mod discover;
@@ -31,9 +30,7 @@ pub mod imports;
 pub mod isolation_forest;
 pub mod language;
 pub mod metrics;
-pub mod models;
 pub mod parser;
-pub mod patterns;
 pub mod phrases;
 pub mod policy;
 pub mod prune;
@@ -44,12 +41,9 @@ pub mod sarif;
 pub mod scoring;
 pub mod snapshot;
 pub mod suppression;
-pub mod timing;
-pub mod touch_cache;
 pub mod trainer;
 pub mod trends;
 pub mod views;
-pub mod xlsx_report;
 
 pub use callgraph::CallGraph;
 pub use config::ResolvedConfig;
@@ -58,8 +52,6 @@ pub use report::{
     render_json, render_json_envelope, render_text, render_text_grouped, sort_reports,
     FunctionRiskReport,
 };
-pub use snapshot::TouchMode;
-pub use timing::{TimingCollector, TimingReport};
 
 use anyhow::{Context, Result};
 use swc_common::{sync::Lrc, SourceMap};
@@ -99,47 +91,14 @@ pub fn analyze_with_progress(
     resolved_config: Option<&ResolvedConfig>,
     progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
 ) -> anyhow::Result<Vec<FunctionRiskReport>> {
-    analyze_with_progress_and_timing(path, options, resolved_config, progress, None)
-}
-
-/// Like [`analyze_with_progress`] but also accepts an optional [`TimingCollector`]
-/// to record per-phase wall-clock timing (discover/parse/cfg/metrics/scoring/
-/// aggregate). Passing `None` is identical to [`analyze_with_progress`] — every
-/// instrumentation point is skipped, not just cheap.
-pub fn analyze_with_progress_and_timing(
-    path: &std::path::Path,
-    options: AnalysisOptions,
-    resolved_config: Option<&ResolvedConfig>,
-    progress: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
-    timing: Option<&timing::TimingCollector>,
-) -> anyhow::Result<Vec<FunctionRiskReport>> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Instant;
-
-    // Build weights/thresholds from config
-    let weights = resolved_config.map(|c| risk::LrsWeights {
-        cc: c.weight_cc,
-        nd: c.weight_nd,
-        fo: c.weight_fo,
-        ns: c.weight_ns,
-    });
-    let thresholds = resolved_config.map(|c| risk::RiskThresholds {
-        moderate: c.moderate_threshold,
-        high: c.high_threshold,
-        critical: c.critical_threshold,
-    });
-    let pattern_thresholds = resolved_config.map(|c| &c.pattern_thresholds);
 
     // Collect and filter source files upfront so the total is known before analysis begins
-    let discover_start = timing.map(|_| Instant::now());
     let source_files: Vec<_> = collect_source_files(path)?
         .into_iter()
         .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
         .collect();
-    if let (Some(tc), Some(start)) = (timing, discover_start) {
-        tc.discover.record(start.elapsed());
-    }
     let total_files = source_files.len();
 
     if total_files > 0 {
@@ -157,15 +116,8 @@ pub fn analyze_with_progress_and_timing(
             .enumerate()
             .map(|(file_index, file_path)| {
                 let cm: Lrc<SourceMap> = Default::default();
-                let result = analysis::analyze_file_with_config_and_timing(
-                    file_path,
-                    &cm,
-                    file_index,
-                    &options,
-                    weights.as_ref(),
-                    thresholds.as_ref(),
-                    pattern_thresholds,
-                    timing,
+                let result = analysis::analyze_file_with_config(
+                    file_path, &cm, file_index, &options, None, None,
                 );
                 let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
                 if let Some(f) = progress {
@@ -180,7 +132,6 @@ pub fn analyze_with_progress_and_timing(
 
     let mut skipped_files: usize = 0;
 
-    let aggregate_start = timing.map(|_| Instant::now());
     let final_reports = if let Some(top_n) = options.top_n {
         // Bounded min-heap: maintain at most top_n reports keyed by lrs ascending
         // so the root is always the lowest score seen so far.
@@ -244,9 +195,6 @@ pub fn analyze_with_progress_and_timing(
         }
         sort_reports(all_reports)
     };
-    if let (Some(tc), Some(start)) = (timing, aggregate_start) {
-        tc.aggregate.record(start.elapsed());
-    }
 
     if skipped_files > 0 {
         eprintln!("Skipped {} file(s) due to analysis errors", skipped_files);

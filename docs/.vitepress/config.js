@@ -25,6 +25,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Quick Start', link: '/quickstart' },
+      { text: 'Commands', link: '/COMMANDS' },
       { text: 'Usage', link: '/USAGE' },
       { text: 'Reference', link: '/REFERENCE' },
       { text: 'Architecture', link: '/ARCHITECTURE' },
@@ -38,6 +39,7 @@ export default defineConfig({
         text: 'Docs',
         items: [
           { text: 'Quick Start', link: '/quickstart' },
+          { text: 'Commands', link: '/COMMANDS' },
           { text: 'Usage & Workflows', link: '/USAGE' },
           { text: 'CLI & Config Reference', link: '/REFERENCE' },
           { text: 'Architecture', link: '/ARCHITECTURE' },

@@ -1,7 +1,7 @@
 # hotspots-core micro-benchmarks
 
 Criterion benchmarks for the pipeline phases that dominate wall time, per the
-`--timing-report` breakdown added in hotspots#267 part 1: `parse`, `metrics`,
+a per-phase timing breakdown (hotspots#267 part 1): `parse`, `metrics`,
 and `cfg` (in that order), with `discover`/`scoring`/`aggregate`/`report`
 negligible by comparison. This is a micro-benchmark harness for isolating
 per-function cost in those three phases — not the macro benchmark (full

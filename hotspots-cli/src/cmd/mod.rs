@@ -1,12 +1,7 @@
 pub(crate) mod analyze;
-pub(crate) mod compact;
 pub(crate) mod config;
 pub(crate) mod coordinate;
 pub(crate) mod diff;
-pub(crate) mod estimate;
-pub(crate) mod init;
 pub(crate) mod prune;
 pub(crate) mod telemetry;
 pub(crate) mod train;
-pub(crate) mod trends;
-pub(crate) mod upgrade;
