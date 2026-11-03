@@ -53,8 +53,7 @@ hotspots analyze . --mode delta --policy           # gate a PR
 **Options worth knowing.**
 
 - `--explain` adds a short reason next to each Critical or High function.
-- `--level file` shows a ranked table of files instead of functions. With `--blend-churn`
-  the file ranking also weighs how much each file has changed over the last 180 days.
+- `--level file` shows a ranked table of files instead of functions.
 - `--axes` prints three separate rankings, Risk, Coupling and Ownership, instead of one
   merged list, because a file can be a problem for different reasons.
 - `--cold-start` ranks a repo that has too little bug-fix history to train on. It picks a
@@ -126,7 +125,10 @@ git diff main | hotspots coordinate . --diff
 **Reading the output.** JSON with, for each file, `author_count`, `author_entropy` (0 means
 one owner, higher means more diffuse), `newcomer_rate`, and `knowledge_mode`, which is
 `"concentrated"` when ownership is narrow enough that a handoff is more likely than a real
-conflict. There is deliberately no recommendation field and no coupling facts, because the
+conflict. `ownership_risk` (0 to 1) is the same entropy normalized for the number of authors,
+so files with different author counts compare fairly, and `ownership_risk_band` (`low`,
+`medium` or `high`) turns it into a tier. Higher means more diffuse ownership and more
+cross-author collisions; use it to rank a set of files by coordination risk. There is deliberately no recommendation field and no coupling facts, because the
 coupling signals did not hold up in our evaluation.
 
 **How it relates to the others.** `analyze --axes` shows the same ownership signal across the

@@ -143,7 +143,7 @@ Output (JSON only today):
   "coordinate": {
     "input_files": ["src/api.ts", "src/db.ts"],
     "ownership": [
-      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null }
+      { "file": "src/api.ts", "author_count": 2, "author_entropy": 0.61, "newcomer_rate": 0.43, "knowledge_mode": null, "ownership_risk": 0.61, "ownership_risk_band": "low" }
     ]
   }
 }
@@ -152,7 +152,9 @@ Output (JSON only today):
 - **`ownership`** — `author_count`, `author_entropy` (0 = one owner, higher = more diffuse),
   `newcomer_rate`, and `knowledge_mode` (`"concentrated"` when ownership is narrow enough that
   a single-owner handoff is more likely than a real conflict; `null` otherwise — there is no
-  `"diffuse"` value today).
+  `"diffuse"` value today), `ownership_risk` (normalized entropy, higher = more diffuse) and
+  `ownership_risk_band` (`low`/`medium`/`high`). Rank a set of files by `ownership_risk` to
+  decide which ones need coordination first.
 
 Earlier versions also reported raw co-change coupling facts (`within_set`, `hidden_dependencies`)
 as descriptive data with no recommendation attached. Hotspots 2.0 removed them too, once the bar

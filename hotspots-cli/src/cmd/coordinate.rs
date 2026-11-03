@@ -40,6 +40,12 @@ use std::process::Command;
 /// cross-check match on every repo tested, not re-derived here.
 const CONCENTRATED_MAX_AUTHOR_COUNT: u32 = 3;
 const CONCENTRATED_MAX_NORMALIZED_ENTROPY: f64 = 0.5;
+/// `ownership_risk_band` boundaries: pooled terciles of normalized author entropy,
+/// pre-registered and checked leave-one-repo-out. Below the first is "low", from the
+/// second up is "high". Higher entropy means more diffuse ownership and a higher rate of
+/// cross-author collisions.
+const OWNERSHIP_RISK_LOW_MAX: f64 = 0.754;
+const OWNERSHIP_RISK_HIGH_MIN: f64 = 0.907;
 
 pub(crate) struct CoordinateArgs {
     pub files: Option<String>,
@@ -57,6 +63,10 @@ struct FileOwnership {
     author_entropy: f64,
     newcomer_rate: Option<f64>,
     knowledge_mode: Option<&'static str>,
+    /// Normalized author entropy in [0, 1]; higher means more diffuse ownership.
+    /// `None` when the file has one author or none.
+    ownership_risk: Option<f64>,
+    ownership_risk_band: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,10 +86,7 @@ struct CoordinateEnvelope {
 /// (5.9%-80% cross-check match), blocked on an author-identity-canonicalization
 /// gap this brief does not attempt to fix.
 fn classify_knowledge_mode(author_count: u32, author_entropy: f64) -> Option<&'static str> {
-    if author_count <= 1 {
-        return None;
-    }
-    let normalized_entropy = author_entropy / (author_count as f64).log2();
+    let normalized_entropy = compute_ownership_risk(author_count, author_entropy)?;
     if author_count <= CONCENTRATED_MAX_AUTHOR_COUNT
         && normalized_entropy < CONCENTRATED_MAX_NORMALIZED_ENTROPY
     {
@@ -87,6 +94,26 @@ fn classify_knowledge_mode(author_count: u32, author_entropy: f64) -> Option<&'s
     } else {
         None
     }
+}
+
+/// Author entropy normalized by its maximum for the file's author count, so values are
+/// comparable across files. `None` when there is no ownership signal (one author or none).
+fn compute_ownership_risk(author_count: u32, author_entropy: f64) -> Option<f64> {
+    if author_count <= 1 {
+        return None;
+    }
+    Some(author_entropy / (author_count as f64).log2())
+}
+
+fn classify_ownership_risk_band(risk: Option<f64>) -> Option<&'static str> {
+    let risk = risk?;
+    Some(if risk < OWNERSHIP_RISK_LOW_MAX {
+        "low"
+    } else if risk < OWNERSHIP_RISK_HIGH_MIN {
+        "medium"
+    } else {
+        "high"
+    })
 }
 
 /// Extracts modified file paths from a unified diff via two rules: `+++ b/`
@@ -178,12 +205,15 @@ pub(crate) fn handle_coordinate(args: CoordinateArgs) -> Result<()> {
             let signals = ownership_signals.get(file);
             let author_count = signals.map(|s| s.author_count).unwrap_or(0);
             let author_entropy = signals.map(|s| s.author_entropy).unwrap_or(0.0);
+            let ownership_risk = compute_ownership_risk(author_count, author_entropy);
             FileOwnership {
                 file: file.clone(),
                 author_count,
                 author_entropy,
                 newcomer_rate: signals.and_then(|s| s.newcomer_rate),
                 knowledge_mode: classify_knowledge_mode(author_count, author_entropy),
+                ownership_risk,
+                ownership_risk_band: classify_ownership_risk_band(ownership_risk),
             }
         })
         .collect();
@@ -221,6 +251,30 @@ mod tests {
     fn knowledge_mode_does_not_fire_above_author_count_bound() {
         // 5 authors, even with low raw entropy, exceeds CONCENTRATED_MAX_AUTHOR_COUNT.
         assert_eq!(classify_knowledge_mode(5, 0.2), None);
+    }
+
+    #[test]
+    fn ownership_risk_none_exactly_when_knowledge_mode_has_no_signal() {
+        for (n, e) in [(0, 0.0), (1, 0.0)] {
+            assert_eq!(compute_ownership_risk(n, e), None);
+            assert_eq!(
+                classify_ownership_risk_band(compute_ownership_risk(n, e)),
+                None
+            );
+        }
+        assert!(compute_ownership_risk(2, 0.1).unwrap() < CONCENTRATED_MAX_NORMALIZED_ENTROPY);
+        assert!(compute_ownership_risk(3, 0.2).unwrap() < CONCENTRATED_MAX_NORMALIZED_ENTROPY);
+    }
+
+    #[test]
+    fn ownership_risk_band_boundaries() {
+        let band = |r| classify_ownership_risk_band(Some(r));
+        assert_eq!(band(0.0), Some("low"));
+        assert_eq!(band(OWNERSHIP_RISK_LOW_MAX - 0.001), Some("low"));
+        assert_eq!(band(OWNERSHIP_RISK_LOW_MAX), Some("medium"));
+        assert_eq!(band(OWNERSHIP_RISK_HIGH_MIN - 0.001), Some("medium"));
+        assert_eq!(band(OWNERSHIP_RISK_HIGH_MIN), Some("high"));
+        assert_eq!(band(1.0), Some("high"));
     }
 
     #[test]

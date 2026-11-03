@@ -185,7 +185,7 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 JSON output only today. `PATH` defaults to `.`.
 
 Output is the master-schema envelope's `coordinate` section (`schema_version: 6`):
-- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, and `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`).
+- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`), `ownership_risk` (normalized author entropy, 0 to 1, higher = more diffuse; `null` with fewer than two authors) and `ownership_risk_band` (`"low"` below 0.754, `"medium"` below 0.907, else `"high"`; the cutoffs are terciles from our evaluation).
 
 There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
 facts either — both removed in hotspots 2.0 for lack of validated evidence. See
