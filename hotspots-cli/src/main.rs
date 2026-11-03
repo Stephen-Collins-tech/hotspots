@@ -115,14 +115,6 @@ enum Commands {
         /// section; overlap is not deduplicated. Use --top to control section size.
         #[arg(long)]
         axes: bool,
-
-        /// Re-rank file-level risk (--level file) by a 50/50 blend of file_risk_score
-        /// and per-file churn (lines added+deleted, 180-day window), instead of
-        /// file_risk_score alone. In our evaluation it improved
-        /// recall on most tested repos, with one known regression and no reliable way
-        /// yet to predict which repos it will hurt — opt-in, not a default.
-        #[arg(long)]
-        blend_churn: bool,
     },
     /// Reduce snapshot storage: drop unreachable snapshots and/or compact history
     Prune {
@@ -307,7 +299,6 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
-            blend_churn,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
@@ -328,7 +319,6 @@ fn main() -> anyhow::Result<()> {
             skip_gate,
             cold_start,
             axes,
-            blend_churn,
         })?,
         Commands::Prune {
             unreachable,

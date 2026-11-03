@@ -38,9 +38,6 @@ pub(crate) struct AnalyzeArgs {
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
     /// instead of a single merged list.
     pub axes: bool,
-    /// Re-rank file-level risk by a 50/50 blend of file_risk_score and per-file churn
-    /// instead of file_risk_score alone (validated in our evaluation). Opt-in.
-    pub blend_churn: bool,
 }
 
 /// Validate flag combinations that are mode/format-specific.
@@ -154,7 +151,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         skip_gate,
         cold_start,
         axes,
-        blend_churn,
     } = args;
 
     // Configure the global rayon thread pool before any parallel work begins.
@@ -223,7 +219,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 source_url,
                 skip_touch_metrics,
                 skip_gate,
-                blend_churn,
             },
         );
         return result;
@@ -254,7 +249,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 source_url,
                 skip_touch_metrics,
                 skip_gate,
-                blend_churn,
             },
         );
         return result;
@@ -487,7 +481,6 @@ pub(crate) struct ModeOutputOptions {
     pub source_url: Option<String>,
     pub skip_touch_metrics: bool,
     pub skip_gate: bool,
-    pub blend_churn: bool,
 }
 
 pub(crate) fn handle_mode_output(
@@ -535,7 +528,6 @@ fn handle_snapshot_mode(
         skip_gate,
         top,
         output,
-        blend_churn,
         ..
     } = opts;
 
@@ -644,7 +636,6 @@ fn handle_snapshot_mode(
             all_functions,
             source_url: source_url.clone(),
             risk_thresholds: hotspots_core::risk::RiskThresholds::default(),
-            blend_churn,
         },
         repo_root,
     )
@@ -776,7 +767,6 @@ struct SnapshotOutputOpts {
     all_functions: bool,
     source_url: Option<String>,
     risk_thresholds: hotspots_core::risk::RiskThresholds,
-    blend_churn: bool,
 }
 
 fn emit_snapshot_output(
@@ -802,16 +792,14 @@ fn emit_json_output(
         co_change_window_days,
         co_change_min_count,
         output,
-        blend_churn,
         ..
     } = opts;
-    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
     );
-    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if all_functions {
         snapshot.aggregates = Some(aggregates);
     } else {
@@ -829,19 +817,6 @@ fn emit_json_output(
     write_json_snapshot(snapshot, output)
 }
 
-/// Shared by `emit_json_output`/`emit_text_output`: when `--blend-churn` is set,
-/// re-rank `aggregates.file_risk` by the blended score; no-op otherwise.
-fn maybe_blend_churn(
-    aggregates: &mut hotspots_core::aggregates::SnapshotAggregates,
-    snapshot: &Snapshot,
-    blend_churn: bool,
-) {
-    if blend_churn {
-        let churn_totals = hotspots_core::aggregates::churn_totals_by_file(&snapshot.functions);
-        hotspots_core::aggregates::apply_churn_blend(&mut aggregates.file_risk, &churn_totals);
-    }
-}
-
 fn emit_text_output(
     snapshot: &mut Snapshot,
     repo_root: &Path,
@@ -854,16 +829,14 @@ fn emit_text_output(
         total_function_count,
         co_change_window_days,
         co_change_min_count,
-        blend_churn,
         ..
     } = opts;
-    let mut aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
+    let aggregates = hotspots_core::aggregates::compute_snapshot_aggregates(
         snapshot,
         repo_root,
         co_change_window_days,
         co_change_min_count,
     );
-    maybe_blend_churn(&mut aggregates, snapshot, blend_churn);
     if level == Some(OutputLevel::File) {
         explain::print_file_risk_output(&aggregates.file_risk, top)?;
     } else if explain {
@@ -1456,7 +1429,6 @@ mod validate_analyze_flags_tests {
             skip_gate: false,
             cold_start: false,
             axes: false,
-            blend_churn: false,
         }
     }
 
