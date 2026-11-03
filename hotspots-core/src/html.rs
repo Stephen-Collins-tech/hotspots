@@ -5,7 +5,7 @@
 
 use crate::aggregates::SnapshotAggregates;
 use crate::delta::{Delta, FunctionDeltaEntry, FunctionStatus};
-use crate::policy::{PolicyId, PolicyResults};
+use crate::policy::PolicyResults;
 use crate::risk::{RiskBand, RiskThresholds};
 use crate::snapshot::{CommitInfo, FunctionSnapshot, Snapshot, SnapshotSummary};
 
@@ -2510,19 +2510,9 @@ fn render_policy_section(policy: &PolicyResults, delta: &Delta) -> String {
         ));
     }
 
-    // Group warnings by policy ID
-    let rapid_growth_warnings: Vec<_> = policy
-        .warnings
-        .iter()
-        .filter(|w| w.id == PolicyId::RapidGrowth)
-        .collect();
-
-    if !rapid_growth_warnings.is_empty() {
-        sections.push(render_warning_group(
-            "Rapid Growth",
-            &rapid_growth_warnings,
-            delta,
-        ));
+    let warnings: Vec<_> = policy.warnings.iter().collect();
+    if !warnings.is_empty() {
+        sections.push(render_warning_group("Warnings", &warnings, delta));
     }
 
     if sections.is_empty() {

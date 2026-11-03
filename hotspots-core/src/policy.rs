@@ -22,7 +22,6 @@ use std::collections::HashMap;
 pub enum PolicyId {
     CriticalIntroduction,
     ExcessiveRiskRegression,
-    RapidGrowth,
 }
 
 impl PolicyId {
@@ -31,7 +30,6 @@ impl PolicyId {
         match self {
             PolicyId::CriticalIntroduction => "critical-introduction",
             PolicyId::ExcessiveRiskRegression => "excessive-risk-regression",
-            PolicyId::RapidGrowth => "rapid-growth",
         }
     }
 
@@ -40,7 +38,6 @@ impl PolicyId {
         match self {
             PolicyId::CriticalIntroduction => 0,
             PolicyId::ExcessiveRiskRegression => 1,
-            PolicyId::RapidGrowth => 4,
         }
     }
 }
@@ -162,9 +159,6 @@ pub fn evaluate_policies(delta: &Delta, config: &ResolvedConfig) -> Result<Optio
     // 1. Blocking function-level policies
     evaluate_critical_introduction(&delta.deltas, config, &mut results);
     evaluate_excessive_risk_regression(&delta.deltas, config, &mut results);
-
-    // 2. Warning function-level policies
-    evaluate_rapid_growth(&delta.deltas, &mut results);
 
     // Sort results deterministically
     results.sort();
@@ -321,57 +315,6 @@ fn evaluate_excessive_risk_regression(
                     PolicySeverity::Warning => results.warnings.push(result),
                 }
             }
-        }
-    }
-}
-
-/// Percent LRS increase at which `rapid-growth` warns (fixed, not configurable).
-const RAPID_GROWTH_PERCENT: f64 = 50.0;
-
-/// Evaluate Rapid Growth policy
-///
-/// Triggers when `delta.lrs / before.lrs >= RAPID_GROWTH_PERCENT / 100.0`
-/// Only applies to Modified functions (not New, since no baseline)
-fn evaluate_rapid_growth(deltas: &[FunctionDeltaEntry], results: &mut PolicyResults) {
-    for entry in active_deltas(deltas) {
-        // Only check Modified functions
-        if entry.status != FunctionStatus::Modified {
-            continue;
-        }
-
-        // Get before and after LRS
-        let (before_lrs, after_lrs) = match (&entry.before, &entry.after) {
-            (Some(before), Some(after)) => (before.lrs, after.lrs),
-            _ => continue,
-        };
-
-        // Skip if before_lrs is zero (avoid division by zero)
-        if before_lrs <= f64::EPSILON {
-            continue;
-        }
-
-        // Calculate growth percentage
-        let delta_lrs = after_lrs - before_lrs;
-        let growth_percent = (delta_lrs / before_lrs) * 100.0;
-
-        // Trigger if growth exceeds threshold
-        if growth_percent >= RAPID_GROWTH_PERCENT {
-            let message = format!(
-                "Function {} LRS increased by {:.1}% ({:.2} -> {:.2})",
-                entry.function_id, growth_percent, before_lrs, after_lrs
-            );
-
-            results.warnings.push(PolicyResult {
-                id: PolicyId::RapidGrowth,
-                severity: PolicySeverity::Warning,
-                function_id: Some(entry.function_id.clone()),
-                message,
-                metadata: Some(PolicyMetadata {
-                    delta_lrs: Some(delta_lrs),
-                    total_delta: None,
-                    growth_percent: Some(growth_percent),
-                }),
-            });
         }
     }
 }
@@ -855,178 +798,4 @@ mod tests {
     }
 
     // Helper to create delta entry with specific LRS values
-    fn create_test_delta_entry_with_lrs(
-        function_id: &str,
-        status: FunctionStatus,
-        before_lrs: Option<f64>,
-        after_lrs: Option<f64>,
-    ) -> FunctionDeltaEntry {
-        let before = before_lrs.map(|lrs| FunctionState {
-            metrics: MetricsReport {
-                cc: 4,
-                nd: 2,
-                fo: 2,
-                ns: 1,
-                loc: 10,
-                missing_docstring: false,
-            },
-            lrs,
-            band: if lrs >= 9.0 {
-                RiskBand::Critical
-            } else if lrs >= 6.0 {
-                RiskBand::High
-            } else if lrs >= 3.0 {
-                RiskBand::Moderate
-            } else {
-                RiskBand::Low
-            },
-        });
-
-        let after = after_lrs.map(|lrs| FunctionState {
-            metrics: MetricsReport {
-                cc: 6,
-                nd: 3,
-                fo: 3,
-                ns: 1,
-                loc: 15,
-                missing_docstring: false,
-            },
-            lrs,
-            band: if lrs >= 9.0 {
-                RiskBand::Critical
-            } else if lrs >= 6.0 {
-                RiskBand::High
-            } else if lrs >= 3.0 {
-                RiskBand::Moderate
-            } else {
-                RiskBand::Low
-            },
-        });
-
-        let delta = match (before_lrs, after_lrs) {
-            (Some(before), Some(after)) => Some(FunctionDelta {
-                cc: 2,
-                nd: 1,
-                fo: 1,
-                ns: 0,
-                lrs: after - before,
-            }),
-            _ => None,
-        };
-
-        FunctionDeltaEntry {
-            function_id: function_id.to_string(),
-            status,
-            before,
-            after,
-            delta,
-            band_transition: None,
-            suppression_reason: None,
-            rename_hint: None,
-        }
-    }
-
-    #[test]
-    fn test_rapid_growth_triggered() {
-        let mut results = PolicyResults::new();
-
-        // Modified function with 100% growth (2.0 -> 4.0)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.0),
-            Some(4.0),
-        )];
-
-        evaluate_rapid_growth(&deltas, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::RapidGrowth);
-        assert_eq!(results.warnings[0].severity, PolicySeverity::Warning);
-        assert!(results.warnings[0]
-            .metadata
-            .as_ref()
-            .unwrap()
-            .growth_percent
-            .is_some());
-        let growth = results.warnings[0]
-            .metadata
-            .as_ref()
-            .unwrap()
-            .growth_percent
-            .unwrap();
-        assert!((growth - 100.0).abs() < 0.1); // ~100%
-    }
-
-    #[test]
-    fn test_rapid_growth_exactly_at_threshold() {
-        let mut results = PolicyResults::new();
-
-        // Modified function with exactly 50% growth (2.0 -> 3.0)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.0),
-            Some(3.0),
-        )];
-
-        evaluate_rapid_growth(&deltas, &mut results);
-
-        assert_eq!(results.warnings.len(), 1);
-        assert_eq!(results.warnings[0].id, PolicyId::RapidGrowth);
-    }
-
-    #[test]
-    fn test_rapid_growth_below_threshold() {
-        let mut results = PolicyResults::new();
-
-        // Modified function with 40% growth (below 50% threshold)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(2.5),
-            Some(3.5),
-        )];
-
-        evaluate_rapid_growth(&deltas, &mut results);
-
-        // Should not trigger - below threshold
-        assert_eq!(results.warnings.len(), 0);
-    }
-
-    #[test]
-    fn test_rapid_growth_negative_delta() {
-        let mut results = PolicyResults::new();
-
-        // Modified function with improvement (5.0 -> 3.0)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::Modified,
-            Some(5.0),
-            Some(3.0),
-        )];
-
-        evaluate_rapid_growth(&deltas, &mut results);
-
-        // Should not trigger - negative delta (improvement)
-        assert_eq!(results.warnings.len(), 0);
-    }
-
-    #[test]
-    fn test_rapid_growth_new_function() {
-        let mut results = PolicyResults::new();
-
-        // New function (no baseline)
-        let deltas = vec![create_test_delta_entry_with_lrs(
-            "src/foo.ts::handler",
-            FunctionStatus::New,
-            None,
-            Some(10.0),
-        )];
-
-        evaluate_rapid_growth(&deltas, &mut results);
-
-        // Should not trigger - new functions don't have rapid growth warnings
-        assert_eq!(results.warnings.len(), 0);
-    }
 }

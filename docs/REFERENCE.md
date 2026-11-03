@@ -459,7 +459,7 @@ Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 }
 ```
 
-**Fixed, not configurable.** The LRS component weights, the risk band cutoffs (3 / 6 / 9), the activity-risk scale constants, the touch window (365 days), the churn window (180 days), the co-change window (90 days, minimum 3 co-changes) and the rapid-growth cutoff (50%) are built in. They were previously configurable but nothing in our evaluation supported tuning them per repo, and one shared definition keeps scores comparable across repos and over time. A config file that still sets one of these keys is rejected as an unknown field.
+**Fixed, not configurable.** The LRS component weights, the risk band cutoffs (3 / 6 / 9), the activity-risk scale constants, the touch window (365 days), the churn window (180 days), the co-change window (90 days, minimum 3 co-changes) are built in. They were previously configurable but nothing in our evaluation supported tuning them per repo, and one shared definition keeps scores comparable across repos and over time. A config file that still sets one of these keys is rejected as an unknown field.
 
 **Validation rules:**
 - `policy.*` values must be one of `"block"`, `"warn"`, `"off"`

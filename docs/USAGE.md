@@ -175,8 +175,7 @@ The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff 
   gather enough evidence to say whether that miscalibration matters in practice
   (see the doc comment on `REGRESSION_THRESHOLD` in `hotspots-core/src/policy.rs`).
 
-**Warnings (exit code 0, informational):**
-- `rapid-growth` — LRS increase > 50% on any function
+**Warnings (exit code 0, informational):** none by default. A policy you downgrade to `"warn"` (below) reports as a warning instead of failing.
 
 ### Downgrading a blocking policy for your repo
 

@@ -1,6 +1,6 @@
 use crate::util::truncate_string;
 use hotspots_core::delta::Delta;
-use hotspots_core::policy::{PolicyResult, PolicyResults};
+use hotspots_core::policy::PolicyResults;
 use std::fmt::Write;
 
 /// Render all policy sections to a String.
@@ -12,7 +12,6 @@ pub(crate) fn render_policy_text_output(
     writeln!(out, "Policy Evaluation Results")?;
     writeln!(out, "{}", "=".repeat(80))?;
     write_failing_functions_section(&mut out, delta, policy_results)?;
-    write_rapid_growth_section(&mut out, delta, &policy_results.warnings)?;
     write_co_change_delta_section(&mut out, delta)?;
     write_policy_summary(&mut out, policy_results)?;
     Ok(out)
@@ -142,58 +141,6 @@ fn write_failing_functions_section(
     Ok(())
 }
 
-fn write_rapid_growth_section(
-    out: &mut String,
-    delta: &Delta,
-    warnings: &[PolicyResult],
-) -> anyhow::Result<()> {
-    let group: Vec<_> = warnings
-        .iter()
-        .filter(|r| r.id.as_str() == "rapid-growth")
-        .collect();
-    if group.is_empty() {
-        return Ok(());
-    }
-    writeln!(out, "\nRapid Growth (significant LRS increase):")?;
-    writeln!(
-        out,
-        "{:<40} {:<12} {:<12} {:<12}",
-        "Function", "Current LRS", "Delta", "Growth"
-    )?;
-    writeln!(out, "{}", "-".repeat(76))?;
-    for warning in group {
-        if let Some(function_id) = &warning.function_id {
-            if let Some(entry) = delta.deltas.iter().find(|e| &e.function_id == function_id) {
-                let after_lrs = entry
-                    .after
-                    .as_ref()
-                    .map(|a| format!("{:.2}", a.lrs))
-                    .unwrap_or_else(|| "N/A".to_string());
-                let delta_lrs = entry
-                    .delta
-                    .as_ref()
-                    .map(|d| format!("{:+.2}", d.lrs))
-                    .unwrap_or_else(|| "N/A".to_string());
-                let growth_pct = warning
-                    .metadata
-                    .as_ref()
-                    .and_then(|m| m.growth_percent)
-                    .map(|g| format!("{:+.0}%", g))
-                    .unwrap_or_else(|| "N/A".to_string());
-                writeln!(
-                    out,
-                    "{:<40} {:<12} {:<12} {:<12}",
-                    truncate_string(function_id, 40),
-                    after_lrs,
-                    delta_lrs,
-                    growth_pct
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
 fn write_policy_summary(out: &mut String, policy_results: &PolicyResults) -> anyhow::Result<()> {
     if policy_results.failed.is_empty() && policy_results.warnings.is_empty() {
         writeln!(out, "\nNo policy violations detected.")?;
@@ -201,13 +148,8 @@ fn write_policy_summary(out: &mut String, policy_results: &PolicyResults) -> any
     }
     writeln!(out, "\nSummary:")?;
     writeln!(out, "  Blocking failures: {}", policy_results.failed.len())?;
-    let rapid_growth_count = policy_results
-        .warnings
-        .iter()
-        .filter(|r| r.id.as_str() == "rapid-growth")
-        .count();
-    if rapid_growth_count > 0 {
-        writeln!(out, "  Rapid growth warnings: {rapid_growth_count}")?;
+    if !policy_results.warnings.is_empty() {
+        writeln!(out, "  Warnings: {}", policy_results.warnings.len())?;
     }
     Ok(())
 }

@@ -153,7 +153,7 @@ Exit code 1 on blocking violations, 0 on warnings only.
 
 ## Key Features
 
-**Policy engine** — blocks: new critical-risk functions and LRS regressions ≥ 1.0. Warns: rapid growth > 50%.
+**Policy engine** — blocks: new critical-risk functions and LRS regressions ≥ 1.0.
 
 **Suppression comments** — exclude functions from CI failures while keeping them visible:
 ```typescript
