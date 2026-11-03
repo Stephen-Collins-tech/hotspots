@@ -226,7 +226,7 @@ When run on main branch:
 
 **Mode:** Delta (PR analysis)
 
-**Summary:** 2 error(s), 1 warning(s), 3 info
+**Summary:** 2 error(s)
 
 ## ❌ Errors
 
@@ -234,16 +234,6 @@ When run on main branch:
 |----------|------|-----|--------|
 | handleRequest | src/api.ts:45 | 9.2 | critical-introduction |
 | processPayment | src/payment.ts:120 | 8.7 | critical-introduction |
-
-## ⚠️ Warnings
-
-| Function | File | LRS | Policy |
-|----------|------|-----|--------|
-| parseInput | src/parser.ts:78 | 5.8 | attention-threshold |
-
-## 👀 Watch
-
-3 function(s) approaching thresholds
 ```
 
 ### Job Summary

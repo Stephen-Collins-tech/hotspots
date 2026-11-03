@@ -229,7 +229,7 @@ enum Commands {
         #[arg(long, short = 'q', default_value = "false")]
         quiet: bool,
     },
-    /// Analyze coupling and ownership risk for a set of files before starting work
+    /// Report ownership risk for a set of files before starting work
     Coordinate {
         /// Comma-separated list of file paths to analyze
         #[arg(long)]
