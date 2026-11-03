@@ -185,7 +185,7 @@ hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
 JSON output only today. `PATH` defaults to `.`.
 
 Output is the master-schema envelope's `coordinate` section (`schema_version: 6`):
-- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`), `ownership_risk` (normalized author entropy, 0 to 1, higher = more diffuse; `null` with fewer than two authors) and `ownership_risk_band` (`"low"` below 0.754, `"medium"` below 0.907, else `"high"`; the cutoffs are terciles from our evaluation).
+- `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`), `ownership_risk` (normalized author entropy, 0 to 1, higher = more diffuse; `null` with fewer than two authors) and `ownership_risk_band` (`"low"` below 0.754, `"medium"` below 0.907, else `"high"`; the cutoffs are terciles from our evaluation; [evidence and limits](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/ownership-risk-bands.md)).
 
 There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
 facts either — both removed in hotspots 2.0 for lack of validated evidence. See
@@ -324,6 +324,8 @@ and `compute_tiers` (`hotspots-core/src/snapshot.rs`).
 
 ### Activity Risk Score (snapshot mode)
 
+_Evidence and limits: [activity risk formula](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md)._
+
 Combines LRS with the file's git history into one absolute score. Each term is scaled
 to [0, 1] on a fixed scale, so no term swamps the others and the score never depends on
 the rest of the repo:
@@ -413,7 +415,7 @@ Each function gets a `tier` of `active` or `quiet`, based on activity alone:
 claim about how complex the code is; `band` carries that separately, so you can still
 select "complex and active" by combining the two. In our evaluation, adding a complexity
 gate to the activity set did not improve how well it predicted where fixes land, which is
-why the tier is activity-only.
+why the tier is activity-only. See [why the quadrant was replaced](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/quadrant-replaced-by-activity-tier.md).
 
 **How to use it.** The triage view groups functions into `active` and `quiet`, each sorted
 by `activity_risk`. Start with the top of `active`. A function in `quiet` with a high
@@ -692,7 +694,7 @@ touched function's line span, summed across the whole diff. In our evaluation, t
 against the real compiled binary, it was the strongest predictor of which PRs later need a
 defect fix, beating every LRS-weighted score tried on every repo tested. That is why no
 composite "PR risk score" is reported: read `fn_changed_lines` for "is this PR risky" and
-`band` for "what is the worst code in this diff". Present whenever `aggregates` is attached
+`band` for "what is the worst code in this diff". See [the evidence](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/pr-risk-score-removed.md). Present whenever `aggregates` is attached
 (always true for `hotspots diff` output).
 
 ---
