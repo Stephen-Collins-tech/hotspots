@@ -29,3 +29,4 @@ export declare function unwrapDelta(raw: any): any;
 export declare function generateDiffSummary(result: any, baseSha: string, headSha: string): string;
 export declare function commentMarker(analyzedPath: string): string;
 export {};
+//# sourceMappingURL=main.d.ts.map

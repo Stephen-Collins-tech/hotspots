@@ -37,6 +37,9 @@ exports.getInputs = getInputs;
 exports.policyGateEnabled = policyGateEnabled;
 exports.getPlatformInfo = getPlatformInfo;
 exports.installFaultline = installFaultline;
+exports.runDeltaAnalysis = runDeltaAnalysis;
+exports.unwrapDelta = unwrapDelta;
+exports.generateDiffSummary = generateDiffSummary;
 exports.commentMarker = commentMarker;
 const core = __importStar(require("@actions/core"));
 const exec = __importStar(require("@actions/exec"));
@@ -319,7 +322,7 @@ async function runPRAnalysis(binaryPath, inputs) {
             await exec.exec(binaryPath, htmlArgs, { ignoreReturnCode: true });
             let diffResult;
             try {
-                diffResult = JSON.parse(diffStdout);
+                diffResult = unwrapDelta(JSON.parse(diffStdout));
             }
             catch {
                 core.warning('Failed to parse diff output — falling back to delta analysis.');
@@ -386,14 +389,18 @@ async function runDeltaAnalysis(binaryPath, inputs) {
         core.warning(`Stderr: ${stderr}`);
     let result;
     try {
-        result = JSON.parse(stdout);
+        result = unwrapDelta(JSON.parse(stdout));
     }
     catch (error) {
         core.error(`Failed to parse hotspots output: ${error}`);
         core.error(`Raw output: ${stdout}`);
         throw new Error('Failed to parse hotspots output');
     }
-    const violations = result.violations || [];
+    const policy = result.policy || { failed: [], warnings: [] };
+    const violations = result.violations || [
+        ...policy.failed.map((v) => ({ ...v, level: 'error' })),
+        ...policy.warnings.map((v) => ({ ...v, level: 'warning' }))
+    ];
     const errors = violations.filter((v) => v.level === 'error');
     const warnings = violations.filter((v) => v.level === 'warning');
     let passed = true;
@@ -404,7 +411,9 @@ async function runDeltaAnalysis(binaryPath, inputs) {
     return {
         violations,
         passed,
-        summary: generateSummary(result, 'pr'),
+        summary: result.deltas
+            ? generateDiffBody(result, 'Delta (PR analysis)')
+            : generateSummary(result, 'pr'),
         reportPath: fs.existsSync(reportPath) ? reportPath : undefined
     };
 }
@@ -456,21 +465,61 @@ function generateSummary(result, context) {
     }
     return summary;
 }
+// JSON output uses one envelope ({ schema_version, delta: { deltas, policy, aggregates } }).
+// Older output had those fields at the top level, so accept both shapes.
+function unwrapDelta(raw) {
+    return raw && typeof raw.delta === 'object' && raw.delta !== null ? raw.delta : raw;
+}
+const RANKING_LIMIT = 10;
+function functionParts(functionId) {
+    const sep = functionId.lastIndexOf('::');
+    return sep === -1
+        ? { name: functionId, file: '' }
+        : { name: functionId.slice(sep + 2), file: functionId.slice(0, sep) };
+}
+// Ranked table of the functions this PR touched (new or modified), highest risk first,
+// shown whether or not any policy fired.
+function generateRankingSection(deltas) {
+    const touched = deltas
+        .filter((d) => (d.status === 'new' || d.status === 'modified') && d.after)
+        .sort((a, b) => (b.after.lrs ?? 0) - (a.after.lrs ?? 0));
+    if (touched.length === 0)
+        return '';
+    let out = '## Risk ranking (this PR)\n\n';
+    out += '| Function | File | LRS | Band | Status |\n';
+    out += '|----------|------|-----|------|--------|\n';
+    for (const d of touched.slice(0, RANKING_LIMIT)) {
+        const { name, file } = functionParts(String(d.function_id ?? ''));
+        const lrs = Number(d.after.lrs ?? 0).toFixed(1);
+        const change = d.status === 'modified' && typeof d.delta?.lrs === 'number' && d.delta.lrs !== 0
+            ? ` (${d.delta.lrs > 0 ? '+' : ''}${d.delta.lrs.toFixed(1)})`
+            : '';
+        out += `| ${name} | ${file} | ${lrs}${change} | ${d.after.band ?? ''} | ${d.status} |\n`;
+    }
+    if (touched.length > RANKING_LIMIT) {
+        out += `\n*...and ${touched.length - RANKING_LIMIT} more*\n`;
+    }
+    return `${out}\n`;
+}
 function generateDiffSummary(result, baseSha, headSha) {
+    return generateDiffBody(result, `Diff (${baseSha.slice(0, 7)} → ${headSha.slice(0, 7)})`);
+}
+function generateDiffBody(result, modeLabel) {
     const deltas = result.deltas || [];
     const policy = result.policy || { failed: [], warnings: [] };
     const newFns = deltas.filter((d) => d.status === 'new');
     const modified = deltas.filter((d) => d.status === 'modified');
     const deleted = deltas.filter((d) => d.status === 'deleted');
     let summary = '# Hotspots Analysis Results\n\n';
-    summary += `**Mode:** Diff (${baseSha.slice(0, 7)} → ${headSha.slice(0, 7)})\n\n`;
+    summary += `**Mode:** ${modeLabel}\n\n`;
     summary += `**Changes:** ${modified.length} modified, ${newFns.length} new, ${deleted.length} deleted\n\n`;
     if (policy.failed.length === 0 && policy.warnings.length === 0) {
-        summary +=
-            deltas.length === 0
-                ? '✅ **No function changes detected.**\n'
-                : '✅ **No policy violations.**\n';
-        return summary;
+        if (deltas.length === 0) {
+            summary += '✅ **No function changes detected.**\n';
+            return summary;
+        }
+        summary += '✅ **No policy violations.**\n\n';
+        return summary + generateRankingSection(deltas);
     }
     summary += `**Policy:** ${policy.failed.length} blocking, ${policy.warnings.length} warning(s)\n\n`;
     if (policy.failed.length > 0) {
@@ -491,7 +540,7 @@ function generateDiffSummary(result, baseSha, headSha) {
             summary += `\n*...and ${policy.warnings.length - 10} more*\n`;
         summary += '\n';
     }
-    return summary;
+    return summary + generateRankingSection(deltas);
 }
 // Identifies this action invocation's comment among possibly several on the
 // same PR (e.g. a monorepo running the action once per package path). Scoped
