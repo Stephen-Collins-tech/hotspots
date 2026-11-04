@@ -209,7 +209,7 @@ Off by default. If you choose to enable it, hotspots sends one anonymous ping a 
 ## Contributing
 
 - Bug reports: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues)
-- Feature requests: [GitHub Discussions](https://github.com/Stephen-Collins-tech/hotspots/discussions)
+- Feature requests: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues/new) (describe the use case)
 - PRs: see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ---

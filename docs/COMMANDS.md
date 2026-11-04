@@ -60,6 +60,8 @@ hotspots analyze . --mode delta --policy           # gate a PR
   strategy per repo and prints which one it used.
 - `--skip-touch-metrics` skips all git history work (useful for benchmarking or very large
   repos); activity terms then contribute nothing.
+- `--html-output PATH` (snapshot mode, with a non-HTML `--format`) also writes the HTML report
+  from the same analysis, so you get JSON and the report for one commit without analysing twice.
 - `--top`, `--min-lrs`, `--config`, `--jobs` limit and tune the output; `--no-persist` and
   `--force` control writing the snapshot.
 
@@ -67,7 +69,9 @@ hotspots analyze . --mode delta --policy           # gate a PR
 Critical; cutoffs 3, 6 and 9). In snapshot mode it also has an **activity risk** and a
 **tier** (`active` or `quiet`). Read the band to judge structure and the activity risk to
 decide order. Activity risk cannot be lowered by a fix; it decays as the file goes quiet.
-Formats are `text`, `json`, `html` and `sarif`.
+Formats are `text`, `json`, `html` and `sarif`. The evidence behind the score, and its
+limits, is written up in [the activity risk formula](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md) and
+[why the quadrant became an activity tier](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/quadrant-replaced-by-activity-tier.md).
 
 **How it relates to the others.** `diff` and `analyze --mode delta` both compare snapshots;
 `train` makes `analyze` rank with your repo's own history; `prune` cleans up the snapshots

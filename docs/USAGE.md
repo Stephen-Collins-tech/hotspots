@@ -374,6 +374,13 @@ hotspots analyze . --mode snapshot --format html
 open .hotspots/report.html   # macOS
 ```
 
+Need JSON and the report for the same commit? One run writes both, so the second analysis (about as
+expensive as the first on large repos) is avoided:
+
+```bash
+hotspots analyze . --mode snapshot --format json --html-output report.html > snapshot.json
+```
+
 ### SARIF (GitHub Code Scanning)
 
 ```bash

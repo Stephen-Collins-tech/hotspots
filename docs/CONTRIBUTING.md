@@ -193,7 +193,7 @@ We follow [Semantic Versioning](https://semver.org/): MAJOR for breaking API cha
 ## Reporting bugs and requesting features
 
 - Bugs: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues) — include version (`hotspots --version`), OS, steps to reproduce, expected vs actual
-- Features: [GitHub Discussions](https://github.com/Stephen-Collins-tech/hotspots/discussions) — describe the use case, not just the solution
+- Features: [GitHub Issues](https://github.com/Stephen-Collins-tech/hotspots/issues/new) — describe the use case, not just the solution
 
 ## Code of conduct
 
