@@ -94,6 +94,11 @@ enum Commands {
         #[arg(long, value_name = "URL")]
         source_url: Option<String>,
 
+        /// Also write the HTML report from this same analysis to PATH (only valid with
+        /// --mode snapshot and a non-html --format; avoids a second full analysis)
+        #[arg(long, value_name = "PATH")]
+        html_output: Option<PathBuf>,
+
         /// Number of parallel worker threads (default: number of logical CPUs)
         #[arg(long, short = 'j', value_name = "N")]
         jobs: Option<usize>,
@@ -295,6 +300,7 @@ fn main() -> anyhow::Result<()> {
             skip_touch_metrics,
             all_functions,
             source_url,
+            html_output,
             jobs,
             skip_gate,
             cold_start,
@@ -315,6 +321,7 @@ fn main() -> anyhow::Result<()> {
             skip_touch_metrics,
             all_functions,
             source_url,
+            html_output,
             jobs,
             skip_gate,
             cold_start,
