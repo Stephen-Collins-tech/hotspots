@@ -87,3 +87,53 @@ function simpleFunction() { return 42; }
     assert not (repo / ".hotspots" / "snapshots").exists()
     assert not (repo / ".hotspots" / "gate_history.json").exists()
 
+
+
+def test_html_output_writes_report_and_json_from_one_run(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(repo, "function simpleFunction() { return 42; }")
+
+    snap = repo / "snap.json"
+    report = repo / "out" / "report.html"
+    proc = r.run(
+        ["analyze", "--mode", "snapshot", "--format", "json", "--no-persist",
+         "--html-output", str(report), "src/main.ts"],
+        repo,
+        out=snap,
+    )
+    assert proc.returncode == 0
+
+    # JSON on stdout is the normal snapshot: the HTML path must not leak aggregates into it.
+    s = read_json(snap)
+    assert s["schema_version"] == 6
+    assert s.get("aggregates") is None
+
+    html = report.read_text()
+    assert "<html" in html.lower()
+    assert "simpleFunction" in html
+    assert "HTML report written to" in proc.stderr
+
+
+def test_html_output_rejects_invalid_combinations(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(repo, "function simpleFunction() { return 42; }")
+    report = str(repo / "report.html")
+
+    no_mode = r.run(["analyze", "--html-output", report, "src/main.ts"], repo)
+    assert no_mode.returncode != 0
+    assert "--html-output is only valid with --mode snapshot" in no_mode.stderr
+
+    with_html = r.run(
+        ["analyze", "--mode", "snapshot", "--format", "html", "--html-output", report, "src/main.ts"], repo
+    )
+    assert with_html.returncode != 0
+    assert "redundant with --format html" in with_html.stderr
+    assert not (repo / "report.html").exists()
