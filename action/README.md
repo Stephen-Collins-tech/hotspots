@@ -224,17 +224,28 @@ When run on main branch:
 ```markdown
 # Hotspots Analysis Results
 
-**Mode:** Delta (PR analysis)
+**Mode:** Diff (a1b2c3d → e4f5a6b)
 
-**Summary:** 2 error(s)
+**Changes:** 2 modified, 1 new, 0 deleted
 
-## ❌ Errors
+**Policy:** 1 blocking, 0 warning(s)
 
-| Function | File | LRS | Policy |
-|----------|------|-----|--------|
-| handleRequest | src/api.ts:45 | 9.2 | critical-introduction |
-| processPayment | src/payment.ts:120 | 8.7 | critical-introduction |
+## ❌ Blocking Violations
+
+- handleRequest became critical (LRS 9.2)
+
+## Risk ranking (this PR)
+
+| Function | File | LRS | Band | Status |
+|----------|------|-----|------|--------|
+| handleRequest | src/api.ts | 9.2 (+3.1) | critical | modified |
+| processPayment | src/payment.ts | 6.4 | high | new |
+| parseConfig | src/config.ts | 3.8 | moderate | modified |
 ```
+
+The ranking lists the functions the PR added or changed, highest risk first (top 10, with a
+count of the rest). It appears on every PR that touches functions, not only when a policy fires,
+so reviewers see where to look even when the gate passes.
 
 ### Job Summary
 

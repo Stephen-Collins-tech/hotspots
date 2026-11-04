@@ -148,3 +148,133 @@ describe('PR comment marker', () => {
     expect(main.commentMarker('.')).toContain('path=.');
   });
 });
+
+describe('diff summary', () => {
+  let main;
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    main = loadMain();
+  });
+
+  const fn = (id, status, lrs, band, delta) => ({
+    function_id: id,
+    status,
+    after: { lrs, band },
+    ...(delta === undefined ? {} : { delta: { lrs: delta } })
+  });
+
+  test('unwrapDelta reads the envelope and still accepts the old top-level shape', () => {
+    const body = { deltas: [], policy: { failed: [], warnings: [] } };
+    expect(main.unwrapDelta({ schema_version: 6, delta: body })).toBe(body);
+    expect(main.unwrapDelta(body)).toBe(body);
+  });
+
+  test('shows the ranked table when nothing violates', () => {
+    const out = main.generateDiffSummary(
+      {
+        deltas: [
+          fn('src/a.py::low', 'new', 2.1, 'low'),
+          fn('src/b.py::high', 'modified', 8.34, 'high', 1.5),
+          fn('src/c.py::gone', 'deleted', 0, 'low')
+        ],
+        policy: { failed: [], warnings: [] }
+      },
+      'aaaaaaa1',
+      'bbbbbbb2'
+    );
+    expect(out).toContain('No policy violations');
+    expect(out).toContain('## Risk ranking (this PR)');
+    expect(out.indexOf('| high |')).toBeLessThan(out.indexOf('| low |'));
+    expect(out).toContain('| high | src/b.py | 8.3 (+1.5) | high | modified |');
+    expect(out).not.toContain('gone');
+  });
+
+  test('empty diff keeps the existing message and has no table', () => {
+    const out = main.generateDiffSummary({ deltas: [] }, 'aaaaaaa1', 'bbbbbbb2');
+    expect(out).toContain('No function changes detected');
+    expect(out).not.toContain('Risk ranking');
+  });
+
+  test('violations and ranking both appear, violations first', () => {
+    const out = main.generateDiffSummary(
+      {
+        deltas: [fn('src/a.py::f', 'new', 12.0, 'critical')],
+        policy: { failed: [{ message: 'f became critical' }], warnings: [] }
+      },
+      'aaaaaaa1',
+      'bbbbbbb2'
+    );
+    expect(out).toContain('Blocking Violations');
+    expect(out).toContain('f became critical');
+    expect(out.indexOf('Blocking Violations')).toBeLessThan(out.indexOf('Risk ranking'));
+  });
+
+  test('caps the table at ten rows with a count of the rest', () => {
+    const deltas = Array.from({ length: 13 }, (_, i) => fn(`f.py::fn${i}`, 'new', i, 'low'));
+    const out = main.generateDiffSummary({ deltas }, 'aaaaaaa1', 'bbbbbbb2');
+    expect(out).toContain('*...and 3 more*');
+  });
+});
+
+describe('delta fallback analysis', () => {
+  let main;
+  const exec = require('@actions/exec');
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    exec.exec.mockReset();
+    main = loadMain();
+  });
+
+  const inputs = { path: '.', policy: 'critical-introduction', failOn: 'error' };
+
+  // The first exec call is the JSON run; feed it as stdout like the real listeners would.
+  const mockCliOutput = (body) => {
+    exec.exec.mockImplementation(async (_bin, args, opts) => {
+      if (args.includes('json') && opts?.listeners?.stdout) {
+        opts.listeners.stdout(Buffer.from(JSON.stringify(body)));
+      }
+      return 1;
+    });
+  };
+
+  test('reads policy failures from the envelope and fails the gate', async () => {
+    mockCliOutput({
+      schema_version: 6,
+      delta: {
+        deltas: [{ function_id: 'src/a.py::f', status: 'new', after: { lrs: 12, band: 'critical' } }],
+        policy: { failed: [{ message: 'f became critical' }], warnings: [] }
+      }
+    });
+    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([{ message: 'f became critical', level: 'error' }]);
+    expect(result.summary).toContain('f became critical');
+    expect(result.summary).toContain('Risk ranking');
+  });
+
+  test('passes and still ranks when nothing violates', async () => {
+    mockCliOutput({
+      schema_version: 6,
+      delta: {
+        deltas: [{ function_id: 'src/a.py::f', status: 'modified', after: { lrs: 4, band: 'moderate' } }],
+        policy: { failed: [], warnings: [] }
+      }
+    });
+    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    expect(result.passed).toBe(true);
+    expect(result.violations).toEqual([]);
+    expect(result.summary).toContain('Risk ranking');
+  });
+
+  test('warn-level findings only fail the gate when failOn is warn', async () => {
+    const body = {
+      delta: { deltas: [], policy: { failed: [], warnings: [{ message: 'watch this' }] } }
+    };
+    mockCliOutput(body);
+    expect((await main.runDeltaAnalysis('hotspots', inputs)).passed).toBe(true);
+    mockCliOutput(body);
+    expect((await main.runDeltaAnalysis('hotspots', { ...inputs, failOn: 'warn' })).passed).toBe(false);
+  });
+});
