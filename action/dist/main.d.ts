@@ -18,6 +18,7 @@ export declare function getPlatformInfo(): {
     binaryName: string;
 };
 export declare function installFaultline(version: string, token?: string, binaryPath?: string): Promise<string>;
+export declare function unwrapDelta(raw: any): any;
+export declare function generateDiffSummary(result: any, baseSha: string, headSha: string): string;
 export declare function commentMarker(analyzedPath: string): string;
 export {};
-//# sourceMappingURL=main.d.ts.map

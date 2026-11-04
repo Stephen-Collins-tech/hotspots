@@ -148,3 +148,71 @@ describe('PR comment marker', () => {
     expect(main.commentMarker('.')).toContain('path=.');
   });
 });
+
+describe('diff summary', () => {
+  let main;
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    main = loadMain();
+  });
+
+  const fn = (id, status, lrs, band, delta) => ({
+    function_id: id,
+    status,
+    after: { lrs, band },
+    ...(delta === undefined ? {} : { delta: { lrs: delta } })
+  });
+
+  test('unwrapDelta reads the envelope and still accepts the old top-level shape', () => {
+    const body = { deltas: [], policy: { failed: [], warnings: [] } };
+    expect(main.unwrapDelta({ schema_version: 6, delta: body })).toBe(body);
+    expect(main.unwrapDelta(body)).toBe(body);
+  });
+
+  test('shows the ranked table when nothing violates', () => {
+    const out = main.generateDiffSummary(
+      {
+        deltas: [
+          fn('src/a.py::low', 'new', 2.1, 'low'),
+          fn('src/b.py::high', 'modified', 8.34, 'high', 1.5),
+          fn('src/c.py::gone', 'deleted', 0, 'low')
+        ],
+        policy: { failed: [], warnings: [] }
+      },
+      'aaaaaaa1',
+      'bbbbbbb2'
+    );
+    expect(out).toContain('No policy violations');
+    expect(out).toContain('## Risk ranking (this PR)');
+    expect(out.indexOf('| high |')).toBeLessThan(out.indexOf('| low |'));
+    expect(out).toContain('| high | src/b.py | 8.3 (+1.5) | high | modified |');
+    expect(out).not.toContain('gone');
+  });
+
+  test('empty diff keeps the existing message and has no table', () => {
+    const out = main.generateDiffSummary({ deltas: [] }, 'aaaaaaa1', 'bbbbbbb2');
+    expect(out).toContain('No function changes detected');
+    expect(out).not.toContain('Risk ranking');
+  });
+
+  test('violations and ranking both appear, violations first', () => {
+    const out = main.generateDiffSummary(
+      {
+        deltas: [fn('src/a.py::f', 'new', 12.0, 'critical')],
+        policy: { failed: [{ message: 'f became critical' }], warnings: [] }
+      },
+      'aaaaaaa1',
+      'bbbbbbb2'
+    );
+    expect(out).toContain('Blocking Violations');
+    expect(out).toContain('f became critical');
+    expect(out.indexOf('Blocking Violations')).toBeLessThan(out.indexOf('Risk ranking'));
+  });
+
+  test('caps the table at ten rows with a count of the rest', () => {
+    const deltas = Array.from({ length: 13 }, (_, i) => fn(`f.py::fn${i}`, 'new', i, 'low'));
+    const out = main.generateDiffSummary({ deltas }, 'aaaaaaa1', 'bbbbbbb2');
+    expect(out).toContain('*...and 3 more*');
+  });
+});
