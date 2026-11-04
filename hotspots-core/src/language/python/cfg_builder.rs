@@ -89,7 +89,6 @@ enum Task<'a> {
     IfChain {
         clauses: Vec<Node<'a>>,
         idx: usize,
-        join_node: NodeId,
         last_condition: NodeId,
         branch_ends: Vec<NodeId>,
         has_else: bool,
@@ -226,12 +225,10 @@ impl PythonCfgBuilderState {
                     let then_end = self.current_node.unwrap_or(then_start);
 
                     // Handle elif_clause and else_clause
-                    let join_node = self.cfg.add_node(NodeKind::Join);
                     let clauses = children_of_kinds(&node, &["elif_clause", "else_clause"]);
                     stack.push(Task::IfChain {
                         clauses,
                         idx: 0,
-                        join_node,
                         last_condition: condition_node,
                         branch_ends: vec![then_end],
                         has_else: false,
@@ -241,7 +238,6 @@ impl PythonCfgBuilderState {
                 Task::IfChain {
                     clauses,
                     idx,
-                    join_node,
                     mut last_condition,
                     mut branch_ends,
                     mut has_else,
@@ -256,6 +252,17 @@ impl PythonCfgBuilderState {
                         // join. When an else branch exists, that path is already covered by
                         // the condition->else_start edge, so adding this would be a spurious
                         // extra edge.
+                        //
+                        // The join is created only if something reaches it. When every
+                        // branch returns or raises there is no fall-through, and an
+                        // unconnected join would make the CFG invalid.
+                        let reaches_join =
+                            !has_else || branch_ends.iter().any(|&end| end != self.cfg.exit);
+                        if !reaches_join {
+                            self.current_node = Some(self.cfg.exit);
+                            continue;
+                        }
+                        let join_node = self.cfg.add_node(NodeKind::Join);
                         if !has_else {
                             self.cfg.add_edge(last_condition, join_node);
                         }
@@ -301,7 +308,6 @@ impl PythonCfgBuilderState {
                     stack.push(Task::IfChain {
                         clauses,
                         idx: idx + 1,
-                        join_node,
                         last_condition,
                         branch_ends,
                         has_else,
@@ -830,6 +836,58 @@ def test_func():
 
         // Should have entry, exit, and some nodes for statements
         assert!(cfg.node_count() >= 2);
+    }
+
+    #[test]
+    fn test_if_else_all_branches_terminate_builds_valid_cfg() {
+        // Regression: when every branch of an if/else returned or raised, the join
+        // node had no predecessors and validate() failed, so the function was skipped.
+        for source in [
+            "def f(x):\n    if x:\n        return 1\n    else:\n        raise ValueError(x)\n",
+            "def f(x):\n    if x:\n        return 1\n    elif x > 1:\n        return 2\n    else:\n        return 3\n",
+        ] {
+            let function = make_python_function(source);
+            let cfg = PythonCfgBuilder.build(&function);
+            assert!(cfg.validate().is_ok(), "invalid CFG for:\n{source}");
+        }
+    }
+
+    #[test]
+    fn test_other_all_terminating_constructs_build_valid_cfg() {
+        // Neighbouring shapes that end every branch in return/raise; pinned so a future
+        // change to the join handling cannot regress them the way if/else once was.
+        for source in [
+            "def f(x):\n    match x:\n        case 1:\n            return 'a'\n        case _:\n            return 'b'\n",
+            "def f(x):\n    try:\n        return int(x)\n    except ValueError:\n        return 0\n",
+            "def f(x):\n    while x:\n        return 1\n    else:\n        return 2\n",
+            "def f(x):\n    if x:\n        if x > 1:\n            return 1\n        else:\n            raise ValueError\n    else:\n        return 3\n",
+        ] {
+            let function = make_python_function(source);
+            let cfg = PythonCfgBuilder.build(&function);
+            assert!(cfg.validate().is_ok(), "invalid CFG for:\n{source}");
+        }
+    }
+
+    #[test]
+    fn test_if_without_else_still_falls_through() {
+        // The lazy join must still be created when a branch (or the missing else) can
+        // reach the code after the if.
+        let source = "def f(x):\n    if x:\n        return 1\n    return 2\n";
+        let function = make_python_function(source);
+        let cfg = PythonCfgBuilder.build(&function);
+        assert!(cfg.validate().is_ok());
+        let cc = cfg.edge_count() as i64 - cfg.node_count() as i64 + 2;
+        assert_eq!(cc, 2);
+    }
+
+    #[test]
+    fn test_if_else_all_terminate_does_not_inflate_cc() {
+        // Two returning branches are one decision: cc = 2.
+        let source = "def f(x):\n    if x:\n        return 1\n    else:\n        return 2\n";
+        let function = make_python_function(source);
+        let cfg = PythonCfgBuilder.build(&function);
+        let cc = cfg.edge_count() as i64 - cfg.node_count() as i64 + 2;
+        assert_eq!(cc, 2);
     }
 
     #[test]
