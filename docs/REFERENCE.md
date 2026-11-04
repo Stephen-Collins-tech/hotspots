@@ -239,8 +239,7 @@ instead, so a long run shows which phase it is in:
 Analyzing: 3630/3630 files [done in 1s]
 hotspots: reading git history (churn) (1s elapsed)
 hotspots: building call graph (32s elapsed)
-hotspots: reading git history (touch metrics, burst score) (34s elapsed)
-hotspots: scoring functions (34s elapsed)
+hotspots: reading touch history, burst score and scoring functions (34s elapsed)
 ```
 
 While files are being analysed, a line with the count, elapsed time and an estimated time

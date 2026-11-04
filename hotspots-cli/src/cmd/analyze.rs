@@ -1285,7 +1285,6 @@ pub(crate) fn build_snapshot_via_db(
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
     let mut enricher = snapshot::SnapshotEnricher::new(snapshot).with_subsystems(repo_root);
     if !skip_touch_metrics {
-        log_phase("reading git history (touch metrics, burst score)");
         // burst_score does its own full-history `git log` walk (history_signals::
         // load_commits_with_author) — gate it alongside the other touch/churn git
         // log calls so --skip-touch-metrics actually skips it too.
@@ -1295,7 +1294,11 @@ pub(crate) fn build_snapshot_via_db(
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
-    log_phase("scoring functions");
+    log_phase(if skip_touch_metrics {
+        "scoring functions"
+    } else {
+        "reading touch history, burst score and scoring functions"
+    });
     let result = enricher.with_relative_paths(repo_root).enrich().build();
     Ok(result)
 }
@@ -1357,7 +1360,11 @@ pub(crate) fn build_enriched_snapshot(
         enricher = enricher.with_callgraph(graph);
     }
 
-    log_phase("scoring functions");
+    log_phase(if skip_touch_metrics {
+        "scoring functions"
+    } else {
+        "reading touch history, burst score and scoring functions"
+    });
     Ok(enricher.with_relative_paths(repo_root).enrich().build())
 }
 
