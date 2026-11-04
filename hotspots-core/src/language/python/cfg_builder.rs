@@ -853,6 +853,34 @@ def test_func():
     }
 
     #[test]
+    fn test_other_all_terminating_constructs_build_valid_cfg() {
+        // Neighbouring shapes that end every branch in return/raise; pinned so a future
+        // change to the join handling cannot regress them the way if/else once was.
+        for source in [
+            "def f(x):\n    match x:\n        case 1:\n            return 'a'\n        case _:\n            return 'b'\n",
+            "def f(x):\n    try:\n        return int(x)\n    except ValueError:\n        return 0\n",
+            "def f(x):\n    while x:\n        return 1\n    else:\n        return 2\n",
+            "def f(x):\n    if x:\n        if x > 1:\n            return 1\n        else:\n            raise ValueError\n    else:\n        return 3\n",
+        ] {
+            let function = make_python_function(source);
+            let cfg = PythonCfgBuilder.build(&function);
+            assert!(cfg.validate().is_ok(), "invalid CFG for:\n{source}");
+        }
+    }
+
+    #[test]
+    fn test_if_without_else_still_falls_through() {
+        // The lazy join must still be created when a branch (or the missing else) can
+        // reach the code after the if.
+        let source = "def f(x):\n    if x:\n        return 1\n    return 2\n";
+        let function = make_python_function(source);
+        let cfg = PythonCfgBuilder.build(&function);
+        assert!(cfg.validate().is_ok());
+        let cc = cfg.edge_count() as i64 - cfg.node_count() as i64 + 2;
+        assert_eq!(cc, 2);
+    }
+
+    #[test]
     fn test_if_else_all_terminate_does_not_inflate_cc() {
         // Two returning branches are one decision: cc = 2.
         let source = "def f(x):\n    if x:\n        return 1\n    else:\n        return 2\n";
