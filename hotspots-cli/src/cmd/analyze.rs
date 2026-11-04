@@ -1431,6 +1431,22 @@ fn eta_secs(elapsed_secs: u64, done: usize, total: usize) -> Option<u64> {
     Some(elapsed_secs * (total - done) as u64 / done as u64)
 }
 
+/// The periodic non-TTY progress line; the ETA is omitted until a file has finished.
+fn heartbeat_line(done: usize, total: usize, elapsed_secs: u64) -> String {
+    let pct = done * 100 / total.max(1);
+    match eta_secs(elapsed_secs, done, total) {
+        Some(eta) => format!(
+            "Analyzing: {done}/{total} files ({pct}%) · {} elapsed · ~{} remaining",
+            fmt_duration(elapsed_secs),
+            fmt_duration(eta)
+        ),
+        None => format!(
+            "Analyzing: {done}/{total} files ({pct}%) · {} elapsed",
+            fmt_duration(elapsed_secs)
+        ),
+    }
+}
+
 fn process_start() -> std::time::Instant {
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     *START.get_or_init(std::time::Instant::now)
@@ -1474,19 +1490,10 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
                 if total == 0 {
                     continue;
                 }
-                let elapsed = started.elapsed().as_secs();
-                let pct = done * 100 / total;
-                match eta_secs(elapsed, done, total) {
-                    Some(eta) => eprintln!(
-                        "Analyzing: {done}/{total} files ({pct}%) · {} elapsed · ~{} remaining",
-                        fmt_duration(elapsed),
-                        fmt_duration(eta)
-                    ),
-                    None => eprintln!(
-                        "Analyzing: {done}/{total} files ({pct}%) · {} elapsed",
-                        fmt_duration(elapsed)
-                    ),
-                }
+                eprintln!(
+                    "{}",
+                    heartbeat_line(done, total, started.elapsed().as_secs())
+                );
             });
         }
         return Box::new(move |done: usize, total: usize| {
@@ -1530,13 +1537,29 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
 
 #[cfg(test)]
 mod progress_format_tests {
-    use super::{eta_secs, fmt_duration};
+    use super::{eta_secs, fmt_duration, heartbeat_line};
 
     #[test]
     fn durations_are_compact() {
         assert_eq!(fmt_duration(45), "45s");
         assert_eq!(fmt_duration(187), "3m07s");
         assert_eq!(fmt_duration(3720), "1h02m");
+    }
+
+    #[test]
+    fn heartbeat_shows_eta_once_files_have_finished() {
+        assert_eq!(
+            heartbeat_line(10, 40, 60),
+            "Analyzing: 10/40 files (25%) · 1m00s elapsed · ~3m00s remaining"
+        );
+    }
+
+    #[test]
+    fn heartbeat_omits_eta_before_any_file_finishes() {
+        assert_eq!(
+            heartbeat_line(0, 40, 30),
+            "Analyzing: 0/40 files (0%) · 30s elapsed"
+        );
     }
 
     #[test]
