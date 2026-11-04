@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - --html-output writes the HTML report from the same analysis (#325)
+- Phase labels, elapsed time and ETA in non-TTY progress (#328)
 
 
 ### Performance
