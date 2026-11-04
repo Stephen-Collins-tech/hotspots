@@ -137,3 +137,26 @@ def test_html_output_rejects_invalid_combinations(tmp_path: Path):
     assert with_html.returncode != 0
     assert "redundant with --format html" in with_html.stderr
     assert not (repo / "report.html").exists()
+
+
+def test_non_tty_progress_goes_to_stderr_with_phase_lines(tmp_path: Path):
+    # stderr is a pipe here (not a terminal), so analyze should print labelled phase
+    # lines with elapsed time, and keep stdout clean for the JSON.
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(repo, "function simpleFunction() { return 42; }")
+
+    snap = repo / "snap.json"
+    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src/main.ts"], repo, out=snap)
+    assert proc.returncode == 0
+    assert read_json(snap)["schema_version"] == 6  # stdout is still pure JSON
+
+    assert "Analyzing: 0/1 files" in proc.stderr
+    assert "[done in" in proc.stderr
+    assert "hotspots: reading git history (churn)" in proc.stderr
+    assert "hotspots: building call graph" in proc.stderr
+    assert "scoring functions" in proc.stderr
+    assert "elapsed)" in proc.stderr

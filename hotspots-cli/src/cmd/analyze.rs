@@ -145,6 +145,8 @@ fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
 }
 
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    // Anchor progress timestamps to the start of the run.
+    let _ = process_start();
     validate_analyze_flags(&args)?;
 
     let AnalyzeArgs {
@@ -918,6 +920,7 @@ fn emit_html_output(
         .into_iter()
         .filter_map(|s| s.summary.map(|sum| (s.commit, sum)))
         .collect();
+    log_phase("rendering HTML report");
     let html = hotspots_core::html::render_html_snapshot(
         snapshot,
         &history,
@@ -1229,6 +1232,7 @@ pub(crate) fn build_snapshot_via_db(
     drop(reports);
 
     // Phase 2: churn (needed before callgraph so neighbor_churn can read it).
+    log_phase("reading git history (churn)");
     if !git_context.parent_shas.is_empty() {
         match git::windowed_churn_at(repo_root, &sha, git::CHURN_WINDOW_DAYS) {
             Ok(churns) => {
@@ -1248,6 +1252,7 @@ pub(crate) fn build_snapshot_via_db(
     }
 
     // Phase 3: build call graph from lean DB rows, run algorithms, write back, free graph.
+    log_phase("building call graph");
     let call_graph = hotspots_core::build_call_graph_from_db(&db, &sha, repo_root)
         .context("failed to build call graph from DB")?;
     db.update_callgraph_metrics(&sha, &call_graph)
@@ -1289,6 +1294,11 @@ pub(crate) fn build_snapshot_via_db(
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
+    log_phase(if skip_touch_metrics {
+        "scoring functions"
+    } else {
+        "reading touch history, burst score and scoring functions"
+    });
     let result = enricher.with_relative_paths(repo_root).enrich().build();
     Ok(result)
 }
@@ -1306,6 +1316,7 @@ pub(crate) fn build_enriched_snapshot(
 
     let merge_base = hotspots_core::git::find_merge_base(repo_root);
 
+    log_phase("building call graph");
     let call_graph = { hotspots_core::build_call_graph(&reports, repo_root).ok() };
 
     for r in &mut reports {
@@ -1349,6 +1360,11 @@ pub(crate) fn build_enriched_snapshot(
         enricher = enricher.with_callgraph(graph);
     }
 
+    log_phase(if skip_touch_metrics {
+        "scoring functions"
+    } else {
+        "reading touch history, burst score and scoring functions"
+    });
     Ok(enricher.with_relative_paths(repo_root).enrich().build())
 }
 
@@ -1398,25 +1414,99 @@ pub(crate) fn analyze_and_persist_at_ref(
     Ok(snapshot)
 }
 
-pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
+/// Compact duration for progress lines: `45s`, `3m07s`, `1h02m`.
+fn fmt_duration(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m{:02}s", secs / 60, secs % 60),
+        _ => format!("{}h{:02}m", secs / 3600, (secs % 3600) / 60),
+    }
+}
+
+/// Estimated seconds left from files done so far; `None` until something has finished.
+fn eta_secs(elapsed_secs: u64, done: usize, total: usize) -> Option<u64> {
+    if done == 0 || done >= total {
+        return None;
+    }
+    Some(elapsed_secs * (total - done) as u64 / done as u64)
+}
+
+/// The periodic non-TTY progress line; the ETA is omitted until a file has finished.
+fn heartbeat_line(done: usize, total: usize, elapsed_secs: u64) -> String {
+    let pct = done * 100 / total.max(1);
+    match eta_secs(elapsed_secs, done, total) {
+        Some(eta) => format!(
+            "Analyzing: {done}/{total} files ({pct}%) · {} elapsed · ~{} remaining",
+            fmt_duration(elapsed_secs),
+            fmt_duration(eta)
+        ),
+        None => format!(
+            "Analyzing: {done}/{total} files ({pct}%) · {} elapsed",
+            fmt_duration(elapsed_secs)
+        ),
+    }
+}
+
+fn process_start() -> std::time::Instant {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *START.get_or_init(std::time::Instant::now)
+}
+
+/// Print a labelled phase line on stderr when it is not a terminal (the interactive
+/// bar already shows live progress there), so CI logs show which phase a long run is in.
+pub(crate) fn log_phase(label: &str) {
     use std::io::IsTerminal;
     if !std::io::stderr().is_terminal() {
-        let last_print = std::sync::Mutex::new(std::time::Instant::now());
+        eprintln!(
+            "hotspots: {label} ({} elapsed)",
+            fmt_duration(process_start().elapsed().as_secs())
+        );
+    }
+}
+
+pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync> {
+    use std::io::IsTerminal;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let started = process_start();
+    if !std::io::stderr().is_terminal() {
+        // Callbacks only record progress; a heartbeat thread prints a line every 30s so
+        // long runs stay visible even when no file finishes in that interval.
+        let done_count = Arc::new(AtomicUsize::new(0));
+        let total_count = Arc::new(AtomicUsize::new(0));
+        let finished = Arc::new(AtomicBool::new(false));
+        {
+            let (done_count, total_count, finished) =
+                (done_count.clone(), total_count.clone(), finished.clone());
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                if finished.load(Ordering::Relaxed) {
+                    return;
+                }
+                let (done, total) = (
+                    done_count.load(Ordering::Relaxed),
+                    total_count.load(Ordering::Relaxed),
+                );
+                if total == 0 {
+                    continue;
+                }
+                eprintln!(
+                    "{}",
+                    heartbeat_line(done, total, started.elapsed().as_secs())
+                );
+            });
+        }
         return Box::new(move |done: usize, total: usize| {
+            total_count.store(total, Ordering::Relaxed);
+            done_count.store(done, Ordering::Relaxed);
             if done == 0 {
                 eprintln!("Analyzing: 0/{total} files");
-                return;
-            }
-            if done >= total {
-                eprintln!("Analyzing: {done}/{total} files [done]");
-                return;
-            }
-            if let Ok(mut last) = last_print.try_lock() {
-                if last.elapsed().as_secs() >= 30 {
-                    let pct = (done as f64 / total as f64 * 100.0) as usize;
-                    eprintln!("Analyzing: {done}/{total} files ({pct}%)");
-                    *last = std::time::Instant::now();
-                }
+            } else if done >= total {
+                finished.store(true, Ordering::Relaxed);
+                eprintln!(
+                    "Analyzing: {done}/{total} files [done in {}]",
+                    fmt_duration(started.elapsed().as_secs())
+                );
             }
         });
     }
@@ -1443,6 +1533,41 @@ pub(crate) fn make_analysis_progress() -> Box<dyn Fn(usize, usize) + Send + Sync
             }
         }
     })
+}
+
+#[cfg(test)]
+mod progress_format_tests {
+    use super::{eta_secs, fmt_duration, heartbeat_line};
+
+    #[test]
+    fn durations_are_compact() {
+        assert_eq!(fmt_duration(45), "45s");
+        assert_eq!(fmt_duration(187), "3m07s");
+        assert_eq!(fmt_duration(3720), "1h02m");
+    }
+
+    #[test]
+    fn heartbeat_shows_eta_once_files_have_finished() {
+        assert_eq!(
+            heartbeat_line(10, 40, 60),
+            "Analyzing: 10/40 files (25%) · 1m00s elapsed · ~3m00s remaining"
+        );
+    }
+
+    #[test]
+    fn heartbeat_omits_eta_before_any_file_finishes() {
+        assert_eq!(
+            heartbeat_line(0, 40, 30),
+            "Analyzing: 0/40 files (0%) · 30s elapsed"
+        );
+    }
+
+    #[test]
+    fn eta_extrapolates_from_files_done() {
+        assert_eq!(eta_secs(60, 10, 40), Some(180));
+        assert_eq!(eta_secs(60, 0, 40), None);
+        assert_eq!(eta_secs(60, 40, 40), None);
+    }
 }
 
 #[cfg(test)]
