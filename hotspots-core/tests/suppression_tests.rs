@@ -110,6 +110,21 @@ fn test_suppression_works_for_python() {
     assert_eq!(functions[1].suppression_reason, None);
 }
 
+/// PHP uses `//` suppression comments like the C-family languages.
+#[test]
+fn test_suppression_works_for_php() {
+    let source = "<?php\n// hotspots-ignore: legacy code\nfunction suppressed($a) {\n    if ($a) { return 1; }\n    return 0;\n}\n\nfunction not_suppressed($a) {\n    if ($a) { return 1; }\n    return 0;\n}\n";
+
+    let functions = analyze_source(source, ".php");
+
+    assert_eq!(functions.len(), 2);
+    assert_eq!(
+        functions[0].suppression_reason,
+        Some("legacy code".to_string())
+    );
+    assert_eq!(functions[1].suppression_reason, None);
+}
+
 /// Regression test: a Go file previously never got suppression either,
 /// since `Language::Go`'s parser also left `suppression_reason: None` with
 /// no follow-up extraction step.

@@ -1,0 +1,134 @@
+[
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "describe",
+    "line": 3,
+    "language": "PHP",
+    "metrics": {
+      "cc": 5,
+      "nd": 1,
+      "fo": 0,
+      "ns": 4,
+      "loc": 14,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 4.0
+    },
+    "lrs": 6.184962500721156,
+    "band": "high"
+  },
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "guard",
+    "line": 48,
+    "language": "PHP",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 1,
+      "ns": 2,
+      "loc": 7,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 2.0
+    },
+    "lrs": 5.1219280948873624,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "fall_through",
+    "line": 18,
+    "language": "PHP",
+    "metrics": {
+      "cc": 4,
+      "nd": 1,
+      "fo": 0,
+      "ns": 2,
+      "loc": 14,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 2.0
+    },
+    "lrs": 4.521928094887363,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "alt_syntax",
+    "line": 56,
+    "language": "PHP",
+    "metrics": {
+      "cc": 4,
+      "nd": 2,
+      "fo": 0,
+      "ns": 0,
+      "loc": 6,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 2.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 3.9219280948873623,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "label",
+    "line": 39,
+    "language": "PHP",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1,
+      "loc": 8,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.5,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/control_flow.php",
+    "function": "pick",
+    "line": 33,
+    "language": "PHP",
+    "metrics": {
+      "cc": 4,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 5,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.321928094887362,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.021928094887362,
+    "band": "moderate"
+  }
+]

@@ -1218,3 +1218,98 @@ fn test_c_golden_determinism() {
     let json2 = render_json(&reports2);
     assert_eq!(json1, json2, "C analysis is not deterministic");
 }
+
+// PHP language golden tests
+
+fn test_php_golden(fixture_name: &str) {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("php")
+        .join(format!("{}.php", fixture_name));
+    let golden = golden_path(&format!("php-{}.json", fixture_name));
+    let project_root = project_root();
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+
+    let reports = analyze(&fixture, options)
+        .unwrap_or_else(|e| panic!("Failed to analyze {}: {}", fixture.display(), e));
+
+    let output = render_json(&reports);
+    let expected = read_golden(&format!("php-{}.json", fixture_name));
+
+    let mut output_json: serde_json::Value =
+        serde_json::from_str(&output).unwrap_or_else(|e| panic!("Output is not valid JSON: {}", e));
+    let mut expected_json: serde_json::Value = serde_json::from_str(&expected)
+        .unwrap_or_else(|e| panic!("Golden file {} is not valid JSON: {}", golden.display(), e));
+
+    normalize_paths(&mut output_json, &project_root);
+    normalize_paths(&mut expected_json, &project_root);
+
+    assert_eq!(
+        output_json, expected_json,
+        "Output does not match golden file for php-{}",
+        fixture_name
+    );
+}
+
+#[test]
+fn test_php_golden_simple() {
+    test_php_golden("simple");
+}
+
+#[test]
+fn test_php_golden_loops() {
+    test_php_golden("loops");
+}
+
+#[test]
+fn test_php_golden_control_flow() {
+    test_php_golden("control_flow");
+}
+
+#[test]
+fn test_php_golden_exceptions() {
+    test_php_golden("exceptions");
+}
+
+#[test]
+fn test_php_golden_classes_closures() {
+    test_php_golden("classes_closures");
+}
+
+#[test]
+fn test_php_golden_mixed_html() {
+    test_php_golden("mixed_html");
+}
+
+#[test]
+fn test_php_golden_determinism() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("tests")
+        .join("fixtures")
+        .join("php")
+        .join("simple.php");
+
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports1 = analyze(&fixture, options).unwrap();
+    let options = AnalysisOptions {
+        min_lrs: None,
+        top_n: None,
+    };
+    let reports2 = analyze(&fixture, options).unwrap();
+
+    let json1 = render_json(&reports1);
+    let json2 = render_json(&reports2);
+    assert_eq!(json1, json2, "PHP analysis is not deterministic");
+}

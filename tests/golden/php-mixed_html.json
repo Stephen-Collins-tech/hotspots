@@ -1,0 +1,46 @@
+[
+  {
+    "file": "tests/fixtures/php/mixed_html.php",
+    "function": "render_list",
+    "line": 4,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 6,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.384962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/mixed_html.php",
+    "function": "badge",
+    "line": 11,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.2849625007211563,
+    "band": "low"
+  }
+]

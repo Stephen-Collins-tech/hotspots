@@ -67,6 +67,16 @@ pub enum FunctionBody {
         source: Arc<str>,
     },
 
+    /// PHP function body
+    ///
+    /// Contains the tree-sitter node ID for the body and the source code.
+    Php {
+        /// The tree-sitter node ID for the function body
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: Arc<str>,
+    },
+
     /// C function body
     ///
     /// Contains the tree-sitter node ID for the compound_statement and the source code.
@@ -117,6 +127,11 @@ impl FunctionBody {
     /// Check if this is a C function body
     pub fn is_c(&self) -> bool {
         matches!(self, FunctionBody::C { .. })
+    }
+
+    /// Check if this is a PHP function body
+    pub fn is_php(&self) -> bool {
+        matches!(self, FunctionBody::Php { .. })
     }
 
     /// Get the ECMAScript body, if this is one
@@ -213,6 +228,18 @@ impl FunctionBody {
         match self {
             FunctionBody::C { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not C"),
+        }
+    }
+
+    /// Get the PHP body node ID and source, if this is a PHP function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a PHP body. Use `is_php()` to check first.
+    pub fn as_php(&self) -> (usize, &Arc<str>) {
+        match self {
+            FunctionBody::Php { body_node, source } => (*body_node, source),
+            _ => panic!("FunctionBody is not PHP"),
         }
     }
 }

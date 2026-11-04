@@ -85,6 +85,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         }
         FunctionBody::CSharp { .. } => extract_csharp_metrics(function, cfg),
         FunctionBody::C { .. } => extract_c_metrics(function, cfg),
+        FunctionBody::Php { .. } => extract_php_metrics(function, cfg),
     }
 }
 
@@ -984,6 +985,151 @@ fn extract_csharp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         callee_names: vec![],
         missing_docstring: false,
     })
+}
+
+// ============================================================================
+// PHP Metrics Implementation
+// ============================================================================
+
+/// PHP node kinds that define a nested function. Their bodies are separate
+/// analysis units (discovered by the parser), so metric walks do not descend
+/// into them.
+const PHP_FUNCTION_KINDS: &[&str] = &[
+    "function_definition",
+    "method_declaration",
+    "anonymous_function",
+    "arrow_function",
+];
+
+/// Visit every node under `root` (including `root`) without recursion,
+/// skipping the bodies of nested functions and closures. `f` receives each
+/// node together with its nesting depth, where only kinds in `nesting_kinds`
+/// add a level.
+fn php_walk<'a>(
+    root: tree_sitter::Node<'a>,
+    nesting_kinds: &[&str],
+    mut f: impl FnMut(tree_sitter::Node<'a>, usize),
+) {
+    let mut stack = vec![(root, 0usize)];
+    while let Some((node, depth)) = stack.pop() {
+        // `else if` continues the chain rather than nesting a level deeper
+        let continues_chain = node.kind() == "if_statement"
+            && node.parent().is_some_and(|p| p.kind() == "else_clause");
+        let depth = if nesting_kinds.contains(&node.kind()) && !continues_chain {
+            depth + 1
+        } else {
+            depth
+        };
+        f(node, depth);
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if !PHP_FUNCTION_KINDS.contains(&child.kind()) {
+                stack.push((child, depth));
+            }
+        }
+    }
+}
+
+fn extract_php_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    use crate::language::tree_sitter_utils::{find_function_by_start, with_cached_php_tree};
+
+    let (_body_node_id, source) = function.body.as_php();
+    // Not `ts_with_function_body`: an arrow function's body is an expression,
+    // not a block child of a fixed kind.
+    with_cached_php_tree(source, |root| {
+        let func_node = find_function_by_start(root, function.span.start, PHP_FUNCTION_KINDS)?;
+        let (callee_names, extras, nd, ns) = php_walk_metrics(&func_node, source)?;
+        Some(RawMetrics {
+            cc: calculate_cc_from_cfg(cfg) + extras,
+            nd,
+            fo: callee_names.len(),
+            ns,
+            loc: calculate_loc_from_node(&func_node),
+            callee_names,
+            missing_docstring: false,
+        })
+    })
+    .unwrap_or(RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+        loc: 0,
+        callee_names: vec![],
+        missing_docstring: false,
+    })
+}
+
+/// One pass over a PHP function body collecting callees, extra CC
+/// contributors (short-circuit/null-coalescing operators, ternaries, `match`
+/// arms), max nesting depth, and non-structured exits.
+fn php_walk_metrics(
+    func_node: &tree_sitter::Node,
+    source: &str,
+) -> Option<(Vec<String>, usize, usize, usize)> {
+    use std::collections::BTreeSet;
+
+    let body = func_node.child_by_field_name("body")?;
+
+    let mut callees = BTreeSet::new();
+    let mut extras = 0usize;
+    let mut max_depth = 0usize;
+    let mut exits = 0usize;
+
+    php_walk(
+        body,
+        &[
+            "if_statement",
+            "while_statement",
+            "do_statement",
+            "for_statement",
+            "foreach_statement",
+            "switch_statement",
+            "match_expression",
+            "try_statement",
+        ],
+        |node, depth| {
+            max_depth = max_depth.max(depth);
+            match node.kind() {
+                "function_call_expression"
+                | "member_call_expression"
+                | "nullsafe_member_call_expression"
+                | "scoped_call_expression"
+                | "object_creation_expression" => {
+                    // Callee text is everything before the argument list
+                    let mut cursor = node.walk();
+                    let end = node
+                        .children(&mut cursor)
+                        .find(|c| c.kind() == "arguments")
+                        .map_or(node.end_byte(), |a| a.start_byte());
+                    let text = source[node.start_byte()..end].trim();
+                    if !text.is_empty() {
+                        callees.insert(text.to_string());
+                    }
+                }
+                "binary_expression" => {
+                    if let Some(op) = node.child_by_field_name("operator") {
+                        if matches!(op.kind(), "&&" | "||" | "and" | "or" | "??") {
+                            extras += 1;
+                        }
+                    }
+                }
+                "augmented_assignment_expression" => {
+                    if let Some(op) = node.child_by_field_name("operator") {
+                        if op.kind() == "??=" {
+                            extras += 1;
+                        }
+                    }
+                }
+                "conditional_expression" | "match_conditional_expression" => extras += 1,
+                "return_statement" | "break_statement" | "continue_statement"
+                | "goto_statement" | "throw_expression" | "exit_statement" => exits += 1,
+                _ => {}
+            }
+        },
+    );
+
+    Some((callees.into_iter().collect(), extras, max_depth, exits))
 }
 
 // ============================================================================

@@ -45,6 +45,7 @@ linfa-linear = "0.8.1"
 rand = { version = "0.8", features = ["small_rng"] }
 ndarray = "0.16"
 tree-sitter-c = "0.24.2"
+tree-sitter-php = "0.25"
 
 [dev-dependencies]
 tempfile = "3.8"

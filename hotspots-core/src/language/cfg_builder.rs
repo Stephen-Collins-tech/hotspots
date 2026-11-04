@@ -34,6 +34,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
         FunctionBody::Rust { .. } => Box::new(super::rust::RustCfgBuilder),
         FunctionBody::CSharp { .. } => Box::new(super::csharp::CSharpCfgBuilder),
         FunctionBody::C { .. } => Box::new(super::c::CCfgBuilder),
+        FunctionBody::Php { .. } => Box::new(super::php::PhpCfgBuilder),
     }
 }
 

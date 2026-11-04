@@ -1,0 +1,68 @@
+[
+  {
+    "file": "tests/fixtures/php/simple.php",
+    "function": "classify",
+    "line": 8,
+    "language": "PHP",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 3,
+      "loc": 10,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 3.0
+    },
+    "lrs": 4.8999999999999995,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/simple.php",
+    "function": "add",
+    "line": 3,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/simple.php",
+    "function": "noop",
+    "line": 19,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]
