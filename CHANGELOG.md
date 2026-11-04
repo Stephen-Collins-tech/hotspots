@@ -7,12 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- If/else with every branch returning or raising no longer skips the function (#326)
+- Read the delta envelope; always show the risk ranking in the PR comment (#327)
+
+
 ### Documentation
 - Link evidence pages in hotspots-public-research (#324)
+- Document --html-output, link evidence pages, point feature requests at Issues (#329)
 
 
 ### Features
 - --html-output writes the HTML report from the same analysis (#325)
+
+
+### Performance
+- Index functions by (commit, file) so the churn update stops scanning (#330)
 
 ## [3.0.0] - 2026-11-03
 
