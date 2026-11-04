@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Link evidence pages in hotspots-public-research (#324)
 
+
+### Features
+- --html-output writes the HTML report from the same analysis (#325)
+
 ## [3.0.0] - 2026-11-03
 
 ### Features
