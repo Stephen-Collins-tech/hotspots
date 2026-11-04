@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS functions (
 CREATE INDEX IF NOT EXISTS idx_functions_commit ON functions(commit_sha);
 CREATE INDEX IF NOT EXISTS idx_functions_band   ON functions(commit_sha, band);
 CREATE INDEX IF NOT EXISTS idx_functions_lrs    ON functions(commit_sha, lrs DESC);
+-- update_churn writes one UPDATE per churned file; without this each scans every row.
+CREATE INDEX IF NOT EXISTS idx_functions_file   ON functions(commit_sha, file);
 "#;
 
 // ---------------------------------------------------------------------------
@@ -684,6 +686,26 @@ mod tests {
     use crate::git::GitContext;
     use crate::report::{FunctionRiskReport, MetricsReport as ReportMetrics, RiskReport};
     use crate::snapshot::Snapshot;
+
+    #[test]
+    fn churn_update_uses_the_file_index() {
+        // update_churn runs one UPDATE per churned file; a full scan per statement made
+        // large repos (tens of thousands of functions) spend minutes here.
+        let conn = Connection::open_in_memory().unwrap();
+        apply_schema(&conn).unwrap();
+        let plan: String = conn
+            .prepare(
+                "EXPLAIN QUERY PLAN UPDATE functions SET churn_added = 1 \
+                 WHERE commit_sha = 'x' AND file = 'f'",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(plan.contains("idx_functions_file"), "plan was: {plan}");
+    }
 
     fn make_snapshot() -> Snapshot {
         let ctx = GitContext {
