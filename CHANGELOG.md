@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-11-04
 
 ### Bug Fixes
 - If/else with every branch returning or raising no longer skips the function (#326)
@@ -678,6 +678,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[3.1.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.1.0
 [3.0.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.0.0
 [2.6.3]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.6.3
 [2.6.2]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v2.6.2
