@@ -34690,6 +34690,7 @@ exports.getInputs = getInputs;
 exports.policyGateEnabled = policyGateEnabled;
 exports.getPlatformInfo = getPlatformInfo;
 exports.installFaultline = installFaultline;
+exports.runDeltaAnalysis = runDeltaAnalysis;
 exports.unwrapDelta = unwrapDelta;
 exports.generateDiffSummary = generateDiffSummary;
 exports.commentMarker = commentMarker;

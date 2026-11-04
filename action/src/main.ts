@@ -404,7 +404,7 @@ async function runPRAnalysis(
   return runDeltaAnalysis(binaryPath, inputs);
 }
 
-async function runDeltaAnalysis(
+export async function runDeltaAnalysis(
   binaryPath: string,
   inputs: FaultlineInputs
 ): Promise<FaultlineResult> {

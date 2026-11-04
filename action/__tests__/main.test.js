@@ -216,3 +216,65 @@ describe('diff summary', () => {
     expect(out).toContain('*...and 3 more*');
   });
 });
+
+describe('delta fallback analysis', () => {
+  let main;
+  const exec = require('@actions/exec');
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    exec.exec.mockReset();
+    main = loadMain();
+  });
+
+  const inputs = { path: '.', policy: 'critical-introduction', failOn: 'error' };
+
+  // The first exec call is the JSON run; feed it as stdout like the real listeners would.
+  const mockCliOutput = (body) => {
+    exec.exec.mockImplementation(async (_bin, args, opts) => {
+      if (args.includes('json') && opts?.listeners?.stdout) {
+        opts.listeners.stdout(Buffer.from(JSON.stringify(body)));
+      }
+      return 1;
+    });
+  };
+
+  test('reads policy failures from the envelope and fails the gate', async () => {
+    mockCliOutput({
+      schema_version: 6,
+      delta: {
+        deltas: [{ function_id: 'src/a.py::f', status: 'new', after: { lrs: 12, band: 'critical' } }],
+        policy: { failed: [{ message: 'f became critical' }], warnings: [] }
+      }
+    });
+    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    expect(result.passed).toBe(false);
+    expect(result.violations).toEqual([{ message: 'f became critical', level: 'error' }]);
+    expect(result.summary).toContain('f became critical');
+    expect(result.summary).toContain('Risk ranking');
+  });
+
+  test('passes and still ranks when nothing violates', async () => {
+    mockCliOutput({
+      schema_version: 6,
+      delta: {
+        deltas: [{ function_id: 'src/a.py::f', status: 'modified', after: { lrs: 4, band: 'moderate' } }],
+        policy: { failed: [], warnings: [] }
+      }
+    });
+    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    expect(result.passed).toBe(true);
+    expect(result.violations).toEqual([]);
+    expect(result.summary).toContain('Risk ranking');
+  });
+
+  test('warn-level findings only fail the gate when failOn is warn', async () => {
+    const body = {
+      delta: { deltas: [], policy: { failed: [], warnings: [{ message: 'watch this' }] } }
+    };
+    mockCliOutput(body);
+    expect((await main.runDeltaAnalysis('hotspots', inputs)).passed).toBe(true);
+    mockCliOutput(body);
+    expect((await main.runDeltaAnalysis('hotspots', { ...inputs, failOn: 'warn' })).passed).toBe(false);
+  });
+});
