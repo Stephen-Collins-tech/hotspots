@@ -110,9 +110,9 @@ Activity Risk says where attention is likely needed next, not how good the code 
 
 ## Supported Languages
 
-TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · Vue · Astro
+TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · PHP · Vue · Astro
 
-All 13 file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.vue`, `.astro`) work out of the box.
+All supported file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.php`, `.vue`, `.astro`) work out of the box.
 
 ---
 

@@ -728,6 +728,7 @@ composite "PR risk score" is reported: read `fn_changed_lines` for "is this PR r
 | Java | `.java` |
 | C / C headers | `.c`, `.h` |
 | C# | `.cs` |
+| PHP | `.php` |
 | Vue | `.vue` |
 | Astro | `.astro` |
 
