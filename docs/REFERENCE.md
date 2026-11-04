@@ -229,6 +229,23 @@ hotspots config validate          # validate auto-discovered config (exit 1 on f
 hotspots config validate --path FILE
 ```
 
+### Progress output
+
+All progress goes to stderr, so stdout stays clean for `--format json`. In a terminal you get a
+live bar. When stderr is not a terminal (CI, a redirected log), `analyze` prints labelled lines
+instead, so a long run shows which phase it is in:
+
+```
+Analyzing: 3630/3630 files [done in 1s]
+hotspots: reading git history (churn) (1s elapsed)
+hotspots: building call graph (32s elapsed)
+hotspots: reading git history (touch metrics, burst score) (34s elapsed)
+hotspots: scoring functions (34s elapsed)
+```
+
+While files are being analysed, a line with the count, elapsed time and an estimated time
+remaining is printed every 30 seconds, even if no file finished in that interval.
+
 ### Global flags
 
 ```bash
