@@ -18,6 +18,7 @@ hotspots analyze <PATH> [OPTIONS]
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
+| `--html-output PATH` | — | Also write the HTML report from the same analysis (snapshot mode, with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
 | `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
 | `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |

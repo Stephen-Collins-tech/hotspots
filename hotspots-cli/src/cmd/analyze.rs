@@ -26,6 +26,8 @@ pub(crate) struct AnalyzeArgs {
     pub all_functions: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
+    /// Also write the HTML report from the same analysis (snapshot mode, non-html --format).
+    pub html_output: Option<PathBuf>,
     /// Number of rayon worker threads; None = use all logical CPUs.
     pub jobs: Option<usize>,
     /// When true, skip all touch metrics (no git log calls at all).
@@ -46,6 +48,7 @@ pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_policy_flag(args)?;
     validate_explain_flag(args)?;
     validate_no_persist_flag(args)?;
+    validate_html_output_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
     validate_format_mode_requirements(args)?;
@@ -91,6 +94,19 @@ fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     }
     if args.force {
         anyhow::bail!("--no-persist and --force are mutually exclusive");
+    }
+    Ok(())
+}
+
+fn validate_html_output_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
+    if args.html_output.is_none() {
+        return Ok(());
+    }
+    if args.mode != Some(OutputMode::Snapshot) {
+        anyhow::bail!("--html-output is only valid with --mode snapshot");
+    }
+    if matches!(args.format, OutputFormat::Html) {
+        anyhow::bail!("--html-output is redundant with --format html (use --output)");
     }
     Ok(())
 }
@@ -147,6 +163,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         skip_touch_metrics,
         all_functions,
         source_url,
+        html_output,
         jobs,
         skip_gate,
         cold_start,
@@ -217,6 +234,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 all_functions,
                 source_url,
+                html_output,
                 skip_touch_metrics,
                 skip_gate,
             },
@@ -247,6 +265,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
                 level,
                 all_functions: false,
                 source_url,
+                html_output,
                 skip_touch_metrics,
                 skip_gate,
             },
@@ -479,6 +498,7 @@ pub(crate) struct ModeOutputOptions {
     pub level: Option<OutputLevel>,
     pub all_functions: bool,
     pub source_url: Option<String>,
+    pub html_output: Option<PathBuf>,
     pub skip_touch_metrics: bool,
     pub skip_gate: bool,
 }
@@ -524,6 +544,7 @@ fn handle_snapshot_mode(
         level,
         all_functions,
         source_url,
+        html_output,
         skip_touch_metrics,
         skip_gate,
         top,
@@ -621,6 +642,28 @@ fn handle_snapshot_mode(
     }
 
     apply_top_n(&mut snapshot, format, explain, level, top);
+
+    if let Some(html_path) = html_output {
+        // Render from a copy: HTML attaches aggregates, which other formats must not carry.
+        let mut html_snapshot = snapshot.clone();
+        emit_html_output(
+            &mut html_snapshot,
+            repo_root,
+            SnapshotOutputOpts {
+                format: OutputFormat::Html,
+                explain,
+                level,
+                top,
+                total_function_count,
+                output: Some(html_path),
+                co_change_window_days: hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
+                co_change_min_count: hotspots_core::git::CO_CHANGE_MIN_COUNT,
+                all_functions,
+                source_url: source_url.clone(),
+                risk_thresholds: hotspots_core::risk::RiskThresholds::default(),
+            },
+        )?;
+    }
 
     emit_snapshot_output(
         &mut snapshot,
@@ -1424,12 +1467,32 @@ mod validate_analyze_flags_tests {
             level: None,
             all_functions: false,
             source_url: None,
+            html_output: None,
             jobs: None,
             skip_touch_metrics: false,
             skip_gate: false,
             cold_start: false,
             axes: false,
         }
+    }
+
+    #[test]
+    fn html_output_requires_snapshot_mode() {
+        let mut a = base_args();
+        a.html_output = Some(PathBuf::from("r.html"));
+        assert!(validate_analyze_flags(&a).is_err());
+        a.mode = Some(OutputMode::Snapshot);
+        a.format = OutputFormat::Json;
+        assert!(validate_analyze_flags(&a).is_ok());
+    }
+
+    #[test]
+    fn html_output_rejects_html_format() {
+        let mut a = base_args();
+        a.mode = Some(OutputMode::Snapshot);
+        a.format = OutputFormat::Html;
+        a.html_output = Some(PathBuf::from("r.html"));
+        assert!(validate_analyze_flags(&a).is_err());
     }
 
     #[test]
