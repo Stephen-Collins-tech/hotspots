@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Report source files left out because their language is unsupported (#334)
+- Add C++ support (.cpp .cc .cxx .hpp .hxx .hh) (#335)
 
 ## [3.2.0] - 2026-11-05
 
