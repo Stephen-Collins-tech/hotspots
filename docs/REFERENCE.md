@@ -245,6 +245,20 @@ hotspots: reading touch history, burst score and scoring functions (34s elapsed)
 While files are being analysed, a line with the count, elapsed time and an estimated time
 remaining is printed every 30 seconds, even if no file finished in that interval.
 
+### Files in unsupported languages
+
+`analyze` only reads the languages it supports. Source files it recognises but does not analyze
+(C++ `.cpp`/`.hpp`, Kotlin, Swift, Ruby, Scala, Dart, Lua, Objective-C, CUDA) are counted, and one
+line on stderr says so at the end of the run:
+
+```
+Not analyzed: 622 source file(s) in unsupported languages (515 .cpp, 103 .hpp, 2 .swift, 1 .cu, 1 .lua). Results cover only the supported languages; see docs/REFERENCE.md.
+```
+
+Read it before trusting a ranking on a mixed-language repo: the ranking covers only the languages
+that were analyzed. Files excluded by your `include`/`exclude` config are not counted, and the
+line is omitted when nothing was left out. It goes to stderr, so JSON on stdout is unchanged.
+
 ### Global flags
 
 ```bash

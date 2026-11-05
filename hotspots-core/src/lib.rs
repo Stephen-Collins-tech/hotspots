@@ -95,7 +95,12 @@ pub fn analyze_with_progress(
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     // Collect and filter source files upfront so the total is known before analysis begins
-    let source_files: Vec<_> = collect_source_files(path)?
+    let (collected, ignored) = collect_source_files_with_ignored(path)?;
+    let source_files: Vec<_> = collected
+        .into_iter()
+        .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
+        .collect();
+    let ignored: Vec<_> = ignored
         .into_iter()
         .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
         .collect();
@@ -199,6 +204,9 @@ pub fn analyze_with_progress(
     if skipped_files > 0 {
         eprintln!("Skipped {} file(s) due to analysis errors", skipped_files);
     }
+    if let Some(line) = summarize_unsupported_files(&ignored) {
+        eprintln!("{line}");
+    }
 
     Ok(final_reports)
 }
@@ -235,22 +243,96 @@ fn is_supported_source_file(filename: &str) -> bool {
 ///
 /// Pure filesystem I/O: no git calls, no parsing.
 pub fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
-    let mut files = Vec::new();
+    Ok(collect_source_files_with_ignored(path)?.0)
+}
+
+/// Source files found while walking, split into those we can analyze and those written in
+/// a language we recognise as source code but do not support.
+#[derive(Default)]
+struct SourceWalk {
+    files: Vec<std::path::PathBuf>,
+    unsupported: Vec<std::path::PathBuf>,
+}
+
+/// Like [`collect_source_files`], but also returns files in recognised-but-unsupported
+/// languages (for example C++), so callers can say what was left out instead of ignoring
+/// it silently. Same single walk and same pruned directories.
+pub fn collect_source_files_with_ignored(
+    path: &std::path::Path,
+) -> Result<(Vec<std::path::PathBuf>, Vec<std::path::PathBuf>)> {
+    let mut walk = SourceWalk::default();
 
     if path.is_file() {
         if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
             if is_supported_source_file(filename) {
-                files.push(path.to_path_buf());
+                walk.files.push(path.to_path_buf());
+            } else if unsupported_language_extension(filename).is_some() {
+                walk.unsupported.push(path.to_path_buf());
             }
         }
     } else if path.is_dir() {
-        collect_source_files_recursive(path, &mut files)?;
+        collect_source_files_recursive(path, &mut walk)?;
     }
 
     // Sort files for deterministic order
-    files.sort();
+    walk.files.sort();
+    walk.unsupported.sort();
 
-    Ok(files)
+    Ok((walk.files, walk.unsupported))
+}
+
+/// Source-file extensions for languages hotspots does not analyze. Listing them lets a run
+/// report what it left out; it is not a promise of future support. Kept to extensions that
+/// almost always mean source code (so `.m`, which may be MATLAB or Objective-C, is in,
+/// but `.h`, which we do parse as C, is not).
+const UNSUPPORTED_SOURCE_EXTENSIONS: &[&str] = &[
+    "cpp", "cc", "cxx", "hpp", "hxx", "hh", // C++
+    "kt", "kts", // Kotlin
+    "swift", "rb", "scala", "dart", "lua", "m", "mm", "cu", "cuh",
+];
+
+/// The (lowercased) extension if `filename` is a source file in an unsupported language.
+fn unsupported_language_extension(filename: &str) -> Option<String> {
+    let ext = std::path::Path::new(filename)
+        .extension()?
+        .to_str()?
+        .to_ascii_lowercase();
+    UNSUPPORTED_SOURCE_EXTENSIONS
+        .contains(&ext.as_str())
+        .then_some(ext)
+}
+
+/// One stderr line saying how many source files were not analyzed, by extension, largest
+/// first. `None` when nothing was left out.
+pub fn summarize_unsupported_files(unsupported: &[std::path::PathBuf]) -> Option<String> {
+    if unsupported.is_empty() {
+        return None;
+    }
+    let mut by_ext: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for path in unsupported {
+        if let Some(ext) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(unsupported_language_extension)
+        {
+            *by_ext.entry(ext).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<(String, usize)> = by_ext.into_iter().collect();
+    if counts.is_empty() {
+        return None;
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let total: usize = counts.iter().map(|(_, n)| n).sum();
+    let detail = counts
+        .iter()
+        .map(|(ext, n)| format!("{n} .{ext}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "Not analyzed: {total} source file(s) in unsupported languages ({detail}). \
+         Results cover only the supported languages; see docs/REFERENCE.md."
+    ))
 }
 
 /// Returns true for directory names that should not be traversed.
@@ -278,7 +360,7 @@ fn is_skipped_dir(name: &str) -> bool {
 fn process_dir_entry(
     path: std::path::PathBuf,
     metadata: std::fs::Metadata,
-    files: &mut Vec<std::path::PathBuf>,
+    walk: &mut SourceWalk,
 ) -> Result<()> {
     use std::ffi::OsStr;
 
@@ -292,11 +374,13 @@ fn process_dir_entry(
                 return Ok(());
             }
         }
-        collect_source_files_recursive(&path, files)?;
+        collect_source_files_recursive(&path, walk)?;
     } else if metadata.is_file() {
         if let Some(filename) = path.file_name().and_then(|n: &OsStr| n.to_str()) {
             if is_supported_source_file(filename) {
-                files.push(path);
+                walk.files.push(path);
+            } else if unsupported_language_extension(filename).is_some() {
+                walk.unsupported.push(path);
             }
         }
     }
@@ -305,10 +389,7 @@ fn process_dir_entry(
 }
 
 /// Recursively collect supported source files from a directory
-fn collect_source_files_recursive(
-    dir: &std::path::Path,
-    files: &mut Vec<std::path::PathBuf>,
-) -> Result<()> {
+fn collect_source_files_recursive(dir: &std::path::Path, walk: &mut SourceWalk) -> Result<()> {
     for entry_result in std::fs::read_dir(dir)
         .with_context(|| format!("Failed to read directory: {}", dir.display()))?
     {
@@ -316,7 +397,7 @@ fn collect_source_files_recursive(
         let path = entry.path();
         let metadata = std::fs::symlink_metadata(&path)
             .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
-        process_dir_entry(path, metadata, files)?;
+        process_dir_entry(path, metadata, walk)?;
     }
 
     Ok(())
@@ -557,4 +638,64 @@ pub fn build_call_graph(
     graph.total_callee_names = total;
     graph.resolved_callee_names = resolved;
     Ok(graph)
+}
+
+#[cfg(test)]
+mod unsupported_language_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn paths(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn nothing_left_out_means_no_line() {
+        assert_eq!(summarize_unsupported_files(&[]), None);
+    }
+
+    #[test]
+    fn line_counts_by_extension_largest_first() {
+        let line = summarize_unsupported_files(&paths(&[
+            "a/x.cpp", "a/y.cpp", "a/z.cpp", "b/w.hpp", "c/q.kt",
+        ]))
+        .unwrap();
+        assert!(line.contains("5 source file(s)"), "{line}");
+        assert!(line.contains("3 .cpp, 1 .hpp, 1 .kt"), "{line}");
+    }
+
+    #[test]
+    fn extension_match_is_case_insensitive() {
+        let line = summarize_unsupported_files(&paths(&["a/X.CPP", "a/y.cpp"])).unwrap();
+        assert!(line.contains("2 .cpp"), "{line}");
+    }
+
+    #[test]
+    fn list_never_overlaps_a_supported_language() {
+        // If a language is added to the registry (C++ is the likely next), this fails until
+        // it is removed from UNSUPPORTED_SOURCE_EXTENSIONS, so the line never calls a
+        // supported language unsupported.
+        for ext in UNSUPPORTED_SOURCE_EXTENSIONS {
+            assert!(
+                language::Language::from_extension(ext).is_none(),
+                ".{ext} is supported but still listed as unsupported"
+            );
+        }
+    }
+
+    #[test]
+    fn walk_separates_supported_unsupported_and_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a.py", "b.cpp", "c.hpp", "d.txt", "e.go"] {
+            std::fs::write(dir.path().join(name), "x").unwrap();
+        }
+        let (files, ignored) = collect_source_files_with_ignored(dir.path()).unwrap();
+        let names = |v: &[PathBuf]| -> Vec<String> {
+            v.iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(names(&files), ["a.py", "e.go"]);
+        assert_eq!(names(&ignored), ["b.cpp", "c.hpp"]); // .txt is not source code
+    }
 }

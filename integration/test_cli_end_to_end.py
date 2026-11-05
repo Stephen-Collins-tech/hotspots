@@ -160,3 +160,34 @@ def test_non_tty_progress_goes_to_stderr_with_phase_lines(tmp_path: Path):
     assert "hotspots: building call graph" in proc.stderr
     assert "scoring functions" in proc.stderr
     assert "elapsed)" in proc.stderr
+
+
+def test_unsupported_language_files_are_reported_on_stderr(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(repo, "function simpleFunction() { return 42; }")
+    (repo / "src" / "engine.cpp").write_text("int main() { return 0; }\n")
+    (repo / "src" / "engine.hpp").write_text("int f();\n")
+
+    snap = repo / "snap.json"
+    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
+    assert proc.returncode == 0
+    assert read_json(snap)["schema_version"] == 6  # stdout is still pure JSON
+    assert "Not analyzed: 2 source file(s) in unsupported languages (1 .cpp, 1 .hpp)" in proc.stderr
+
+
+def test_no_unsupported_line_when_nothing_was_left_out(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    write_ts(repo, "function simpleFunction() { return 42; }")
+
+    snap = repo / "snap.json"
+    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
+    assert proc.returncode == 0
+    assert "Not analyzed" not in proc.stderr
