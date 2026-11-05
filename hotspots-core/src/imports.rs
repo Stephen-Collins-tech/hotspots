@@ -29,6 +29,7 @@ pub fn extract_raw_imports(source: &str, language: Language) -> Vec<String> {
         | Language::Astro => extract_ecmascript_imports(source),
         Language::CSharp => extract_csharp_imports(source),
         Language::C | Language::CHeader => vec![], // #include resolution not implemented
+        Language::Php => extract_php_imports(source),
     }
 }
 
@@ -172,6 +173,24 @@ fn extract_csharp_imports(source: &str) -> Vec<String> {
     dedup(imports)
 }
 
+/// Extract namespace imports from PHP `use` statements (`use A\B\C;`, `use A\B as D;`).
+/// `use function`/`use const` and group imports (`use A\{B, C};`) are not resolved.
+fn extract_php_imports(source: &str) -> Vec<String> {
+    use regex::Regex;
+
+    static USE_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let use_re = USE_RE.get_or_init(|| {
+        Regex::new(r"(?m)^\s*use\s+\\?([A-Za-z_][\w]*(?:\\[A-Za-z_][\w]*)+)\s*(?:as\s+\w+\s*)?;")
+            .unwrap()
+    });
+
+    let imports: Vec<_> = use_re
+        .captures_iter(source)
+        .map(|c| c[1].to_string())
+        .collect();
+    dedup(imports)
+}
+
 fn extract_ecmascript_imports(source: &str) -> Vec<String> {
     use regex::Regex;
 
@@ -293,6 +312,7 @@ fn resolve_import(
         Language::Java => resolve_java(raw, all_files_set),
         Language::CSharp => resolve_java(raw, all_files_set), // namespace-style, same strategy
         Language::C | Language::CHeader => None,              // #include resolution not implemented
+        Language::Php => resolve_php(raw, all_files_set),
     }
 }
 
@@ -546,6 +566,26 @@ fn resolve_java(raw: &str, all_files_set: &HashSet<String>) -> Option<String> {
     for file in all_files_set {
         if file.ends_with(&java_file) {
             return Some(file.clone());
+        }
+    }
+    None
+}
+
+/// Resolve a PHP namespace import to a file by PSR-4-style suffix matching: try the
+/// full namespace path first, then drop leading segments (the autoload prefix, e.g.
+/// `App\` -> `src/`), keeping at least the class name.
+fn resolve_php(raw: &str, all_files_set: &HashSet<String>) -> Option<String> {
+    let segments: Vec<&str> = raw.split('\\').collect();
+    for start in 0..segments.len() {
+        let suffix = format!("{}.php", segments[start..].join("/"));
+        let slash_suffix = format!("/{}", suffix);
+        let mut matches: Vec<&String> = all_files_set
+            .iter()
+            .filter(|f| f.as_str() == suffix || f.ends_with(&slash_suffix))
+            .collect();
+        matches.sort();
+        if let Some(file) = matches.first() {
+            return Some((*file).clone());
         }
     }
     None
@@ -878,6 +918,34 @@ const x = require('./helper');
         let imports = extract_java_imports(src);
         assert!(imports.contains(&"java.util.List".to_string()));
         assert!(imports.contains(&"com.example.Foo".to_string()));
+    }
+
+    #[test]
+    fn test_extract_php_imports() {
+        let src = "<?php\nnamespace App;\nuse App\\Models\\User;\nuse \\Vendor\\Pkg\\Thing as T;\nuse function strlen;\nuse App\\{A, B};\n\nclass X { use Loggable; }\n";
+        let imports = extract_php_imports(src);
+        assert_eq!(
+            imports,
+            vec![
+                "App\\Models\\User".to_string(),
+                "Vendor\\Pkg\\Thing".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_resolve_php_psr4_suffix() {
+        let set: HashSet<String> = [
+            "src/Models/User.php".to_string(),
+            "src/Services/Mailer.php".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            resolve_php("App\\Models\\User", &set),
+            Some("src/Models/User.php".to_string())
+        );
+        assert_eq!(resolve_php("Illuminate\\Support\\Str", &set), None);
     }
 
     #[test]

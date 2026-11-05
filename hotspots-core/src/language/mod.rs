@@ -11,6 +11,7 @@ pub mod function_body;
 pub mod go;
 pub mod java;
 pub mod parser;
+pub mod php;
 pub mod python;
 pub mod rust;
 pub mod span;
@@ -28,6 +29,7 @@ pub use function_body::FunctionBody;
 pub use go::{GoCfgBuilder, GoParser};
 pub use java::{JavaCfgBuilder, JavaParser};
 pub use parser::{LanguageParser, ParsedModule};
+pub use php::{PhpCfgBuilder, PhpParser};
 pub use python::{PythonCfgBuilder, PythonParser};
 pub use rust::{RustCfgBuilder, RustParser};
 pub use span::SourceSpan;
@@ -61,6 +63,8 @@ pub enum Language {
     C,
     /// C header (.h)
     CHeader,
+    /// PHP (.php)
+    Php,
 }
 
 /// Metadata for one supported language: its canonical name and the file
@@ -144,6 +148,11 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         name: "C Header",
         extensions: &["h"],
     },
+    LanguageSpec {
+        variant: Language::Php,
+        name: "PHP",
+        extensions: &["php"],
+    },
 ];
 
 /// Exhaustiveness guard: this match has no wildcard arm, so adding a
@@ -165,7 +174,8 @@ fn language_spec_is_exhaustive(lang: Language) {
         | Language::Astro
         | Language::CSharp
         | Language::C
-        | Language::CHeader => {}
+        | Language::CHeader
+        | Language::Php => {}
     }
 }
 
@@ -195,7 +205,7 @@ impl Language {
     /// comments in this language's source syntax.
     ///
     /// Every supported language uses `//` line comments except Python, which
-    /// uses `#`.
+    /// uses `#`. (PHP also accepts `#` comments, but `//` is what it uses here.)
     pub fn suppression_comment_prefix(&self) -> &'static str {
         match self {
             Language::Python => "#",
@@ -352,6 +362,13 @@ mod tests {
     fn test_from_extension_c() {
         assert_eq!(Language::from_extension("c"), Some(Language::C));
         assert_eq!(Language::from_extension("h"), Some(Language::CHeader));
+    }
+
+    #[test]
+    fn test_from_extension_php() {
+        assert_eq!(Language::from_extension("php"), Some(Language::Php));
+        assert_eq!(Language::Php.name(), "PHP");
+        assert_eq!(Language::from_name("PHP"), Some(Language::Php));
     }
 
     #[test]

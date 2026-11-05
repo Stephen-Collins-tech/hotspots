@@ -1,0 +1,244 @@
+[
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "color",
+    "line": 78,
+    "language": "PHP",
+    "metrics": {
+      "cc": 3,
+      "nd": 1,
+      "fo": 0,
+      "ns": 1,
+      "loc": 7,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 2.0,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 3.5,
+    "band": "moderate"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "log",
+    "line": 24,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 1,
+      "fo": 1,
+      "ns": 0,
+      "loc": 6,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 1.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.984962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "<anonymous>@tests/fixtures/php/classes_closures.php:52",
+    "line": 52,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 0,
+      "fo": 2,
+      "ns": 0,
+      "loc": 1,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 1.584962500721156,
+      "r_ns": 0.0
+    },
+    "lrs": 2.5359400011538495,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "<anonymous>@tests/fixtures/php/classes_closures.php:58",
+    "line": 58,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 1,
+      "fo": 0,
+      "ns": 0,
+      "loc": 5,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 1.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 2.384962500721156,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "describe",
+    "line": 16,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 1,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.3,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "active",
+    "line": 50,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 1,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.3,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "names",
+    "line": 55,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 1,
+      "ns": 1,
+      "loc": 11,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.3,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "make",
+    "line": 67,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 1,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 1.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.3,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "greet",
+    "line": 45,
+    "language": "PHP",
+    "metrics": {
+      "cc": 2,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.584962500721156,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 2.2849625007211563,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "id",
+    "line": 40,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 1,
+      "loc": 4,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 1.0
+    },
+    "lrs": 1.7,
+    "band": "low"
+  },
+  {
+    "file": "tests/fixtures/php/classes_closures.php",
+    "function": "__construct",
+    "line": 36,
+    "language": "PHP",
+    "metrics": {
+      "cc": 1,
+      "nd": 0,
+      "fo": 0,
+      "ns": 0,
+      "loc": 3,
+      "missing_docstring": false
+    },
+    "risk": {
+      "r_cc": 1.0,
+      "r_nd": 0.0,
+      "r_fo": 0.0,
+      "r_ns": 0.0
+    },
+    "lrs": 1.0,
+    "band": "low"
+  }
+]

@@ -271,6 +271,9 @@ fn create_parser(
         Language::C | Language::CHeader => {
             Box::new(language::CParser::new().context("Failed to create C parser")?)
         }
+        Language::Php => {
+            Box::new(language::PhpParser::new().context("Failed to create PHP parser")?)
+        }
     };
     Ok(parser)
 }

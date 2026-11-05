@@ -108,6 +108,12 @@ make_parse_cache!(
 
 make_parse_cache!(C_TREE_CACHE, with_cached_c_tree, tree_sitter_c::LANGUAGE);
 
+make_parse_cache!(
+    PHP_TREE_CACHE,
+    with_cached_php_tree,
+    tree_sitter_php::LANGUAGE_PHP
+);
+
 #[cfg(test)]
 mod parse_cache_tests {
     use super::*;
