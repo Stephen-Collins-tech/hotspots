@@ -248,11 +248,11 @@ remaining is printed every 30 seconds, even if no file finished in that interval
 ### Files in unsupported languages
 
 `analyze` only reads the languages it supports. Source files it recognises but does not analyze
-(C++ `.cpp`/`.hpp`, Kotlin, Swift, Ruby, Scala, Dart, Lua, Objective-C, CUDA) are counted, and one
+(Kotlin, Swift, Ruby, Scala, Dart, Lua, Objective-C, CUDA) are counted, and one
 line on stderr says so at the end of the run:
 
 ```
-Not analyzed: 622 source file(s) in unsupported languages (515 .cpp, 103 .hpp, 2 .swift, 1 .cu, 1 .lua). Results cover only the supported languages; see docs/REFERENCE.md.
+Not analyzed: 622 source file(s) in unsupported languages (515 .rb, 103 .kt, 2 .swift, 1 .cu, 1 .lua). Results cover only the supported languages; see docs/REFERENCE.md.
 ```
 
 Read it before trusting a ranking on a mixed-language repo: the ranking covers only the languages
@@ -741,14 +741,33 @@ composite "PR risk score" is reported: read `fn_changed_lines` for "is this PR r
 | Rust | `.rs` |
 | Java | `.java` |
 | C / C headers | `.c`, `.h` |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.hh` |
 | C# | `.cs` |
 | PHP | `.php` |
 | Vue | `.vue` |
 | Astro | `.astro` |
 
-All languages have full parity across all metrics and features. Vue and Astro score only the
+All languages have full parity across all metrics and features, with the C++ caveats below. Vue and Astro score only the
 `<script>` block / `---` frontmatter fence respectively — template/markup sections are not
 analyzed for complexity.
+
+### C++ notes
+
+- **The score has not been validated on C++.** The risk score's weights and band cutoffs were
+  chosen and checked on the other languages. C++ code has different habits (long header-only
+  template files, macro-driven code), so treat a C++ ranking as a useful ordering to read, not
+  as something measured to work as well. See [Why the formula looks like this](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md).
+- **Function names.** Free functions keep their plain name. Members and functions inside
+  namespaces or classes are qualified (`ns::Class::method`, `Foo::~Foo`, `Foo::operator==`). If
+  two functions in one file share a qualified name (overloads), each gets its parameter types
+  appended, for example `f(int)` and `f(std::string&)`, so deltas can tell them apart.
+- **Lambdas** count toward the function that contains them and are not reported separately.
+- **Macros are not expanded.** Code that depends on macros the parser cannot see (for example a
+  namespace opened by a macro, as in some header-only libraries) may be named without its
+  namespace or, if the macro makes the syntax unparseable, left out of the ranking.
+- **`.h` files** are parsed as C unless they contain C++ markers (`class`, `template`,
+  `namespace`, `::`, range-based `for`, access labels), in which case they are parsed as C++.
+- Objective-C++ (`.mm`) and CUDA (`.cu`) are not supported.
 
 **JSX note:** `.jsx` and `.tsx` files support JSX syntax. Plain `.js` files also enable JSX parsing (React webpack convention). JSX elements do not add CC; control flow in JSX (`&&`, ternary) does.
 

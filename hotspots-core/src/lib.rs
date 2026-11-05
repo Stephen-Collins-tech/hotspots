@@ -286,7 +286,6 @@ pub fn collect_source_files_with_ignored(
 /// almost always mean source code (so `.m`, which may be MATLAB or Objective-C, is in,
 /// but `.h`, which we do parse as C, is not).
 const UNSUPPORTED_SOURCE_EXTENSIONS: &[&str] = &[
-    "cpp", "cc", "cxx", "hpp", "hxx", "hh", // C++
     "kt", "kts", // Kotlin
     "swift", "rb", "scala", "dart", "lua", "m", "mm", "cu", "cuh",
 ];
@@ -657,22 +656,26 @@ mod unsupported_language_tests {
     #[test]
     fn line_counts_by_extension_largest_first() {
         let line = summarize_unsupported_files(&paths(&[
-            "a/x.cpp", "a/y.cpp", "a/z.cpp", "b/w.hpp", "c/q.kt",
+            "a/x.rb",
+            "a/y.rb",
+            "a/z.rb",
+            "b/w.swift",
+            "c/q.kt",
         ]))
         .unwrap();
         assert!(line.contains("5 source file(s)"), "{line}");
-        assert!(line.contains("3 .cpp, 1 .hpp, 1 .kt"), "{line}");
+        assert!(line.contains("3 .rb, 1 .kt, 1 .swift"), "{line}");
     }
 
     #[test]
     fn extension_match_is_case_insensitive() {
-        let line = summarize_unsupported_files(&paths(&["a/X.CPP", "a/y.cpp"])).unwrap();
-        assert!(line.contains("2 .cpp"), "{line}");
+        let line = summarize_unsupported_files(&paths(&["a/X.RB", "a/y.rb"])).unwrap();
+        assert!(line.contains("2 .rb"), "{line}");
     }
 
     #[test]
     fn list_never_overlaps_a_supported_language() {
-        // If a language is added to the registry (C++ is the likely next), this fails until
+        // If a language is added to the registry (C++ was the last), this fails until
         // it is removed from UNSUPPORTED_SOURCE_EXTENSIONS, so the line never calls a
         // supported language unsupported.
         for ext in UNSUPPORTED_SOURCE_EXTENSIONS {
@@ -686,7 +689,7 @@ mod unsupported_language_tests {
     #[test]
     fn walk_separates_supported_unsupported_and_other_files() {
         let dir = tempfile::tempdir().unwrap();
-        for name in ["a.py", "b.cpp", "c.hpp", "d.txt", "e.go"] {
+        for name in ["a.py", "b.rb", "c.swift", "d.txt", "e.go"] {
             std::fs::write(dir.path().join(name), "x").unwrap();
         }
         let (files, ignored) = collect_source_files_with_ignored(dir.path()).unwrap();
@@ -696,6 +699,6 @@ mod unsupported_language_tests {
                 .collect()
         };
         assert_eq!(names(&files), ["a.py", "e.go"]);
-        assert_eq!(names(&ignored), ["b.cpp", "c.hpp"]); // .txt is not source code
+        assert_eq!(names(&ignored), ["b.rb", "c.swift"]); // .txt is not source code
     }
 }

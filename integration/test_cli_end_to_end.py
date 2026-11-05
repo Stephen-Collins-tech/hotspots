@@ -169,14 +169,14 @@ def test_unsupported_language_files_are_reported_on_stderr(tmp_path: Path):
 
     repo = init_test_repo(tmp_path)
     write_ts(repo, "function simpleFunction() { return 42; }")
-    (repo / "src" / "engine.cpp").write_text("int main() { return 0; }\n")
-    (repo / "src" / "engine.hpp").write_text("int f();\n")
+    (repo / "src" / "engine.rb").write_text("int main() { return 0; }\n")
+    (repo / "src" / "engine.swift").write_text("int f();\n")
 
     snap = repo / "snap.json"
     proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
     assert proc.returncode == 0
     assert read_json(snap)["schema_version"] == 6  # stdout is still pure JSON
-    assert "Not analyzed: 2 source file(s) in unsupported languages (1 .cpp, 1 .hpp)" in proc.stderr
+    assert "Not analyzed: 2 source file(s) in unsupported languages (1 .rb, 1 .swift)" in proc.stderr
 
 
 def test_no_unsupported_line_when_nothing_was_left_out(tmp_path: Path):
