@@ -86,6 +86,16 @@ pub enum FunctionBody {
         /// The source code (needed to reconstruct the tree)
         source: Arc<str>,
     },
+
+    /// C++ function body
+    ///
+    /// Contains the tree-sitter node ID for the compound_statement and the source code.
+    Cpp {
+        /// The tree-sitter node ID for the function body compound_statement
+        body_node: usize,
+        /// The source code (needed to reconstruct the tree)
+        source: Arc<str>,
+    },
 }
 
 impl FunctionBody {
@@ -127,6 +137,11 @@ impl FunctionBody {
     /// Check if this is a C function body
     pub fn is_c(&self) -> bool {
         matches!(self, FunctionBody::C { .. })
+    }
+
+    /// Check if this is a C++ function body
+    pub fn is_cpp(&self) -> bool {
+        matches!(self, FunctionBody::Cpp { .. })
     }
 
     /// Check if this is a PHP function body
@@ -228,6 +243,18 @@ impl FunctionBody {
         match self {
             FunctionBody::C { body_node, source } => (*body_node, source),
             _ => panic!("FunctionBody is not C"),
+        }
+    }
+
+    /// Get the C++ body node ID and source, if this is a C++ function
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is not a C++ body. Use `is_cpp()` to check first.
+    pub fn as_cpp(&self) -> (usize, &Arc<str>) {
+        match self {
+            FunctionBody::Cpp { body_node, source } => (*body_node, source),
+            _ => panic!("FunctionBody is not C++"),
         }
     }
 

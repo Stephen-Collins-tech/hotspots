@@ -73,14 +73,13 @@ pub fn analyze_file_with_config(
         return Ok(vec![]);
     }
 
-    let language = Language::from_path(path)
+    let mut language = Language::from_path(path)
         .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
 
+    // `.h` is ambiguous: a header that uses C++ syntax goes to the C++ grammar instead
+    // of the C one, which would drop or mis-parse its member functions (issue #204).
     if language == Language::CHeader && looks_like_cpp(&src) {
-        return Err(anyhow::anyhow!(
-            "detected C++ content in .h file, C++ parsing not yet supported \
-             — see issue #204 and the C++ support tracking issue for full support"
-        ));
+        language = Language::Cpp;
     }
 
     let parser = create_parser(language, source_map)?;
@@ -205,11 +204,11 @@ fn looks_vendored(path: &Path) -> bool {
 
 /// Returns true if the content of a `.h` file looks like C++ rather than C.
 ///
-/// `.h` files are always parsed with the C grammar (`Language::CHeader`), but a large
+/// `.h` files default to the C grammar (`Language::CHeader`), but a large
 /// share of `.h` files in C++ projects are actually C++ (member functions, templates,
 /// range-based `for`, `namespace`, `::`-qualified names). The C grammar either drops
 /// those constructs silently or produces a confusing "invalid CFG" error (see issue
-/// #204), so such files are detected here and skipped with one clear warning instead.
+/// #204), so such files are detected here and parsed as C++ instead.
 fn looks_like_cpp(src: &str) -> bool {
     use regex::Regex;
 
@@ -270,6 +269,9 @@ fn create_parser(
         }
         Language::C | Language::CHeader => {
             Box::new(language::CParser::new().context("Failed to create C parser")?)
+        }
+        Language::Cpp => {
+            Box::new(language::CppParser::new().context("Failed to create C++ parser")?)
         }
         Language::Php => {
             Box::new(language::PhpParser::new().context("Failed to create PHP parser")?)

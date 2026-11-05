@@ -35,6 +35,7 @@ pub fn get_builder_for_function(function: &FunctionNode) -> Box<dyn CfgBuilder> 
         FunctionBody::CSharp { .. } => Box::new(super::csharp::CSharpCfgBuilder),
         FunctionBody::C { .. } => Box::new(super::c::CCfgBuilder),
         FunctionBody::Php { .. } => Box::new(super::php::PhpCfgBuilder),
+        FunctionBody::Cpp { .. } => Box::new(super::cpp::CppCfgBuilder),
     }
 }
 

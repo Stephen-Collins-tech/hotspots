@@ -86,6 +86,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         FunctionBody::CSharp { .. } => extract_csharp_metrics(function, cfg),
         FunctionBody::C { .. } => extract_c_metrics(function, cfg),
         FunctionBody::Php { .. } => extract_php_metrics(function, cfg),
+        FunctionBody::Cpp { .. } => extract_cpp_metrics(function, cfg),
     }
 }
 
@@ -1242,6 +1243,61 @@ fn c_count_cc_extras(body_node: &tree_sitter::Node) -> usize {
     let mut count = 0;
     count_extras(*body_node, &mut count);
     count
+}
+
+fn extract_cpp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_cpp();
+    ts_with_function_body(
+        source,
+        tree_sitter_cpp::LANGUAGE.into(),
+        function.span.start,
+        &["function_definition"],
+        &["compound_statement"],
+        |func_node, body_node| {
+            // Call and short-circuit handling is the same as C; lambdas are folded in
+            // because these walks cover the whole body subtree.
+            let callee_names = c_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + c_count_cc_extras(&body_node),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "for_range_loop",
+                        "switch_statement",
+                        "try_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "break_statement",
+                        "continue_statement",
+                        "goto_statement",
+                        "throw_statement",
+                        "co_return_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+                missing_docstring: false,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+        loc: 0,
+        callee_names: vec![],
+        missing_docstring: false,
+    })
 }
 
 /// Extract callee names from a C# function body.

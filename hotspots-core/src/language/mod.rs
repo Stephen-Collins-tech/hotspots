@@ -5,6 +5,7 @@
 
 pub mod c;
 pub mod cfg_builder;
+pub mod cpp;
 pub mod csharp;
 pub mod ecmascript;
 pub mod function_body;
@@ -23,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 pub use c::{CCfgBuilder, CParser};
 pub use cfg_builder::{get_builder_for_function, CfgBuilder};
+pub use cpp::{CppCfgBuilder, CppParser};
 pub use csharp::{CSharpCfgBuilder, CSharpParser};
 pub use ecmascript::{AstroParser, ECMAScriptCfgBuilder, ECMAScriptParser, VueParser};
 pub use function_body::FunctionBody;
@@ -65,6 +67,8 @@ pub enum Language {
     CHeader,
     /// PHP (.php)
     Php,
+    /// C++ (.cpp, .cc, .cxx, .hpp, .hxx, .hh)
+    Cpp,
 }
 
 /// Metadata for one supported language: its canonical name and the file
@@ -153,6 +157,11 @@ const LANGUAGE_SPECS: &[LanguageSpec] = &[
         name: "PHP",
         extensions: &["php"],
     },
+    LanguageSpec {
+        variant: Language::Cpp,
+        name: "C++",
+        extensions: &["cpp", "cc", "cxx", "hpp", "hxx", "hh"],
+    },
 ];
 
 /// Exhaustiveness guard: this match has no wildcard arm, so adding a
@@ -175,7 +184,8 @@ fn language_spec_is_exhaustive(lang: Language) {
         | Language::CSharp
         | Language::C
         | Language::CHeader
-        | Language::Php => {}
+        | Language::Php
+        | Language::Cpp => {}
     }
 }
 
@@ -354,8 +364,17 @@ mod tests {
 
     #[test]
     fn test_from_extension_unknown() {
-        assert_eq!(Language::from_extension("cpp"), None);
+        assert_eq!(Language::from_extension("rb"), None);
         assert_eq!(Language::from_extension(""), None);
+    }
+
+    #[test]
+    fn test_from_extension_cpp() {
+        for ext in ["cpp", "cc", "cxx", "hpp", "hxx", "hh"] {
+            assert_eq!(Language::from_extension(ext), Some(Language::Cpp), "{ext}");
+        }
+        assert_eq!(Language::Cpp.name(), "C++");
+        assert_eq!(Language::from_name("C++"), Some(Language::Cpp));
     }
 
     #[test]
