@@ -470,6 +470,13 @@ The project root is determined by walking up from the analyzed path to find `.gi
 
 Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
 
+Test files are excluded by default using each language's naming convention, so ranking is
+about shipped code: `*.test.*` and `*.spec.*` (TypeScript/JavaScript), `test_*.py` and
+`*_test.py`, `*_test.go`, and, for C and C++, `*_test.{c,cc,cpp,cxx}`, `*_tests.*` and
+`*_unittest.*`. C/C++ test cases written as macros (`TEST(Suite, Name)`) would otherwise rank
+as ordinary functions. Directory-only conventions (a bare `tests/` folder) are not excluded;
+add them under `exclude` if you want them gone.
+
 ### Full schema
 
 ```json
