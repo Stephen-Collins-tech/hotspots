@@ -24,28 +24,6 @@
   {
     "band": "moderate",
     "file": "tests/fixtures/c/control_flow.c",
-    "function": "classify",
-    "language": "C",
-    "line": 1,
-    "lrs": 5.699999999999999,
-    "metrics": {
-      "cc": 3,
-      "fo": 0,
-      "loc": 9,
-      "missing_docstring": false,
-      "nd": 2,
-      "ns": 3
-    },
-    "risk": {
-      "r_cc": 2.0,
-      "r_fo": 0.0,
-      "r_nd": 2.0,
-      "r_ns": 3.0
-    }
-  },
-  {
-    "band": "moderate",
-    "file": "tests/fixtures/c/control_flow.c",
     "function": "boolean_ops",
     "language": "C",
     "line": 30,
@@ -82,6 +60,28 @@
     },
     "risk": {
       "r_cc": 2.321928094887362,
+      "r_fo": 0.0,
+      "r_nd": 1.0,
+      "r_ns": 3.0
+    }
+  },
+  {
+    "band": "moderate",
+    "file": "tests/fixtures/c/control_flow.c",
+    "function": "classify",
+    "language": "C",
+    "line": 1,
+    "lrs": 4.8999999999999995,
+    "metrics": {
+      "cc": 3,
+      "fo": 0,
+      "loc": 9,
+      "missing_docstring": false,
+      "nd": 1,
+      "ns": 3
+    },
+    "risk": {
+      "r_cc": 2.0,
       "r_fo": 0.0,
       "r_nd": 1.0,
       "r_ns": 3.0
