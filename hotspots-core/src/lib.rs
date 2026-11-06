@@ -22,6 +22,7 @@ pub mod coupling;
 pub mod db;
 pub mod delta;
 pub mod discover;
+pub mod function_id;
 pub mod gate;
 pub mod git;
 pub mod history_signals;

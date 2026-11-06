@@ -180,7 +180,7 @@ pub fn render_sarif(snapshot: &Snapshot, repo_root: &Path) -> String {
                 _ => return None,
             };
 
-            let name = f.function_id.rsplit("::").next().unwrap_or("<anonymous>");
+            let name = crate::function_id::short_name(&f.function_id);
             let lrs = f.lrs;
             let cc = f.metrics.cc;
 
