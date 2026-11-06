@@ -1833,7 +1833,7 @@ fn render_function_risk_gallery(functions: &[FunctionSnapshot]) -> String {
         .into_iter()
         .take(48)
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let width = ((f.lrs / max_lrs) * 100.0).clamp(4.0, 100.0);
             let activity = f.activity_risk.unwrap_or(f.lrs);
             let touches = f
@@ -1887,7 +1887,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     let rows: String = functions
         .iter()
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let tier_str = f.tier.as_deref().unwrap_or("");
 
             let churn_val = f.churn.as_ref().map(|c| c.lines_added + c.lines_deleted);
@@ -2131,11 +2131,7 @@ fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
 }
 
 fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
-    let function_name = function
-        .function_id
-        .split("::")
-        .last()
-        .unwrap_or(&function.function_id);
+    let function_name = crate::function_id::short_name(&function.function_id);
     let touches = function.touch_count.unwrap_or(0);
     let activity = function.activity_risk.unwrap_or(function.lrs);
     let last_change = function
@@ -2194,7 +2190,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     let rows: String = top_risks
         .into_iter()
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let risk_val = f.activity_risk.unwrap_or(f.lrs);
             let touches_value = f
                 .touch_count

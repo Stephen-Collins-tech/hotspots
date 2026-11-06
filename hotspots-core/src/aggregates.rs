@@ -675,8 +675,8 @@ pub fn compute_delta_aggregates(
             continue;
         }
         // Extract file path from function_id (format: "path/to/file.ts::function")
-        let file = if let Some(sep_pos) = entry.function_id.rfind("::") {
-            entry.function_id[..sep_pos].to_string()
+        let file = if let Some(file) = crate::function_id::file_of(&entry.function_id) {
+            file.to_string()
         } else {
             continue; // Skip malformed function_id
         };

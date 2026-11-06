@@ -191,3 +191,65 @@ def test_no_unsupported_line_when_nothing_was_left_out(tmp_path: Path):
     proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
     assert proc.returncode == 0
     assert "Not analyzed" not in proc.stderr
+
+
+def test_cpp_qualified_and_overloaded_names_survive_snapshot_and_delta(tmp_path: Path):
+    """C++ ids contain `::` (qualified names, `std::string` in overload signatures). Display
+    names must be plain identifiers and delta file attribution must stay the real path."""
+    import re
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parents[1]
+    r = Runner(repo_root)
+    r.ensure_built()
+
+    repo = init_test_repo(tmp_path)
+    src = repo / "src"
+    src.mkdir()
+    cc = src / "seg.cc"
+    cc.write_text(
+        """
+#include <string>
+namespace zvec {
+class Seg {
+ public:
+  int fetch(const std::string &s, bool flag) { if (flag) { return 1; } return (int)s.size(); }
+  int fetch(int id) { if (id > 0) { for (int i = 0; i < id; i++) { if (i == 3) break; } } return id; }
+  int plain() { return 0; }
+};
+}  // namespace zvec
+""".lstrip()
+    )
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "one"], cwd=repo, check=True)
+
+    # Snapshot: ids are qualified, overloads carry their signature, short names are plain.
+    snap = repo / "snap.json"
+    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "--no-persist", "src"], repo, out=snap)
+    assert proc.returncode == 0
+    ids = sorted(f["function_id"] for f in read_json(snap)["functions"])
+    assert ids == [
+        "src/seg.cc::zvec::Seg::fetch(int)",
+        "src/seg.cc::zvec::Seg::fetch(std::string&,bool)",
+        "src/seg.cc::zvec::Seg::plain",
+    ], ids
+
+    top = repo / "top.json"
+    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=top)
+    assert proc.returncode == 0
+    triage = read_json(top)["triage"]
+    names = [f["function"] for tier in ("active", "quiet") for f in triage[tier].get("top", [])]
+    assert names, "expected ranked functions"
+    assert all(re.fullmatch(r"\w+", n) for n in names), names
+
+    # Delta: change the file in a second commit; changes must be attributed to the real path.
+    cc.write_text(cc.read_text().replace("int plain() { return 0; }", "int plain(int x) { if (x) { return 1; } return 0; }"))
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "two"], cwd=repo, check=True)
+    r.run(["analyze", "--mode", "snapshot", "--format", "json", "src"], repo, out=repo / "persist.json")
+
+    delta = repo / "delta.json"
+    proc = r.run(["analyze", "--mode", "delta", "--format", "json", "src"], repo, out=delta)
+    assert proc.returncode == 0
+    files = [e["file"] for e in read_json(delta)["delta"]["aggregates"]["files"]]
+    assert files == ["src/seg.cc"], files
