@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Skip very deeply nested Rust, TS/JS and Go files instead of overflowing the stack (#341)
+
+
 ### Documentation
 - Replace the 'not validated' caveat with the checked result (#340)
 
