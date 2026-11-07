@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Replace the 'not validated' caveat with the checked result (#340)
 
+
+### Features
+- Route .h files by code, not by words in comments (#342)
+
 ## [3.3.4] - 2026-11-07
 
 ### Bug Fixes
