@@ -72,7 +72,7 @@ impl ParsedModule for PythonModule {
 }
 
 /// Recursively discover function declarations in the Python AST
-fn discover_functions_recursive(
+fn discover_function_at(
     node: Node,
     source: &Arc<str>,
     file_index: usize,
@@ -87,9 +87,23 @@ fn discover_functions_recursive(
     }
 
     // Recurse into children (this will find nested functions and methods)
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        discover_functions_recursive(child, source, file_index, functions);
+}
+
+/// Pre-order walk with an explicit stack, so a very deep syntax tree (for example a generated
+/// 16k-entry lookup table that parses as a right-nested comma expression) cannot overflow the
+/// thread stack. Visit order, and therefore function indices, match the old recursive walk.
+fn discover_functions_recursive(
+    root: Node,
+    source: &Arc<str>,
+    file_index: usize,
+    functions: &mut Vec<FunctionNode>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        discover_function_at(node, source, file_index, functions);
+        let mut cursor = node.walk();
+        let children: Vec<Node> = node.children(&mut cursor).collect();
+        stack.extend(children.into_iter().rev());
     }
 }
 
