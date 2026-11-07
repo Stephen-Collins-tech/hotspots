@@ -82,6 +82,20 @@ pub fn analyze_file_with_config(
         language = Language::Cpp;
     }
 
+    if let Some(limit) = nesting_limit(language) {
+        let depth = max_bracket_depth(&src, limit);
+        if depth > limit {
+            eprintln!(
+                "warning: skipping {} — nesting is deeper than {} levels, which can overflow the stack \
+                 in the {} parser",
+                path.display(),
+                limit,
+                language.name()
+            );
+            return Ok(vec![]);
+        }
+    }
+
     let parser = create_parser(language, source_map)?;
 
     let parse_result = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -178,6 +192,54 @@ fn long_line_stats(src: &str, threshold: usize) -> (usize, usize) {
         }
     }
     (max_len, count)
+}
+
+/// Bracket-nesting depth beyond which a language's parser can overflow its thread stack.
+///
+/// The Rust (`syn`) and ECMAScript (`swc`) parsers are recursive descent and Go's later stages
+/// recurse too; none of that is ours to make iterative. Measured on the 32 MiB worker stacks the
+/// CLI uses, overflow starts near 1,600 nested blocks for Rust, 2,600 nested parentheses for
+/// TypeScript and 11,000 nested blocks for Go. These limits sit well below those, and far above
+/// anything hand-written. This is a mitigation, not a fix: a single expression with tens of
+/// thousands of operators and no brackets can still overflow.
+fn nesting_limit(language: Language) -> Option<usize> {
+    match language {
+        Language::Rust => Some(1_000),
+        Language::TypeScript
+        | Language::TypeScriptReact
+        | Language::JavaScript
+        | Language::JavaScriptReact
+        | Language::Vue
+        | Language::Astro => Some(1_500),
+        Language::Go => Some(5_000),
+        _ => None,
+    }
+}
+
+/// Maximum nesting of `()`, `[]` and `{}` in `src`, stopping as soon as it exceeds `stop_after`.
+///
+/// A plain byte scan that ignores strings and comments: brackets inside them can only raise the
+/// count, which errs towards skipping a file, never towards a crash. Unmatched closers do not
+/// drive the depth negative.
+fn max_bracket_depth(src: &str, stop_after: usize) -> usize {
+    let mut depth = 0usize;
+    let mut max = 0usize;
+    for b in src.bytes() {
+        match b {
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                if depth > max {
+                    max = depth;
+                    if max > stop_after {
+                        return max;
+                    }
+                }
+            }
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max
 }
 
 /// Returns true if a file path suggests it contains vendored or generated third-party code.
@@ -376,5 +438,21 @@ mod generated_file_tests {
     fn header_scan_does_not_split_multibyte_chars() {
         let src = "é".repeat(GENERATED_HEADER_BYTES);
         assert_eq!(generated_file_marker(&src), None);
+    }
+
+    #[test]
+    fn max_bracket_depth_counts_nesting_and_stops_early() {
+        assert_eq!(max_bracket_depth("fn f() { if x { (1) } }", 100), 3);
+        assert_eq!(max_bracket_depth("}}}{", 100), 1);
+        let deep = "{".repeat(5000);
+        assert!(max_bracket_depth(&deep, 100) > 100);
+    }
+
+    #[test]
+    fn nesting_limits_cover_the_recursive_parsers() {
+        assert!(nesting_limit(Language::Rust).is_some());
+        assert!(nesting_limit(Language::TypeScript).is_some());
+        assert!(nesting_limit(Language::Go).is_some());
+        assert!(nesting_limit(Language::Java).is_none());
     }
 }
