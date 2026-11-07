@@ -760,7 +760,7 @@ analyzed for complexity.
 
 ### C++ notes
 
-- **The score's ranking was checked on C++ (F244):** it puts files that later get bug fixes above chance,
+- **The score's ranking was checked on C++:** it puts files that later get bug fixes above chance,
   mostly through its git-activity terms, but misses most of them in absolute terms, so treat it as an
   ordering to read first, not a detector. See [Why the formula looks like this](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md).
 - **Function names.** Free functions keep their plain name. Members and functions inside
