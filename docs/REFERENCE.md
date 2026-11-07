@@ -789,8 +789,11 @@ analyzed for complexity.
 - **Macros are not expanded.** Code that depends on macros the parser cannot see (for example a
   namespace opened by a macro, as in some header-only libraries) may be named without its
   namespace or, if the macro makes the syntax unparseable, left out of the ranking.
-- **`.h` files** are parsed as C unless they contain C++ markers (`class`, `template`,
-  `namespace`, `::`, range-based `for`, access labels), in which case they are parsed as C++.
+- **`.h` files** are parsed as C unless they contain C++ markers in code (`class`, `template`,
+  `namespace`, `::`, range-based `for`, access labels), in which case they are parsed as C++. Markers inside
+  comments and string literals are ignored, so a C header that mentions "size class" in a comment stays C.
+  A header with no marker is also parsed as C++ if the C grammar reports errors and the C++ grammar parses it
+  without any (for example one using references or `constexpr`).
 - Objective-C++ (`.mm`) and CUDA (`.cu`) are not supported.
 
 **JSX note:** `.jsx` and `.tsx` files support JSX syntax. Plain `.js` files also enable JSX parsing (React webpack convention). JSX elements do not add CC; control flow in JSX (`&&`, ternary) does.

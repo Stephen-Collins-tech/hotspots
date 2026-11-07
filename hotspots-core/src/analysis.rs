@@ -78,8 +78,8 @@ pub fn analyze_file_with_config(
 
     // `.h` is ambiguous: a header that uses C++ syntax goes to the C++ grammar instead
     // of the C one, which would drop or mis-parse its member functions (issue #204).
-    if language == Language::CHeader && looks_like_cpp(&src) {
-        language = Language::Cpp;
+    if language == Language::CHeader {
+        language = choose_header_language(&src);
     }
 
     if let Some(limit) = nesting_limit(language) {
@@ -274,6 +274,10 @@ fn looks_vendored(path: &Path) -> bool {
 fn looks_like_cpp(src: &str) -> bool {
     use regex::Regex;
 
+    // Judge the code, not the prose: `size class` in a comment or `"a::b"` in a string is not C++.
+    let stripped = strip_comments_and_strings(src);
+    let src = stripped.as_str();
+
     const KEYWORD_MARKERS: &[&str] = &[
         "class ",
         "template<",
@@ -302,6 +306,103 @@ fn looks_like_cpp(src: &str) -> bool {
     }
 
     false
+}
+
+/// Decides whether a `.h` file is C or C++.
+///
+/// 1. The marker heuristic (`looks_like_cpp`: `class `, `namespace `, `::`, range-for, ...) runs on the
+///    code only, with comments and string literals blanked, so a C header that says "size class" in a
+///    comment is not sent to the C++ grammar (which mis-parses C idioms such as an identifier `new`).
+/// 2. If the markers say C but the C grammar reports errors and the C++ grammar parses the file
+///    cleanly, it is C++ without any marker (references, `constexpr`, `auto`, default arguments).
+///
+/// A clean C parse is deliberately not treated as proof of C: tree-sitter-c reads `namespace x { ... }`
+/// as a function-like definition without errors. Comparing raw error counts was tried and rejected:
+/// it moved large, macro-heavy C++ headers to the C parser, which then found fewer functions.
+pub(crate) fn choose_header_language(src: &str) -> Language {
+    if looks_like_cpp(src) {
+        return Language::Cpp;
+    }
+    let c_has_errors =
+        parse_error_count(tree_sitter_c::LANGUAGE.into(), src).is_some_and(|n| n > 0);
+    if c_has_errors && parse_error_count(tree_sitter_cpp::LANGUAGE.into(), src) == Some(0) {
+        return Language::Cpp;
+    }
+    Language::CHeader
+}
+
+/// Number of ERROR and MISSING nodes tree-sitter produces for `src`, or None if parsing fails or
+/// takes more than 5 s. Iterative, and descends only into subtrees that contain an error.
+fn parse_error_count(language: tree_sitter::Language, src: &str) -> Option<usize> {
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&language).ok()?;
+    let start = std::time::Instant::now();
+    let mut cancel =
+        |_: &tree_sitter::ParseState| start.elapsed() > std::time::Duration::from_secs(5);
+    let options = tree_sitter::ParseOptions::new().progress_callback(&mut cancel);
+    let bytes = src.as_bytes();
+    let tree = parser.parse_with_options(
+        &mut |offset, _| bytes.get(offset..).unwrap_or(&[]),
+        None,
+        Some(options),
+    )?;
+    let mut count = 0;
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if !node.has_error() {
+            continue;
+        }
+        if node.is_error() || node.is_missing() {
+            count += 1;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    Some(count)
+}
+
+/// Replaces the contents of C-family comments and string/char literals with spaces (newlines kept),
+/// so keyword checks see only code. Not a full lexer: it handles `//`, `/* */`, `"..."` and `'...'`
+/// with backslash escapes, which is enough for header classification.
+fn strip_comments_and_strings(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i < bytes.len() && !(bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/')) {
+                if bytes[i] == b'\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            out.push(' ');
+        } else if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            while i < bytes.len() && bytes[i] != quote && bytes[i] != b'\n' {
+                if bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+            out.push(' ');
+        } else {
+            // Copy one whole UTF-8 character.
+            let ch_len = src[i..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&src[i..i + ch_len]);
+            i += ch_len;
+        }
+    }
+    out
 }
 
 /// Instantiates the correct parser for the given language.
@@ -454,5 +555,45 @@ mod generated_file_tests {
         assert!(nesting_limit(Language::TypeScript).is_some());
         assert!(nesting_limit(Language::Go).is_some());
         assert!(nesting_limit(Language::Java).is_none());
+    }
+
+    #[test]
+    fn header_words_in_comments_and_strings_do_not_make_it_cpp() {
+        let c = "/* size class lookup, see std::vector in the docs */\n\
+                 // namespace of the module: class table\n\
+                 static const char *msg = \"a::b class namespace \";\n\
+                 static inline int add(int a, int b) { return a + b; }\n";
+        assert_eq!(choose_header_language(c), Language::CHeader);
+    }
+
+    #[test]
+    fn header_with_cpp_in_code_is_cpp() {
+        let cpp = "namespace app { class Foo { public: int get() const { return 1; } }; }\n";
+        assert_eq!(choose_header_language(cpp), Language::Cpp);
+        let range_for =
+            "inline int sum(int n) { int t = 0; for (int x : v) { t += x; } return t; }\n";
+        assert_eq!(choose_header_language(range_for), Language::Cpp);
+    }
+
+    #[test]
+    fn markerless_cpp_header_is_detected_by_parse() {
+        // References and constexpr are not valid C and none of the keyword markers appear.
+        let cpp = "constexpr int kMax = 5;\nint twice(const int& x);\n";
+        assert_eq!(choose_header_language(cpp), Language::Cpp);
+    }
+
+    #[test]
+    fn plain_c_header_stays_c() {
+        let c = "#ifndef X_H\n#define X_H\ntypedef struct { int a; } S;\nint f(S *s);\n#endif\n";
+        assert_eq!(choose_header_language(c), Language::CHeader);
+    }
+
+    #[test]
+    fn strip_blanks_comments_and_strings_but_keeps_code_and_lines() {
+        let out =
+            strip_comments_and_strings("int a; // class\n/* ns:: */ char *s = \"::\\\"x\"; 'c'\n");
+        assert!(!out.contains("class") && !out.contains("::"));
+        assert!(out.contains("int a;") && out.contains("char *s ="));
+        assert_eq!(out.matches('\n').count(), 2);
     }
 }
