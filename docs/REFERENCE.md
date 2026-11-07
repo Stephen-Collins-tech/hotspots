@@ -760,10 +760,9 @@ analyzed for complexity.
 
 ### C++ notes
 
-- **The score has not been validated on C++.** The risk score's weights and band cutoffs were
-  chosen and checked on the other languages. C++ code has different habits (long header-only
-  template files, macro-driven code), so treat a C++ ranking as a useful ordering to read, not
-  as something measured to work as well. See [Why the formula looks like this](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md).
+- **The score's ranking was checked on C++:** it puts files that later get bug fixes above chance,
+  mostly through its git-activity terms, but misses most of them in absolute terms, so treat it as an
+  ordering to read first, not a detector. See [Why the formula looks like this](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md).
 - **Function names.** Free functions keep their plain name. Members and functions inside
   namespaces or classes are qualified (`ns::Class::method`, `Foo::~Foo`, `Foo::operator==`). If
   two functions in one file share a qualified name (overloads), each gets its parameter types
