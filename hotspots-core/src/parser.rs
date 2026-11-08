@@ -72,6 +72,21 @@ pub fn parse_source(src: &str, source_map: &Lrc<SourceMap>, filename: &str) -> R
                 if let Ok(module) = parse_with(src, source_map, filename, flow_fallback_syntax()) {
                     return Ok(module);
                 }
+                // Flow-only forms (`?T`, `{| |}`, `opaque type`, ...): rewrite them to
+                // same-length TypeScript and try once more.
+                let rewritten = crate::flow::flow_to_typescript(src);
+                if let Ok(module) =
+                    parse_with(&rewritten, source_map, filename, flow_fallback_syntax())
+                {
+                    return Ok(module);
+                }
+                // Last resort: also drop object-type spreads and the inexact `...` marker.
+                let aggressive = crate::flow::flow_to_typescript_aggressive(src);
+                if let Ok(module) =
+                    parse_with(&aggressive, source_map, filename, flow_fallback_syntax())
+                {
+                    return Ok(module);
+                }
             }
             Err(first)
         }

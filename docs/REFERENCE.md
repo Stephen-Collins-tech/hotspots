@@ -275,12 +275,15 @@ or aborting the whole run.
   complete fix: a single expression with tens of thousands of operators and no brackets can still overflow.
 - **Qt translation files.** A `.ts` file that begins with an XML declaration, `<!DOCTYPE TS>` or a `<TS ...>` root element is a Qt
   Linguist translation catalog, not TypeScript. Projects such as Bitcoin Core keep dozens of them.
-- **Flow-annotated JavaScript only partly parsed.** A `.js` file with an `@flow` pragma is first parsed as
-  JavaScript; if that fails it is retried with the TypeScript grammar, which covers Flow's plain type
-  annotations, `type` aliases and `import type`. Flow-only syntax (nullable `?string`, `{| |}` exact objects,
-  `opaque type`, `declare` forms, `import typeof`) still fails to parse, and that file is skipped with a
-  `Failed to parse source file` warning. On React Native about 40% of the Flow files that previously failed
-  now parse. Full Flow support would need a Flow parser.
+- **Flow-annotated JavaScript, mostly parsed.** A `.js` file with an `@flow` pragma is first parsed as
+  JavaScript. If that fails it is retried as TypeScript, then with Flow-only syntax rewritten to
+  same-length TypeScript (nullable `?T`, `{| |}` exact objects, `opaque type`, `import typeof`, `%checks`,
+  variance sigils, `component Name(...)` declarations), and finally with object-type spreads and the
+  inexact `...` marker removed. Only files that fail plain parsing are rewritten, and line numbers are
+  unchanged. Some Flow syntax is still unsupported (`component(...)` and `interface {}` types, `match`
+  expressions, `declare` forms), and such a file is skipped with a `Failed to parse source file` warning.
+  On React Native, parse failures fell from 1,224 files to 141, of which 46 are `flow-typed` declaration
+  files that contain no functions.
 
 If a file you care about is skipped, the warning says why. Other languages' parsers do not need a nesting
 limit.

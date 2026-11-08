@@ -39,11 +39,54 @@ fn same_source_without_the_flow_pragma_is_still_skipped() {
     assert_eq!(analyzed("b.js", &plain), None);
 }
 
+/// Flow-only forms the rewrite pass turns into valid TypeScript. Each wraps one function so the
+/// count shows the file parsed.
 #[test]
-fn flow_only_syntax_is_still_skipped() {
-    // A nullable `?string` is Flow-only; TypeScript cannot parse it.
-    let src =
-        "// @flow\nfunction f(a: ?string): number {\n  if (a) { return 1; }\n  return 2;\n}\n";
+fn flow_only_syntax_is_analysed() {
+    let body = "function f(a: number): number {\n  if (a) { return 1; }\n  return 2;\n}\n";
+    for (name, head) in [
+        (
+            "nullable.js",
+            "// @flow\nfunction g(a: ?string, b: Array<?number>) { return a; }\n",
+        ),
+        (
+            "exact.js",
+            "// @flow\ntype P = {| x: number, +y: string |};\n",
+        ),
+        ("opaque.js", "// @flow\nopaque type ID = string;\n"),
+        ("cast.js", "// @flow\nconst v = g as ?string;\n"),
+        ("inexact.js", "// @flow\ntype P = {a: number, ...};\n"),
+        ("spread.js", "// @flow\ntype P = {...Base, a: number};\n"),
+        (
+            "extends.js",
+            "// @flow\ntype D<T> = T extends {...} ? 1 : 2;\n",
+        ),
+        (
+            "importtypeof.js",
+            "// @flow\nimport typeof Foo from './foo';\n",
+        ),
+    ] {
+        let n = analyzed(name, &format!("{head}{body}"));
+        assert!(n.is_some_and(|n| n >= 1), "{name}: {n:?}");
+    }
+}
+
+#[test]
+fn flow_component_declaration_is_a_function() {
+    let src = "// @flow\nexport default component Box(label: string, ...rest: Props) {\n  if (label) { return 1; }\n  return 2;\n}\n";
+    assert_eq!(analyzed("comp.js", src), Some(1));
+}
+
+#[test]
+fn jsx_spread_attributes_survive_the_rewrite() {
+    let src = "// @flow\nfunction View(props: ?Props) {\n  if (props) { return <div {...props} />; }\n  return <div />;\n}\n";
+    assert_eq!(analyzed("v.js", src), Some(1));
+}
+
+#[test]
+fn unsupported_flow_syntax_is_still_skipped() {
+    // A `component(...)` type is not rewritten, so the file still fails to parse.
+    let src = "// @flow\ntype C = component(x: number);\nfunction f() { return 1; }\n";
     assert_eq!(analyzed("c.js", src), None);
 }
 
