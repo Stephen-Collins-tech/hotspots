@@ -62,23 +62,57 @@ fn syntax_for_file(filename: &str) -> Syntax {
 ///
 /// Returns an error if parse errors occur.
 pub fn parse_source(src: &str, source_map: &Lrc<SourceMap>, filename: &str) -> Result<Module> {
-    // Determine syntax based on file extension
     let syntax = syntax_for_file(filename);
+    match parse_with(src, source_map, filename, syntax) {
+        Ok(module) => Ok(module),
+        Err(first) => {
+            // Flow-annotated JavaScript (`// @flow`) is not valid ECMAScript, but most of its
+            // type syntax is valid TypeScript, so retry it with the TypeScript grammar.
+            if is_plain_js(filename) && declares_flow(src) {
+                if let Ok(module) = parse_with(src, source_map, filename, flow_fallback_syntax()) {
+                    return Ok(module);
+                }
+            }
+            Err(first)
+        }
+    }
+}
 
-    // Create SourceFile for the source code
+fn is_plain_js(filename: &str) -> bool {
+    [".js", ".mjs", ".cjs", ".jsx", ".mjsx", ".cjsx"]
+        .iter()
+        .any(|e| filename.ends_with(e))
+}
+
+/// True if the file's leading comments contain an `@flow` pragma.
+fn declares_flow(src: &str) -> bool {
+    let mut end = src.len().min(1024);
+    while !src.is_char_boundary(end) {
+        end -= 1;
+    }
+    src[..end].contains("@flow")
+}
+
+fn flow_fallback_syntax() -> Syntax {
+    Syntax::Typescript(swc_ecma_parser::TsSyntax {
+        tsx: true,
+        decorators: true,
+        dts: false,
+        ..Default::default()
+    })
+}
+
+fn parse_with(
+    src: &str,
+    source_map: &Lrc<SourceMap>,
+    filename: &str,
+    syntax: Syntax,
+) -> Result<Module> {
     let source_file: Lrc<SourceFile> =
         source_map.new_source_file(FileName::Custom(filename.into()).into(), src.to_string());
-
-    // Create StringInput from SourceFile
     let input = StringInput::from(&*source_file);
-
-    // Create lexer with detected syntax
     let lexer = Lexer::new(syntax, EsVersion::Es2022, input, None);
-
-    // Create parser
     let mut parser = Parser::new_from(lexer);
-
-    // Parse module
     parser.parse_module().map_err(|e| {
         let error_msg = e.kind().msg();
         anyhow::anyhow!("Parse error: {}", error_msg)

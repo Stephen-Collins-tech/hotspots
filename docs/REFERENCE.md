@@ -275,6 +275,12 @@ or aborting the whole run.
   complete fix: a single expression with tens of thousands of operators and no brackets can still overflow.
 - **Qt translation files.** A `.ts` file that begins with an XML declaration, `<!DOCTYPE TS>` or a `<TS ...>` root element is a Qt
   Linguist translation catalog, not TypeScript. Projects such as Bitcoin Core keep dozens of them.
+- **Flow-annotated JavaScript only partly parsed.** A `.js` file with an `@flow` pragma is first parsed as
+  JavaScript; if that fails it is retried with the TypeScript grammar, which covers Flow's plain type
+  annotations, `type` aliases and `import type`. Flow-only syntax (nullable `?string`, `{| |}` exact objects,
+  `opaque type`, `declare` forms, `import typeof`) still fails to parse, and that file is skipped with a
+  `Failed to parse source file` warning. On React Native about 40% of the Flow files that previously failed
+  now parse. Full Flow support would need a Flow parser.
 
 If a file you care about is skipped, the warning says why. Other languages' parsers do not need a nesting
 limit.
