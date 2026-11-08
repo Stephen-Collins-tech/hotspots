@@ -564,7 +564,7 @@ fn handle_snapshot_mode(
         );
     }
 
-    let mut snapshot = build_snapshot_via_db(repo_root, reports, skip_touch_metrics)
+    let (mut snapshot, dc_fetch) = build_snapshot_via_db(repo_root, reports, skip_touch_metrics)
         .context("failed to build enriched snapshot")?;
 
     // Populate DC before persisting so the snapshot on disk includes the values,
@@ -573,10 +573,12 @@ fn handle_snapshot_mode(
     // compute_directed_coupling_for_repo produces from git log output.
     //
     // Gated behind skip_touch_metrics: like touch metrics, this runs a
-    // potentially unbounded `git log` walk (see coupling.rs), so
-    // --skip-touch-metrics must skip it too rather than leaving it as a
-    // hidden cost the flag doesn't cover.
-    if !skip_touch_metrics {
+    // potentially unbounded `git log` walk (see coupling.rs) — but the walk
+    // itself already happened inside build_snapshot_via_db, concurrently with
+    // burst score and touch metrics (`dc_fetch`); this only does the cheap,
+    // in-memory scoring step now that partner_scores (from activity_risk) is
+    // available. --skip-touch-metrics still must skip it, same as before.
+    if let Some(dc_fetch) = dc_fetch {
         use hotspots_core::trainer::{make_rel, repo_prefixes};
         let (prefix_can, prefix_raw) = repo_prefixes(repo_root);
         let partner_scores: std::collections::HashMap<String, f64> = snapshot
@@ -587,7 +589,9 @@ fn handle_snapshot_mode(
                 (rel, f.activity_risk.unwrap_or(f.lrs))
             })
             .collect();
-        snapshot.populate_directed_coupling(repo_root, &partner_scores);
+        let (dc_scores, _jaccard) =
+            hotspots_core::coupling::finish_directed_coupling(&dc_fetch, &partner_scores);
+        snapshot.apply_directed_coupling_data(repo_root, &dc_scores);
     }
 
     if !pr_context.is_pr && !no_persist {
@@ -1234,7 +1238,10 @@ pub(crate) fn build_snapshot_via_db(
     repo_root: &Path,
     reports: Vec<hotspots_core::FunctionRiskReport>,
     skip_touch_metrics: bool,
-) -> anyhow::Result<Snapshot> {
+) -> anyhow::Result<(
+    Snapshot,
+    Option<hotspots_core::coupling::DirectedCouplingFetch>,
+)> {
     use hotspots_core::db::TempDb;
     use hotspots_core::snapshot::{
         AnalysisInfo, CommitInfo, FORMULA_VERSION, SNAPSHOT_SCHEMA_VERSION,
@@ -1306,17 +1313,28 @@ pub(crate) fn build_snapshot_via_db(
 
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
     let mut enricher = snapshot::SnapshotEnricher::new(snapshot).with_subsystems(repo_root);
+    let mut dc_fetch = None;
     if !skip_touch_metrics {
-        // burst_score and touch metrics each do their own full-history `git log`
-        // walk, run concurrently by with_burst_and_touch_metrics — gate both
-        // alongside the other touch/churn git log calls so --skip-touch-metrics
-        // actually skips them too.
-        enricher = with_burst_and_touch_metrics(
-            enricher,
-            repo_root,
-            hotspots_core::git::TOUCH_WINDOW_DAYS as u32,
+        // burst_score, touch metrics, and directed coupling's git log walk
+        // each independently read full history. Directed coupling's scoring
+        // step needs partner_scores (built from activity_risk, computed only
+        // after this function returns), but its git fetch doesn't — so fetch
+        // it here, in parallel with burst/touch, and let the caller finish
+        // the (cheap, in-memory) scoring once partner_scores is available.
+        // Gate all three alongside the other touch/churn git log calls so
+        // --skip-touch-metrics actually skips them too.
+        let (fetched_dc, enriched) = rayon::join(
+            || hotspots_core::coupling::fetch_directed_coupling_data(repo_root),
+            || {
+                with_burst_and_touch_metrics(
+                    enricher,
+                    repo_root,
+                    hotspots_core::git::TOUCH_WINDOW_DAYS as u32,
+                )
+            },
         );
-        enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
+        dc_fetch = fetched_dc;
+        enricher = enriched.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
     log_phase(if skip_touch_metrics {
@@ -1325,7 +1343,7 @@ pub(crate) fn build_snapshot_via_db(
         "reading touch history, burst score and scoring functions"
     });
     let result = enricher.with_relative_paths(repo_root).enrich().build();
-    Ok(result)
+    Ok((result, dc_fetch))
 }
 
 /// Run the full enrichment pipeline: git context, churn, touch metrics, call graph, activity risk.

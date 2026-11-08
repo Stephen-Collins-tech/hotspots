@@ -772,7 +772,19 @@ impl Snapshot {
     ) {
         let (dc_scores, _jaccard) =
             crate::coupling::compute_directed_coupling_for_repo(repo_root, partner_scores);
+        self.apply_directed_coupling_data(repo_root, &dc_scores);
+    }
 
+    /// Apply half of `populate_directed_coupling`: writes `directed_coupling`
+    /// from already-scored data (e.g. from `coupling::finish_directed_coupling`,
+    /// whose fetch half — `coupling::fetch_directed_coupling_data` — can run
+    /// concurrently with another independent git fetch). Pure in-memory, no
+    /// git calls.
+    pub fn apply_directed_coupling_data(
+        &mut self,
+        repo_root: &Path,
+        dc_scores: &std::collections::HashMap<String, f64>,
+    ) {
         // Build file → function-indices map
         let mut file_indices: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
@@ -2126,5 +2138,57 @@ mod tests {
             .build();
 
         assert_eq!(a.functions[0].burst_score, b.functions[0].burst_score);
+    }
+
+    /// A repo with enough commits touching two co-changing files to clear
+    /// `coupling::MIN_DC_APPEARANCES` (10), so directed coupling actually
+    /// scores something instead of trivially returning `None` for everything.
+    fn make_coupling_test_repo() -> (tempfile::TempDir, i64) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        run_git_dated_test(root, 0, &["init", "-q"]);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/foo.ts"), "a\n").unwrap();
+        std::fs::write(root.join("src/bar.ts"), "a\n").unwrap();
+        run_git_dated_test(root, 1_700_000_000, &["add", "-A"]);
+        run_git_dated_test(root, 1_700_000_000, &["commit", "-q", "-m", "init"]);
+
+        for i in 0..12 {
+            let ts = 1_700_000_000 + (i + 1) * 100_000;
+            std::fs::write(root.join("src/foo.ts"), format!("a{i}\n")).unwrap();
+            std::fs::write(root.join("src/bar.ts"), format!("a{i}\n")).unwrap();
+            run_git_dated_test(root, ts, &["add", "-A"]);
+            let msg = format!("c{i}");
+            run_git_dated_test(root, ts, &["commit", "-q", "-m", &msg]);
+        }
+
+        let as_of = 1_700_000_000 + 13 * 100_000;
+        (tmp, as_of)
+    }
+
+    #[test]
+    fn apply_directed_coupling_data_matches_populate_directed_coupling() {
+        let (tmp, as_of) = make_coupling_test_repo();
+        let repo_root = tmp.path();
+        let partner_scores: std::collections::HashMap<String, f64> =
+            [("src/bar.ts".to_string(), 5.0)].into_iter().collect();
+
+        let mut via_populate = snapshot_at(repo_root, as_of);
+        via_populate.populate_directed_coupling(repo_root, &partner_scores);
+
+        let mut via_split = snapshot_at(repo_root, as_of);
+        let fetch = crate::coupling::fetch_directed_coupling_data(repo_root)
+            .expect("fixture has commit history");
+        let (dc_scores, _jaccard) =
+            crate::coupling::finish_directed_coupling(&fetch, &partner_scores);
+        via_split.apply_directed_coupling_data(repo_root, &dc_scores);
+
+        assert_eq!(
+            via_populate.functions[0].directed_coupling,
+            via_split.functions[0].directed_coupling
+        );
+        // Sanity: the fixture actually produced a real score, not two Nones
+        // that would trivially match.
+        assert!(via_populate.functions[0].directed_coupling.is_some());
     }
 }
