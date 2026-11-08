@@ -325,6 +325,15 @@ impl CSharpCfgBuilderState {
                         self.cfg.add_edge(body_entry, condition);
                     }
 
+                    // If the body never reaches the condition (it always returns, breaks or
+                    // continues elsewhere, as in `do { ... return x; } while (0);`), nothing
+                    // links to the condition node and it would be unreachable, which
+                    // invalidates the whole function. Link it from the body entry so the
+                    // loop still counts as a decision, as loops do everywhere else.
+                    if !self.cfg.edges.iter().any(|e| e.to == condition) {
+                        self.cfg.add_edge(body_entry, condition);
+                    }
+
                     self.cfg.add_edge(condition, body_entry);
                     self.cfg.add_edge(condition, after_loop);
                     self.loop_stack.pop();
