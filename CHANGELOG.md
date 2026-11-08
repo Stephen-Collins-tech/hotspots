@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Skip Qt translation .ts files instead of failing to parse them as TypeScript (#344)
 
+
+### Features
+- Parse most Flow-annotated JavaScript (TypeScript retry plus same-length rewrites) (#345)
+
 ## [3.4.1] - 2026-11-08
 
 ### Bug Fixes
