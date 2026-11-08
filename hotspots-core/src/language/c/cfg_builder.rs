@@ -325,6 +325,15 @@ impl CCfgBuilderState {
                         }
                     }
 
+                    // If the body never reaches the condition (it always returns, breaks or
+                    // continues elsewhere, as in `do { ... return x; } while (0);`), nothing
+                    // links to the condition node and it would be unreachable, which
+                    // invalidates the whole function. Link it from the body entry so the
+                    // loop still counts as a decision, as loops do everywhere else.
+                    if !self.cfg.edges.iter().any(|e| e.to == loop_header) {
+                        self.cfg.add_edge(body_start, loop_header);
+                    }
+
                     let join_node = self.get_or_create_loop_break(self.loop_stack.len() - 1);
                     self.loop_stack.pop();
                     self.cfg.add_edge(loop_header, body_start);
