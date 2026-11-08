@@ -29,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/
 
 Windows: download the binary from [GitHub Releases](https://github.com/Stephen-Collins-tech/hotspots/releases/latest).
 
+**New here?** Start with the [Quick Start guide](https://docs.hotspots.dev/quickstart).
+
 Verify: `hotspots --version`
 
 **GitHub Action:**
