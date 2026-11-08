@@ -1200,6 +1200,28 @@ fn load_merge_base_or_fallback(
     }
 }
 
+/// Fetches burst-score history and touch metrics concurrently on the rayon
+/// pool (already built for CFG/parse work and otherwise idle during this
+/// phase) instead of running two independent, blocking `git log` calls one
+/// after another on the main thread, then applies both results.
+fn with_burst_and_touch_metrics(
+    enricher: snapshot::SnapshotEnricher,
+    repo_root: &Path,
+    window_days: u32,
+) -> snapshot::SnapshotEnricher {
+    let (burst_signals, touch_data) = rayon::join(
+        || hotspots_core::history_signals::compute_history_signals_for_repo(repo_root),
+        || enricher.fetch_touch_metrics_data(repo_root, window_days),
+    );
+
+    let enricher = if burst_signals.is_empty() {
+        enricher
+    } else {
+        enricher.with_burst_score_data(repo_root, &burst_signals)
+    };
+    enricher.with_touch_metrics_data(repo_root, &touch_data.0, &touch_data.1)
+}
+
 /// Memory-efficient snapshot pipeline using SQLite as an in-process buffer.
 ///
 /// Pipeline: insert reports → drop Vec → update churn → build call graph from DB →
@@ -1285,12 +1307,15 @@ pub(crate) fn build_snapshot_via_db(
     // Phase 5: remaining enrichment (touch, activity risk, percentiles, driver, quadrant).
     let mut enricher = snapshot::SnapshotEnricher::new(snapshot).with_subsystems(repo_root);
     if !skip_touch_metrics {
-        // burst_score does its own full-history `git log` walk (history_signals::
-        // load_commits_with_author) — gate it alongside the other touch/churn git
-        // log calls so --skip-touch-metrics actually skips it too.
-        enricher = enricher.with_burst_score(repo_root);
-        enricher =
-            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
+        // burst_score and touch metrics each do their own full-history `git log`
+        // walk, run concurrently by with_burst_and_touch_metrics — gate both
+        // alongside the other touch/churn git log calls so --skip-touch-metrics
+        // actually skips them too.
+        enricher = with_burst_and_touch_metrics(
+            enricher,
+            repo_root,
+            hotspots_core::git::TOUCH_WINDOW_DAYS as u32,
+        );
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
@@ -1347,12 +1372,15 @@ pub(crate) fn build_enriched_snapshot(
     }
 
     if !skip_touch_metrics {
-        // burst_score does its own full-history `git log` walk (history_signals::
-        // load_commits_with_author) — gate it alongside the other touch/churn git
-        // log calls so --skip-touch-metrics actually skips it too.
-        enricher = enricher.with_burst_score(repo_root);
-        enricher =
-            enricher.with_touch_metrics(repo_root, hotspots_core::git::TOUCH_WINDOW_DAYS as u32);
+        // burst_score and touch metrics each do their own full-history `git log`
+        // walk, run concurrently by with_burst_and_touch_metrics — gate both
+        // alongside the other touch/churn git log calls so --skip-touch-metrics
+        // actually skips them too.
+        enricher = with_burst_and_touch_metrics(
+            enricher,
+            repo_root,
+            hotspots_core::git::TOUCH_WINDOW_DAYS as u32,
+        );
         enricher = enricher.with_branch_recency_adjustment(repo_root, merge_base.as_ref());
     }
 
