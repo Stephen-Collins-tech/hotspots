@@ -273,6 +273,8 @@ or aborting the whole run.
   parsers recurse and can overflow the thread stack, which aborts the process and loses the whole run. Real
   hand-written code is nowhere near these depths; a generated fixture can be. This is a safeguard, not a
   complete fix: a single expression with tens of thousands of operators and no brackets can still overflow.
+- **Qt translation files.** A `.ts` file that begins with an XML declaration, `<!DOCTYPE TS>` or a `<TS ...>` root element is a Qt
+  Linguist translation catalog, not TypeScript. Projects such as Bitcoin Core keep dozens of them.
 
 If a file you care about is skipped, the warning says why. Other languages' parsers do not need a nesting
 limit.

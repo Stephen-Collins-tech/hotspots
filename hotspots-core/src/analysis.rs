@@ -55,6 +55,14 @@ pub fn analyze_file_with_config(
         return Ok(vec![]);
     }
 
+    if is_xml_with_ts_extension(path, &src) {
+        eprintln!(
+            "warning: skipping {} — an XML file (Qt translation), not TypeScript",
+            path.display()
+        );
+        return Ok(vec![]);
+    }
+
     let (max_line, long_line_count) = long_line_stats(&src, 1000);
     if long_line_count >= 3 {
         eprintln!(
@@ -174,6 +182,20 @@ fn generated_file_marker(src: &str) -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Qt Linguist translation files use the `.ts` extension but are XML. They start with an XML
+/// declaration, `<!DOCTYPE TS>` or the `<TS ...>` root element, none of which a TypeScript file
+/// can begin with (`.ts` has no JSX).
+fn is_xml_with_ts_extension(path: &Path, src: &str) -> bool {
+    if path.extension().and_then(|e| e.to_str()) != Some("ts") {
+        return false;
+    }
+    let head = src.trim_start_matches('\u{feff}').trim_start();
+    head.starts_with("<?xml")
+        || head.starts_with("<!DOCTYPE TS")
+        || head.starts_with("<TS ")
+        || head.starts_with("<TS>")
 }
 
 /// Returns the length of the longest line and the count of lines exceeding `threshold` chars.
@@ -533,6 +555,27 @@ mod generated_file_tests {
         // a marker far past the header is ignored
         let late = format!("{}// @generated\n", "x\n".repeat(2000));
         assert_eq!(generated_file_marker(&late), None);
+    }
+
+    #[test]
+    fn qt_translation_files_are_not_typescript() {
+        let qt = "<?xml version=\"1.0\" ?><!DOCTYPE TS><TS version=\"2.1\"></TS>";
+        assert!(is_xml_with_ts_extension(Path::new("a/bitcoin_am.ts"), qt));
+        assert!(is_xml_with_ts_extension(
+            Path::new("x.ts"),
+            "\u{feff}\n<!DOCTYPE TS>"
+        ));
+        assert!(is_xml_with_ts_extension(
+            Path::new("bitcoin_ar.ts"),
+            "<TS version=\"2.1\" language=\"ar\">\n<context>"
+        ));
+        // Real TypeScript, including generics and JSX-looking code, is untouched.
+        assert!(!is_xml_with_ts_extension(
+            Path::new("a.ts"),
+            "const x = <T,>(y: T) => y;\n"
+        ));
+        // Only the .ts extension is considered.
+        assert!(!is_xml_with_ts_extension(Path::new("a.xml"), qt));
     }
 
     #[test]
