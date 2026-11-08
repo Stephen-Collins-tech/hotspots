@@ -482,8 +482,14 @@ impl CCfgBuilderState {
 
     fn visit_break(&mut self) {
         if let Some(from_node) = self.current_node {
-            let idx = self.loop_stack.len().wrapping_sub(1);
-            let target = self.get_or_create_loop_break(idx);
+            // A `break` with no enclosing loop or switch can only come from text the
+            // grammar mis-parsed (for example the body of a multi-line `#define`).
+            // Send it to the exit like the Java and C# builders; creating a join
+            // node nothing owns would leave an unreachable node and invalidate the CFG.
+            let target = match self.loop_stack.len().checked_sub(1) {
+                Some(idx) => self.get_or_create_loop_break(idx),
+                None => self.cfg.exit,
+            };
             self.cfg.add_edge(from_node, target);
             self.current_node = None;
         }
@@ -1133,5 +1139,16 @@ void test_func(int n) {
             node_count > DEPTH,
             "expected a fully-built CFG with >{DEPTH} nodes, got {node_count}"
         );
+    }
+
+    #[test]
+    fn test_break_outside_loop_keeps_cfg_valid() {
+        // A multi-line `#define` containing comments is mis-parsed by tree-sitter, so
+        // a stray `break;` can land in the function body with no loop around it.
+        // That used to leave an unowned join node: "Nodes not reachable from entry".
+        let source = "int test_func(int x) {\n    x++;\n    break;\n    return x;\n}\n";
+        let function = make_c_function(source);
+        let cfg = CCfgBuilder.build(&function);
+        assert!(cfg.validate().is_ok(), "{:?}", cfg.validate());
     }
 }
