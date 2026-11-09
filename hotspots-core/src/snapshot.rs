@@ -663,14 +663,24 @@ impl Snapshot {
     ///
     /// Errors are soft: if the git call fails, all functions keep `burst_score = None`.
     pub fn populate_burst_score(&mut self, repo_root: &Path) {
-        use std::collections::HashMap;
-
-        let git_dir = crate::coupling::git_dir(repo_root);
-        let commits = crate::history_signals::load_commits_with_author(&git_dir);
-        if commits.is_empty() {
+        let signals = crate::history_signals::compute_history_signals_for_repo(repo_root);
+        if signals.is_empty() {
             return;
         }
-        let signals = crate::history_signals::compute_history_signals(&commits);
+        self.apply_burst_score_data(repo_root, &signals);
+    }
+
+    /// Apply half of `populate_burst_score`: writes `burst_score` from
+    /// already-fetched per-file history signals (e.g. from
+    /// `history_signals::compute_history_signals_for_repo`). Pure in-memory,
+    /// no git calls — lets the fetch run concurrently with another
+    /// independent git fetch (e.g. touch metrics') before either applies.
+    fn apply_burst_score_data(
+        &mut self,
+        repo_root: &Path,
+        signals: &std::collections::HashMap<String, crate::history_signals::HistorySignals>,
+    ) {
+        use std::collections::HashMap;
 
         let mut file_indices: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, func) in self.functions.iter().enumerate() {
@@ -762,7 +772,19 @@ impl Snapshot {
     ) {
         let (dc_scores, _jaccard) =
             crate::coupling::compute_directed_coupling_for_repo(repo_root, partner_scores);
+        self.apply_directed_coupling_data(repo_root, &dc_scores);
+    }
 
+    /// Apply half of `populate_directed_coupling`: writes `directed_coupling`
+    /// from already-scored data (e.g. from `coupling::finish_directed_coupling`,
+    /// whose fetch half — `coupling::fetch_directed_coupling_data` — can run
+    /// concurrently with another independent git fetch). Pure in-memory, no
+    /// git calls.
+    pub fn apply_directed_coupling_data(
+        &mut self,
+        repo_root: &Path,
+        dc_scores: &std::collections::HashMap<String, f64>,
+    ) {
         // Build file → function-indices map
         let mut file_indices: std::collections::HashMap<String, Vec<usize>> =
             std::collections::HashMap::new();
@@ -803,33 +825,31 @@ impl Snapshot {
         }
     }
 
-    /// File-level touch metrics: one batched git call + per-file fallback
-    fn populate_file_level_touch_metrics(
-        &mut self,
+    /// Fetch half of file-level touch metrics: the batched git call plus the
+    /// per-stale-file fallback walk. No mutation — lets the caller run this
+    /// concurrently with another independent git fetch (e.g. burst score's)
+    /// before applying either's results.
+    fn fetch_touch_metrics_data(
+        &self,
         repo_root: &std::path::Path,
         window_days: u32,
-    ) -> anyhow::Result<()> {
+    ) -> (
+        crate::git::BatchedTouchMetrics,
+        std::collections::HashMap<String, u32>,
+    ) {
         use std::collections::HashMap;
 
-        // Build map of absolute path -> function indices
-        let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
-        for (idx, function) in self.functions.iter().enumerate() {
-            unique_files
-                .entry(function.file.clone())
-                .or_default()
-                .push(idx);
-        }
-
-        // Convert all absolute paths to relative paths for git
-        let abs_to_rel: HashMap<String, String> = unique_files
-            .keys()
-            .map(|abs| {
-                let rel = if let Ok(r) = std::path::Path::new(abs).strip_prefix(repo_root) {
+        let abs_to_rel: HashMap<String, String> = self
+            .functions
+            .iter()
+            .map(|function| {
+                let abs = function.file.clone();
+                let rel = if let Ok(r) = std::path::Path::new(&abs).strip_prefix(repo_root) {
                     r.to_string_lossy().to_string()
                 } else {
                     abs.clone()
                 };
-                (abs.clone(), rel)
+                (abs, rel)
             })
             .collect();
 
@@ -853,7 +873,40 @@ impl Snapshot {
         let stale_days =
             crate::git::batch_last_touch_for_files(repo_root, &stale_files, self.commit.timestamp);
 
-        // Apply results to all functions in each file
+        (batched, stale_days)
+    }
+
+    /// Apply half of file-level touch metrics: writes `touch_count` and
+    /// `days_since_last_change` from already-fetched data. Pure in-memory, no
+    /// git calls.
+    fn apply_touch_metrics_data(
+        &mut self,
+        repo_root: &std::path::Path,
+        batched: &crate::git::BatchedTouchMetrics,
+        stale_days: &std::collections::HashMap<String, u32>,
+    ) {
+        use std::collections::HashMap;
+
+        let mut unique_files: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, function) in self.functions.iter().enumerate() {
+            unique_files
+                .entry(function.file.clone())
+                .or_default()
+                .push(idx);
+        }
+
+        let abs_to_rel: HashMap<String, String> = unique_files
+            .keys()
+            .map(|abs| {
+                let rel = if let Ok(r) = std::path::Path::new(abs).strip_prefix(repo_root) {
+                    r.to_string_lossy().to_string()
+                } else {
+                    abs.clone()
+                };
+                (abs.clone(), rel)
+            })
+            .collect();
+
         for (abs_path, function_indices) in &unique_files {
             let rel = abs_to_rel
                 .get(abs_path)
@@ -872,7 +925,16 @@ impl Snapshot {
                 self.functions[idx].days_since_last_change = days_since;
             }
         }
+    }
 
+    /// File-level touch metrics: one batched git call + per-file fallback
+    fn populate_file_level_touch_metrics(
+        &mut self,
+        repo_root: &std::path::Path,
+        window_days: u32,
+    ) -> anyhow::Result<()> {
+        let (batched, stale_days) = self.fetch_touch_metrics_data(repo_root, window_days);
+        self.apply_touch_metrics_data(repo_root, &batched, &stale_days);
         Ok(())
     }
 
@@ -1161,6 +1223,18 @@ impl SnapshotEnricher {
         self
     }
 
+    /// Populate `burst_score` from already-fetched history signals (e.g. from
+    /// `history_signals::compute_history_signals_for_repo`, run concurrently
+    /// with another independent git fetch). Pure in-memory, no git calls.
+    pub fn with_burst_score_data(
+        mut self,
+        repo_root: &Path,
+        signals: &std::collections::HashMap<String, crate::history_signals::HistorySignals>,
+    ) -> Self {
+        self.snapshot.apply_burst_score_data(repo_root, signals);
+        self
+    }
+
     /// Populate churn metrics from a file churn map.
     pub fn with_churn(
         mut self,
@@ -1176,6 +1250,35 @@ impl SnapshotEnricher {
         if let Err(e) = self.snapshot.populate_touch_metrics(repo_root, window_days) {
             eprintln!("Warning: failed to populate touch metrics: {}", e);
         }
+        self
+    }
+
+    /// Fetch half of touch metrics only (no mutation) — lets the caller run
+    /// it concurrently with another independent git fetch (e.g. burst
+    /// score's) before applying either via `with_touch_metrics_data`.
+    pub fn fetch_touch_metrics_data(
+        &self,
+        repo_root: &Path,
+        window_days: u32,
+    ) -> (
+        crate::git::BatchedTouchMetrics,
+        std::collections::HashMap<String, u32>,
+    ) {
+        self.snapshot
+            .fetch_touch_metrics_data(repo_root, window_days)
+    }
+
+    /// Populate touch count and recency metrics from already-fetched data
+    /// (e.g. from `fetch_touch_metrics_data`, run concurrently with another
+    /// independent git fetch). Pure in-memory, no git calls.
+    pub fn with_touch_metrics_data(
+        mut self,
+        repo_root: &Path,
+        batched: &crate::git::BatchedTouchMetrics,
+        stale_days: &std::collections::HashMap<String, u32>,
+    ) -> Self {
+        self.snapshot
+            .apply_touch_metrics_data(repo_root, batched, stale_days);
         self
     }
 
@@ -1889,5 +1992,203 @@ mod tests {
                 format!("{expected}::foo")
             );
         }
+    }
+
+    // -- fetch/apply split regression: with_touch_metrics_data /
+    // with_burst_score_data must match the sequential with_touch_metrics /
+    // with_burst_score they were split out of (hotspots#321 parallel fetch).
+
+    fn run_git_dated_test(dir: &std::path::Path, ts: i64, args: &[&str]) {
+        let date = format!("{ts} +0000");
+        let mut cmd = std::process::Command::new("git");
+        for var in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] {
+            cmd.env_remove(var);
+        }
+        let out = cmd
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A tiny real git repo with two commits touching one file, used to
+    /// exercise the actual `git log` calls behind touch metrics / burst score.
+    fn make_touch_test_repo() -> (tempfile::TempDir, i64) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        run_git_dated_test(root, 0, &["init", "-q"]);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+
+        std::fs::write(root.join("src/foo.ts"), "export function handler() {}\n").unwrap();
+        run_git_dated_test(root, 1_700_000_000, &["add", "-A"]);
+        run_git_dated_test(root, 1_700_000_000, &["commit", "-q", "-m", "c1"]);
+
+        std::fs::write(
+            root.join("src/foo.ts"),
+            "export function handler() { return 1; }\n",
+        )
+        .unwrap();
+        run_git_dated_test(root, 1_700_100_000, &["add", "-A"]);
+        run_git_dated_test(root, 1_700_100_000, &["commit", "-q", "-m", "c2"]);
+
+        let as_of = 1_700_200_000;
+        (tmp, as_of)
+    }
+
+    fn snapshot_at(repo_root: &std::path::Path, as_of: i64) -> Snapshot {
+        let mut snapshot = create_test_snapshot();
+        snapshot.commit.timestamp = as_of;
+        snapshot.functions[0].file = repo_root.join("src/foo.ts").to_string_lossy().to_string();
+        snapshot
+    }
+
+    #[test]
+    fn touch_metrics_data_split_matches_populate_touch_metrics() {
+        let (tmp, as_of) = make_touch_test_repo();
+        let repo_root = tmp.path();
+
+        let mut via_populate = snapshot_at(repo_root, as_of);
+        via_populate
+            .populate_touch_metrics(repo_root, 365)
+            .expect("populate_touch_metrics");
+
+        let mut via_split = snapshot_at(repo_root, as_of);
+        let (batched, stale_days) = via_split.fetch_touch_metrics_data(repo_root, 365);
+        via_split.apply_touch_metrics_data(repo_root, &batched, &stale_days);
+
+        assert_eq!(
+            via_populate.functions[0].touch_count,
+            via_split.functions[0].touch_count
+        );
+        assert_eq!(
+            via_populate.functions[0].days_since_last_change,
+            via_split.functions[0].days_since_last_change
+        );
+        // Sanity: the fixture actually produced real touch data, not two
+        // empty results that would trivially match.
+        assert_eq!(via_populate.functions[0].touch_count, Some(2));
+    }
+
+    #[test]
+    fn burst_score_data_split_matches_populate_burst_score() {
+        let (tmp, as_of) = make_touch_test_repo();
+        let repo_root = tmp.path();
+
+        let mut via_populate = snapshot_at(repo_root, as_of);
+        via_populate.populate_burst_score(repo_root);
+
+        let mut via_split = snapshot_at(repo_root, as_of);
+        let signals = crate::history_signals::compute_history_signals_for_repo(repo_root);
+        via_split.apply_burst_score_data(repo_root, &signals);
+
+        assert_eq!(
+            via_populate.functions[0].burst_score,
+            via_split.functions[0].burst_score
+        );
+        assert!(via_populate.functions[0].burst_score.is_some());
+    }
+
+    #[test]
+    fn with_touch_metrics_data_builder_matches_with_touch_metrics() {
+        let (tmp, as_of) = make_touch_test_repo();
+        let repo_root = tmp.path();
+
+        let a = SnapshotEnricher::new(snapshot_at(repo_root, as_of))
+            .with_touch_metrics(repo_root, 365)
+            .build();
+
+        let enricher = SnapshotEnricher::new(snapshot_at(repo_root, as_of));
+        let (batched, stale_days) = enricher.fetch_touch_metrics_data(repo_root, 365);
+        let b = enricher
+            .with_touch_metrics_data(repo_root, &batched, &stale_days)
+            .build();
+
+        assert_eq!(a.functions[0].touch_count, b.functions[0].touch_count);
+        assert_eq!(
+            a.functions[0].days_since_last_change,
+            b.functions[0].days_since_last_change
+        );
+    }
+
+    #[test]
+    fn with_burst_score_data_builder_matches_with_burst_score() {
+        let (tmp, as_of) = make_touch_test_repo();
+        let repo_root = tmp.path();
+
+        let a = SnapshotEnricher::new(snapshot_at(repo_root, as_of))
+            .with_burst_score(repo_root)
+            .build();
+
+        let signals = crate::history_signals::compute_history_signals_for_repo(repo_root);
+        let b = SnapshotEnricher::new(snapshot_at(repo_root, as_of))
+            .with_burst_score_data(repo_root, &signals)
+            .build();
+
+        assert_eq!(a.functions[0].burst_score, b.functions[0].burst_score);
+    }
+
+    /// A repo with enough commits touching two co-changing files to clear
+    /// `coupling::MIN_DC_APPEARANCES` (10), so directed coupling actually
+    /// scores something instead of trivially returning `None` for everything.
+    fn make_coupling_test_repo() -> (tempfile::TempDir, i64) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        run_git_dated_test(root, 0, &["init", "-q"]);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/foo.ts"), "a\n").unwrap();
+        std::fs::write(root.join("src/bar.ts"), "a\n").unwrap();
+        run_git_dated_test(root, 1_700_000_000, &["add", "-A"]);
+        run_git_dated_test(root, 1_700_000_000, &["commit", "-q", "-m", "init"]);
+
+        for i in 0..12 {
+            let ts = 1_700_000_000 + (i + 1) * 100_000;
+            std::fs::write(root.join("src/foo.ts"), format!("a{i}\n")).unwrap();
+            std::fs::write(root.join("src/bar.ts"), format!("a{i}\n")).unwrap();
+            run_git_dated_test(root, ts, &["add", "-A"]);
+            let msg = format!("c{i}");
+            run_git_dated_test(root, ts, &["commit", "-q", "-m", &msg]);
+        }
+
+        let as_of = 1_700_000_000 + 13 * 100_000;
+        (tmp, as_of)
+    }
+
+    #[test]
+    fn apply_directed_coupling_data_matches_populate_directed_coupling() {
+        let (tmp, as_of) = make_coupling_test_repo();
+        let repo_root = tmp.path();
+        let partner_scores: std::collections::HashMap<String, f64> =
+            [("src/bar.ts".to_string(), 5.0)].into_iter().collect();
+
+        let mut via_populate = snapshot_at(repo_root, as_of);
+        via_populate.populate_directed_coupling(repo_root, &partner_scores);
+
+        let mut via_split = snapshot_at(repo_root, as_of);
+        let fetch = crate::coupling::fetch_directed_coupling_data(repo_root)
+            .expect("fixture has commit history");
+        let (dc_scores, _jaccard) =
+            crate::coupling::finish_directed_coupling(&fetch, &partner_scores);
+        via_split.apply_directed_coupling_data(repo_root, &dc_scores);
+
+        assert_eq!(
+            via_populate.functions[0].directed_coupling,
+            via_split.functions[0].directed_coupling
+        );
+        // Sanity: the fixture actually produced a real score, not two Nones
+        // that would trivially match.
+        assert!(via_populate.functions[0].directed_coupling.is_some());
     }
 }
