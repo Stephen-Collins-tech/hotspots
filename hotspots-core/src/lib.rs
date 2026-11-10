@@ -100,11 +100,11 @@ pub fn analyze_with_progress(
     let (collected, ignored) = collect_source_files_with_ignored(path)?;
     let source_files: Vec<_> = collected
         .into_iter()
-        .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
+        .filter(|f| resolved_config.is_none_or(|c| c.should_include(f)))
         .collect();
     let ignored: Vec<_> = ignored
         .into_iter()
-        .filter(|f| resolved_config.map_or(true, |c| c.should_include(f)))
+        .filter(|f| resolved_config.is_none_or(|c| c.should_include(f)))
         .collect();
     let total_files = source_files.len();
 
