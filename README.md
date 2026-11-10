@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml)
 [![Security](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml)
+[![npm downloads](https://img.shields.io/npm/dm/@stephencollinstech/hotspots.svg)](https://www.npmjs.com/package/@stephencollinstech/hotspots)
 
 **Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Crates.io:** [![crates.io](https://img.shields.io/crates/v/hotspots-cli.svg)](https://crates.io/crates/hotspots-cli)
 
