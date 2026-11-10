@@ -293,8 +293,7 @@ fn followed_by_word(b: &[u8], mut i: usize, word: &str) -> bool {
     while i < b.len() && b[i] == b' ' {
         i += 1;
     }
-    b[i..].starts_with(word.as_bytes())
-        && b.get(i + word.len()).map_or(true, |c| !is_ident_char(*c))
+    b[i..].starts_with(word.as_bytes()) && b.get(i + word.len()).is_none_or(|c| !is_ident_char(*c))
 }
 
 fn prev_word_is_import(b: &[u8], start: usize) -> bool {
