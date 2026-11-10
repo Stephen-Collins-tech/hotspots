@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Bump rusqlite to 0.41 for RUSTSEC-2026-0459 (#352)
+
+
 ### Documentation
 - Add npm download stats badge to README (#351)
 
