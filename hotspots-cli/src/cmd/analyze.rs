@@ -795,11 +795,17 @@ fn enrich_delta(
         }
         _ => 0,
     };
+    let current_file_risk = snapshot
+        .aggregates
+        .as_ref()
+        .map(|a| a.file_risk.as_slice())
+        .unwrap_or(&[]);
     enriched.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
         &delta_val,
         &current_co_change,
         &prev_co_change,
         fn_changed_lines,
+        current_file_risk,
     ));
     Ok(enriched)
 }

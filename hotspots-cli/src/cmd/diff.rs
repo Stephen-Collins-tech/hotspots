@@ -112,11 +112,17 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         &base_snapshot,
         &diff_lines,
     );
+    let current_file_risk = head_snapshot
+        .aggregates
+        .as_ref()
+        .map(|a| a.file_risk.as_slice())
+        .unwrap_or(&[]);
     delta_val.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
         &delta_val,
         current_co_change,
         prev_co_change,
         fn_changed_lines,
+        current_file_risk,
     ));
 
     // Filter out Unchanged, then optionally keep top N by risk magnitude
@@ -309,6 +315,20 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
     )?;
     writeln!(out, "{}", "-".repeat(100))?;
 
+    // Files at or above the 90th percentile of file_risk_score among the files
+    // changed in this diff (not repo-wide) — see `compute_diff_file_risk_ranks`.
+    let top_decile_files: std::collections::HashSet<&str> = delta_val
+        .aggregates
+        .as_ref()
+        .map(|a| {
+            a.files
+                .iter()
+                .filter(|f| f.file_risk_top_decile)
+                .map(|f| f.file.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+
     for entry in &delta_val.deltas {
         let status_label = match entry.status {
             FunctionStatus::New => "new",
@@ -347,12 +367,18 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
             .split_once("::")
             .unwrap_or(("", &entry.function_id));
 
+        let file_col = if top_decile_files.contains(file_display) {
+            format!("{file_display} [top 10%]")
+        } else {
+            file_display.to_string()
+        };
+
         writeln!(
             out,
             "{:<12} {:<40} {:<30} {:<14}  {:<14}  {}",
             status_label,
             crate::util::truncate_string(fn_display, 40),
-            crate::util::truncate_string(file_display, 30),
+            crate::util::truncate_string(&file_col, 30),
             lrs_str,
             cc_str,
             band_str,

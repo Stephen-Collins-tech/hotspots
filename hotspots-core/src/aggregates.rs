@@ -73,6 +73,23 @@ pub struct FileDeltaAggregates {
     pub net_lrs_delta: f64,
     pub regression_count: usize,
     pub improvement_count: usize,
+    /// This file's `file_risk_score` (see [`FileRiskView`]), carried over so the
+    /// percentile below is interpretable without a second lookup. `None` when this
+    /// file has no corresponding `FileRiskView` entry (e.g. deleted, or an
+    /// unscoreable file type) — excluded from the diff-relative ranking entirely
+    /// rather than shown as a misleading zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_risk_score: Option<f64>,
+    /// This file's `file_risk_score` percentile rank among only the other
+    /// scoreable files changed in this same diff (not repo-wide) — see
+    /// [`compute_diff_file_risk_ranks`]. `None` for the same reason as
+    /// `file_risk_score`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_risk_diff_percentile: Option<f64>,
+    /// `true` when `file_risk_diff_percentile >= 0.90`. Diff-local and
+    /// population-relative — not comparable to the repo-wide, function-level
+    /// `is_top_10_pct`/`is_top_5_pct`/`is_top_1_pct` flags used elsewhere.
+    pub file_risk_top_decile: bool,
 }
 
 /// Summary of an entire PR (all changed functions collapsed into one view).
@@ -652,6 +669,68 @@ pub fn diff_co_change_pairs(
     result
 }
 
+/// Rank each file in `files` by `file_risk_score`, against only the other files in
+/// `files` that also have a `FileRiskView` entry in `current_file_risk` — the diff's
+/// own changed-file population, not the whole repo. Returns `(score, percentile,
+/// top_decile)` keyed by file.
+///
+/// Percentile is `1 - (rank - 1) / (n - 1)` (rank 1 = highest score → percentile
+/// 1.0; lowest → 0.0), with tied scores sharing the average of the ranks they span.
+/// `n < 2` has no meaningful relative rank, so percentile is `0.0` and `top_decile`
+/// is `false`. A file in `files` with no matching `FileRiskView` entry (e.g.
+/// deleted, or an unscoreable file type) is excluded from the ranking population
+/// entirely and has no entry in the returned map.
+pub fn compute_diff_file_risk_ranks(
+    files: &[String],
+    current_file_risk: &[FileRiskView],
+) -> HashMap<String, (f64, f64, bool)> {
+    let risk_by_file: HashMap<&str, f64> = current_file_risk
+        .iter()
+        .map(|v| (v.file.as_str(), v.file_risk_score))
+        .collect();
+
+    let mut scored: Vec<(&str, f64)> = files
+        .iter()
+        .filter_map(|f| {
+            risk_by_file
+                .get(f.as_str())
+                .map(|&score| (f.as_str(), score))
+        })
+        .collect();
+
+    let n = scored.len();
+    let mut result = HashMap::with_capacity(n);
+
+    if n < 2 {
+        for (file, score) in scored {
+            result.insert(file.to_string(), (score, 0.0, false));
+        }
+        return result;
+    }
+
+    // Rank 1 = highest score.
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Average-rank tie-breaking: each run of equal scores shares the mean of the
+    // 1-based rank positions it spans.
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        while j < n && scored[j].1 == scored[i].1 {
+            j += 1;
+        }
+        let avg_rank = ((i + 1) + j) as f64 / 2.0;
+        let percentile = 1.0 - (avg_rank - 1.0) / (n as f64 - 1.0);
+        let top_decile = percentile >= 0.90;
+        for (file, score) in &scored[i..j] {
+            result.insert(file.to_string(), (*score, percentile, top_decile));
+        }
+        i = j;
+    }
+
+    result
+}
+
 /// Compute delta aggregates from delta entries
 ///
 /// Sorted by `net_lrs_delta` descending (worst regressions first).
@@ -661,6 +740,7 @@ pub fn compute_delta_aggregates(
     current_co_change: &[crate::git::CoChangePair],
     prev_co_change: &[crate::git::CoChangePair],
     fn_changed_lines: usize,
+    current_file_risk: &[FileRiskView],
 ) -> DeltaAggregates {
     // (net_lrs_delta, regression_count, improvement_count)
     let mut file_data: HashMap<String, (f64, usize, usize)> = HashMap::new();
@@ -708,14 +788,29 @@ pub fn compute_delta_aggregates(
         }
     }
 
+    let changed_files: Vec<String> = file_data.keys().cloned().collect();
+    let risk_ranks = compute_diff_file_risk_ranks(&changed_files, current_file_risk);
+
     let mut aggregates: Vec<FileDeltaAggregates> = file_data
         .into_iter()
         .map(
-            |(file, (net_lrs_delta, regression_count, improvement_count))| FileDeltaAggregates {
-                file,
-                net_lrs_delta,
-                regression_count,
-                improvement_count,
+            |(file, (net_lrs_delta, regression_count, improvement_count))| {
+                let (file_risk_score, file_risk_diff_percentile, file_risk_top_decile) =
+                    match risk_ranks.get(&file) {
+                        Some(&(score, percentile, top_decile)) => {
+                            (Some(score), Some(percentile), top_decile)
+                        }
+                        None => (None, None, false),
+                    };
+                FileDeltaAggregates {
+                    file,
+                    net_lrs_delta,
+                    regression_count,
+                    improvement_count,
+                    file_risk_score,
+                    file_risk_diff_percentile,
+                    file_risk_top_decile,
+                }
             },
         )
         .collect();
@@ -937,5 +1032,113 @@ mod tests {
         assert!(is_high_plus(crate::risk::RiskBand::Critical));
         assert!(!is_high_plus(crate::risk::RiskBand::Moderate));
         assert!(!is_high_plus(crate::risk::RiskBand::Low));
+    }
+
+    fn file_risk_view(file: &str, score: f64) -> FileRiskView {
+        FileRiskView {
+            file: file.to_string(),
+            function_count: 1,
+            loc: 10,
+            max_cc: 1,
+            avg_cc: 1.0,
+            critical_count: 0,
+            file_risk_score: score,
+        }
+    }
+
+    #[test]
+    fn test_diff_file_risk_ranks_distinct_scores() {
+        let views = vec![
+            file_risk_view("a.ts", 1.0),
+            file_risk_view("b.ts", 5.0),
+            file_risk_view("c.ts", 3.0),
+            file_risk_view("d.ts", 9.0),
+            file_risk_view("e.ts", 7.0),
+        ];
+        let files: Vec<String> = views.iter().map(|v| v.file.clone()).collect();
+        let ranks = compute_diff_file_risk_ranks(&files, &views);
+
+        // 5 files: ranks 1..5 by descending score — d(9) > e(7) > b(5) > c(3) > a(1).
+        // percentile = 1 - (rank-1)/(n-1) = 1 - (rank-1)/4
+        let (score, pct, top) = ranks["d.ts"];
+        assert_eq!(score, 9.0);
+        assert_eq!(pct, 1.0);
+        assert!(
+            top,
+            "rank 1 of 5 must be top decile (percentile 1.0 >= 0.90)"
+        );
+
+        let (_, pct, top) = ranks["e.ts"];
+        assert_eq!(pct, 0.75);
+        assert!(!top);
+
+        let (_, pct, _) = ranks["a.ts"];
+        assert_eq!(pct, 0.0);
+    }
+
+    #[test]
+    fn test_diff_file_risk_ranks_tied_scores_use_average_rank() {
+        let views = vec![
+            file_risk_view("a.ts", 5.0),
+            file_risk_view("b.ts", 5.0),
+            file_risk_view("c.ts", 1.0),
+            file_risk_view("d.ts", 1.0),
+        ];
+        let files: Vec<String> = views.iter().map(|v| v.file.clone()).collect();
+        let ranks = compute_diff_file_risk_ranks(&files, &views);
+
+        // a, b tie for ranks 1-2 -> avg rank 1.5 -> percentile = 1 - (1.5-1)/3 = 5/6
+        let (_, pct_a, _) = ranks["a.ts"];
+        let (_, pct_b, _) = ranks["b.ts"];
+        assert_eq!(pct_a, pct_b);
+        assert!((pct_a - (5.0 / 6.0)).abs() < 1e-9);
+
+        // c, d tie for ranks 3-4 -> avg rank 3.5 -> percentile = 1 - (3.5-1)/3 = 1/6
+        let (_, pct_c, _) = ranks["c.ts"];
+        let (_, pct_d, _) = ranks["d.ts"];
+        assert_eq!(pct_c, pct_d);
+        assert!((pct_c - (1.0 / 6.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_diff_file_risk_ranks_single_file_has_no_relative_rank() {
+        let views = vec![file_risk_view("a.ts", 9.0)];
+        let files = vec!["a.ts".to_string()];
+        let ranks = compute_diff_file_risk_ranks(&files, &views);
+
+        let (score, pct, top) = ranks["a.ts"];
+        assert_eq!(score, 9.0);
+        assert_eq!(
+            pct, 0.0,
+            "a single-file diff has no meaningful relative rank"
+        );
+        assert!(!top);
+    }
+
+    #[test]
+    fn test_diff_file_risk_ranks_excludes_files_absent_from_current_file_risk() {
+        // "deleted.ts" is in the diff's changed-file set but has no FileRiskView
+        // entry (e.g. deleted, or an unscoreable file type) — it must be excluded
+        // from the ranking population entirely, not scored as 0.
+        let views = vec![file_risk_view("a.ts", 5.0), file_risk_view("b.ts", 1.0)];
+        let files = vec![
+            "a.ts".to_string(),
+            "b.ts".to_string(),
+            "deleted.ts".to_string(),
+        ];
+        let ranks = compute_diff_file_risk_ranks(&files, &views);
+
+        assert_eq!(
+            ranks.len(),
+            2,
+            "unscoreable file must not appear in the result"
+        );
+        assert!(!ranks.contains_key("deleted.ts"));
+        // With the unscoreable file excluded, n=2 for the remaining two files.
+        let (_, pct_a, top_a) = ranks["a.ts"];
+        assert_eq!(pct_a, 1.0);
+        assert!(top_a);
+        let (_, pct_b, _) = ranks["b.ts"];
+        assert_eq!(pct_b, 0.0);
     }
 }
