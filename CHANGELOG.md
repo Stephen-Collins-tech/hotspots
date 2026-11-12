@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 - Link hotspots-public-research as the evidence behind scoring (#355)
+- Link hotspots-public-research from the docs homepage (#356)
 
 ## [3.7.0] - 2026-11-12
 
