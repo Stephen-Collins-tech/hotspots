@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Document the diff-relative top-decile file risk flag (#354)
+
+
 ### Features
 - Add diff-relative top-decile file risk flag to hotspots diff (#353)
 
