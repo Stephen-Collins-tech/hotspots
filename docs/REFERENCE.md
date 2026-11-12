@@ -734,6 +734,15 @@ different paths), so it isn't repeated at the envelope's top level too.
       "warnings": []
     },
     "aggregates": {
+      "files": [{
+        "file": "src/api/billing.ts",
+        "net_lrs_delta": 1.4,
+        "regression_count": 1,
+        "improvement_count": 0,
+        "file_risk_score": 7.8,
+        "file_risk_diff_percentile": 0.94,
+        "file_risk_top_decile": true
+      }],
       "pr_summary": {
         "fn_changed_lines": 23,
         "band": "critical",
@@ -751,6 +760,20 @@ different paths), so it isn't repeated at the envelope's top level too.
 ```
 
 Delta statuses: `new`, `deleted`, `modified`, `unchanged` (unchanged omitted by default).
+
+**`delta.aggregates.files`** — one entry per changed file, `net_lrs_delta` sorted descending
+(worst regressions first). `file_risk_score`, `file_risk_diff_percentile`, and
+`file_risk_top_decile` rank that file's `file_risk_score` against only the *other files
+changed in this same diff* — not repo-wide, unlike `aggregates.file_risk` above. A file at or
+above the 90th percentile of that diff-local ranking gets `file_risk_top_decile: true`. The
+three fields are omitted for a file with no `file_risk_score` at all (deleted, or an
+unscoreable type) rather than populated with a zero that would look like a real low score; a
+diff with only one scoreable file gets no percentile/flag for it either (no meaningful
+relative rank in a population of one). In our evaluation this diff-local top decile was a
+real, cutoff-robust signal — replicated on repos outside the original sample — even though
+`file_risk_score`'s raw value does not calibrate as an absolute probability (see
+[the evidence](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/F257-F262-top-decile-flag.md)).
+`--format text` marks these files with `[top 10%]` inline.
 
 **`delta.aggregates.pr_summary`** — collapses every changed function into a single PR-wide
 view. `band` is the highest risk band reached by any new/modified function's `after`
