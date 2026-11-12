@@ -30,6 +30,7 @@ and touch frequency to separate active risk from dormant debt.
 | [Architecture](/ARCHITECTURE) | How the analysis pipeline actually works, end to end. |
 | [Score Stability & Predictability](/RISK_STABILITY) | What "the score didn't change for no reason" actually means and why it holds. |
 | [Contributing](/CONTRIBUTING) | Dev setup, adding a language, release process. |
+| [hotspots-public-research](https://github.com/Stephen-Collins-tech/hotspots-public-research) | The evidence behind the scoring formulas — what shipped, and what didn't. |
 
 Live analyses of real open-source repositories run continuously on
 [hotspots.dev](https://hotspots.dev) — see what this looks like against a
