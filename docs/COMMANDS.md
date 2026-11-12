@@ -105,6 +105,17 @@ reported rather than a combined risk score because, in our evaluation, it predic
 PRs later needed a fix better than any LRS-based PR score. Policy failures, if requested,
 follow the table.
 
+Each changed file also carries a `file_risk_top_decile` flag (`[top 10%]` in `--format text`;
+`file_risk_score`/`file_risk_diff_percentile`/`file_risk_top_decile` in `--format json`). This
+ranks a file's `file_risk_score` against only the *other files changed in this same diff* —
+not the whole repo — and flags the top 10% of that diff-local ranking. It's a relative
+signal: the same file can be flagged in one diff and not in another, depending on what else
+changed alongside it. A file `hotspots` can't score (deleted, or an unscoreable type) is
+excluded from the ranking rather than shown with a misleading low score, and a diff with only
+one scoreable file gets no flag — there's no relative ranking in a population of one. In our
+evaluation this diff-local top decile was a real, cutoff-robust risk signal, even though the
+raw `file_risk_score` value does not calibrate as an absolute probability.
+
 **How it relates to the others.** `analyze --mode delta` is the same comparison against the
 parent commit, used by the GitHub Action; `diff` lets you pick the refs.
 
