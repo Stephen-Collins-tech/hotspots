@@ -349,6 +349,10 @@ Logarithmic scaling for CC and FO: going from CC 1→4 matters more than CC 40�
 
 **Weight rationale:** CC (1.0) = primary defect correlate; ND (0.8) = captures complexity CC can miss; NS (0.7) = implicit exit conditions; FO (0.6) = external coupling weighted lower.
 
+These weights, and every other formula in this document, come from evaluation against real repo
+history rather than intuition — see the [hotspots-public-research findings index](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/README.md)
+for the methodology and results, including signals that were tested and rejected.
+
 ### Risk bands
 
 | Band | LRS range | Typical action |
