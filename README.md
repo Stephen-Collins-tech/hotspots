@@ -109,6 +109,12 @@ Activity Risk says where attention is likely needed next, not how good the code 
 
 **Risk bands:** Low (< 3) · Moderate (3–6) · High (6–9) · Critical (≥ 9)
 
+These formulas aren't hand-tuned guesses — every weight, cutoff, and signal that made it into the
+CLI was validated (or rejected) against real repo history and ground-truth bug/fix data in the
+open [hotspots-public-research](https://github.com/Stephen-Collins-tech/hotspots-public-research)
+repo. See its [findings index](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/README.md)
+for the evidence behind each shipped feature, including the negative results that kept things out.
+
 ---
 
 ## Supported Languages
@@ -190,6 +196,7 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 - [docs/REFERENCE.md](docs/REFERENCE.md) — complete CLI reference, all flags, config options, JSON schema, metrics formula
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, analysis pipeline, invariants, design decisions
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — dev setup, adding languages, release process
+- [hotspots-public-research](https://github.com/Stephen-Collins-tech/hotspots-public-research) — the published evidence behind the scoring formulas: what was tested, what shipped, and what was rejected
 
 ---
 
