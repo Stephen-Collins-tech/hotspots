@@ -123,6 +123,43 @@ jobs:
           path: test-repo-comprehensive/
           retention-days: 7
 
+  mcp-server:
+    name: MCP Server Tests
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Restore cached release binary (by commit)
+        id: bin-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/release/hotspots
+          key: ${{ runner.os }}-hotspots-bin-${{ github.sha }}
+
+      - name: Install Rust (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary (cache miss only)
+        if: steps.bin-cache.outputs.cache-hit != 'true'
+        run: cargo build --release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test @hotspots/mcp-server against the built binary
+        working-directory: packages/mcp-server
+        env:
+          HOTSPOTS_PATH: ${{ github.workspace }}/target/release/hotspots
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          npm ci
+          npm run build
+          npm test
+
   hotspots:
     name: Hotspots
     runs-on: ubuntu-latest
