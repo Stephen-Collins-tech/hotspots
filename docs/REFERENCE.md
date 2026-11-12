@@ -772,7 +772,8 @@ diff with only one scoreable file gets no percentile/flag for it either (no mean
 relative rank in a population of one). In our evaluation this diff-local top decile was a
 real, cutoff-robust signal — replicated on repos outside the original sample — even though
 `file_risk_score`'s raw value does not calibrate as an absolute probability (see
-[the evidence](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/F257-F262-top-decile-flag.md)).
+[the evidence](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/README.md)
+in the public findings index — look for the top-decile flag row).
 `--format text` marks these files with `[top 10%]` inline.
 
 **`delta.aggregates.pr_summary`** — collapses every changed function into a single PR-wide
