@@ -323,11 +323,7 @@ fn looks_like_cpp(src: &str) -> bool {
     static RANGE_FOR_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let range_for_re =
         RANGE_FOR_RE.get_or_init(|| Regex::new(r"for\s*\([^;()]*:[^;()]*\)").unwrap());
-    if range_for_re.is_match(src) {
-        return true;
-    }
-
-    false
+    range_for_re.is_match(src)
 }
 
 /// Decides whether a `.h` file is C or C++.

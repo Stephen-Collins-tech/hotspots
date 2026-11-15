@@ -1348,7 +1348,10 @@ pub(crate) fn build_snapshot_via_db(
     } else {
         "reading touch history, burst score and scoring functions"
     });
-    let result = enricher.with_relative_paths(repo_root).enrich().build();
+    let result = enricher
+        .with_relative_paths(repo_root)
+        .enrich(repo_root)
+        .build();
     Ok((result, dc_fetch))
 }
 
@@ -1417,7 +1420,10 @@ pub(crate) fn build_enriched_snapshot(
     } else {
         "reading touch history, burst score and scoring functions"
     });
-    Ok(enricher.with_relative_paths(repo_root).enrich().build())
+    Ok(enricher
+        .with_relative_paths(repo_root)
+        .enrich(repo_root)
+        .build())
 }
 
 /// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and

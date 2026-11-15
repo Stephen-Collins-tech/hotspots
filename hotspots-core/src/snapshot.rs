@@ -270,6 +270,12 @@ pub struct SnapshotSummary {
     pub top_5_pct_share: f64,
     pub top_10_pct_share: f64,
     pub by_band: std::collections::BTreeMap<String, BandStats>,
+    /// `#[serde(default)]`: pre-existing persisted snapshots on disk (`.hotspots/snapshots/`)
+    /// predate this field and must still deserialize, not hard-error on load.
+    #[serde(default)]
+    pub signal_confidence: crate::aggregates::SignalConfidence,
+    #[serde(default)]
+    pub conventional_prefix_rate: Option<f64>,
 }
 
 /// Complete snapshot for a commit
@@ -1071,7 +1077,9 @@ impl Snapshot {
     ///
     /// Must be called after compute_activity_risk() and populate_callgraph().
     ///
-    pub fn compute_summary(&mut self) {
+    pub fn compute_summary(&mut self, repo_root: &Path) {
+        let (signal_confidence, conventional_prefix_rate) =
+            crate::aggregates::compute_signal_confidence(repo_root);
         let n = self.functions.len();
         if n == 0 {
             self.summary = Some(SnapshotSummary {
@@ -1081,6 +1089,8 @@ impl Snapshot {
                 top_5_pct_share: 0.0,
                 top_10_pct_share: 0.0,
                 by_band: std::collections::BTreeMap::new(),
+                signal_confidence,
+                conventional_prefix_rate,
             });
             return;
         }
@@ -1103,6 +1113,8 @@ impl Snapshot {
             top_5_pct_share,
             top_10_pct_share,
             by_band: compute_band_distribution(&self.functions),
+            signal_confidence,
+            conventional_prefix_rate,
         });
     }
 
@@ -1304,10 +1316,10 @@ impl SnapshotEnricher {
     /// Compute activity risk, percentile flags, driver labels, and summary statistics.
     ///
     /// Must be called after with_churn, with_touch_metrics, and with_callgraph.
-    pub fn enrich(mut self) -> Self {
+    pub fn enrich(mut self, repo_root: &Path) -> Self {
         self.snapshot.compute_activity_risk();
         self.snapshot.compute_tiers();
-        self.snapshot.compute_summary();
+        self.snapshot.compute_summary(repo_root);
         self
     }
 
@@ -1920,15 +1932,53 @@ mod tests {
     #[test]
     fn test_snapshot_enricher_enrich_computes_summary() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
+        let tmp = tempfile::tempdir().unwrap();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(tmp.path()).build();
         let summary = snapshot.summary.as_ref().expect("summary should be set");
         assert_eq!(summary.total_functions, 1);
+        // Not a real git repo -- signal_confidence must default gracefully, not panic.
+        assert_eq!(
+            summary.signal_confidence,
+            crate::aggregates::SignalConfidence::Low
+        );
+        assert_eq!(summary.conventional_prefix_rate, None);
+    }
+
+    #[test]
+    fn test_snapshot_deserializes_old_summary_json_missing_signal_confidence_fields() {
+        // Simulates a snapshot persisted to disk (`.hotspots/snapshots/`) by a
+        // pre-signal_confidence build -- it must still load, not hard-error,
+        // defaulting the two new fields rather than refusing to deserialize.
+        let snapshot = create_test_snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(tmp.path()).build();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&snapshot.to_json().unwrap()).unwrap();
+        value["summary"]
+            .as_object_mut()
+            .unwrap()
+            .remove("signal_confidence");
+        value["summary"]
+            .as_object_mut()
+            .unwrap()
+            .remove("conventional_prefix_rate");
+        let old_format_json = serde_json::to_string(&value).unwrap();
+
+        let reloaded = Snapshot::from_json(&old_format_json)
+            .expect("old-format summary JSON must still deserialize");
+        let summary = reloaded.summary.expect("summary should be set");
+        assert_eq!(
+            summary.signal_confidence,
+            crate::aggregates::SignalConfidence::Low
+        );
+        assert_eq!(summary.conventional_prefix_rate, None);
     }
 
     #[test]
     fn test_snapshot_enricher_enrich_computes_activity_risk_and_tier() {
         let snapshot = create_test_snapshot();
-        let snapshot = SnapshotEnricher::new(snapshot).enrich().build();
+        let tmp = tempfile::tempdir().unwrap();
+        let snapshot = SnapshotEnricher::new(snapshot).enrich(tmp.path()).build();
         assert!(snapshot.functions[0].activity_risk.is_some());
         assert!(snapshot.functions[0].tier.is_some());
     }
