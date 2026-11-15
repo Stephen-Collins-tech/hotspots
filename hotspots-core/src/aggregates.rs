@@ -8,11 +8,46 @@
 //! - No modification of existing function data
 
 use crate::delta::Delta;
+use crate::git;
 use crate::risk::RiskBand;
 use crate::snapshot::{FunctionSnapshot, Snapshot};
 use crate::views::agent::{to_agent_view, AgentFunctionView};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
+
+/// Threshold for `compute_signal_confidence`'s `conventional_prefix_rate`-based
+/// tier. Validated in our evaluation as a population-level calibration (mean
+/// signal reliability rises across this cut, not a precise per-repo guarantee).
+const SIGNAL_CONFIDENCE_THRESHOLD: f64 = 0.1;
+
+/// Repo-level confidence in how reliable the authorship-based risk signal
+/// (`author_entropy` and friends) has historically been for this specific
+/// repo. Purely descriptive -- never changes `file_risk_score`, any band, or
+/// any ranking order.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalConfidence {
+    #[default]
+    Low,
+    High,
+}
+
+/// Computes the repo-level `signal_confidence` tier and the raw
+/// `conventional_prefix_rate` it was derived from, in one call -- so the two
+/// are always set together from the same underlying measurement (see
+/// `conventional_prefix_rate`'s doc comment in `git.rs` for what the rate
+/// means and why it's a trailing window, not a full-history average).
+/// Defaults to `(Low, None)` when the rate can't be computed (e.g. too few
+/// commits, or not a git repository), the conservative direction.
+pub fn compute_signal_confidence(repo_path: &Path) -> (SignalConfidence, Option<f64>) {
+    let rate = git::conventional_prefix_rate(repo_path);
+    let tier = match rate {
+        Some(r) if r >= SIGNAL_CONFIDENCE_THRESHOLD => SignalConfidence::High,
+        _ => SignalConfidence::Low,
+    };
+    (tier, rate)
+}
 
 /// File-level aggregates for a snapshot
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

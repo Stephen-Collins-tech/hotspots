@@ -459,6 +459,38 @@ real, measured wall-clock cost (a single git subprocess call, but scanning more 
 use `--skip-touch-metrics` to skip git history entirely if that cost matters more than
 the ranking-quality gain. The window is fixed and not configurable.
 
+### Signal confidence (snapshot mode)
+
+`summary.signal_confidence` (`"low"` or `"high"`) and `summary.conventional_prefix_rate`
+(a float between 0 and 1, or `null`) are a repo-level pair: a label telling you whether
+this repo's authorship-based risk signals (`author_entropy` and the signals derived from
+it) have historically been more or less reliable *for this specific repo*, and the raw
+rate the label is derived from, shipped side by side so the label is never a black box —
+anyone can check it against their own repo with `git log HEAD -n 500 --format=%s`.
+
+`conventional_prefix_rate` is the fraction of the repo's most recent 500 commits (fewer,
+on a smaller repo) whose subject line matches a Conventional-Commits-style prefix
+(`feat:`, `fix(scope)!:`, etc.). `signal_confidence` is `"high"` when that rate is at
+least 0.1, otherwise `"low"`. Both are recomputed fresh on every `analyze` run, never
+cached — in our evaluation, this kind of commit-message convention is something a repo
+adopts partway through its life, not a fixed property, so a stale or full-history value
+would misdescribe current practice.
+
+**Population-level calibration, not a precise per-repo predictor.** In our evaluation,
+repos in the `"high"` tier have a higher *average* authorship-signal reliability than
+repos in the `"low"` tier, across a large cross-repo sample — a real, if moderate,
+pattern. It is not a guarantee for any single repo: at least one repo in our evaluation
+sample fell in the `"low"` tier by commit-message convention while still having one of
+the most reliable authorship signals in the whole sample. Read `signal_confidence` as a
+population-calibrated hint about how much weight to put on `file_risk_score` and related
+rankings for this repo, not as a certified accuracy rating.
+
+`conventional_prefix_rate` is `null` and `signal_confidence` defaults to `"low"` (the
+conservative direction) when a repo has fewer than 20 commits, or when the underlying
+`git log` call fails for any reason — it never panics or errors the whole run.
+
+This field does not change `file_risk_score`, any band boundary, or any ranking order.
+
 ### Call graph metrics (snapshot mode)
 
 - **Fan-in** — functions that call this function (blast radius)

@@ -17,6 +17,7 @@ use std::sync::OnceLock;
 
 static JIRA_RE: OnceLock<Regex> = OnceLock::new();
 static GITHUB_RE: OnceLock<Regex> = OnceLock::new();
+static CONVENTIONAL_PREFIX_RE: OnceLock<Regex> = OnceLock::new();
 
 fn jira_re() -> &'static Regex {
     JIRA_RE.get_or_init(|| Regex::new(r"([A-Z]+-\d+)").unwrap())
@@ -24,6 +25,15 @@ fn jira_re() -> &'static Regex {
 
 fn github_re() -> &'static Regex {
     GITHUB_RE.get_or_init(|| Regex::new(r"(?:fixes|closes|fixed|closed)?\s*#(\d+)").unwrap())
+}
+
+fn conventional_prefix_re() -> &'static Regex {
+    CONVENTIONAL_PREFIX_RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([^)]*\))?!?:\s",
+        )
+        .unwrap()
+    })
 }
 
 /// Git context for the current commit
@@ -1434,6 +1444,28 @@ pub fn extract_co_change_pairs(
     Ok(pairs)
 }
 
+/// Fraction of a repo's most recent commits whose subject line matches a
+/// Conventional-Commits-style prefix (`feat:`, `fix(scope)!:`, etc.), used as
+/// a proxy for how reliable the repo's other signals are likely to be. In
+/// our evaluation, this trailing-window rate (not a full-history rate --
+/// repos tend to adopt consistent commit-message conventions partway
+/// through their life, so a full-history average both over- and
+/// under-states current practice depending on when you ask) correlates
+/// with how well file-level authorship patterns predict future fixes.
+///
+/// Returns `None` if the repo has fewer than 20 commits, or if `git log`
+/// fails for any reason (e.g. not a git repository).
+pub fn conventional_prefix_rate(repo_path: &Path) -> Option<f64> {
+    let output = git_at(repo_path, &["log", "HEAD", "-n", "500", "--format=%s"]).ok()?;
+    let lines: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.len() < 20 {
+        return None;
+    }
+    let re = conventional_prefix_re();
+    let n_matching = lines.iter().filter(|l| re.is_match(l)).count();
+    Some(n_matching as f64 / lines.len() as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2051,5 +2083,50 @@ index 3333333..4444444 100644
         assert_eq!(new["g.txt"], reference["g.txt"]);
         assert_eq!(reference["f.txt"], 10);
         assert_eq!(new["f.txt"], 8);
+    }
+
+    // -- conventional_prefix_rate --
+
+    fn write_commit_with_message(dir: &Path, ts: i64, name: &str, content: &str, message: &str) {
+        std::fs::write(dir.join(name), content).unwrap();
+        run_git_dated(dir, ts, &["add", "-A"]);
+        run_git_dated(dir, ts, &["commit", "-q", "-m", message]);
+    }
+
+    #[test]
+    fn conventional_prefix_rate_none_under_commit_floor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        for i in 0..5 {
+            write_commit_with_message(dir, x + i * DAY, "a.txt", &i.to_string(), "feat: x");
+        }
+        assert_eq!(conventional_prefix_rate(dir), None);
+    }
+
+    #[test]
+    fn conventional_prefix_rate_none_outside_git_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(conventional_prefix_rate(tmp.path()), None);
+    }
+
+    #[test]
+    fn conventional_prefix_rate_counts_matching_prefixes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let x = 1_600_000_000;
+        run_git_dated(dir, x, &["init", "-q", "-b", "main"]);
+        // 20 commits: 5 conventional-prefixed, 15 not.
+        for i in 0..20 {
+            let message = if i < 5 {
+                format!("fix({i}): a bug")
+            } else {
+                format!("did a thing {i}")
+            };
+            write_commit_with_message(dir, x + i * DAY, "a.txt", &i.to_string(), &message);
+        }
+        let rate = conventional_prefix_rate(dir).expect("should have enough commits");
+        assert!((rate - 0.25).abs() < 1e-9, "rate was {rate}");
     }
 }

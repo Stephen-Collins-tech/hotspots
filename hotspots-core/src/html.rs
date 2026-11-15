@@ -1783,6 +1783,12 @@ fn render_summary(snapshot: &Snapshot) -> String {
         .filter(|f| f.tier.as_deref() == Some("quiet"))
         .count();
 
+    let signal_confidence = match snapshot.summary.as_ref().map(|s| s.signal_confidence) {
+        Some(crate::aggregates::SignalConfidence::High) => "High",
+        Some(crate::aggregates::SignalConfidence::Low) => "Low",
+        None => "N/A",
+    };
+
     format!(
         r#"<div class="summary">
     <div class="summary-card">
@@ -1801,12 +1807,17 @@ fn render_summary(snapshot: &Snapshot) -> String {
         <h3>High+ Risk</h3>
         <div class="value">{high_plus}</div>
     </div>
+    <div class="summary-card">
+        <h3>Signal Confidence</h3>
+        <div class="value">{signal_confidence}</div>
+    </div>
 </div>
 "#,
         total = total_functions,
         active = active_count,
         quiet = quiet_count,
         high_plus = critical_count + high_count,
+        signal_confidence = signal_confidence,
     )
 }
 
