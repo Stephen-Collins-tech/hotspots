@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.8.0] - 2026-11-15
 
 ### Documentation
 - Link hotspots-public-research as the evidence behind scoring (#355)
 - Link hotspots-public-research from the docs homepage (#356)
+
+
+### Features
+- Add signal_confidence to snapshot summary (#357)
 
 ## [3.7.0] - 2026-11-12
 
@@ -765,6 +769,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[3.8.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.8.0
 [3.7.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.7.0
 [3.6.2]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.6.2
 [3.6.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.6.0
