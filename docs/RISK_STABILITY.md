@@ -92,7 +92,8 @@ score, that says "on this specific repo, lean on this ranking a bit more"
 or "treat this one as a rougher hint." It's a population-level pattern —
 real on average across many repos — not a guarantee about any one repo in
 particular, and it's recomputed fresh every time, because a team's commit
-habits can change over the life of a project.
+habits can change over the life of a project. See
+[evidence and limits](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/signal-confidence-tier.md).
 
 ---
 

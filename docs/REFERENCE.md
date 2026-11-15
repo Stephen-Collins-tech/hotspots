@@ -474,7 +474,8 @@ on a smaller repo) whose subject line matches a Conventional-Commits-style prefi
 least 0.1, otherwise `"low"`. Both are recomputed fresh on every `analyze` run, never
 cached — in our evaluation, this kind of commit-message convention is something a repo
 adopts partway through its life, not a fixed property, so a stale or full-history value
-would misdescribe current practice.
+would misdescribe current practice. See
+[evidence and limits](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/signal-confidence-tier.md).
 
 **Population-level calibration, not a precise per-repo predictor.** In our evaluation,
 repos in the `"high"` tier have a higher *average* authorship-signal reliability than
