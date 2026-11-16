@@ -10,7 +10,8 @@ use hotspots_core::ast::FunctionNode;
 use hotspots_core::language::cfg_builder::get_builder_for_function;
 use hotspots_core::language::parser::LanguageParser;
 use hotspots_core::language::{
-    CParser, CSharpParser, ECMAScriptParser, GoParser, JavaParser, PythonParser, RustParser,
+    CParser, CSharpParser, ECMAScriptParser, GoParser, JavaParser, PhpParser, PythonParser,
+    RustParser,
 };
 use hotspots_core::metrics::extract_metrics;
 use swc_common::sync::Lrc;
@@ -42,6 +43,50 @@ macro_rules! repeated {
     };
 }
 
+/// Like `repeated!`, for PHP: a PHP fixture opens with `<?php`, which is invalid
+/// inside PHP code, so each copy is followed by a closing `?>` tag. Only valid
+/// for fixtures that do not themselves end inside a `?>` block.
+macro_rules! repeated_php {
+    ($path:literal) => {
+        concat!(
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n",
+            include_str!($path),
+            "\n?>\n"
+        )
+    };
+}
+
 const RUST_SMALL: &str = include_str!("../../tests/fixtures/rust/simple.rs");
 const RUST_MEDIUM: &str = include_str!("../../tests/fixtures/rust/methods.rs");
 const RUST_LARGE: &str = include_str!("../src/metrics.rs");
@@ -65,6 +110,10 @@ const C_LARGE: &str = repeated!("../../tests/fixtures/c/control_flow.c");
 const CSHARP_SMALL: &str = include_str!("../../tests/fixtures/csharp/Simple.cs");
 const CSHARP_MEDIUM: &str = include_str!("../../tests/fixtures/csharp/Switches.cs");
 const CSHARP_LARGE: &str = repeated!("../../tests/fixtures/csharp/Switches.cs");
+
+const PHP_SMALL: &str = include_str!("../../tests/fixtures/php/simple.php");
+const PHP_MEDIUM: &str = include_str!("../../tests/fixtures/php/control_flow.php");
+const PHP_LARGE: &str = repeated_php!("../../tests/fixtures/php/control_flow.php");
 
 const GO_SMALL: &str = include_str!("../../tests/fixtures/go/simple.go");
 const GO_MEDIUM: &str = include_str!("../../tests/fixtures/go/go_specific.go");
@@ -138,6 +187,16 @@ fn languages() -> Vec<Language> {
                 ("small", CSHARP_SMALL),
                 ("medium", CSHARP_MEDIUM),
                 ("large", CSHARP_LARGE),
+            ],
+        },
+        Language {
+            name: "php",
+            filename: "fixture.php",
+            parser: Box::new(PhpParser::new().expect("php parser")),
+            fixtures: [
+                ("small", PHP_SMALL),
+                ("medium", PHP_MEDIUM),
+                ("large", PHP_LARGE),
             ],
         },
         Language {
