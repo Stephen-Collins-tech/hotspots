@@ -53,12 +53,7 @@ pub(crate) fn to_agent_view(
     fns.iter()
         .take(top_n)
         .map(|func| {
-            let function_name = func
-                .function_id
-                .split("::")
-                .last()
-                .unwrap_or(&func.function_id)
-                .to_string();
+            let function_name = crate::function_id::short_name(&func.function_id).to_string();
             let file = crate::aggregates::normalize_path_relative_to_repo(&func.file, repo_root)
                 .unwrap_or_else(|| func.file.clone());
             AgentFunctionView {

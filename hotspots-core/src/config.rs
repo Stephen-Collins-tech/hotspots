@@ -32,6 +32,12 @@ const DEFAULT_EXCLUDES: &[&str] = &[
     // Python test conventions
     "**/test_*.py",
     "**/*_test.py",
+    // C/C++ test conventions (googletest and similar: `foo_test.cc`, `foo_unittest.cpp`).
+    // These files define test cases through macros such as `TEST(...)`, which would
+    // otherwise be ranked as ordinary functions.
+    "**/*_test.{c,cc,cpp,cxx}",
+    "**/*_tests.{c,cc,cpp,cxx}",
+    "**/*_unittest.{cc,cpp,cxx}",
     // Go test and generated conventions
     "**/*_test.go",
     "**/vendor/**",
@@ -559,6 +565,13 @@ mod tests {
         assert!(!resolved.should_include(Path::new("external/zlib/deflate.c")));
         assert!(!resolved.should_include(Path::new("extern/lua/lvm.c")));
         assert!(!resolved.should_include(Path::new("contrib/hiredis/net.c")));
+        // C/C++ test files (googletest-style) are excluded; test-like names in source are not
+        assert!(!resolved.should_include(Path::new("tests/db/segment_test.cc")));
+        assert!(!resolved.should_include(Path::new("src/foo_unittest.cpp")));
+        assert!(!resolved.should_include(Path::new("src/foo_tests.cxx")));
+        assert!(!resolved.should_include(Path::new("src/util_test.c")));
+        assert!(resolved.should_include(Path::new("src/testing.cc")));
+        assert!(resolved.should_include(Path::new("src/contest.cc")));
         // Own source should still be included
         assert!(resolved.should_include(Path::new("src/server.c")));
         assert!(resolved.should_include(Path::new("src/networking.c")));

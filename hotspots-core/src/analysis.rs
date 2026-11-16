@@ -55,6 +55,14 @@ pub fn analyze_file_with_config(
         return Ok(vec![]);
     }
 
+    if is_xml_with_ts_extension(path, &src) {
+        eprintln!(
+            "warning: skipping {} — an XML file (Qt translation), not TypeScript",
+            path.display()
+        );
+        return Ok(vec![]);
+    }
+
     let (max_line, long_line_count) = long_line_stats(&src, 1000);
     if long_line_count >= 3 {
         eprintln!(
@@ -73,14 +81,27 @@ pub fn analyze_file_with_config(
         return Ok(vec![]);
     }
 
-    let language = Language::from_path(path)
+    let mut language = Language::from_path(path)
         .ok_or_else(|| anyhow::anyhow!("Unsupported file type: {}", path.display()))?;
 
-    if language == Language::CHeader && looks_like_cpp(&src) {
-        return Err(anyhow::anyhow!(
-            "detected C++ content in .h file, C++ parsing not yet supported \
-             — see issue #204 and the C++ support tracking issue for full support"
-        ));
+    // `.h` is ambiguous: a header that uses C++ syntax goes to the C++ grammar instead
+    // of the C one, which would drop or mis-parse its member functions (issue #204).
+    if language == Language::CHeader {
+        language = choose_header_language(&src);
+    }
+
+    if let Some(limit) = nesting_limit(language) {
+        let depth = max_bracket_depth(&src, limit);
+        if depth > limit {
+            eprintln!(
+                "warning: skipping {} — nesting is deeper than {} levels, which can overflow the stack \
+                 in the {} parser",
+                path.display(),
+                limit,
+                language.name()
+            );
+            return Ok(vec![]);
+        }
     }
 
     let parser = create_parser(language, source_map)?;
@@ -163,6 +184,20 @@ fn generated_file_marker(src: &str) -> Option<&'static str> {
     }
 }
 
+/// Qt Linguist translation files use the `.ts` extension but are XML. They start with an XML
+/// declaration, `<!DOCTYPE TS>` or the `<TS ...>` root element, none of which a TypeScript file
+/// can begin with (`.ts` has no JSX).
+fn is_xml_with_ts_extension(path: &Path, src: &str) -> bool {
+    if path.extension().and_then(|e| e.to_str()) != Some("ts") {
+        return false;
+    }
+    let head = src.trim_start_matches('\u{feff}').trim_start();
+    head.starts_with("<?xml")
+        || head.starts_with("<!DOCTYPE TS")
+        || head.starts_with("<TS ")
+        || head.starts_with("<TS>")
+}
+
 /// Returns the length of the longest line and the count of lines exceeding `threshold` chars.
 ///
 /// Used to detect minified or machine-generated files before full analysis.
@@ -179,6 +214,54 @@ fn long_line_stats(src: &str, threshold: usize) -> (usize, usize) {
         }
     }
     (max_len, count)
+}
+
+/// Bracket-nesting depth beyond which a language's parser can overflow its thread stack.
+///
+/// The Rust (`syn`) and ECMAScript (`swc`) parsers are recursive descent and Go's later stages
+/// recurse too; none of that is ours to make iterative. Measured on the 32 MiB worker stacks the
+/// CLI uses, overflow starts near 1,600 nested blocks for Rust, 2,600 nested parentheses for
+/// TypeScript and 11,000 nested blocks for Go. These limits sit well below those, and far above
+/// anything hand-written. This is a mitigation, not a fix: a single expression with tens of
+/// thousands of operators and no brackets can still overflow.
+fn nesting_limit(language: Language) -> Option<usize> {
+    match language {
+        Language::Rust => Some(1_000),
+        Language::TypeScript
+        | Language::TypeScriptReact
+        | Language::JavaScript
+        | Language::JavaScriptReact
+        | Language::Vue
+        | Language::Astro => Some(1_500),
+        Language::Go => Some(5_000),
+        _ => None,
+    }
+}
+
+/// Maximum nesting of `()`, `[]` and `{}` in `src`, stopping as soon as it exceeds `stop_after`.
+///
+/// A plain byte scan that ignores strings and comments: brackets inside them can only raise the
+/// count, which errs towards skipping a file, never towards a crash. Unmatched closers do not
+/// drive the depth negative.
+fn max_bracket_depth(src: &str, stop_after: usize) -> usize {
+    let mut depth = 0usize;
+    let mut max = 0usize;
+    for b in src.bytes() {
+        match b {
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                if depth > max {
+                    max = depth;
+                    if max > stop_after {
+                        return max;
+                    }
+                }
+            }
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max
 }
 
 /// Returns true if a file path suggests it contains vendored or generated third-party code.
@@ -205,13 +288,17 @@ fn looks_vendored(path: &Path) -> bool {
 
 /// Returns true if the content of a `.h` file looks like C++ rather than C.
 ///
-/// `.h` files are always parsed with the C grammar (`Language::CHeader`), but a large
+/// `.h` files default to the C grammar (`Language::CHeader`), but a large
 /// share of `.h` files in C++ projects are actually C++ (member functions, templates,
 /// range-based `for`, `namespace`, `::`-qualified names). The C grammar either drops
 /// those constructs silently or produces a confusing "invalid CFG" error (see issue
-/// #204), so such files are detected here and skipped with one clear warning instead.
+/// #204), so such files are detected here and parsed as C++ instead.
 fn looks_like_cpp(src: &str) -> bool {
     use regex::Regex;
+
+    // Judge the code, not the prose: `size class` in a comment or `"a::b"` in a string is not C++.
+    let stripped = strip_comments_and_strings(src);
+    let src = stripped.as_str();
 
     const KEYWORD_MARKERS: &[&str] = &[
         "class ",
@@ -236,11 +323,104 @@ fn looks_like_cpp(src: &str) -> bool {
     static RANGE_FOR_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let range_for_re =
         RANGE_FOR_RE.get_or_init(|| Regex::new(r"for\s*\([^;()]*:[^;()]*\)").unwrap());
-    if range_for_re.is_match(src) {
-        return true;
-    }
+    range_for_re.is_match(src)
+}
 
-    false
+/// Decides whether a `.h` file is C or C++.
+///
+/// 1. The marker heuristic (`looks_like_cpp`: `class `, `namespace `, `::`, range-for, ...) runs on the
+///    code only, with comments and string literals blanked, so a C header that says "size class" in a
+///    comment is not sent to the C++ grammar (which mis-parses C idioms such as an identifier `new`).
+/// 2. If the markers say C but the C grammar reports errors and the C++ grammar parses the file
+///    cleanly, it is C++ without any marker (references, `constexpr`, `auto`, default arguments).
+///
+/// A clean C parse is deliberately not treated as proof of C: tree-sitter-c reads `namespace x { ... }`
+/// as a function-like definition without errors. Comparing raw error counts was tried and rejected:
+/// it moved large, macro-heavy C++ headers to the C parser, which then found fewer functions.
+pub(crate) fn choose_header_language(src: &str) -> Language {
+    if looks_like_cpp(src) {
+        return Language::Cpp;
+    }
+    let c_has_errors =
+        parse_error_count(tree_sitter_c::LANGUAGE.into(), src).is_some_and(|n| n > 0);
+    if c_has_errors && parse_error_count(tree_sitter_cpp::LANGUAGE.into(), src) == Some(0) {
+        return Language::Cpp;
+    }
+    Language::CHeader
+}
+
+/// Number of ERROR and MISSING nodes tree-sitter produces for `src`, or None if parsing fails or
+/// takes more than 5 s. Iterative, and descends only into subtrees that contain an error.
+fn parse_error_count(language: tree_sitter::Language, src: &str) -> Option<usize> {
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(&language).ok()?;
+    let start = std::time::Instant::now();
+    let mut cancel =
+        |_: &tree_sitter::ParseState| start.elapsed() > std::time::Duration::from_secs(5);
+    let options = tree_sitter::ParseOptions::new().progress_callback(&mut cancel);
+    let bytes = src.as_bytes();
+    let tree = parser.parse_with_options(
+        &mut |offset, _| bytes.get(offset..).unwrap_or(&[]),
+        None,
+        Some(options),
+    )?;
+    let mut count = 0;
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if !node.has_error() {
+            continue;
+        }
+        if node.is_error() || node.is_missing() {
+            count += 1;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    Some(count)
+}
+
+/// Replaces the contents of C-family comments and string/char literals with spaces (newlines kept),
+/// so keyword checks see only code. Not a full lexer: it handles `//`, `/* */`, `"..."` and `'...'`
+/// with backslash escapes, which is enough for header classification.
+fn strip_comments_and_strings(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i < bytes.len() && !(bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/')) {
+                if bytes[i] == b'\n' {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            out.push(' ');
+        } else if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            while i < bytes.len() && bytes[i] != quote && bytes[i] != b'\n' {
+                if bytes[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+            out.push(' ');
+        } else {
+            // Copy one whole UTF-8 character.
+            let ch_len = src[i..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&src[i..i + ch_len]);
+            i += ch_len;
+        }
+    }
+    out
 }
 
 /// Instantiates the correct parser for the given language.
@@ -270,6 +450,9 @@ fn create_parser(
         }
         Language::C | Language::CHeader => {
             Box::new(language::CParser::new().context("Failed to create C parser")?)
+        }
+        Language::Cpp => {
+            Box::new(language::CppParser::new().context("Failed to create C++ parser")?)
         }
         Language::Php => {
             Box::new(language::PhpParser::new().context("Failed to create PHP parser")?)
@@ -371,8 +554,85 @@ mod generated_file_tests {
     }
 
     #[test]
+    fn qt_translation_files_are_not_typescript() {
+        let qt = "<?xml version=\"1.0\" ?><!DOCTYPE TS><TS version=\"2.1\"></TS>";
+        assert!(is_xml_with_ts_extension(Path::new("a/bitcoin_am.ts"), qt));
+        assert!(is_xml_with_ts_extension(
+            Path::new("x.ts"),
+            "\u{feff}\n<!DOCTYPE TS>"
+        ));
+        assert!(is_xml_with_ts_extension(
+            Path::new("bitcoin_ar.ts"),
+            "<TS version=\"2.1\" language=\"ar\">\n<context>"
+        ));
+        // Real TypeScript, including generics and JSX-looking code, is untouched.
+        assert!(!is_xml_with_ts_extension(
+            Path::new("a.ts"),
+            "const x = <T,>(y: T) => y;\n"
+        ));
+        // Only the .ts extension is considered.
+        assert!(!is_xml_with_ts_extension(Path::new("a.xml"), qt));
+    }
+
+    #[test]
     fn header_scan_does_not_split_multibyte_chars() {
         let src = "é".repeat(GENERATED_HEADER_BYTES);
         assert_eq!(generated_file_marker(&src), None);
+    }
+
+    #[test]
+    fn max_bracket_depth_counts_nesting_and_stops_early() {
+        assert_eq!(max_bracket_depth("fn f() { if x { (1) } }", 100), 3);
+        assert_eq!(max_bracket_depth("}}}{", 100), 1);
+        let deep = "{".repeat(5000);
+        assert!(max_bracket_depth(&deep, 100) > 100);
+    }
+
+    #[test]
+    fn nesting_limits_cover_the_recursive_parsers() {
+        assert!(nesting_limit(Language::Rust).is_some());
+        assert!(nesting_limit(Language::TypeScript).is_some());
+        assert!(nesting_limit(Language::Go).is_some());
+        assert!(nesting_limit(Language::Java).is_none());
+    }
+
+    #[test]
+    fn header_words_in_comments_and_strings_do_not_make_it_cpp() {
+        let c = "/* size class lookup, see std::vector in the docs */\n\
+                 // namespace of the module: class table\n\
+                 static const char *msg = \"a::b class namespace \";\n\
+                 static inline int add(int a, int b) { return a + b; }\n";
+        assert_eq!(choose_header_language(c), Language::CHeader);
+    }
+
+    #[test]
+    fn header_with_cpp_in_code_is_cpp() {
+        let cpp = "namespace app { class Foo { public: int get() const { return 1; } }; }\n";
+        assert_eq!(choose_header_language(cpp), Language::Cpp);
+        let range_for =
+            "inline int sum(int n) { int t = 0; for (int x : v) { t += x; } return t; }\n";
+        assert_eq!(choose_header_language(range_for), Language::Cpp);
+    }
+
+    #[test]
+    fn markerless_cpp_header_is_detected_by_parse() {
+        // References and constexpr are not valid C and none of the keyword markers appear.
+        let cpp = "constexpr int kMax = 5;\nint twice(const int& x);\n";
+        assert_eq!(choose_header_language(cpp), Language::Cpp);
+    }
+
+    #[test]
+    fn plain_c_header_stays_c() {
+        let c = "#ifndef X_H\n#define X_H\ntypedef struct { int a; } S;\nint f(S *s);\n#endif\n";
+        assert_eq!(choose_header_language(c), Language::CHeader);
+    }
+
+    #[test]
+    fn strip_blanks_comments_and_strings_but_keeps_code_and_lines() {
+        let out =
+            strip_comments_and_strings("int a; // class\n/* ns:: */ char *s = \"::\\\"x\"; 'c'\n");
+        assert!(!out.contains("class") && !out.contains("::"));
+        assert!(out.contains("int a;") && out.contains("char *s ="));
+        assert_eq!(out.matches('\n').count(), 2);
     }
 }

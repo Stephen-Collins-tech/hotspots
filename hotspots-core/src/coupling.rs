@@ -276,14 +276,37 @@ pub fn compute_directed_coupling_for_repo(
     repo_root: &Path,
     partner_scores: &HashMap<String, f64>,
 ) -> (HashMap<String, f64>, Option<f64>) {
+    match fetch_directed_coupling_data(repo_root) {
+        Some(fetch) => finish_directed_coupling(&fetch, partner_scores),
+        None => (HashMap::new(), None),
+    }
+}
+
+/// Everything directed coupling needs from git, independent of
+/// `partner_scores` — the git log walk, plus the Jaccard-driven window
+/// decision (which only looks at commit/file shape, not partner scores). Lets
+/// the caller run this concurrently with other independent git fetches (e.g.
+/// burst score, touch metrics) before `partner_scores` (which needs
+/// `activity_risk`, computed from those other signals) is available.
+pub struct DirectedCouplingFetch {
+    commits: Vec<(i64, String, Vec<String>)>,
+    window_days: Option<u32>,
+    jaccard: Option<f64>,
+}
+
+/// Fetch half of [`compute_directed_coupling_for_repo`]: the git log walk and
+/// the Jaccard/window decision. Returns `None` when there's no `.git` dir or
+/// no commit history (matching `compute_directed_coupling_for_repo`'s
+/// empty-result cases).
+pub fn fetch_directed_coupling_data(repo_root: &Path) -> Option<DirectedCouplingFetch> {
     let gd = git_dir(repo_root);
     if !gd.exists() {
-        return (HashMap::new(), None);
+        return None;
     }
 
     let commits = load_commits(&gd);
     if commits.is_empty() {
-        return (HashMap::new(), None);
+        return None;
     }
 
     // On large repos the git log traversal can take several seconds.
@@ -302,10 +325,26 @@ pub fn compute_directed_coupling_for_repo(
         _ => None,
     };
 
-    let scores =
-        compute_directed_coupling(&commits, partner_scores, MIN_DC_APPEARANCES, window_days);
+    Some(DirectedCouplingFetch {
+        commits,
+        window_days,
+        jaccard,
+    })
+}
 
-    (scores, jaccard)
+/// Apply half of [`compute_directed_coupling_for_repo`]: scores already-fetched
+/// commits against `partner_scores`. Pure in-memory, no git calls.
+pub fn finish_directed_coupling(
+    fetch: &DirectedCouplingFetch,
+    partner_scores: &HashMap<String, f64>,
+) -> (HashMap<String, f64>, Option<f64>) {
+    let scores = compute_directed_coupling(
+        &fetch.commits,
+        partner_scores,
+        MIN_DC_APPEARANCES,
+        fetch.window_days,
+    );
+    (scores, fetch.jaccard)
 }
 
 /// Raw pairwise co-occurrence ratio, unweighted by any partner defect score.

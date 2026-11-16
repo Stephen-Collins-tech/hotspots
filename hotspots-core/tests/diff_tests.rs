@@ -256,6 +256,7 @@ fn test_diff_delta_aggregates_attached() {
         &[],
         &[],
         0,
+        &[],
     ));
 
     assert!(
@@ -322,6 +323,6 @@ fn test_diff_pr_risk_summary_collapses_all_changes_to_one_score() {
     );
 
     // compute_delta_aggregates should attach the same summary
-    let agg = hotspots_core::aggregates::compute_delta_aggregates(&delta, &[], &[], 0);
+    let agg = hotspots_core::aggregates::compute_delta_aggregates(&delta, &[], &[], 0, &[]);
     assert_eq!(agg.pr_summary, summary);
 }

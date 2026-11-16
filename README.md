@@ -6,6 +6,7 @@
 
 [![CI](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/ci.yml)
 [![Security](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml/badge.svg)](https://github.com/Stephen-Collins-tech/hotspots/actions/workflows/security.yml)
+[![npm downloads](https://img.shields.io/npm/dm/@stephencollinstech/hotspots.svg)](https://www.npmjs.com/package/@stephencollinstech/hotspots)
 
 **Website:** https://hotspots.dev &nbsp;|&nbsp; **Docs:** https://docs.hotspots.dev &nbsp;|&nbsp; **Crates.io:** [![crates.io](https://img.shields.io/crates/v/hotspots-cli.svg)](https://crates.io/crates/hotspots-cli)
 
@@ -28,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/Stephen-Collins-tech/hotspots/main/
 ```
 
 Windows: download the binary from [GitHub Releases](https://github.com/Stephen-Collins-tech/hotspots/releases/latest).
+
+**New here?** Start with the [Quick Start guide](https://docs.hotspots.dev/quickstart).
 
 Verify: `hotspots --version`
 
@@ -106,13 +109,19 @@ Activity Risk says where attention is likely needed next, not how good the code 
 
 **Risk bands:** Low (< 3) · Moderate (3–6) · High (6–9) · Critical (≥ 9)
 
+These formulas aren't hand-tuned guesses — every weight, cutoff, and signal that made it into the
+CLI was validated (or rejected) against real repo history and ground-truth bug/fix data in the
+open [hotspots-public-research](https://github.com/Stephen-Collins-tech/hotspots-public-research)
+repo. See its [findings index](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/README.md)
+for the evidence behind each shipped feature, including the negative results that kept things out.
+
 ---
 
 ## Supported Languages
 
-TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C# · PHP · Vue · Astro
+TypeScript · JavaScript · Go · Python · Rust · Java · C/C headers · C++ · C# · PHP · Vue · Astro
 
-All supported file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cs`, `.php`, `.vue`, `.astro`) work out of the box.
+All supported file extensions (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.py`, `.rs`, `.java`, `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`, `.hh`, `.cs`, `.php`, `.vue`, `.astro`) work out of the box.
 
 ---
 
@@ -187,6 +196,7 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 - [docs/REFERENCE.md](docs/REFERENCE.md) — complete CLI reference, all flags, config options, JSON schema, metrics formula
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design, analysis pipeline, invariants, design decisions
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — dev setup, adding languages, release process
+- [hotspots-public-research](https://github.com/Stephen-Collins-tech/hotspots-public-research) — the published evidence behind the scoring formulas: what was tested, what shipped, and what was rejected
 
 ---
 

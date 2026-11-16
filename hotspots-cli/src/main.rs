@@ -22,6 +22,7 @@ use std::path::PathBuf;
     about = "Multi-language static analysis tool (TypeScript, JavaScript, Go, Java, Python, Rust)"
 )]
 #[command(version = env!("HOTSPOTS_VERSION"))]
+#[command(after_help = "Docs: https://docs.hotspots.dev/quickstart")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -280,6 +281,8 @@ pub(crate) enum OutputLevel {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    cmd::telemetry::maybe_print_first_run_notice();
 
     let command_name = command_name(&cli.command);
 

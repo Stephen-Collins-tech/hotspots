@@ -2,7 +2,7 @@
 
 ## Setup
 
-**Prerequisites:** Rust 1.75+ (`rustup install stable`), Git. Node.js 18+ only needed for GitHub Action development.
+**Prerequisites:** Rust 1.89+ (`rustup install stable`), Git. Node.js 18+ only needed for GitHub Action development.
 
 ```bash
 git clone https://github.com/Stephen-Collins-tech/hotspots.git

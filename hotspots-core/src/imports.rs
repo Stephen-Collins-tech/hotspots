@@ -30,6 +30,7 @@ pub fn extract_raw_imports(source: &str, language: Language) -> Vec<String> {
         Language::CSharp => extract_csharp_imports(source),
         Language::C | Language::CHeader => vec![], // #include resolution not implemented
         Language::Php => extract_php_imports(source),
+        Language::Cpp => vec![], // #include resolution not implemented
     }
 }
 
@@ -313,6 +314,7 @@ fn resolve_import(
         Language::CSharp => resolve_java(raw, all_files_set), // namespace-style, same strategy
         Language::C | Language::CHeader => None,              // #include resolution not implemented
         Language::Php => resolve_php(raw, all_files_set),
+        Language::Cpp => None, // #include resolution not implemented
     }
 }
 

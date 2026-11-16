@@ -86,6 +86,7 @@ pub fn extract_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
         FunctionBody::CSharp { .. } => extract_csharp_metrics(function, cfg),
         FunctionBody::C { .. } => extract_c_metrics(function, cfg),
         FunctionBody::Php { .. } => extract_php_metrics(function, cfg),
+        FunctionBody::Cpp { .. } => extract_cpp_metrics(function, cfg),
     }
 }
 
@@ -398,9 +399,27 @@ fn ts_find_function_by_start<'a>(
 }
 
 /// Calculate maximum nesting depth for the given control-structure node kinds.
+///
+/// An `else if` continues the same chain rather than nesting a level deeper. Depending on the
+/// grammar, the chained `if_statement` either sits inside an `else_clause` (C, C++, PHP) or is
+/// itself the `alternative` field of the parent `if_statement` (Go, Java, C#).
 fn ts_nesting_depth(body_node: &tree_sitter::Node, nesting_kinds: &[&str]) -> usize {
+    fn continues_if_chain(node: &tree_sitter::Node) -> bool {
+        if node.kind() != "if_statement" {
+            return false;
+        }
+        let Some(parent) = node.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "else_clause" => true,
+            "if_statement" => parent.child_by_field_name("alternative") == Some(*node),
+            _ => false,
+        }
+    }
+
     fn recurse(node: tree_sitter::Node, kinds: &[&str], current: usize, max: &mut usize) {
-        let next = if kinds.contains(&node.kind()) {
+        let next = if kinds.contains(&node.kind()) && !continues_if_chain(&node) {
             let d = current + 1;
             if d > *max {
                 *max = d;
@@ -1244,6 +1263,61 @@ fn c_count_cc_extras(body_node: &tree_sitter::Node) -> usize {
     count
 }
 
+fn extract_cpp_metrics(function: &FunctionNode, cfg: &Cfg) -> RawMetrics {
+    let (_body_node_id, source) = function.body.as_cpp();
+    ts_with_function_body(
+        source,
+        tree_sitter_cpp::LANGUAGE.into(),
+        function.span.start,
+        &["function_definition"],
+        &["compound_statement"],
+        |func_node, body_node| {
+            // Call and short-circuit handling is the same as C; lambdas are folded in
+            // because these walks cover the whole body subtree.
+            let callee_names = c_extract_callees(&body_node, source);
+            RawMetrics {
+                cc: calculate_cc_from_cfg(cfg) + c_count_cc_extras(&body_node),
+                nd: ts_nesting_depth(
+                    &body_node,
+                    &[
+                        "if_statement",
+                        "while_statement",
+                        "do_statement",
+                        "for_statement",
+                        "for_range_loop",
+                        "switch_statement",
+                        "try_statement",
+                    ],
+                ),
+                fo: callee_names.len(),
+                ns: ts_non_structured_exits(
+                    &body_node,
+                    &[
+                        "return_statement",
+                        "break_statement",
+                        "continue_statement",
+                        "goto_statement",
+                        "throw_statement",
+                        "co_return_statement",
+                    ],
+                ),
+                loc: calculate_loc_from_node(&func_node),
+                callee_names,
+                missing_docstring: false,
+            }
+        },
+    )
+    .unwrap_or(RawMetrics {
+        cc: 1,
+        nd: 0,
+        fo: 0,
+        ns: 0,
+        loc: 0,
+        callee_names: vec![],
+        missing_docstring: false,
+    })
+}
+
 /// Extract callee names from a C# function body.
 fn csharp_extract_callees(body_node: &tree_sitter::Node, source: &str) -> Vec<String> {
     fn collect(
@@ -1661,8 +1735,9 @@ fn rust_count_cc_extras(block: &syn::Block) -> usize {
 mod tests {
     use super::*;
     use crate::language::{
-        CfgBuilder, ECMAScriptCfgBuilder, ECMAScriptParser, GoCfgBuilder, GoParser, JavaCfgBuilder,
-        JavaParser, LanguageParser, PythonCfgBuilder, PythonParser, RustCfgBuilder,
+        CCfgBuilder, CParser, CfgBuilder, ECMAScriptCfgBuilder, ECMAScriptParser, GoCfgBuilder,
+        GoParser, JavaCfgBuilder, JavaParser, LanguageParser, PythonCfgBuilder, PythonParser,
+        RustCfgBuilder,
     };
 
     /// Helper: parse Go source, discover functions, return (FunctionNode, Cfg) for the first.
@@ -1684,6 +1759,17 @@ mod tests {
         assert!(!functions.is_empty(), "expected at least one Java function");
         let func = functions.into_iter().next().unwrap();
         let cfg = JavaCfgBuilder.build(&func);
+        (func, cfg)
+    }
+
+    /// Helper: parse C source, discover functions, return (FunctionNode, Cfg) for the first.
+    fn c_function_and_cfg(source: &str) -> (crate::ast::FunctionNode, crate::cfg::Cfg) {
+        let parser = CParser::new().unwrap();
+        let module = parser.parse(source, "test.c").unwrap();
+        let functions = module.discover_functions(0, source);
+        assert!(!functions.is_empty(), "expected at least one C function");
+        let func = functions.into_iter().next().unwrap();
+        let cfg = CCfgBuilder.build(&func);
         (func, cfg)
     }
 
@@ -2291,5 +2377,115 @@ func withDefer() {
         // foo called 3 times, bar once — deduplicated to 2 unique callees
         assert_eq!(m.fo, 2, "deduplicated: foo+bar = 2");
         assert_eq!(m.callee_names, vec!["bar", "foo"], "sorted callee_names");
+    }
+
+    // ── else-if chain nesting depth ──────────────────────────────────────────
+
+    #[test]
+    fn test_extract_go_else_if_chain_does_not_nest() {
+        let source = r#"package main
+func classify(x int) string {
+    if x == 1 {
+        return "a"
+    } else if x == 2 {
+        return "b"
+    } else if x == 3 {
+        return "c"
+    } else if x == 4 {
+        return "d"
+    } else {
+        return "e"
+    }
+}
+"#;
+        let (func, cfg) = go_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.nd, 1, "flat else-if chain → ND 1, got {}", m.nd);
+    }
+
+    #[test]
+    fn test_extract_java_else_if_chain_does_not_nest() {
+        let source = r#"class Foo {
+    String classify(int x) {
+        if (x == 1) {
+            return "a";
+        } else if (x == 2) {
+            return "b";
+        } else if (x == 3) {
+            return "c";
+        } else if (x == 4) {
+            return "d";
+        } else {
+            return "e";
+        }
+    }
+}
+"#;
+        let (func, cfg) = java_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.nd, 1, "flat else-if chain → ND 1, got {}", m.nd);
+    }
+
+    #[test]
+    fn test_extract_c_else_if_chain_does_not_nest() {
+        let source = r#"const char *classify(int x) {
+    if (x == 1) {
+        return "a";
+    } else if (x == 2) {
+        return "b";
+    } else if (x == 3) {
+        return "c";
+    } else if (x == 4) {
+        return "d";
+    } else {
+        return "e";
+    }
+}
+"#;
+        let (func, cfg) = c_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.nd, 1, "flat else-if chain → ND 1, got {}", m.nd);
+    }
+
+    #[test]
+    fn test_extract_c_three_truly_nested_ifs() {
+        let source = r#"int classify(int x) {
+    if (x > 0) {
+        if (x > 10) {
+            if (x > 100) {
+                return 3;
+            }
+        }
+    }
+    return 0;
+}
+"#;
+        let (func, cfg) = c_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(m.nd, 3, "three truly nested ifs → ND 3, got {}", m.nd);
+    }
+
+    #[test]
+    fn test_extract_c_if_inside_else_if_branch_nests_one_deeper() {
+        let source = r#"const char *classify(int x) {
+    if (x == 1) {
+        return "a";
+    } else if (x == 2) {
+        if (x > 0) {
+            return "b";
+        }
+        return "c";
+    } else {
+        return "d";
+    }
+}
+"#;
+        let (func, cfg) = c_function_and_cfg(source);
+        let m = extract_metrics(&func, &cfg);
+        assert_eq!(
+            m.nd, 2,
+            "if nested inside an else-if branch body → ND 2, got {}",
+            m.nd
+        );
     }
 }

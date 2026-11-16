@@ -1783,6 +1783,12 @@ fn render_summary(snapshot: &Snapshot) -> String {
         .filter(|f| f.tier.as_deref() == Some("quiet"))
         .count();
 
+    let signal_confidence = match snapshot.summary.as_ref().map(|s| s.signal_confidence) {
+        Some(crate::aggregates::SignalConfidence::High) => "High",
+        Some(crate::aggregates::SignalConfidence::Low) => "Low",
+        None => "N/A",
+    };
+
     format!(
         r#"<div class="summary">
     <div class="summary-card">
@@ -1801,12 +1807,17 @@ fn render_summary(snapshot: &Snapshot) -> String {
         <h3>High+ Risk</h3>
         <div class="value">{high_plus}</div>
     </div>
+    <div class="summary-card">
+        <h3>Signal Confidence</h3>
+        <div class="value">{signal_confidence}</div>
+    </div>
 </div>
 "#,
         total = total_functions,
         active = active_count,
         quiet = quiet_count,
         high_plus = critical_count + high_count,
+        signal_confidence = signal_confidence,
     )
 }
 
@@ -1833,7 +1844,7 @@ fn render_function_risk_gallery(functions: &[FunctionSnapshot]) -> String {
         .into_iter()
         .take(48)
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let width = ((f.lrs / max_lrs) * 100.0).clamp(4.0, 100.0);
             let activity = f.activity_risk.unwrap_or(f.lrs);
             let touches = f
@@ -1887,7 +1898,7 @@ fn render_functions_table(functions: &[FunctionSnapshot]) -> String {
     let rows: String = functions
         .iter()
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let tier_str = f.tier.as_deref().unwrap_or("");
 
             let churn_val = f.churn.as_ref().map(|c| c.lines_added + c.lines_deleted);
@@ -2131,11 +2142,7 @@ fn render_next_actions(functions: &[FunctionSnapshot]) -> String {
 }
 
 fn render_next_action(rank: usize, function: &FunctionSnapshot) -> String {
-    let function_name = function
-        .function_id
-        .split("::")
-        .last()
-        .unwrap_or(&function.function_id);
+    let function_name = crate::function_id::short_name(&function.function_id);
     let touches = function.touch_count.unwrap_or(0);
     let activity = function.activity_risk.unwrap_or(function.lrs);
     let last_change = function
@@ -2194,7 +2201,7 @@ fn render_triage_panel(functions: &[FunctionSnapshot]) -> String {
     let rows: String = top_risks
         .into_iter()
         .map(|f| {
-            let function_name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let function_name = crate::function_id::short_name(&f.function_id);
             let risk_val = f.activity_risk.unwrap_or(f.lrs);
             let touches_value = f
                 .touch_count
@@ -2745,6 +2752,8 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     (year, month, days + 1)
 }
 
+// `u64::is_multiple_of` is newer than our MSRV (1.89), so keep the manual form.
+#[allow(clippy::manual_is_multiple_of)]
 fn is_leap_year(y: u64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
 }

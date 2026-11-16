@@ -109,6 +109,12 @@ make_parse_cache!(
 make_parse_cache!(C_TREE_CACHE, with_cached_c_tree, tree_sitter_c::LANGUAGE);
 
 make_parse_cache!(
+    CPP_TREE_CACHE,
+    with_cached_cpp_tree,
+    tree_sitter_cpp::LANGUAGE
+);
+
+make_parse_cache!(
     PHP_TREE_CACHE,
     with_cached_php_tree,
     tree_sitter_php::LANGUAGE_PHP

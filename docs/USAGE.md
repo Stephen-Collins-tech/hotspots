@@ -124,6 +124,17 @@ Changed lines in touched functions: 84 (strongest tested predictor of defect ris
 ====================================================================================================
 ```
 
+### Which changed file deserves the closest look
+
+Each changed file is also ranked by `file_risk_score` against only the *other files changed
+in this same diff* — not repo-wide. Files at or above the 90th percentile of that diff-local
+ranking are marked `[top 10%]` in `--format text`, next to the file name in the per-function
+table; JSON exposes the full ranking as `file_risk_score`/`file_risk_diff_percentile`/
+`file_risk_top_decile` on each entry in `delta.aggregates.files`. A file with no
+`file_risk_score` (deleted, or an unscoreable type) is left out of the ranking rather than
+shown with a misleading low score, and a diff with only one scoreable file gets no flag at
+all. See [Reference](REFERENCE.md) for the full field list.
+
 ## `hotspots coordinate`
 
 Before starting work on a set of files — your own, or a set an AI coding agent is about

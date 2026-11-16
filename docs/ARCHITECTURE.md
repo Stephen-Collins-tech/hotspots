@@ -7,7 +7,7 @@ Hotspots is a Rust workspace with two crates:
 - **`hotspots-core`** — library: parsing, CFG construction, metrics, risk scoring, snapshot persistence, delta, policy, report generation
 - **`hotspots-cli`** — binary: argument parsing, file collection, output formatting, command dispatch
 
-**Technology stack:** Rust 2021 Edition (MSRV 1.75), `swc_ecma_parser` for JS/TS, `tree-sitter-*` for all other languages, `clap` v4.5 for CLI, `serde`/`serde_json` for serialization, `anyhow` for error propagation.
+**Technology stack:** Rust 2021 Edition (MSRV 1.89), `swc_ecma_parser` for JS/TS, `tree-sitter-*` for all other languages, `clap` v4.5 for CLI, `serde`/`serde_json` for serialization, `anyhow` for error propagation.
 
 ## Analysis Pipeline
 

@@ -112,7 +112,7 @@ pub(crate) fn print_explain_output(
         println!("{} ({})", paint(header, painter), rows.len());
         for f in rows {
             let score = f.activity_risk.unwrap_or(f.lrs);
-            let name = f.function_id.split("::").last().unwrap_or(&f.function_id);
+            let name = hotspots_core::function_id::short_name(&f.function_id);
             let loc = format!("{}:{}", rel_path(&f.file), f.line);
             println!("  {:.2}  {:<col_w$}  {}", score, loc, name, col_w = col_w);
             if let Some(exp) = &f.explanation {

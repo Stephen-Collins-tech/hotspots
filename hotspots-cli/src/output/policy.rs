@@ -35,11 +35,7 @@ fn write_co_change_delta_section(out: &mut String, delta: &Delta) -> anyhow::Res
     let touched: std::collections::HashSet<String> = delta
         .deltas
         .iter()
-        .filter_map(|e| {
-            e.function_id
-                .rfind("::")
-                .map(|pos| e.function_id[..pos].to_string())
-        })
+        .filter_map(|e| hotspots_core::function_id::file_of(&e.function_id).map(str::to_string))
         .collect();
 
     let relevant: Vec<&hotspots_core::aggregates::CoChangeDeltaEntry> = co_change_delta

@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+- Link signal_confidence to public research page (#358)
+
+## [3.8.0] - 2026-11-15
+
+### Documentation
+- Link hotspots-public-research as the evidence behind scoring (#355)
+- Link hotspots-public-research from the docs homepage (#356)
+
+
+### Features
+- Add signal_confidence to snapshot summary (#357)
+
+## [3.7.0] - 2026-11-12
+
+### Documentation
+- Document the diff-relative top-decile file risk flag (#354)
+
+
+### Features
+- Add diff-relative top-decile file risk flag to hotspots diff (#353)
+
+## [3.6.2] - 2026-11-10
+
+### Bug Fixes
+- Bump rusqlite to 0.41 for RUSTSEC-2026-0459 (#352)
+
+
+### Documentation
+- Add npm download stats badge to README (#351)
+
+## [3.6.0] - 2026-11-08
+
+### Features
+- Surface docs.hotspots.dev/quickstart in README, --help, first run (#349)
+
+## [3.5.0] - 2026-11-08
+
+### Bug Fixes
+- Skip Qt translation .ts files instead of failing to parse them as TypeScript (#344)
+
+
+### Features
+- Parse most Flow-annotated JavaScript (TypeScript retry plus same-length rewrites) (#345)
+
+## [3.4.1] - 2026-11-08
+
+### Bug Fixes
+- Two shapes that left an unreachable node and dropped the function (C, C++, Java, C#) (#343)
+
+## [3.4.0] - 2026-11-07
+
+### Bug Fixes
+- Skip very deeply nested Rust, TS/JS and Go files instead of overflowing the stack (#341)
+
+
+### Documentation
+- Replace the 'not validated' caveat with the checked result (#340)
+
+
+### Features
+- Route .h files by code, not by words in comments (#342)
+
+## [3.3.4] - 2026-11-07
+
+### Bug Fixes
+- Walk the syntax tree iteratively when discovering functions (#339)
+
+## [3.3.3] - 2026-11-06
+
+### Bug Fixes
+- Don't count else-if chains as extra nesting depth (#338)
+
+## [3.3.2] - 2026-11-06
+
+### Bug Fixes
+- Split function ids at the first :: not the last (#337)
+
+## [3.3.1] - 2026-11-06
+
+### Bug Fixes
+- Exclude C/C++ test files by default (#336)
+
+## [3.3.0] - 2026-11-05
+
+### Features
+- Report source files left out because their language is unsupported (#334)
+- Add C++ support (.cpp .cc .cxx .hpp .hxx .hh) (#335)
+
 ## [3.2.0] - 2026-11-05
 
 ### Features
@@ -683,6 +774,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[3.8.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.8.0
+[3.7.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.7.0
+[3.6.2]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.6.2
+[3.6.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.6.0
+[3.5.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.5.0
+[3.4.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.4.1
+[3.4.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.4.0
+[3.3.4]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.3.4
+[3.3.3]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.3.3
+[3.3.2]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.3.2
+[3.3.1]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.3.1
+[3.3.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.3.0
 [3.2.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.2.0
 [3.1.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.1.0
 [3.0.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.0.0

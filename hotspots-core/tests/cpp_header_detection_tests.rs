@@ -1,7 +1,6 @@
 //! Regression test for issue #204: `.h` files containing real C++ (range-based
-//! `for` + `break`, member functions, templates) must be cleanly skipped with
-//! one clear warning instead of either producing a confusing "invalid CFG"
-//! error or silently dropping functions.
+//! `for` + `break`, member functions, templates) must be parsed with the C++
+//! grammar, not skipped, mis-parsed as C, or silently stripped of functions.
 
 use hotspots_core::analysis::analyze_file_with_config;
 use hotspots_core::AnalysisOptions;
@@ -19,7 +18,7 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 #[test]
-fn test_cpp_content_in_header_is_skipped_not_errored_or_dropped() {
+fn test_cpp_content_in_header_is_analyzed_as_cpp() {
     let path = fixture_path("range_for_break.h");
     let cm: Lrc<SourceMap> = Default::default();
     let options = AnalysisOptions {
@@ -27,17 +26,13 @@ fn test_cpp_content_in_header_is_skipped_not_errored_or_dropped() {
         top_n: None,
     };
 
-    let result = analyze_file_with_config(&path, &cm, 0, &options, None, None);
+    let reports = analyze_file_with_config(&path, &cm, 0, &options, None, None)
+        .expect("a .h file with C++ content should be analyzed");
 
-    // Before this fix: this file's `first_non1` produced a confusing
-    // "invalid CFG: Nodes not reachable from entry" warning, and `Foo::bar`
-    // and `add<T>` were silently dropped with no warning at all. Now the
-    // whole file is detected as C++ content and rejected up front with one
-    // clear, specific error instead.
-    let err = result.expect_err("C++ content in a .h file should be rejected, not analyzed as C");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("C++ content") && msg.contains("#204"),
-        "expected a clear C++-detection message, got: {msg}"
-    );
+    let names: Vec<String> = reports.iter().map(|r| r.function.clone()).collect();
+    // Before: `first_non1` gave "invalid CFG" (range-for `break` had no target), and the
+    // member function and template were silently dropped.
+    assert!(names.iter().any(|n| n == "first_non1"), "{names:?}");
+    assert!(names.iter().any(|n| n.ends_with("bar")), "{names:?}");
+    assert!(names.iter().any(|n| n == "add"), "{names:?}");
 }

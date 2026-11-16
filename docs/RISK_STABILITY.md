@@ -65,6 +65,36 @@ this:
   tool upgrade, an unrelated file elsewhere in the repo, or a rolling time
   window, with no signal telling the user *why*.
 
+## A third kind of trust: how much to weigh the score at all
+
+Everything above is about the score behaving the same way for the same
+reasons. There's a related but different question: even when a score is
+perfectly stable and perfectly explainable, *how much should you lean on
+it for this particular repo?*
+
+Think back to the smoke detector. A smoke detector that's properly
+calibrated and never gives a false reading for no reason is still only as
+useful as the batteries and sensor it's built on. Two detectors can both be
+behaving exactly as designed, and still deserve different amounts of trust
+— one installed in a well-maintained building with regular inspections,
+one that's been sitting untouched in a neglected one. The detector itself
+isn't lying in either case; the surrounding conditions change how much
+weight you should put on what it tells you.
+
+Some signals Hotspots uses — like which files tend to be touched by the
+same small group of people, a pattern called ownership concentration —
+turn out to be more informative on some repos than others, depending on
+things like how consistently the team writes commit messages. That's not
+a flaw in the signal; it's a property of the repo it's being measured on.
+`signal_confidence` in the JSON output (`"low"` or `"high"`) is Hotspots'
+first attempt at surfacing that directly: a label, alongside the usual
+score, that says "on this specific repo, lean on this ranking a bit more"
+or "treat this one as a rougher hint." It's a population-level pattern —
+real on average across many repos — not a guarantee about any one repo in
+particular, and it's recomputed fresh every time, because a team's commit
+habits can change over the life of a project. See
+[evidence and limits](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/signal-confidence-tier.md).
+
 ---
 
 ## Technical detail

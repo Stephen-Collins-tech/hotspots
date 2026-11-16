@@ -17,6 +17,9 @@ const PING_INTERVAL_SECS: u64 = 24 * 60 * 60;
 /// After a failed ping (offline, firewalled, server down) wait this long before trying again.
 const RETRY_INTERVAL_SECS: u64 = 60 * 60;
 const STATE_FILE: &str = "telemetry.json";
+/// Marker file for the one-time first-run docs notice; its mere presence
+/// (contents unused) means the notice has already been shown.
+const FIRST_RUN_MARKER_FILE: &str = "first_run_notice_shown";
 const CI_VARS: [&str; 5] = [
     "CI",
     "GITHUB_ACTIONS",
@@ -102,8 +105,32 @@ struct Meta {
 }
 
 fn state_path() -> Option<PathBuf> {
+    hotspots_home_file(STATE_FILE)
+}
+
+fn hotspots_home_file(file_name: &str) -> Option<PathBuf> {
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    Some(PathBuf::from(home).join(".hotspots").join(STATE_FILE))
+    Some(PathBuf::from(home).join(".hotspots").join(file_name))
+}
+
+/// Best-effort one-time notice pointing a brand-new user at the docs site.
+/// Shown exactly once: presence of `~/.hotspots/first_run_notice_shown`
+/// means it has already run. Never fails or blocks: I/O errors are swallowed.
+pub(crate) fn maybe_print_first_run_notice() {
+    let Some(marker_path) = hotspots_home_file(FIRST_RUN_MARKER_FILE) else {
+        return;
+    };
+    if marker_path.exists() {
+        return;
+    }
+
+    eprintln!("New to hotspots? Start here: https://docs.hotspots.dev/quickstart");
+    eprintln!();
+
+    if let Some(parent) = marker_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker_path, "");
 }
 
 fn read_state(path: &PathBuf) -> State {
