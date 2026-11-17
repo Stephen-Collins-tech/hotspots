@@ -149,10 +149,12 @@ enum Commands {
     },
     /// Compare analysis snapshots between two git refs
     Diff {
-        /// Base git ref (branch, tag, SHA, or HEAD~N)
-        base: String,
+        /// Base git ref (branch, tag, SHA, or HEAD~N). Omit to auto-detect the
+        /// merge-base against the repo's default branch.
+        base: Option<String>,
 
         /// Head git ref (branch, tag, SHA, or HEAD~N)
+        #[arg(default_value = "HEAD")]
         head: String,
 
         /// Output format
