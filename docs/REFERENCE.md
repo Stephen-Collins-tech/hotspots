@@ -310,6 +310,7 @@ hotspots --version
 | 1 | Error or blocking policy failure |
 | 2 | Auto-analysis failed (`hotspots diff --auto-analyze` only) |
 | 3 | Snapshot missing (`hotspots diff` only) |
+| 4 | `--policy` was requested but could not be evaluated (parent commit exists but its snapshot is missing) — distinct from exit 1 so CI can tell "policy failed" apart from "policy never ran" (`hotspots analyze --mode delta --policy` only) |
 
 ---
 

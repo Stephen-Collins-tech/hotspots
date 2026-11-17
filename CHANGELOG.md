@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- `analyze --mode delta --policy` now fails loudly (exit code 4) instead of silently skipping
+  policy evaluation and exiting 0 when a parent commit exists but its snapshot can't be found
+  (part of #359)
+- Excessive-risk-regression policy violations now state the threshold crossed and the config
+  key to adjust or suppress it (part of #359)
+
 ### Documentation
 - Link signal_confidence to public research page (#358)
 
