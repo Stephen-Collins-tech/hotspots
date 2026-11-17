@@ -690,6 +690,32 @@ fn handle_snapshot_mode(
     )
 }
 
+/// When `--policy` was explicitly requested, exits loudly (code 4) if `delta`
+/// came back as a baseline because a parent commit's snapshot wasn't found —
+/// otherwise `--policy` would silently not run, letting a broken/missing
+/// cache pass CI unchecked. A baseline with no parent commit at all (true
+/// root commit) is a legitimate, silent skip — there is nothing to compare
+/// against — so this only exits for the "parent exists but its snapshot is
+/// missing" case.
+fn exit_if_policy_requested_but_unevaluated(
+    policy: bool,
+    delta_val: &delta::Delta,
+    snapshot: &Snapshot,
+) {
+    if !policy || !delta_val.baseline || snapshot.commit.parents.is_empty() {
+        return;
+    }
+    eprintln!(
+        "Error: --policy was requested but could not be evaluated. Commit {} has a parent \
+         ({}) but no snapshot was found for it, so there is no prior state to compare \
+         against. Run `hotspots analyze` on the parent commit first (or restore its \
+         snapshot cache) to enable policy checks, or omit --policy to run without \
+         enforcement.",
+        snapshot.commit.sha, snapshot.commit.parents[0]
+    );
+    std::process::exit(4);
+}
+
 fn handle_delta_mode(
     repo_root: &Path,
     resolved_config: &hotspots_core::ResolvedConfig,
@@ -714,22 +740,7 @@ fn handle_delta_mode(
         delta::compute_delta(repo_root, &snapshot)?
     };
 
-    // A baseline delta with no parent commit at all (true root commit) is a
-    // legitimate, silent skip — there is nothing to compare against. A baseline
-    // delta where the commit *does* have a parent but its snapshot wasn't found
-    // is different: policy was explicitly requested and silently did not run,
-    // which would otherwise let a broken/missing cache pass CI unchecked.
-    if policy && delta_val.baseline && !snapshot.commit.parents.is_empty() {
-        eprintln!(
-            "Error: --policy was requested but could not be evaluated. Commit {} has a parent \
-             ({}) but no snapshot was found for it, so there is no prior state to compare \
-             against. Run `hotspots analyze` on the parent commit first (or restore its \
-             snapshot cache) to enable policy checks, or omit --policy to run without \
-             enforcement.",
-            snapshot.commit.sha, snapshot.commit.parents[0]
-        );
-        std::process::exit(4);
-    }
+    exit_if_policy_requested_but_unevaluated(policy, &delta_val, &snapshot);
 
     let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
 
