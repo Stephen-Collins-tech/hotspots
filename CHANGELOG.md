@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Diff auto-detects base ref when omitted (#362)
 - Scope --auto-analyze to the diff's changed files (opt-in) (#363)
+- `hotspots diff` text output now always shows the full file path, line number, and function
+  name (never truncated) and disambiguates `<anonymous>` functions by line; `--explain` is now
+  available for `diff`, printing which raw metric (complexity, nesting, fan-out, size) drove each
+  function's score change (part of #359)
 
 ## [3.8.1] - 2026-11-17
 

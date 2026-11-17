@@ -62,6 +62,7 @@ explicitly if auto-detection picks the wrong branch or fails.
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
 | `--scope-to-diff` | With `--auto-analyze`, only analyze files the diff touches (see below) |
+| `--explain` | Print a one-line factor breakdown under each changed function |
 
 Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
@@ -81,6 +82,13 @@ files outside the scoped set (e.g. via the call graph) are not accounted for. Us
 the speed and are comparing against a report that's scoped to the PR's own changed functions
 anyway; fall back to a full `--auto-analyze` run (no `--scope-to-diff`) if you need the full-repo
 picture or hit a discrepancy.
+
+#### `--explain`
+
+Prints a one-line factor breakdown under each changed function naming which raw metric drove the
+score change (e.g. "driven mainly by +4 cyclomatic complexity and +2 nesting depth"), computed
+directly from the before/after delta — unlike snapshot mode's `--explain`, this needs no
+repo-wide percentile computation, so it works without a full-repo pass.
 
 ### `hotspots train [PATH]`
 

@@ -186,6 +186,11 @@ enum Commands {
         /// large repos with small PRs; see docs/REFERENCE.md for caveats)
         #[arg(long)]
         scope_to_diff: bool,
+
+        /// Show a one-line factor breakdown (which metric drove the score
+        /// change) under each changed function
+        #[arg(long)]
+        explain: bool,
     },
     /// Train a local RandomForest ranker from fix-commit history
     Train {
@@ -355,6 +360,7 @@ fn main() -> anyhow::Result<()> {
             config,
             auto_analyze,
             scope_to_diff,
+            explain,
         } => cmd::diff::handle_diff(DiffArgs {
             base,
             head,
@@ -365,6 +371,7 @@ fn main() -> anyhow::Result<()> {
             config_path: config,
             auto_analyze,
             scope_to_diff,
+            explain,
         })?,
         Commands::Train {
             path,

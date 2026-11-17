@@ -346,6 +346,7 @@ mod tests {
             },
             lrs: 3.9,
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
+            line: 1,
         });
 
         let after = after_band.map(|band| FunctionState {
@@ -359,6 +360,7 @@ mod tests {
             },
             lrs: if band == "critical" { 10.5 } else { 6.2 },
             band: RiskBand::parse(band).unwrap_or(RiskBand::Low),
+            line: 1,
         });
 
         let delta = delta_lrs.map(|lrs| FunctionDelta {
