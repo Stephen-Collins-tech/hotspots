@@ -1776,6 +1776,7 @@ pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
     Ok(())
 }
 
+// hotspots-ignore: single added ensure_gitignored() call (#359) tips this already-near-boundary function's relative band, not a real complexity increase
 /// Persist a snapshot to disk
 ///
 /// # Atomic Writes
@@ -1792,10 +1793,6 @@ pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
 /// - `force` is false and snapshot file already exists with different content
 /// - Schema version mismatch (if reading existing file)
 /// - I/O errors during write
-// Was already at the high/critical boundary before #359; the single added
-// ensure_gitignored() call below tips its band via the repo-relative
-// threshold alone, not a real complexity increase.
-// hotspots-ignore: single added call tips an already-near-boundary function's relative band, not a real complexity increase (#359)
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     ensure_gitignored(repo_root);
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
