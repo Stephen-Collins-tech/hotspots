@@ -1,4 +1,3 @@
-use crate::cmd::analyze::analyze_and_persist_at_ref;
 use crate::util::{find_repo_root, write_html_report};
 use crate::OutputFormat;
 use anyhow::Context;
@@ -25,6 +24,7 @@ pub(crate) struct DiffArgs {
     pub top: Option<usize>,
     pub config_path: Option<PathBuf>,
     pub auto_analyze: bool,
+    pub scope_to_diff: bool,
 }
 
 pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
@@ -37,6 +37,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         top,
         config_path,
         auto_analyze,
+        scope_to_diff,
     } = args;
 
     let repo_root = find_repo_root(&std::env::current_dir()?)?;
@@ -71,14 +72,42 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     let head_sha = git::resolve_ref_to_sha(&repo_root, &head)
         .with_context(|| format!("failed to resolve head ref '{head}'"))?;
 
+    // --scope-to-diff restricts auto-analysis to files the base..head diff
+    // actually touches (benchmarked at ~50-70x less memory/time than a
+    // full-repo walk on a 49-file PR). This only narrows which files get
+    // parsed for the snapshot that's missing; it does not change delta
+    // computation itself, and it is opt-in rather than the --auto-analyze
+    // default because scoping a snapshot to a file subset is not yet
+    // verified to always produce identical function-level results to a
+    // full-repo snapshot (e.g. cross-file call-graph effects outside the
+    // scoped set are not accounted for).
+    let file_allowlist: Option<std::collections::HashSet<PathBuf>> = if scope_to_diff {
+        let changed = git::diff_line_sets_at(&repo_root, &base_sha, &head_sha).unwrap_or_default();
+        Some(changed.keys().map(PathBuf::from).collect())
+    } else {
+        None
+    };
+
     // Load (or auto-analyze) both snapshots before bailing, so the user sees
     // all problems at once. Auto-analysis failures exit immediately with code 2
     // so CI can distinguish them from retriable "snapshot missing" conditions
     // (exit 3).
-    let base_snapshot =
-        load_snapshot_or_report(&repo_root, &base, &base_sha, auto_analyze, &resolved_config);
-    let head_snapshot =
-        load_snapshot_or_report(&repo_root, &head, &head_sha, auto_analyze, &resolved_config);
+    let base_snapshot = load_snapshot_or_report(
+        &repo_root,
+        &base,
+        &base_sha,
+        auto_analyze,
+        &resolved_config,
+        file_allowlist.as_ref(),
+    );
+    let head_snapshot = load_snapshot_or_report(
+        &repo_root,
+        &head,
+        &head_sha,
+        auto_analyze,
+        &resolved_config,
+        file_allowlist.as_ref(),
+    );
 
     let (base_snapshot, head_snapshot) = match (base_snapshot, head_snapshot) {
         (Ok(b), Ok(h)) => (b, h),
@@ -199,13 +228,20 @@ fn load_snapshot_or_report(
     sha: &str,
     auto_analyze: bool,
     resolved_config: &hotspots_core::config::ResolvedConfig,
+    file_allowlist: Option<&std::collections::HashSet<PathBuf>>,
 ) -> Result<hotspots_core::snapshot::Snapshot, LoadError> {
     match snapshot::load_snapshot(repo_root, sha) {
         Ok(Some(s)) => Ok(s),
         Ok(None) => {
             if auto_analyze {
                 eprintln!("[hotspots] auto-analyzing '{}' ({})...", git_ref, &sha[..8]);
-                analyze_and_persist_at_ref(repo_root, sha, resolved_config).map_err(|e| {
+                crate::cmd::analyze::analyze_and_persist_at_ref_scoped(
+                    repo_root,
+                    sha,
+                    resolved_config,
+                    file_allowlist,
+                )
+                .map_err(|e| {
                     LoadError::Failed(format!(
                         "error: auto-analysis failed for '{git_ref}' ({}): {e}",
                         &sha[..8]

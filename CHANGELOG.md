@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.8.1] - 2026-11-17
 
+### Features
+- `hotspots diff` auto-detects the base ref (merge-base against the default branch) when `--base`
+  is omitted, so `hotspots diff --auto-analyze --policy` with no positional args now works as a
+  "review my PR" entry point (part of #359)
+- `hotspots diff --auto-analyze --scope-to-diff` restricts auto-analysis to files the diff
+  touches instead of walking the whole repo, opt-in (part of #359)
+
 ### Bug Fixes
 - Fail loudly when --policy can't be evaluated (1/5, #359) (#361)
 

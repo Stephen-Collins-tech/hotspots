@@ -24,6 +24,7 @@ fn test_cpp_content_in_header_is_analyzed_as_cpp() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze_file_with_config(&path, &cm, 0, &options, None, None)

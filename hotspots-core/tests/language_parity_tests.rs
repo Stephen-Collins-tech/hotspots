@@ -25,6 +25,7 @@ fn test_typescript_javascript_parity() {
         let options = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
 
         // Analyze TypeScript version
@@ -35,6 +36,7 @@ fn test_typescript_javascript_parity() {
         let options = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
         let js_reports =
             analyze(&js_path, options).unwrap_or_else(|_| panic!("Failed to analyze {}", js_file));
@@ -148,11 +150,13 @@ fn test_javascript_module_extensions() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     // Both should parse and analyze successfully
@@ -183,11 +187,13 @@ fn test_typescript_module_extensions() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     // Both should parse and analyze successfully

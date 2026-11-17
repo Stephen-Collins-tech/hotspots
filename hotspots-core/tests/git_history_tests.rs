@@ -112,6 +112,7 @@ fn create_snapshot_for_commit(repo_path: &Path) -> snapshot::Snapshot {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&test_file, options).expect("failed to analyze");

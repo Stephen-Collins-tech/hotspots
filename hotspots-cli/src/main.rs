@@ -180,6 +180,12 @@ enum Commands {
         /// Analyze missing refs automatically using git worktrees
         #[arg(long)]
         auto_analyze: bool,
+
+        /// With --auto-analyze, restrict analysis to files the diff actually
+        /// touches instead of walking the whole repo (much faster/lighter on
+        /// large repos with small PRs; see docs/REFERENCE.md for caveats)
+        #[arg(long)]
+        scope_to_diff: bool,
     },
     /// Train a local RandomForest ranker from fix-commit history
     Train {
@@ -348,6 +354,7 @@ fn main() -> anyhow::Result<()> {
             top,
             config,
             auto_analyze,
+            scope_to_diff,
         } => cmd::diff::handle_diff(DiffArgs {
             base,
             head,
@@ -357,6 +364,7 @@ fn main() -> anyhow::Result<()> {
             top,
             config_path: config,
             auto_analyze,
+            scope_to_diff,
         })?,
         Commands::Train {
             path,

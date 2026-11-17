@@ -19,6 +19,7 @@ fn test_simple_function() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -32,6 +33,7 @@ fn test_nested_branching() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -52,6 +54,7 @@ fn test_loop_with_breaks() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -68,6 +71,7 @@ fn test_try_catch_finally() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -88,6 +92,7 @@ fn test_pathological_complexity() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -109,10 +114,12 @@ fn test_deterministic_output() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     // Run analysis twice
@@ -135,6 +142,7 @@ fn test_angular_decorators_parse_and_analyze() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).expect("Angular decorated TypeScript should parse");
@@ -170,6 +178,7 @@ fn test_react_jsx_in_plain_js_file() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).expect("JSX in .js file should parse");
@@ -209,6 +218,7 @@ fn test_lexer_panic_is_skipped_not_fatal() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options).unwrap();
@@ -225,6 +235,7 @@ fn test_progress_callback_sequence_single_file() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     analyze_with_progress(
@@ -257,6 +268,7 @@ fn test_progress_callback_sequence_directory() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     analyze_with_progress(
@@ -301,10 +313,12 @@ fn test_whitespace_invariance() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&path, options1).unwrap();
