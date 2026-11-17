@@ -102,7 +102,9 @@ hotspots diff main HEAD
 
 `--top N` applies *after* policy evaluation, so violations outside the top N are still detected.
 
-**Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
+**Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing,
+4 = `--policy` requested but could not be evaluated (`hotspots analyze --mode delta --policy` only;
+a parent commit exists but its snapshot is missing, so there's nothing to compare against).
 
 ### What the PR summary shows
 

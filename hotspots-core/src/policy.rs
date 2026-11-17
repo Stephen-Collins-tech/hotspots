@@ -294,8 +294,11 @@ fn evaluate_excessive_risk_regression(
         if let Some(delta) = &entry.delta {
             if delta.lrs >= REGRESSION_THRESHOLD {
                 let message = format!(
-                    "Function {} regressed by {:.2} LRS",
-                    entry.function_id, delta.lrs
+                    "Function {} regressed by {:.2} LRS (threshold: {:.2}). To adjust or \
+                     suppress this policy, set `policy.excessive_risk_regression` to \"warn\" \
+                     or \"off\" in your hotspots config (requires \
+                     `policy.excessive_risk_regression_reason` unless set to \"block\").",
+                    entry.function_id, delta.lrs, REGRESSION_THRESHOLD
                 );
 
                 let result = PolicyResult {
