@@ -387,20 +387,25 @@ impl Drop for TempWorktree {
         if !self.path.exists() {
             return;
         }
-        let path_str = self.path.to_string_lossy();
-        let args = ["worktree", "remove", "--force", path_str.as_ref()];
-        if let Err(first_err) = git_at(&self.repo_root, &args) {
-            // One retry: a transient lock (another git process briefly
-            // holding .git/worktrees/<name>/locked) is the common
-            // recoverable case for this failure.
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if let Err(retry_err) = git_at(&self.repo_root, &args) {
-                eprintln!(
-                    "warning: failed to remove temporary worktree {} \
-                     (first attempt: {first_err}; retry: {retry_err})",
-                    self.path.display()
-                );
-            }
+        remove_worktree_with_retry(&self.repo_root, &self.path);
+    }
+}
+
+/// Removes a worktree, retrying once after a short delay before warning — a
+/// transient lock (another git process briefly holding
+/// `.git/worktrees/<name>/locked`) is the common recoverable case for a
+/// first-attempt failure.
+fn remove_worktree_with_retry(repo_root: &Path, path: &std::path::Path) {
+    let path_str = path.to_string_lossy();
+    let args = ["worktree", "remove", "--force", path_str.as_ref()];
+    if let Err(first_err) = git_at(repo_root, &args) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Err(retry_err) = git_at(repo_root, &args) {
+            eprintln!(
+                "warning: failed to remove temporary worktree {} \
+                 (first attempt: {first_err}; retry: {retry_err})",
+                path.display()
+            );
         }
     }
 }

@@ -1792,6 +1792,10 @@ pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
 /// - `force` is false and snapshot file already exists with different content
 /// - Schema version mismatch (if reading existing file)
 /// - I/O errors during write
+// hotspots-ignore: already at the high/critical boundary before this PR; the
+// single added ensure_gitignored() call (part of #359) tips its band purely
+// via the repo-relative threshold, not a real complexity increase — see
+// docs/REFERENCE.md's note on this function for the measured before/after.
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
     ensure_gitignored(repo_root);
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
