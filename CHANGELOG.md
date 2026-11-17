@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scope --auto-analyze to the diff's changed files (opt-in) (#363)
 - Diff shows full file:line/function, disambiguates anonymous fns, adds --explain (#364)
 
+### Bug Fixes
+- Excessive-risk-regression policy violations now state the threshold crossed and the config
+  key to adjust or suppress it (part of #359)
+- `--auto-analyze`'s temporary git worktree cleanup no longer prints a spurious "failed to
+  remove existing git worktree" warning on the common case of nothing to clean up, and retries
+  once on a transient lock before warning for real failures (part of #359)
+- `.hotspots/` is now automatically added to the repo's `.gitignore` on first use if not already
+  present, instead of showing up as an untracked directory (part of #359)
+
 ## [3.8.1] - 2026-11-17
 
 ### Bug Fixes

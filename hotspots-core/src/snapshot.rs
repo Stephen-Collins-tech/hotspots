@@ -1551,6 +1551,83 @@ pub fn hotspots_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(".hotspots")
 }
 
+/// Ensure `.hotspots/` is listed in the repo root's `.gitignore`, so it
+/// doesn't show up as an untracked directory after the first analysis run.
+/// Idempotent and best-effort: a missing or unwritable `.gitignore` is not
+/// an error, since this is a convenience, not a correctness requirement.
+pub fn ensure_gitignored(repo_root: &Path) {
+    let gitignore_path = repo_root.join(".gitignore");
+    let existing = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+    let already_ignored = existing.lines().any(|line| {
+        matches!(
+            line.trim(),
+            ".hotspots" | ".hotspots/" | "/.hotspots" | "/.hotspots/"
+        )
+    });
+    if already_ignored {
+        return;
+    }
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(".hotspots/\n");
+    let _ = std::fs::write(&gitignore_path, updated);
+}
+
+#[cfg(test)]
+mod ensure_gitignored_tests {
+    use super::ensure_gitignored;
+
+    #[test]
+    fn creates_gitignore_with_entry_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        ensure_gitignored(dir.path());
+        let contents = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(contents.contains(".hotspots/"));
+    }
+
+    #[test]
+    fn appends_entry_to_existing_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
+        ensure_gitignored(dir.path());
+        let contents = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(contents.contains("target/"));
+        assert!(contents.contains(".hotspots/"));
+    }
+
+    #[test]
+    fn is_idempotent_when_already_present() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target/\n.hotspots/\n").unwrap();
+        ensure_gitignored(dir.path());
+        let contents = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert_eq!(contents.matches(".hotspots/").count(), 1);
+    }
+
+    #[test]
+    fn recognizes_bare_and_rooted_variants_as_already_ignored() {
+        for variant in [".hotspots", ".hotspots/", "/.hotspots", "/.hotspots/"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(".gitignore"), format!("{variant}\n")).unwrap();
+            ensure_gitignored(dir.path());
+            let contents = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+            assert_eq!(
+                contents,
+                format!("{variant}\n"),
+                "should not duplicate for variant {variant:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_dir_does_not_panic() {
+        // Best-effort: no repo_root/.gitignore parent to write into.
+        ensure_gitignored(std::path::Path::new("/nonexistent/path/for/test"));
+    }
+}
+
 /// Get the path to the snapshots directory
 pub fn snapshots_dir(repo_root: &Path) -> PathBuf {
     hotspots_dir(repo_root).join("snapshots")
@@ -1716,6 +1793,7 @@ pub fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<()> {
 /// - Schema version mismatch (if reading existing file)
 /// - I/O errors during write
 pub fn persist_snapshot(repo_root: &Path, snapshot: &Snapshot, force: bool) -> Result<()> {
+    ensure_gitignored(repo_root);
     let snapshot_path = snapshot_path(repo_root, snapshot.commit_sha());
 
     // Normalize through a parse-reserialize cycle to produce a canonical form.
