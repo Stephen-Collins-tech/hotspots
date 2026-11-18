@@ -84,7 +84,14 @@ thresholds.
 
 ## `hotspots diff`
 
-Compare snapshots between any two git refs (not just parent → HEAD):
+Reviewing a PR? Run it with no args — `base` auto-detects the merge-base against your default
+branch and `head` defaults to `HEAD`:
+
+```bash
+hotspots diff --auto-analyze --policy   # the "review my PR" entry point
+```
+
+Or compare snapshots between any two git refs explicitly (not just parent → HEAD):
 
 ```bash
 hotspots diff main HEAD               # compare branch vs main

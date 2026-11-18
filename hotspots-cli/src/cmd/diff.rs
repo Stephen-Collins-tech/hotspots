@@ -17,7 +17,7 @@ enum LoadError {
 }
 
 pub(crate) struct DiffArgs {
-    pub base: String,
+    pub base: Option<String>,
     pub head: String,
     pub format: OutputFormat,
     pub output: Option<PathBuf>,
@@ -44,6 +44,26 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     let resolved_config =
         hotspots_core::config::load_and_resolve(&repo_root, config_path.as_deref())
             .context("failed to load configuration")?;
+
+    // When --base is omitted, auto-detect the merge-base against the repo's
+    // default branch (same resolution order analyze's PR-delta mode uses).
+    // Unlike that path, failure here is a hard error rather than a silent
+    // fallback — `diff` has no implicit parent to fall back to, so silently
+    // picking something would be more surprising than failing loudly.
+    let base = match base {
+        Some(base) => base,
+        None => {
+            let auto = git::resolve_merge_base_auto().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "could not auto-detect a base ref (no merge-base found against \
+                     main/master/develop/trunk). Pass --base explicitly, e.g. \
+                     `hotspots diff <base> {head}`."
+                )
+            })?;
+            eprintln!("Comparing {head} against auto-detected merge-base {auto}");
+            auto
+        }
+    };
 
     // Resolve both refs to full SHAs
     let base_sha = git::resolve_ref_to_sha(&repo_root, &base)

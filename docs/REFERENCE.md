@@ -38,15 +38,20 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
-### `hotspots diff <base> <head>`
+### `hotspots diff [base] [head]`
 
-Compare snapshots between any two git refs. Both must have existing snapshots.
+Compare snapshots between any two git refs. Both must have existing snapshots (or pass
+`--auto-analyze` to generate them). This is the "review my PR" entry point: run `hotspots diff`
+with no args inside a branch to compare `HEAD` against the auto-detected merge-base.
 
 ```
-hotspots diff <BASE> <HEAD> [OPTIONS]
+hotspots diff [BASE] [HEAD] [OPTIONS]
 ```
 
-Accepts: branch names, tags, full/short SHAs, `HEAD~N` relative refs.
+Accepts: branch names, tags, full/short SHAs, `HEAD~N` relative refs. `head` defaults to `HEAD`.
+`base` defaults to the auto-detected merge-base against the repo's default branch
+(`main`/`master`/`develop`/`trunk`, checked both locally and as `origin/<branch>`) — pass it
+explicitly if auto-detection picks the wrong branch or fails.
 
 | Flag | Description |
 |---|---|
