@@ -389,82 +389,10 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool, explain: bool) -> anyh
         .unwrap_or_default();
 
     for entry in &delta_val.deltas {
-        let status_label = match entry.status {
-            FunctionStatus::New => "new",
-            FunctionStatus::Deleted => "deleted",
-            FunctionStatus::Modified => "modified",
-            FunctionStatus::Unchanged => continue,
-        };
-
-        let lrs_str = match (&entry.before, &entry.after) {
-            (Some(b), Some(a)) => format!("{:.2} → {:.2}", b.lrs, a.lrs),
-            (None, Some(a)) => format!("— → {:.2}", a.lrs),
-            (Some(b), None) => format!("{:.2} → —", b.lrs),
-            (None, None) => "—".to_string(),
-        };
-
-        let cc_str = match (&entry.before, &entry.after) {
-            (Some(b), Some(a)) => format!("{} → {}", b.metrics.cc, a.metrics.cc),
-            (None, Some(a)) => format!("— → {}", a.metrics.cc),
-            (Some(b), None) => format!("{} → —", b.metrics.cc),
-            (None, None) => "—".to_string(),
-        };
-
-        let band_str = match entry.band_transition.as_ref() {
-            Some(t) => format!("{} → {}", t.from, t.to),
-            None => entry
-                .after
-                .as_ref()
-                .or(entry.before.as_ref())
-                .map(|s| s.band.as_str().to_string())
-                .unwrap_or_else(|| "-".to_string()),
-        };
-
-        // function_id is "file::function"; split for display
-        let (file_display, fn_display) = entry
-            .function_id
-            .split_once("::")
-            .unwrap_or(("", &entry.function_id));
-
-        // <anonymous> is identical for every closure in a file; disambiguate
-        // with the line number instead of leaving indistinguishable rows.
-        let line = entry
-            .after
-            .as_ref()
-            .or(entry.before.as_ref())
-            .map(|s| s.line);
-        let fn_display = match line {
-            Some(line) if fn_display == "<anonymous>" => format!("<anonymous>@{line}"),
-            _ => fn_display.to_string(),
-        };
-
-        let file_col = match line {
-            Some(line) => format!("{file_display}:{line}"),
-            None => file_display.to_string(),
-        };
-        let file_col = if top_decile_files.contains(file_display) {
-            format!("{file_col} [top 10%]")
-        } else {
-            file_col
-        };
-
-        // Full file:line and function name — never truncated, so a single row
-        // always has enough information to jump straight to the code.
-        writeln!(
-            out,
-            "{:<12} {:<14}  {:<14}  {:<10} {} {}",
-            status_label, lrs_str, cc_str, band_str, file_col, fn_display,
-        )?;
-
-        if explain {
-            if let Some(d) = &entry.delta {
-                writeln!(
-                    out,
-                    "             \u{2726} {}",
-                    hotspots_core::delta::explain_delta(d)
-                )?;
-            }
+        if entry.status == FunctionStatus::Unchanged {
+            continue;
         }
+        write_diff_row(&mut out, entry, &top_decile_files, explain)?;
     }
 
     if with_policy {
@@ -479,6 +407,116 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool, explain: bool) -> anyh
     }
 
     Ok(out)
+}
+
+/// Render one row of `render_diff_text`'s table, plus its optional
+/// `--explain` line. Extracted so `render_diff_text` itself stays focused on
+/// headline counts/header/policy, not per-row formatting.
+/// Formats a `before → after` arrow string for any pair of displayable
+/// values, collapsing the four before/after presence combinations that
+/// `write_diff_row`'s LRS/CC columns both need into one place.
+fn arrow<T: std::fmt::Display>(before: Option<T>, after: Option<T>) -> String {
+    match (before, after) {
+        (Some(b), Some(a)) => format!("{b} → {a}"),
+        (None, Some(a)) => format!("— → {a}"),
+        (Some(b), None) => format!("{b} → —"),
+        (None, None) => "—".to_string(),
+    }
+}
+
+fn band_column(entry: &hotspots_core::delta::FunctionDeltaEntry) -> String {
+    match entry.band_transition.as_ref() {
+        Some(t) => format!("{} → {}", t.from, t.to),
+        None => entry
+            .after
+            .as_ref()
+            .or(entry.before.as_ref())
+            .map(|s| s.band.as_str().to_string())
+            .unwrap_or_else(|| "-".to_string()),
+    }
+}
+
+/// `file:line` plus function name, with `<anonymous>` disambiguated by line
+/// (every closure in a file shares that literal name otherwise) and a
+/// `[top 10%]` marker when the file is in this diff's top decile by risk.
+fn file_and_function_columns(
+    entry: &hotspots_core::delta::FunctionDeltaEntry,
+    top_decile_files: &std::collections::HashSet<&str>,
+) -> (String, String) {
+    let (file_display, fn_display) = entry
+        .function_id
+        .split_once("::")
+        .unwrap_or(("", &entry.function_id));
+    let line = entry
+        .after
+        .as_ref()
+        .or(entry.before.as_ref())
+        .map(|s| s.line);
+
+    let fn_display = match line {
+        Some(line) if fn_display == "<anonymous>" => format!("<anonymous>@{line}"),
+        _ => fn_display.to_string(),
+    };
+
+    let file_col = match line {
+        Some(line) => format!("{file_display}:{line}"),
+        None => file_display.to_string(),
+    };
+    let file_col = if top_decile_files.contains(file_display) {
+        format!("{file_col} [top 10%]")
+    } else {
+        file_col
+    };
+
+    (file_col, fn_display)
+}
+
+fn write_diff_row(
+    out: &mut String,
+    entry: &hotspots_core::delta::FunctionDeltaEntry,
+    top_decile_files: &std::collections::HashSet<&str>,
+    explain: bool,
+) -> anyhow::Result<()> {
+    use hotspots_core::delta::FunctionStatus;
+    use std::fmt::Write;
+
+    let status_label = match entry.status {
+        FunctionStatus::New => "new",
+        FunctionStatus::Deleted => "deleted",
+        FunctionStatus::Modified => "modified",
+        FunctionStatus::Unchanged => return Ok(()),
+    };
+
+    let lrs_str = arrow(
+        entry.before.as_ref().map(|b| format!("{:.2}", b.lrs)),
+        entry.after.as_ref().map(|a| format!("{:.2}", a.lrs)),
+    );
+    let cc_str = arrow(
+        entry.before.as_ref().map(|b| b.metrics.cc),
+        entry.after.as_ref().map(|a| a.metrics.cc),
+    );
+    let band_str = band_column(entry);
+    let (file_col, fn_display) = file_and_function_columns(entry, top_decile_files);
+
+    // Full file:line and function name — never truncated, so a single row
+    // always has enough information to jump straight to the code.
+    writeln!(
+        out,
+        "{:<12} {:<14}  {:<14}  {:<10} {} {}",
+        status_label, lrs_str, cc_str, band_str, file_col, fn_display,
+    )?;
+
+    if explain {
+        if let Some(d) = &entry.delta {
+            writeln!(
+                out,
+                "             \u{2726} {}",
+                hotspots_core::delta::explain_delta(d)
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

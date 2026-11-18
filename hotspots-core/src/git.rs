@@ -381,19 +381,30 @@ pub struct TempWorktree {
 
 impl Drop for TempWorktree {
     fn drop(&mut self) {
-        let result = git_at(
-            &self.repo_root,
-            &[
-                "worktree",
-                "remove",
-                "--force",
-                &self.path.to_string_lossy(),
-            ],
-        );
-        if let Err(e) = result {
+        // Nothing to clean up if the worktree is already gone (e.g. removed
+        // by an external process) — warning here would be noise, not
+        // actionable.
+        if !self.path.exists() {
+            return;
+        }
+        remove_worktree_with_retry(&self.repo_root, &self.path);
+    }
+}
+
+/// Removes a worktree, retrying once after a short delay before warning — a
+/// transient lock (another git process briefly holding
+/// `.git/worktrees/<name>/locked`) is the common recoverable case for a
+/// first-attempt failure.
+fn remove_worktree_with_retry(repo_root: &Path, path: &std::path::Path) {
+    let path_str = path.to_string_lossy();
+    let args = ["worktree", "remove", "--force", path_str.as_ref()];
+    if let Err(first_err) = git_at(repo_root, &args) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Err(retry_err) = git_at(repo_root, &args) {
             eprintln!(
-                "warning: failed to remove temporary worktree {}: {e}",
-                self.path.display()
+                "warning: failed to remove temporary worktree {} \
+                 (first attempt: {first_err}; retry: {retry_err})",
+                path.display()
             );
         }
     }
@@ -409,20 +420,18 @@ impl Drop for TempWorktree {
 pub fn create_worktree(repo_root: &Path, sha: &str) -> Result<TempWorktree> {
     let dir = std::env::temp_dir().join(format!("hotspots-worktree-{sha}-{}", std::process::id()));
 
-    // Always attempt to unregister any stale git worktree entry first.
-    // A temp cleaner may have removed the directory while the .git/worktrees
-    // metadata entry remains; `git worktree add` fails in that case even though
-    // `dir.exists()` returns false.
-    if let Err(e) = git_at(
+    // Speculatively unregister a stale git worktree entry first — a temp
+    // cleaner may have removed the directory while the .git/worktrees
+    // metadata entry remains, which would otherwise make `git worktree add`
+    // fail below even though `dir.exists()` returns false. This almost
+    // always has nothing to clean up (the common case is simply that no
+    // prior worktree was ever registered at this PID+sha path), so failure
+    // here is expected and silent; only a failure from the real `worktree
+    // add` call below is actionable.
+    let _ = git_at(
         repo_root,
         &["worktree", "remove", "--force", &dir.to_string_lossy()],
-    ) {
-        // Not fatal — the entry simply may not exist yet.
-        eprintln!(
-            "warning: failed to remove existing git worktree at {}: {e}",
-            dir.display()
-        );
-    }
+    );
     // Remove the directory itself if it is still present.
     if dir.exists() {
         std::fs::remove_dir_all(&dir).with_context(|| {
