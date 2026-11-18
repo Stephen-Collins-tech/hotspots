@@ -61,10 +61,26 @@ explicitly if auto-detection picks the wrong branch or fails.
 | `--top N` | Limit to N changed functions by \|ΔLRS\| |
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
+| `--scope-to-diff` | With `--auto-analyze`, only analyze files the diff touches (see below) |
 
 Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
+
+#### `--scope-to-diff`
+
+On a large repo, `--auto-analyze` without this flag walks and parses every file in the repo to
+build a missing snapshot, even for a small PR. `--scope-to-diff` restricts that walk to just the
+files the `base..head` diff touches, benchmarked at roughly 50-70x less memory and wall-clock time
+on a 49-file PR against a large repo (full-repo: ~33GB peak RSS / 230-700s; scoped to the changed
+files: <1GB / ~10s).
+
+This is **opt-in, not the `--auto-analyze` default**, because it has not yet been verified to
+always produce identical function-level results to a full-repo snapshot — cross-file effects from
+files outside the scoped set (e.g. via the call graph) are not accounted for. Use it when you want
+the speed and are comparing against a report that's scoped to the PR's own changed functions
+anyway; fall back to a full `--auto-analyze` run (no `--scope-to-diff`) if you need the full-repo
+picture or hit a discrepancy.
 
 ### `hotspots train [PATH]`
 

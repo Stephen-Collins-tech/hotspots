@@ -23,6 +23,7 @@ fn analyze(name: &str, source: String) -> usize {
             let options = AnalysisOptions {
                 min_lrs: None,
                 top_n: None,
+                file_allowlist: None,
             };
             analyze_file_with_config(&path, &cm, 0, &options, None, None)
                 .expect("deep input must not be an error")

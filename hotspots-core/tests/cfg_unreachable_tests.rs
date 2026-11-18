@@ -16,6 +16,7 @@ fn analyzed(name: &str, source: &str) -> usize {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let n = analyze_file_with_config(&path, &cm, 0, &options, None, None)
         .expect("analysis must not error")

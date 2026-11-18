@@ -85,6 +85,7 @@ fn test_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -157,10 +158,12 @@ fn test_golden_determinism() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports1 = analyze(&fixture, options1).unwrap();
@@ -191,6 +194,7 @@ fn test_go_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -249,10 +253,12 @@ fn test_go_golden_determinism() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports1 = analyze(&fixture, options1).unwrap();
@@ -283,6 +289,7 @@ fn test_rust_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -341,10 +348,12 @@ fn test_rust_golden_determinism() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports1 = analyze(&fixture, options1).unwrap();
@@ -377,6 +386,7 @@ fn test_java_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -438,6 +448,7 @@ fn test_java_golden_anonymous_class() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -476,6 +487,7 @@ fn test_java_golden_java_specific() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -514,6 +526,7 @@ fn test_java_golden_switch_and_ternary() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -549,10 +562,12 @@ fn test_java_golden_determinism() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports1 = analyze(&fixture, options1).unwrap();
@@ -583,6 +598,7 @@ fn test_python_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -656,10 +672,12 @@ fn test_python_golden_determinism() {
     let options1 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let options2 = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports1 = analyze(&fixture, options1).unwrap();
@@ -688,6 +706,7 @@ fn test_golden_call_graph_deduplication() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports = analyze(&fixture, options).expect("analysis should succeed");
 
@@ -726,6 +745,7 @@ fn test_go_golden_call_graph_deduplication() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports = analyze(&fixture, options).expect("analysis should succeed");
 
@@ -755,10 +775,12 @@ fn test_extended_metrics_determinism() {
         let options1 = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
         let options2 = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
         let reports1 = analyze(&fixture, options1)
             .unwrap_or_else(|e| panic!("failed to analyze {}: {}", fixture_name, e));
@@ -800,6 +822,7 @@ fn test_vue_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -869,6 +892,7 @@ function add(a: number, b: number): number {
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
     )
     .expect("Vue analysis failed");
@@ -877,6 +901,7 @@ function add(a: number, b: number): number {
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
     )
     .expect("TS analysis failed");
@@ -940,6 +965,7 @@ fn test_astro_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -999,6 +1025,7 @@ function add(a: number, b: number): number {
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
     )
     .expect("Astro analysis failed");
@@ -1007,6 +1034,7 @@ function add(a: number, b: number): number {
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
     )
     .expect("TS analysis failed");
@@ -1065,6 +1093,7 @@ fn test_csharp_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -1116,11 +1145,13 @@ fn test_csharp_golden_determinism() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports1 = analyze(&fixture, options).unwrap();
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports2 = analyze(&fixture, options).unwrap();
 
@@ -1150,6 +1181,7 @@ fn test_c_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -1206,11 +1238,13 @@ fn test_c_golden_determinism() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports1 = analyze(&fixture, options).unwrap();
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports2 = analyze(&fixture, options).unwrap();
 
@@ -1235,6 +1269,7 @@ fn test_php_golden(fixture_name: &str) {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&fixture, options)
@@ -1301,11 +1336,13 @@ fn test_php_golden_determinism() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports1 = analyze(&fixture, options).unwrap();
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
     let reports2 = analyze(&fixture, options).unwrap();
 

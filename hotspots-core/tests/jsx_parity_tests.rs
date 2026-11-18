@@ -22,6 +22,7 @@ fn test_jsx_tsx_parity() {
         let options = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
 
         // Analyze TSX version
@@ -32,6 +33,7 @@ fn test_jsx_tsx_parity() {
         let options = AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         };
         let jsx_reports = analyze(&jsx_path, options)
             .unwrap_or_else(|_| panic!("Failed to analyze {}", jsx_file));
@@ -117,6 +119,7 @@ fn test_jsx_elements_dont_inflate_complexity() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&tsx_path, options).expect("Should analyze simple TSX component");
@@ -145,6 +148,7 @@ fn test_jsx_control_flow_is_counted() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports =
@@ -178,6 +182,7 @@ fn test_multiple_functions_in_jsx_file() {
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: None,
     };
 
     let reports = analyze(&tsx_path, options).expect("Should analyze complex component");

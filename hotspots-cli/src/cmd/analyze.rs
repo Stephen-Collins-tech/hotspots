@@ -304,6 +304,7 @@ fn handle_cold_start(
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -370,6 +371,7 @@ fn handle_axes(
         AnalysisOptions {
             min_lrs: None,
             top_n: None,
+            file_allowlist: None,
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -460,6 +462,7 @@ fn handle_default_output(
             } else {
                 explicit_top.filter(|&n| n != 0)
             },
+            file_allowlist: None,
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -518,6 +521,7 @@ pub(crate) fn handle_mode_output(
         AnalysisOptions {
             min_lrs: opts.min_lrs,
             top_n: None,
+            file_allowlist: None,
         },
         Some(resolved_config),
         Some(analysis_progress.as_ref()),
@@ -1454,8 +1458,11 @@ pub(crate) fn build_enriched_snapshot(
         .build())
 }
 
-/// Analyze the source tree at `sha`, enrich it, persist it to `repo_root`, and
-/// return the resulting snapshot.
+/// Analyzes and persists a snapshot at `sha` in a temporary worktree. When
+/// `file_allowlist` is `Some`, restricts analysis to those paths (relative to
+/// the repo root) instead of always doing a full-repo walk — used by
+/// `diff --auto-analyze --scope-to-diff` to skip parsing files outside the
+/// PR's changed-file set.
 ///
 /// Used by `hotspots diff --auto-analyze` to generate missing snapshots on
 /// demand. A temporary git worktree is created at `sha` and torn down
@@ -1464,10 +1471,11 @@ pub(crate) fn build_enriched_snapshot(
 /// Per-function touch metrics are skipped (the touch cache lives in
 /// `repo_root/.hotspots/` and cannot be pre-warmed for historical refs; file-
 /// level batched metrics are still computed as normal).
-pub(crate) fn analyze_and_persist_at_ref(
+pub(crate) fn analyze_and_persist_at_ref_scoped(
     repo_root: &Path,
     sha: &str,
     resolved_config: &hotspots_core::ResolvedConfig,
+    file_allowlist: Option<&std::collections::HashSet<PathBuf>>,
 ) -> anyhow::Result<hotspots_core::snapshot::Snapshot> {
     let worktree = hotspots_core::git::create_worktree(repo_root, sha)
         .with_context(|| format!("failed to create worktree for {sha}"))?;
@@ -1475,6 +1483,7 @@ pub(crate) fn analyze_and_persist_at_ref(
     let options = AnalysisOptions {
         min_lrs: None,
         top_n: None,
+        file_allowlist: file_allowlist.cloned(),
     };
     let progress = make_analysis_progress();
     let reports = analyze_with_progress(

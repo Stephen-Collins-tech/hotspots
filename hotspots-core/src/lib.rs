@@ -61,6 +61,17 @@ use swc_common::{sync::Lrc, SourceMap};
 pub struct AnalysisOptions {
     pub min_lrs: Option<f64>,
     pub top_n: Option<usize>,
+    /// Restrict analysis to these files (paths relative to the analysis root),
+    /// skipping the walk/parse/metrics cost for everything else. `None` (the
+    /// default) analyzes the whole tree, unchanged from prior behavior.
+    ///
+    /// This only narrows which files get parsed; it does not change how
+    /// cross-file aggregates (imports, co-change, call graph) are computed —
+    /// they still only see edges between files that were actually analyzed,
+    /// so a scoped run is a strict subset of what a full-repo run would see
+    /// for those aggregates, not a different answer for the scoped files
+    /// themselves.
+    pub file_allowlist: Option<std::collections::HashSet<std::path::PathBuf>>,
 }
 
 /// Analyze files at the given path with default configuration
@@ -101,6 +112,7 @@ pub fn analyze_with_progress(
     let source_files: Vec<_> = collected
         .into_iter()
         .filter(|f| resolved_config.is_none_or(|c| c.should_include(f)))
+        .filter(|f| file_allowed(f, path, options.file_allowlist.as_ref()))
         .collect();
     let ignored: Vec<_> = ignored
         .into_iter()
@@ -250,6 +262,64 @@ pub fn collect_source_files(path: &std::path::Path) -> Result<Vec<std::path::Pat
 
 /// Source files found while walking, split into those we can analyze and those written in
 /// a language we recognise as source code but do not support.
+/// True if `file` should be analyzed given an optional allowlist of
+/// root-relative paths. `None` allowlist means "analyze everything"
+/// (unchanged default behavior).
+fn file_allowed(
+    file: &std::path::Path,
+    root: &std::path::Path,
+    allowlist: Option<&std::collections::HashSet<std::path::PathBuf>>,
+) -> bool {
+    let Some(allowlist) = allowlist else {
+        return true;
+    };
+    match file.strip_prefix(root) {
+        Ok(rel) => allowlist.contains(rel),
+        Err(_) => allowlist.contains(file),
+    }
+}
+
+#[cfg(test)]
+mod file_allowed_tests {
+    use super::file_allowed;
+    use std::collections::HashSet;
+    use std::path::PathBuf;
+
+    #[test]
+    fn none_allowlist_allows_everything() {
+        let file = PathBuf::from("/repo/src/a.rs");
+        let root = PathBuf::from("/repo");
+        assert!(file_allowed(&file, &root, None));
+    }
+
+    #[test]
+    fn allowlist_matches_root_relative_path() {
+        let allow: HashSet<PathBuf> = [PathBuf::from("src/a.rs")].into_iter().collect();
+        let root = PathBuf::from("/repo");
+        assert!(file_allowed(
+            &PathBuf::from("/repo/src/a.rs"),
+            &root,
+            Some(&allow)
+        ));
+        assert!(!file_allowed(
+            &PathBuf::from("/repo/src/b.rs"),
+            &root,
+            Some(&allow)
+        ));
+    }
+
+    #[test]
+    fn falls_back_to_absolute_path_when_not_under_root() {
+        let allow: HashSet<PathBuf> = [PathBuf::from("/other/a.rs")].into_iter().collect();
+        let root = PathBuf::from("/repo");
+        assert!(file_allowed(
+            &PathBuf::from("/other/a.rs"),
+            &root,
+            Some(&allow)
+        ));
+    }
+}
+
 #[derive(Default)]
 struct SourceWalk {
     files: Vec<std::path::PathBuf>,
