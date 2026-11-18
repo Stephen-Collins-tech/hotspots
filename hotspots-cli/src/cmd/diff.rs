@@ -25,6 +25,7 @@ pub(crate) struct DiffArgs {
     pub config_path: Option<PathBuf>,
     pub auto_analyze: bool,
     pub scope_to_diff: bool,
+    pub explain: bool,
 }
 
 pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
@@ -38,6 +39,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         config_path,
         auto_analyze,
         scope_to_diff,
+        explain,
     } = args;
 
     let repo_root = find_repo_root(&std::env::current_dir()?)?;
@@ -208,7 +210,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     }
 
     // Render output
-    let has_blocking_failures = emit_diff_output(&delta_val, format, policy, output)?;
+    let has_blocking_failures = emit_diff_output(&delta_val, format, policy, output, explain)?;
     if has_blocking_failures {
         std::process::exit(1);
     }
@@ -267,6 +269,7 @@ fn emit_diff_output(
     format: OutputFormat,
     with_policy: bool,
     output: Option<PathBuf>,
+    explain: bool,
 ) -> anyhow::Result<bool> {
     let has_blocking_failures = delta_val
         .policy
@@ -276,7 +279,7 @@ fn emit_diff_output(
 
     match format {
         OutputFormat::Text => {
-            let text = render_diff_text(delta_val, with_policy)?;
+            let text = render_diff_text(delta_val, with_policy, explain)?;
             write_or_print(output, &text)?;
         }
         OutputFormat::Json => {
@@ -317,7 +320,7 @@ fn write_or_print(output: Option<PathBuf>, content: &str) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<String> {
+fn render_diff_text(delta_val: &Delta, with_policy: bool, explain: bool) -> anyhow::Result<String> {
     use hotspots_core::delta::FunctionStatus;
     use std::fmt::Write;
 
@@ -366,8 +369,8 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
 
     writeln!(
         out,
-        "{:<12} {:<40} {:<30} {:<14}  {:<14}  BAND",
-        "STATUS", "FUNCTION", "FILE", "LRS", "CC"
+        "{:<12} {:<14}  {:<14}  {:<10} FILE:LINE FUNCTION",
+        "STATUS", "LRS", "CC", "BAND"
     )?;
     writeln!(out, "{}", "-".repeat(100))?;
 
@@ -423,22 +426,45 @@ fn render_diff_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<Stri
             .split_once("::")
             .unwrap_or(("", &entry.function_id));
 
-        let file_col = if top_decile_files.contains(file_display) {
-            format!("{file_display} [top 10%]")
-        } else {
-            file_display.to_string()
+        // <anonymous> is identical for every closure in a file; disambiguate
+        // with the line number instead of leaving indistinguishable rows.
+        let line = entry
+            .after
+            .as_ref()
+            .or(entry.before.as_ref())
+            .map(|s| s.line);
+        let fn_display = match line {
+            Some(line) if fn_display == "<anonymous>" => format!("<anonymous>@{line}"),
+            _ => fn_display.to_string(),
         };
 
+        let file_col = match line {
+            Some(line) => format!("{file_display}:{line}"),
+            None => file_display.to_string(),
+        };
+        let file_col = if top_decile_files.contains(file_display) {
+            format!("{file_col} [top 10%]")
+        } else {
+            file_col
+        };
+
+        // Full file:line and function name — never truncated, so a single row
+        // always has enough information to jump straight to the code.
         writeln!(
             out,
-            "{:<12} {:<40} {:<30} {:<14}  {:<14}  {}",
-            status_label,
-            crate::util::truncate_string(fn_display, 40),
-            crate::util::truncate_string(&file_col, 30),
-            lrs_str,
-            cc_str,
-            band_str,
+            "{:<12} {:<14}  {:<14}  {:<10} {} {}",
+            status_label, lrs_str, cc_str, band_str, file_col, fn_display,
         )?;
+
+        if explain {
+            if let Some(d) = &entry.delta {
+                writeln!(
+                    out,
+                    "             \u{2726} {}",
+                    hotspots_core::delta::explain_delta(d)
+                )?;
+            }
+        }
     }
 
     if with_policy {
@@ -476,6 +502,7 @@ mod tests {
             },
             lrs: 5.4,
             band: RiskBand::Moderate,
+            line: 1,
         }
     }
 
@@ -520,7 +547,7 @@ mod tests {
             aggregates: None,
         };
 
-        let text = render_diff_text(&delta_val, false).expect("render");
+        let text = render_diff_text(&delta_val, false, false).expect("render");
         assert!(
             text.starts_with("0 modified, 0 new, 0 deleted"),
             "pure rename should net to zero, got: {text}"

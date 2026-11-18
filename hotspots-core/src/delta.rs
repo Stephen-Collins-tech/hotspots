@@ -34,6 +34,10 @@ pub struct FunctionState {
     pub metrics: MetricsReport,
     pub lrs: f64,
     pub band: RiskBand,
+    /// Source line number, copied from the originating `FunctionSnapshot`.
+    /// Lets diff output disambiguate same-named (e.g. `<anonymous>`)
+    /// functions in one file and show `file:line` instead of a truncated path.
+    pub line: u32,
 }
 
 /// Numeric delta for a function
@@ -53,6 +57,85 @@ pub struct FunctionDelta {
 pub struct BandTransition {
     pub from: String,
     pub to: String,
+}
+
+/// Human-readable explanation of which raw metric moved the most for a
+/// delta — diff mode's natural question is "what changed," answerable
+/// directly from delta magnitudes. Unlike snapshot mode's `--explain`,
+/// this needs no repo-wide percentile computation.
+pub fn explain_delta(delta: &FunctionDelta) -> String {
+    let candidates: [(&str, i64); 4] = [
+        ("cyclomatic complexity", delta.cc),
+        ("nesting depth", delta.nd),
+        ("fan-out (calls made)", delta.fo),
+        ("statement count", delta.ns),
+    ];
+    let mut sorted = candidates;
+    sorted.sort_by_key(|(_, v)| -v.abs());
+
+    let (top_name, top_val) = sorted[0];
+    if top_val == 0 {
+        return "no individual metric moved; change driven by combined small shifts".to_string();
+    }
+
+    let fmt = |name: &str, val: i64| format!("{val:+} {name}");
+    let mut parts = vec![fmt(top_name, top_val)];
+    let (second_name, second_val) = sorted[1];
+    if second_val != 0 && second_val.unsigned_abs() >= top_val.unsigned_abs() / 2 {
+        parts.push(fmt(second_name, second_val));
+    }
+    format!("driven mainly by {}", parts.join(" and "))
+}
+
+#[cfg(test)]
+mod explain_delta_tests {
+    use super::*;
+
+    fn delta(cc: i64, nd: i64, fo: i64, ns: i64) -> FunctionDelta {
+        FunctionDelta {
+            cc,
+            nd,
+            fo,
+            ns,
+            lrs: 0.0,
+        }
+    }
+
+    #[test]
+    fn single_dominant_factor() {
+        let text = explain_delta(&delta(5, 0, 0, 1));
+        assert_eq!(text, "driven mainly by +5 cyclomatic complexity");
+    }
+
+    #[test]
+    fn two_comparable_factors_both_named() {
+        let text = explain_delta(&delta(4, 3, 0, 0));
+        assert_eq!(
+            text,
+            "driven mainly by +4 cyclomatic complexity and +3 nesting depth"
+        );
+    }
+
+    #[test]
+    fn minor_second_factor_is_not_named() {
+        let text = explain_delta(&delta(10, 1, 0, 0));
+        assert_eq!(text, "driven mainly by +10 cyclomatic complexity");
+    }
+
+    #[test]
+    fn all_zero_has_no_dominant_factor() {
+        let text = explain_delta(&delta(0, 0, 0, 0));
+        assert_eq!(
+            text,
+            "no individual metric moved; change driven by combined small shifts"
+        );
+    }
+
+    #[test]
+    fn negative_delta_shows_sign() {
+        let text = explain_delta(&delta(-6, 0, 0, 0));
+        assert_eq!(text, "driven mainly by -6 cyclomatic complexity");
+    }
 }
 
 /// Single function delta entry
@@ -247,6 +330,7 @@ fn build_baseline_delta(current: &Snapshot, parent_sha: String) -> Delta {
                 metrics: func.metrics.clone(),
                 lrs: func.lrs,
                 band: func.band,
+                line: func.line,
             }),
             delta: None,
             band_transition: None,
@@ -305,11 +389,13 @@ fn compute_function_deltas(
                         metrics: parent.metrics.clone(),
                         lrs: parent.lrs,
                         band: parent.band,
+                        line: parent.line,
                     }),
                     after: Some(FunctionState {
                         metrics: current.metrics.clone(),
                         lrs: current.lrs,
                         band: current.band,
+                        line: current.line,
                     }),
                     delta,
                     band_transition,
@@ -325,6 +411,7 @@ fn compute_function_deltas(
                         metrics: parent.metrics.clone(),
                         lrs: parent.lrs,
                         band: parent.band,
+                        line: parent.line,
                     }),
                     after: None,
                     delta: Some(compute_delete_delta(parent)),
@@ -342,6 +429,7 @@ fn compute_function_deltas(
                         metrics: current.metrics.clone(),
                         lrs: current.lrs,
                         band: current.band,
+                        line: current.line,
                     }),
                     delta: None,
                     band_transition: None,
@@ -1090,6 +1178,7 @@ mod tests {
             },
             lrs,
             band,
+            line: 1,
         }
     }
 
