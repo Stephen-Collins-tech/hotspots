@@ -37,6 +37,25 @@
 - Include test updates and documentation updates (concise, user-facing) in the same change as
   the feature.
 
+## Dogfood hotspots on this repo
+
+Before calling a change done, build and run `hotspots` against your own diff — this is the best
+available signal for whether a change made the codebase riskier, and it's the same check CI runs:
+
+- Build the release binary once per session: `cargo build --release -p hotspots-cli`.
+- Run `./target/release/hotspots diff --auto-analyze --scope-to-diff --explain --policy` from the
+  repo root. With no positional args it auto-detects the merge-base against `main`.
+  `--scope-to-diff` keeps it fast on small changes; `--explain` shows which metric (complexity,
+  nesting, fan-out, size) drove any score change.
+- A `Blocking` policy violation (exit 1) means a function crossed the excessive-risk-regression
+  threshold — look at the flagged function before concluding the change is done. Extracting a
+  smaller function, or adding a `// hotspots-ignore: <reason>` suppression comment immediately
+  above the function (above any attached doc comment, as a single line) if the complexity is
+  deliberate, are both legitimate ways to resolve it.
+- Exit code 4 means `--policy` was requested but couldn't be evaluated (no snapshot for the parent
+  commit) — this is informational, not a failure; it means policy enforcement was skipped, not that
+  it passed.
+
 ## Public repo: no private references
 
 This repo is public and must stand alone. Nothing in it — code, comments, docs, help or runtime
