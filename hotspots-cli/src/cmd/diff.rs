@@ -201,8 +201,8 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
 /// remaining `New`/`Modified` entries to the top `n` by risk magnitude.
 ///
 /// Deleted entries are excluded from `--top N` rather than ranked alongside New
-/// (by absolute LRS) because research (F293) found that ranking Deleted on the
-/// same absolute-LRS scale as New dilutes recall of real regressions in the
+/// (by absolute LRS) because in our evaluation, ranking Deleted on the same
+/// absolute-LRS scale as New diluted recall of real regressions in the
 /// truncated view.
 fn filter_and_truncate_to_top_n(delta_val: &mut Delta, top: Option<usize>) {
     use hotspots_core::delta::FunctionStatus;
@@ -604,8 +604,8 @@ mod tests {
 
     #[test]
     fn test_top_n_excludes_deleted_in_favor_of_modified_regression() {
-        // F293: a Deleted entry with a high absolute pre-deletion LRS used to
-        // rank alongside New/Modified by that same absolute scale, potentially
+        // A Deleted entry with a high absolute pre-deletion LRS used to rank
+        // alongside New/Modified by that same absolute scale, potentially
         // crowding out a real (lower-magnitude) Modified regression out of a
         // small --top N. Deleted should never win a slot now.
         let mut high_lrs_deleted = state();
