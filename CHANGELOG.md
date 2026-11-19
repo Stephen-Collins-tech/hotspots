@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Bug Fixes
+- `diff --top N` no longer counts deleted functions toward the N slots or ranks them alongside
+  new/modified entries by absolute pre-deletion LRS; deleted entries are excluded from the
+  top-N cutoff entirely. Research found including them diluted recall of real regressions in
+  the truncated view.
+
 ## [3.8.2] - 2026-11-18
 
 ### Bug Fixes

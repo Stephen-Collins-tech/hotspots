@@ -58,7 +58,7 @@ explicitly if auto-detection picks the wrong branch or fails.
 | `--format` | `text` (default), `json`, `html` |
 | `--output PATH` | Write output to file |
 | `--policy` | Evaluate policies; exit 1 on blocking violations |
-| `--top N` | Limit to N changed functions by \|ΔLRS\| |
+| `--top N` | Limit to N `new`/`modified` functions by LRS (new) / \|ΔLRS\| (modified); `deleted` functions never count toward N (see below) |
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
 | `--scope-to-diff` | With `--auto-analyze`, only analyze files the diff touches (see below) |
@@ -67,6 +67,9 @@ explicitly if auto-detection picks the wrong branch or fails.
 Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
+`deleted`-status functions are excluded from the `--top N` cutoff entirely rather than ranked
+alongside `new` by absolute LRS — research found that including them diluted recall of real
+regressions in the truncated view.
 
 #### `--scope-to-diff`
 
