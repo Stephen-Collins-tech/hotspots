@@ -52,9 +52,9 @@ available signal for whether a change made the codebase riskier, and it's the sa
   smaller function, or adding a `// hotspots-ignore: <reason>` suppression comment immediately
   above the function (above any attached doc comment, as a single line) if the complexity is
   deliberate, are both legitimate ways to resolve it.
-- Exit code 4 means `--policy` was requested but couldn't be evaluated (no snapshot for the parent
-  commit) — this is informational, not a failure; it means policy enforcement was skipped, not that
-  it passed.
+- Exit code 2 means auto-analysis failed; exit code 3 means a required snapshot is missing
+  (shouldn't happen with `--auto-analyze`, which generates missing snapshots itself) — neither
+  means policy passed, they mean it never ran.
 
 ## Public repo: no private references
 
