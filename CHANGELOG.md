@@ -8,10 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Bug Fixes
-- `diff`/`analyze --mode delta` JSON output's `commit.parent` field now reports the actual base
-  snapshot the delta was computed against, not the head commit's own immediate git-parent. These
-  could differ whenever the comparison spans more than one commit (e.g. a merge-base several
-  commits back) — the field previously misrepresented a multi-commit range as a 1-commit diff.
+- Delta commit metadata reports the actual base, not head's immediate parent (#369) (#374)
 
 ## [3.8.3] - 2026-11-20
 
