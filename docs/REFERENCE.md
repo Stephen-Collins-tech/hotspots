@@ -13,7 +13,7 @@ hotspots analyze <PATH> [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | `text`, `json`, `html`, `sarif` |
-| `--mode` | — | `snapshot`, `delta` |
+| `--mode` | — | `snapshot`, `delta` (deprecated — see below, use [`diff`](#hotspots-diff-base-head)) |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
@@ -38,6 +38,10 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
+- `--mode delta` is deprecated (prints a warning to stderr); use `hotspots diff` for comparing two
+  states — it has auto base-ref detection, `--scope-to-diff`, and `--explain`, none of which
+  `--mode delta` has or will gain
+
 ### `hotspots diff [base] [head]`
 
 Compare snapshots between any two git refs. Both must have existing snapshots (or pass

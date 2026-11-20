@@ -44,6 +44,12 @@ File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
 
 ## Delta Mode
 
+**Deprecated — use [`hotspots diff`](#hotspots-diff) instead.** `--mode delta` predates `diff`
+and has not gained any of its improvements (auto base-ref detection, `--scope-to-diff`,
+`--explain`) and will not. It still works today and will keep working for a deprecation window,
+but new work should use `diff`. `--mode delta`'s `--top` flag does nothing — this is a known
+bug, not fixed here since the whole mode is being phased out; `diff --top N` works correctly.
+
 Delta mode compares the current state against the parent commit snapshot.
 
 ```bash

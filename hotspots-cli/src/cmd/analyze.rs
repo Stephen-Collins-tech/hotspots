@@ -531,6 +531,12 @@ pub(crate) fn handle_mode_output(
     match mode {
         OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts),
         OutputMode::Delta => {
+            eprintln!(
+                "warning: `analyze --mode delta` is deprecated and will be removed in a \
+                 future major version. Use `hotspots diff` instead -- it has auto base-ref \
+                 detection, `--scope-to-diff`, and `--explain`, none of which `--mode delta` \
+                 has or will gain. See docs/REFERENCE.md for the migration."
+            );
             handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
         }
     }
