@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+- Remove analyze --mode delta and analyze --policy (#375)
+
+
 ### Documentation
 - Dogfood hotspots on its own diffs before calling a change done (#367)
 
