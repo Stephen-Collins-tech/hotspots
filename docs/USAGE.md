@@ -108,6 +108,10 @@ hotspots diff main HEAD
 ```
 
 `--top N` applies *after* policy evaluation, so violations outside the top N are still detected.
+It ranks and limits only `new`/`modified` entries; `deleted` functions are excluded from the
+top-N cutoff entirely rather than ranked by their pre-deletion complexity — a deleted function's
+complexity isn't signal for "what should I review," and research found including it diluted
+recall of real regressions in the truncated view.
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing,
 4 = `--policy` requested but could not be evaluated (`hotspots analyze --mode delta --policy` only;

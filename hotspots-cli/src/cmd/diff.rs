@@ -176,29 +176,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
         current_file_risk,
     ));
 
-    // Filter out Unchanged, then optionally keep top N by risk magnitude
-    {
-        use hotspots_core::delta::FunctionStatus;
-        delta_val
-            .deltas
-            .retain(|e| e.status != FunctionStatus::Unchanged);
-    }
-    if let Some(n) = top {
-        use hotspots_core::delta::FunctionStatus;
-        delta_val.deltas.sort_by(|a, b| {
-            // New: rank by after.lrs; Deleted: rank by before.lrs; Modified: rank by |Δlrs|
-            let score = |e: &hotspots_core::delta::FunctionDeltaEntry| match e.status {
-                FunctionStatus::New => e.after.as_ref().map(|s| s.lrs).unwrap_or(0.0),
-                FunctionStatus::Deleted => e.before.as_ref().map(|s| s.lrs).unwrap_or(0.0),
-                FunctionStatus::Modified => e.delta.as_ref().map(|d| d.lrs.abs()).unwrap_or(0.0),
-                FunctionStatus::Unchanged => 0.0,
-            };
-            score(b)
-                .partial_cmp(&score(a))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        delta_val.deltas.truncate(n);
-    }
+    filter_and_truncate_to_top_n(&mut delta_val, top);
 
     // Evaluate policy if requested
     if policy {
@@ -216,6 +194,38 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Filters out `Unchanged` entries, then — if `top` is set — excludes `Deleted`
+/// entries entirely (they never rank, never count toward `n`) and truncates the
+/// remaining `New`/`Modified` entries to the top `n` by risk magnitude.
+///
+/// Deleted entries are excluded from `--top N` rather than ranked alongside New
+/// (by absolute LRS) because in our evaluation, ranking Deleted on the same
+/// absolute-LRS scale as New diluted recall of real regressions in the
+/// truncated view.
+fn filter_and_truncate_to_top_n(delta_val: &mut Delta, top: Option<usize>) {
+    use hotspots_core::delta::FunctionStatus;
+    delta_val
+        .deltas
+        .retain(|e| e.status != FunctionStatus::Unchanged);
+    if let Some(n) = top {
+        delta_val
+            .deltas
+            .retain(|e| e.status != FunctionStatus::Deleted);
+        delta_val.deltas.sort_by(|a, b| {
+            // New: rank by after.lrs; Modified: rank by |Δlrs|
+            let score = |e: &hotspots_core::delta::FunctionDeltaEntry| match e.status {
+                FunctionStatus::New => e.after.as_ref().map(|s| s.lrs).unwrap_or(0.0),
+                FunctionStatus::Modified => e.delta.as_ref().map(|d| d.lrs.abs()).unwrap_or(0.0),
+                FunctionStatus::Deleted | FunctionStatus::Unchanged => 0.0,
+            };
+            score(b)
+                .partial_cmp(&score(a))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        delta_val.deltas.truncate(n);
+    }
 }
 
 /// Try to load a snapshot. When `auto_analyze` is true and the snapshot is
@@ -589,6 +599,64 @@ mod tests {
         assert!(
             text.starts_with("0 modified, 0 new, 0 deleted"),
             "pure rename should net to zero, got: {text}"
+        );
+    }
+
+    #[test]
+    fn test_top_n_excludes_deleted_in_favor_of_modified_regression() {
+        // A Deleted entry with a high absolute pre-deletion LRS used to rank
+        // alongside New/Modified by that same absolute scale, potentially
+        // crowding out a real (lower-magnitude) Modified regression out of a
+        // small --top N. Deleted should never win a slot now.
+        let mut high_lrs_deleted = state();
+        high_lrs_deleted.lrs = 50.0;
+        let deleted = FunctionDeltaEntry {
+            function_id: "old/path.go::BigDeletedFn".to_string(),
+            status: FunctionStatus::Deleted,
+            before: Some(high_lrs_deleted),
+            after: None,
+            delta: None,
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: None,
+        };
+
+        let small_delta = hotspots_core::delta::FunctionDelta {
+            cc: 1,
+            nd: 0,
+            fo: 0,
+            ns: 1,
+            lrs: 0.5,
+        };
+        let modified = FunctionDeltaEntry {
+            function_id: "src/real.go::RealRegression".to_string(),
+            status: FunctionStatus::Modified,
+            before: Some(state()),
+            after: Some(state()),
+            delta: Some(small_delta),
+            band_transition: None,
+            suppression_reason: None,
+            rename_hint: None,
+        };
+
+        let mut delta_val = Delta {
+            commit: DeltaCommitInfo {
+                sha: "head".to_string(),
+                parent: "base".to_string(),
+            },
+            baseline: false,
+            deltas: vec![deleted, modified],
+            policy: None,
+            aggregates: None,
+        };
+
+        filter_and_truncate_to_top_n(&mut delta_val, Some(1));
+
+        assert_eq!(delta_val.deltas.len(), 1);
+        assert_eq!(delta_val.deltas[0].status, FunctionStatus::Modified);
+        assert_eq!(
+            delta_val.deltas[0].function_id,
+            "src/real.go::RealRegression"
         );
     }
 }
