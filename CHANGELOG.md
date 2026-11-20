@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 - Exclude deleted functions from diff's --top N ranking (#372)
 
+### Deprecated
+- `analyze --mode delta` is deprecated in favor of `hotspots diff`, which has auto base-ref
+  detection, `--scope-to-diff`, and `--explain` — none of which `--mode delta` has or will gain.
+  It still works and prints a deprecation warning to stderr; it will be removed in a future
+  major version.
+
 ## [3.8.2] - 2026-11-18
 
 ### Bug Fixes
