@@ -13,7 +13,7 @@ hotspots analyze <PATH> [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | `text`, `json`, `html`, `sarif` |
-| `--mode` | — | `snapshot`, `delta` |
+| `--mode` | — | `snapshot`, `delta` (deprecated — see below, use [`diff`](#hotspots-diff-base-head)) |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
@@ -38,6 +38,10 @@ hotspots analyze <PATH> [OPTIONS]
 - SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
 - `--policy` requires `--mode delta`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
+- `--mode delta` is deprecated (prints a warning to stderr); use `hotspots diff` for comparing two
+  states — it has auto base-ref detection, `--scope-to-diff`, and `--explain`, none of which
+  `--mode delta` has or will gain
+
 ### `hotspots diff [base] [head]`
 
 Compare snapshots between any two git refs. Both must have existing snapshots (or pass
@@ -58,7 +62,7 @@ explicitly if auto-detection picks the wrong branch or fails.
 | `--format` | `text` (default), `json`, `html` |
 | `--output PATH` | Write output to file |
 | `--policy` | Evaluate policies; exit 1 on blocking violations |
-| `--top N` | Limit to N changed functions by \|ΔLRS\| |
+| `--top N` | Limit to N `new`/`modified` functions by LRS (new) / \|ΔLRS\| (modified); `deleted` functions never count toward N (see below) |
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
 | `--scope-to-diff` | With `--auto-analyze`, only analyze files the diff touches (see below) |
@@ -67,6 +71,9 @@ explicitly if auto-detection picks the wrong branch or fails.
 Exit codes: 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
 `--top` applies after policy evaluation — violations outside the top N are still detected.
+`deleted`-status functions are excluded from the `--top N` cutoff entirely rather than ranked
+alongside `new` by absolute LRS — research found that including them diluted recall of real
+regressions in the truncated view.
 
 #### `--scope-to-diff`
 

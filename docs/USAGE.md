@@ -44,6 +44,12 @@ File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
 
 ## Delta Mode
 
+**Deprecated — use [`hotspots diff`](#hotspots-diff) instead.** `--mode delta` predates `diff`
+and has not gained any of its improvements (auto base-ref detection, `--scope-to-diff`,
+`--explain`) and will not. It still works today and will keep working for a deprecation window,
+but new work should use `diff`. `--mode delta`'s `--top` flag does nothing — this is a known
+bug, not fixed here since the whole mode is being phased out; `diff --top N` works correctly.
+
 Delta mode compares the current state against the parent commit snapshot.
 
 ```bash
@@ -108,6 +114,10 @@ hotspots diff main HEAD
 ```
 
 `--top N` applies *after* policy evaluation, so violations outside the top N are still detected.
+It ranks and limits only `new`/`modified` entries; `deleted` functions are excluded from the
+top-N cutoff entirely rather than ranked by their pre-deletion complexity — a deleted function's
+complexity isn't signal for "what should I review," and research found including it diluted
+recall of real regressions in the truncated view.
 
 **Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing,
 4 = `--policy` requested but could not be evaluated (`hotspots analyze --mode delta --policy` only;
