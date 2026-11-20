@@ -210,12 +210,16 @@ impl Delta {
     /// and `baseline` is set to `true`.
     pub fn new(current: &Snapshot, parent: Option<&Snapshot>) -> Result<Self> {
         validate_snapshot_versions(current, parent)?;
-        // Get parent SHA (use parents[0] only for delta computation)
-        let parent_sha = current.commit.parents.first().cloned().unwrap_or_default();
-        if parent.is_none() {
+        let Some(parent_snap) = parent else {
+            // No parent snapshot at all: the only SHA available to report is
+            // current's own immediate git-parent (there's no real comparison).
+            let parent_sha = current.commit.parents.first().cloned().unwrap_or_default();
             return Ok(build_baseline_delta(current, parent_sha));
-        }
-        let parent_snap = parent.unwrap();
+        };
+        // The actual base of this comparison is `parent_snap`'s own commit, which may be
+        // many commits back from `current`'s immediate git-parent (e.g. a merge-base from
+        // days ago, not just HEAD~1) — report that SHA, not current's immediate parent.
+        let parent_sha = parent_snap.commit.sha.clone();
         let parent_funcs: HashMap<&str, &FunctionSnapshot> = parent_snap
             .functions
             .iter()
@@ -925,6 +929,23 @@ mod tests {
         assert!(delta.baseline);
         assert_eq!(delta.deltas.len(), 1);
         assert_eq!(delta.deltas[0].status, FunctionStatus::New);
+    }
+
+    #[test]
+    fn test_delta_commit_metadata_reports_actual_base_not_head_immediate_parent() {
+        // `current`'s own immediate git-parent ("head_immediate_parent") is NOT the
+        // snapshot actually being compared against -- `parent_snap` ("real_base_3_commits_back")
+        // is. The reported `commit.parent` must be the latter, matching what the delta was
+        // actually computed against, not a value read off current's own git metadata.
+        let current = create_test_snapshot("head_sha", "head_immediate_parent", 5, 4.8, "moderate");
+        let parent_snap =
+            create_test_snapshot("real_base_3_commits_back", "unused", 5, 4.8, "moderate");
+
+        let delta = Delta::new(&current, Some(&parent_snap)).expect("should compute delta");
+
+        assert!(!delta.baseline);
+        assert_eq!(delta.commit.sha, "head_sha");
+        assert_eq!(delta.commit.parent, "real_base_3_commits_back");
     }
 
     #[test]
