@@ -42,12 +42,14 @@ reviewing a repo, in CI on every pull request, or to produce a report to share.
 |---|---|---|
 | *(none)* | Scores the code and prints a ranked list. No git history involved | A quick look at a folder or a single file |
 | `snapshot` | Full analysis tied to the current commit. Adds churn, touch counts and recency, writes the result to `.hotspots/`, and reports an activity score and tier per function | Building the baseline, HTML reports, and the triage view |
-| `delta` | Compares the current code to the parent commit's snapshot and lists what changed. Add `--policy` to fail (exit 1) on blocking violations | Pull-request checks |
+
+Pull-request checks (comparing the current code to a prior commit, optionally gating with
+`--policy`) are `diff`'s job, not a mode of `analyze` — see below.
 
 ```bash
 hotspots analyze src/                              # quick ranked list
 hotspots analyze . --mode snapshot --format html   # interactive report
-hotspots analyze . --mode delta --policy           # gate a PR
+hotspots diff --auto-analyze --policy              # gate a PR
 ```
 
 **Options worth knowing.**
@@ -73,9 +75,9 @@ Formats are `text`, `json`, `html` and `sarif`. The evidence behind the score, a
 limits, is written up in [the activity risk formula](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md) and
 [why the quadrant became an activity tier](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/quadrant-replaced-by-activity-tier.md).
 
-**How it relates to the others.** `diff` and `analyze --mode delta` both compare snapshots;
-`train` makes `analyze` rank with your repo's own history; `prune` cleans up the snapshots
-`analyze` writes; `config` checks the file `analyze` reads.
+**How it relates to the others.** `diff` compares the snapshots `analyze` writes; `train` makes
+`analyze` rank with your repo's own history; `prune` cleans up the snapshots `analyze` writes;
+`config` checks the file `analyze` reads.
 
 ---
 
@@ -116,8 +118,9 @@ one scoreable file gets no flag — there's no relative ranking in a population 
 evaluation this diff-local top decile was a real, cutoff-robust risk signal, even though the
 raw `file_risk_score` value does not calibrate as an absolute probability.
 
-**How it relates to the others.** `analyze --mode delta` is the same comparison against the
-parent commit, used by the GitHub Action; `diff` lets you pick the refs.
+**How it relates to the others.** `diff --auto-analyze` with no explicit base is the same
+comparison against the parent commit, used by the GitHub Action; passing explicit refs lets
+you pick any two.
 
 ---
 
@@ -199,9 +202,8 @@ hotspots prune --compact 1 --dry-run         # store snapshots as deltas
 `--dry-run` prints the same numbers without changing anything. Compaction level 2 keeps only
 band changes, so it loses per-commit detail.
 
-**How it relates to the others.** It cleans up what `analyze --mode snapshot` writes, and
-`diff` and `analyze --mode delta` read; pruning a ref's snapshot just means it is re-analyzed
-next time.
+**How it relates to the others.** It cleans up what `analyze --mode snapshot` writes and `diff`
+reads; pruning a ref's snapshot just means it is re-analyzed next time.
 
 ---
 

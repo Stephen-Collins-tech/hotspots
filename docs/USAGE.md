@@ -13,7 +13,7 @@ hotspots analyze src/ --format json | jq '.[] | select(.band=="critical")'
 ## Snapshot Mode
 
 Snapshot mode captures a full analysis tied to the current git commit. It enables:
-- Delta comparisons (`--mode delta`)
+- Diff comparisons (`hotspots diff`)
 - HTML trend charts
 - Trained ranker scoring
 
@@ -41,24 +41,6 @@ hotspots analyze . --mode snapshot --format text --level file
 ```
 
 File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
-
-## Delta Mode
-
-**Deprecated — use [`hotspots diff`](#hotspots-diff) instead.** `--mode delta` predates `diff`
-and has not gained any of its improvements (auto base-ref detection, `--scope-to-diff`,
-`--explain`) and will not. It still works today and will keep working for a deprecation window,
-but new work should use `diff`. `--mode delta`'s `--top` flag does nothing — this is a known
-bug, not fixed here since the whole mode is being phased out; `diff --top N` works correctly.
-
-Delta mode compares the current state against the parent commit snapshot.
-
-```bash
-hotspots analyze . --mode delta --format text
-hotspots analyze . --mode delta --policy        # exit 1 on blocking violations
-hotspots analyze . --mode delta --format json   # machine-readable output
-```
-
-In PR context (GitHub Actions, GitLab CI, CircleCI, Travis), delta mode automatically compares against the merge-base rather than the direct parent. Detection is via environment variables (`GITHUB_EVENT_NAME=pull_request`, `CI_MERGE_REQUEST_IID`, etc.).
 
 ## Cold-Start Ranking
 
@@ -119,9 +101,7 @@ top-N cutoff entirely rather than ranked by their pre-deletion complexity — a 
 complexity isn't signal for "what should I review," and research found including it diluted
 recall of real regressions in the truncated view.
 
-**Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing,
-4 = `--policy` requested but could not be evaluated (`hotspots analyze --mode delta --policy` only;
-a parent commit exists but its snapshot is missing, so there's nothing to compare against).
+**Exit codes:** 0 = success, 1 = policy failure, 2 = auto-analysis failed, 3 = snapshot missing.
 
 ### What the PR summary shows
 
@@ -195,7 +175,7 @@ has. Use `knowledge_mode` and your own judgment instead.
 
 ## Policy Engine
 
-The policy engine runs in delta mode (`--mode delta --policy` or `hotspots diff ... --policy`).
+The policy engine runs via `hotspots diff ... --policy`.
 
 **Blocking by default (exit code 1) — severity configurable, see below:**
 - `critical-introduction` — new or existing function crosses LRS ≥ 9.0
@@ -323,7 +303,7 @@ jobs:
 
 ```bash
 # Fail CI on blocking violations
-hotspots analyze src/ --mode delta --policy
+hotspots diff --auto-analyze --policy
 ```
 
 For GitLab CI:
@@ -334,7 +314,7 @@ hotspots:
   before_script:
     - cargo install hotspots-cli
   script:
-    - hotspots analyze src/ --mode delta --policy
+    - hotspots diff --auto-analyze --policy
   artifacts:
     paths: [.hotspots/report.html]
     expire_in: 1 week
@@ -562,8 +542,8 @@ hotspots analyze . --mode snapshot --format json
 # Flat array for tooling that expects a complete function list
 hotspots analyze . --mode snapshot --format json --all-functions
 
-# Delta for PR review context
-hotspots analyze . --mode delta --format json
+# Diff for PR review context
+hotspots diff --auto-analyze --format json
 
 # Pipe critical functions to Claude/Cursor/Copilot
 hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
@@ -571,8 +551,8 @@ hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
 
 ## Hooks and CI templates
 
-Policy checks run in delta mode, which compares against the last persisted snapshot. Seed a
-baseline first, otherwise policy evaluation is silently skipped:
+Policy checks run via `diff --auto-analyze --policy`, which compares against the auto-detected
+merge-base. Seed a baseline first, otherwise `--auto-analyze` has to build it on the fly:
 
 ```bash
 hotspots analyze . --mode snapshot
@@ -587,7 +567,7 @@ repos:
       - id: hotspots
         name: hotspots risk check
         language: system
-        entry: hotspots analyze . --mode delta --policy --format text
+        entry: hotspots diff --auto-analyze --policy --format text
         pass_filenames: false
         stages: [pre-push]
 ```
@@ -597,7 +577,7 @@ repos:
 ```sh
 #!/usr/bin/env sh
 set -e
-hotspots analyze . --mode delta --policy --format text
+hotspots diff --auto-analyze --policy --format text
 ```
 
 **GitHub Actions** (`.github/workflows/hotspots.yml`). A push to the main branch builds and
@@ -636,7 +616,7 @@ jobs:
 
       # On push-to-main we save the snapshot under hotspots-{sha}.
       # On a PR we restore the snapshot for the base-branch commit so that
-      # delta mode has a baseline to diff against.
+      # `diff` has a baseline to compare against.
       - name: Restore snapshot cache
         uses: actions/cache@v4
         with:
@@ -646,10 +626,10 @@ jobs:
             hotspots-${{ github.event.pull_request.base.sha }}
             hotspots-
 
-      - name: Analyze (snapshot on main, delta on PR)
+      - name: Analyze (snapshot on main, diff on PR)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            hotspots analyze . --mode delta --policy
+            hotspots diff --auto-analyze --policy
           else
             # --mode snapshot requires --format json (or --explain) when not
             # printing text; the snapshot is persisted to .hotspots/ either way.
@@ -661,7 +641,8 @@ jobs:
 
 **`"snapshot already exists and differs"`** — regenerate with `--force`.
 
-**`"no parent snapshot found"` in delta mode** — run `hotspots analyze . --mode snapshot` on the parent commit first.
+**`"no snapshot found for ref ..."` from `diff`** — run `hotspots analyze . --mode snapshot` on
+that ref first, or pass `--auto-analyze` to generate it on the fly.
 
 **`"failed to extract git context"`** — must be run inside a git repository.
 

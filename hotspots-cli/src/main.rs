@@ -39,13 +39,9 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: OutputFormat,
 
-        /// Output mode (snapshot or delta)
+        /// Output mode (snapshot)
         #[arg(long)]
         mode: Option<OutputMode>,
-
-        /// Evaluate policies (only valid with --mode delta)
-        #[arg(long)]
-        policy: bool,
 
         /// Show only top N results (overrides config file)
         #[arg(long)]
@@ -71,7 +67,7 @@ enum Commands {
         #[arg(short = 'f', long)]
         force: bool,
 
-        /// Skip writing snapshot to disk (only valid with --mode snapshot or --mode delta)
+        /// Skip writing snapshot to disk (only valid with --mode snapshot)
         #[arg(long)]
         no_persist: bool,
 
@@ -284,7 +280,6 @@ pub(crate) enum OutputFormat {
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 pub(crate) enum OutputMode {
     Snapshot,
-    Delta,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -304,7 +299,6 @@ fn main() -> anyhow::Result<()> {
             path,
             format,
             mode,
-            policy,
             top,
             min_lrs,
             config: config_path,
@@ -325,7 +319,6 @@ fn main() -> anyhow::Result<()> {
             path,
             format,
             mode,
-            policy,
             top,
             min_lrs,
             config_path,
