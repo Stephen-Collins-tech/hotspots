@@ -24,11 +24,13 @@ used to be `--mode snapshot` (the only mode that survived #375's removal of `--m
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
 | `--html-output PATH` | — | Also write the HTML report from the same analysis (with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
+| `--source-url URL` | — | URL of the written analysis post to link from the HTML report (HTML format only) |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (text format only) |
 | `--level` | — | `file` aggregate view (ranked file risk table) (text format only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk (persisted by default) |
 | `--all-functions` | off | Output flat array instead of triage buckets (JSON format only) |
+| `--axes` | off | Print three independent ranked sections — Risk, Coupling, Ownership — instead of a single merged list. Files may appear in more than one section; overlap is not deduplicated. `--top` controls section size |
 | `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
 
 **Ownership risk** (was `hotspots coordinate`; see below):
@@ -175,6 +177,7 @@ Training always ends with a Precision@K report (there is no `--eval` flag to gat
 |---|---|---|
 | `--blame` | off | Blame-based function-level labels (slower, more precise) |
 | `--label-window DAYS` | `365` | Days of history to scan |
+| `--label-before DATE` | — | Upper bound for the label window (ISO date, e.g. `2025-01-01`). Only fix commits before this date are used as training labels — useful for matching a specific benchmark label window exactly |
 | `--output PATH` | `.hotspots/ranker.json` | Model output path |
 | `--yes` / `-y` | off | Skip confirmation prompt (CI / non-interactive) |
 
