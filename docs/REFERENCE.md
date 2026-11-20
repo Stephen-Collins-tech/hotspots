@@ -13,7 +13,7 @@ hotspots analyze <PATH> [OPTIONS]
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | `text`, `json`, `html`, `sarif` |
-| `--mode` | — | `snapshot`, `delta` (deprecated — see below, use [`diff`](#hotspots-diff-base-head)) |
+| `--mode` | — | `snapshot` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
@@ -21,7 +21,6 @@ hotspots analyze <PATH> [OPTIONS]
 | `--html-output PATH` | — | Also write the HTML report from the same analysis (snapshot mode, with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
 | `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
-| `--policy` | off | Evaluate policies; exit 1 on blocking violations (delta only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
 | `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
@@ -35,12 +34,10 @@ hotspots analyze <PATH> [OPTIONS]
 - `--explain` and `--level` are mutually exclusive
 - `--force` and `--no-persist` are mutually exclusive
 - Snapshot mode text output requires `--explain` or `--level`
-- SARIF requires `--mode snapshot`; HTML requires `--mode snapshot` or `--mode delta`
-- `--policy` requires `--mode delta`
+- SARIF requires `--mode snapshot`; HTML requires `--mode snapshot`
 - `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
-- `--mode delta` is deprecated (prints a warning to stderr); use `hotspots diff` for comparing two
-  states — it has auto base-ref detection, `--scope-to-diff`, and `--explain`, none of which
-  `--mode delta` has or will gain
+- `analyze` has no policy-evaluation mode; use `hotspots diff --policy` for comparing two states
+  — it has auto base-ref detection, `--scope-to-diff`, and `--explain`
 
 ### `hotspots diff [base] [head]`
 
@@ -360,7 +357,11 @@ hotspots --version
 | 1 | Error or blocking policy failure |
 | 2 | Auto-analysis failed (`hotspots diff --auto-analyze` only) |
 | 3 | Snapshot missing (`hotspots diff` only) |
-| 4 | `--policy` was requested but could not be evaluated (parent commit exists but its snapshot is missing) — distinct from exit 1 so CI can tell "policy failed" apart from "policy never ran" (`hotspots analyze --mode delta --policy` only) |
+
+Exit code 4 ("policy requested but could not be evaluated") existed for `analyze --mode delta
+--policy`'s baseline-delta case; removed along with that mode. `diff` always requires both
+snapshots up front (or generates them via `--auto-analyze`), so it can never reach that state —
+exit 3 already covers "a snapshot is missing" more specifically.
 
 ---
 

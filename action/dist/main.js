@@ -37,7 +37,7 @@ exports.getInputs = getInputs;
 exports.policyGateEnabled = policyGateEnabled;
 exports.getPlatformInfo = getPlatformInfo;
 exports.installFaultline = installFaultline;
-exports.runDeltaAnalysis = runDeltaAnalysis;
+exports.runDiffAutoAnalyze = runDiffAutoAnalyze;
 exports.unwrapDelta = unwrapDelta;
 exports.generateDiffSummary = generateDiffSummary;
 exports.commentMarker = commentMarker;
@@ -178,8 +178,9 @@ async function detectContext() {
     return 'push';
 }
 // A shallow checkout (the actions/checkout default) has no history to diff
-// against, so the PR path silently falls back to delta analysis instead of a
-// true base-vs-head comparison. Warn so that fallback isn't mistaken for the
+// against, so the PR path silently falls back to diff --auto-analyze with no
+// explicit base instead of a true base-vs-head comparison. Warn so that
+// fallback isn't mistaken for the
 // real thing.
 async function warnIfShallowClone(context) {
     if (context !== 'pr')
@@ -202,9 +203,9 @@ async function warnIfShallowClone(context) {
     }
     if (stdout.trim() === 'true') {
         core.warning("Checkout appears shallow (actions/checkout defaults to fetch-depth: 1), so there's " +
-            "no history to diff the PR's base against head. Falling back to delta analysis of the " +
-            'working tree instead of a true base-vs-head comparison. Add `fetch-depth: 0` to the ' +
-            'actions/checkout step to get full diff-based PR analysis.');
+            "no history to diff the PR's base against head. Falling back to diff --auto-analyze " +
+            'with no explicit base instead of a true base-vs-head comparison. Add `fetch-depth: 0` ' +
+            'to the actions/checkout step to get full diff-based PR analysis.');
     }
 }
 async function runFaultline(binaryPath, inputs, context) {
@@ -304,8 +305,8 @@ async function runPRAnalysis(binaryPath, inputs) {
             ignoreReturnCode: true
         });
         if (diffExitCode === 3) {
-            // Base snapshot missing — fall through to delta analysis
-            core.warning(`No snapshot for base ${baseSha.slice(0, 7)} — falling back to delta analysis.`);
+            // Base snapshot missing — fall through to diff --auto-analyze
+            core.warning(`No snapshot for base ${baseSha.slice(0, 7)} — falling back to diff --auto-analyze.`);
             core.warning('Run hotspots on your default branch to build the base snapshot.');
         }
         else {
@@ -325,8 +326,8 @@ async function runPRAnalysis(binaryPath, inputs) {
                 diffResult = unwrapDelta(JSON.parse(diffStdout));
             }
             catch {
-                core.warning('Failed to parse diff output — falling back to delta analysis.');
-                return runDeltaAnalysis(binaryPath, inputs);
+                core.warning('Failed to parse diff output — falling back to diff --auto-analyze.');
+                return runDiffAutoAnalyze(binaryPath, inputs);
             }
             const policy = diffResult.policy || { failed: [], warnings: [] };
             const violations = [
@@ -348,11 +349,11 @@ async function runPRAnalysis(binaryPath, inputs) {
             };
         }
     }
-    // Step 3: fallback — delta analysis (no base snapshot available)
-    return runDeltaAnalysis(binaryPath, inputs);
+    // Step 3: fallback — diff --auto-analyze (no base snapshot available)
+    return runDiffAutoAnalyze(binaryPath, inputs);
 }
-async function runDeltaAnalysis(binaryPath, inputs) {
-    const args = ['analyze', inputs.path, '--mode', 'delta'];
+async function runDiffAutoAnalyze(binaryPath, inputs) {
+    const args = ['diff', '--auto-analyze'];
     if (policyGateEnabled(inputs.policy))
         args.push('--policy');
     if (inputs.minLrs)
@@ -412,7 +413,7 @@ async function runDeltaAnalysis(binaryPath, inputs) {
         violations,
         passed,
         summary: result.deltas
-            ? generateDiffBody(result, 'Delta (PR analysis)')
+            ? generateDiffBody(result, 'Diff (PR analysis)')
             : generateSummary(result, 'pr'),
         reportPath: fs.existsSync(reportPath) ? reportPath : undefined
     };
@@ -424,7 +425,7 @@ function generateSummary(result, context) {
     const infos = violations.filter((v) => v.level === 'info');
     let summary = '# Hotspots Analysis Results\n\n';
     if (context === 'pr') {
-        summary += '**Mode:** Delta (PR analysis)\n\n';
+        summary += '**Mode:** Diff (PR analysis)\n\n';
     }
     else {
         summary += '**Mode:** Snapshot (baseline analysis)\n\n';

@@ -1,12 +1,11 @@
-use crate::output::{explain, policy};
+use crate::output::explain;
 use crate::util::{find_repo_root, write_html_report};
 use crate::{OutputFormat, OutputLevel, OutputMode};
 use anyhow::Context;
-use hotspots_core::delta::Delta;
 use hotspots_core::gate::{check_gate_smoothed, GateConfig, GateVerdict};
+use hotspots_core::git;
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
-use hotspots_core::{delta, git};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -14,7 +13,6 @@ pub(crate) struct AnalyzeArgs {
     pub path: PathBuf,
     pub format: OutputFormat,
     pub mode: Option<OutputMode>,
-    pub policy: bool,
     pub top: Option<usize>,
     pub min_lrs: Option<f64>,
     pub config_path: Option<PathBuf>,
@@ -45,7 +43,6 @@ pub(crate) struct AnalyzeArgs {
 /// Validate flag combinations that are mode/format-specific.
 pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     validate_mode_bypass_flags(args)?;
-    validate_policy_flag(args)?;
     validate_explain_flag(args)?;
     validate_no_persist_flag(args)?;
     validate_html_output_flag(args)?;
@@ -71,16 +68,9 @@ fn validate_mode_bypass_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_policy_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.policy && args.mode != Some(OutputMode::Delta) {
-        anyhow::bail!("--policy flag is only valid with --mode delta");
-    }
-    Ok(())
-}
-
 fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if args.explain && args.mode.is_some() && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--explain is not compatible with --mode delta or --mode models");
+        anyhow::bail!("--explain is only compatible with --mode snapshot");
     }
     Ok(())
 }
@@ -90,7 +80,7 @@ fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
         return Ok(());
     }
     if args.mode.is_none() {
-        anyhow::bail!("--no-persist is only valid with --mode snapshot or --mode delta");
+        anyhow::bail!("--no-persist is only valid with --mode snapshot");
     }
     if args.force {
         anyhow::bail!("--no-persist and --force are mutually exclusive");
@@ -153,7 +143,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         path,
         format,
         mode,
-        policy,
         top,
         min_lrs,
         config_path,
@@ -226,7 +215,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
             &resolved_config,
             ModeOutputOptions {
                 format,
-                policy,
                 top: effective_top,
                 min_lrs: effective_min_lrs,
                 output,
@@ -257,7 +245,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
             &resolved_config,
             ModeOutputOptions {
                 format,
-                policy: false,
                 top: effective_top,
                 min_lrs: effective_min_lrs,
                 output,
@@ -482,7 +469,7 @@ fn handle_default_output(
             Ok(())
         }
         OutputFormat::Html => {
-            anyhow::bail!("HTML format requires --mode snapshot or --mode delta");
+            anyhow::bail!("HTML format requires --mode snapshot");
         }
         OutputFormat::Sarif => {
             anyhow::bail!("SARIF format requires --mode snapshot");
@@ -493,7 +480,6 @@ fn handle_default_output(
 
 pub(crate) struct ModeOutputOptions {
     pub format: OutputFormat,
-    pub policy: bool,
     pub top: Option<usize>,
     pub min_lrs: Option<f64>,
     pub output: Option<PathBuf>,
@@ -530,15 +516,6 @@ pub(crate) fn handle_mode_output(
 
     match mode {
         OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts),
-        OutputMode::Delta => {
-            eprintln!(
-                "warning: `analyze --mode delta` is deprecated and will be removed in a \
-                 future major version. Use `hotspots diff` instead -- it has auto base-ref \
-                 detection, `--scope-to-diff`, and `--explain`, none of which `--mode delta` \
-                 has or will gain. See docs/REFERENCE.md for the migration."
-            );
-            handle_delta_mode(&repo_root, resolved_config, reports, pr_context, opts)
-        }
     }
 }
 
@@ -698,154 +675,6 @@ fn handle_snapshot_mode(
         },
         repo_root,
     )
-}
-
-/// When `--policy` was explicitly requested, exits loudly (code 4) if `delta`
-/// came back as a baseline because a parent commit's snapshot wasn't found —
-/// otherwise `--policy` would silently not run, letting a broken/missing
-/// cache pass CI unchecked. A baseline with no parent commit at all (true
-/// root commit) is a legitimate, silent skip — there is nothing to compare
-/// against — so this only exits for the "parent exists but its snapshot is
-/// missing" case.
-fn exit_if_policy_requested_but_unevaluated(
-    policy: bool,
-    delta_val: &delta::Delta,
-    snapshot: &Snapshot,
-) {
-    if !policy || !delta_val.baseline || snapshot.commit.parents.is_empty() {
-        return;
-    }
-    eprintln!(
-        "Error: --policy was requested but could not be evaluated. Commit {} has a parent \
-         ({}) but no snapshot was found for it, so there is no prior state to compare \
-         against. Run `hotspots analyze` on the parent commit first (or restore its \
-         snapshot cache) to enable policy checks, or omit --policy to run without \
-         enforcement.",
-        snapshot.commit.sha, snapshot.commit.parents[0]
-    );
-    std::process::exit(4);
-}
-
-fn handle_delta_mode(
-    repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
-    reports: Vec<hotspots_core::FunctionRiskReport>,
-    pr_context: hotspots_core::git::PrContext,
-    opts: ModeOutputOptions,
-) -> anyhow::Result<()> {
-    let ModeOutputOptions {
-        format,
-        policy,
-        output,
-        source_url,
-        skip_touch_metrics,
-        ..
-    } = opts;
-    let snapshot = build_enriched_snapshot(repo_root, reports, skip_touch_metrics)
-        .context("failed to build enriched snapshot")?;
-
-    let delta_val = if pr_context.is_pr {
-        compute_pr_delta(repo_root, &snapshot)?
-    } else {
-        delta::compute_delta(repo_root, &snapshot)?
-    };
-
-    exit_if_policy_requested_but_unevaluated(policy, &delta_val, &snapshot);
-
-    let delta_with_extras = enrich_delta(repo_root, resolved_config, &snapshot, delta_val, policy)?;
-
-    let blocking = emit_delta_output(
-        &delta_with_extras,
-        format,
-        policy,
-        output,
-        source_url.as_deref(),
-    )?;
-    if blocking {
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-fn enrich_delta(
-    repo_root: &Path,
-    resolved_config: &hotspots_core::ResolvedConfig,
-    snapshot: &Snapshot,
-    delta_val: delta::Delta,
-    policy: bool,
-) -> anyhow::Result<delta::Delta> {
-    let mut unique_files: Vec<String> = snapshot
-        .functions
-        .iter()
-        .map(|f| f.file.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    unique_files.sort();
-    let files_as_str: Vec<&str> = unique_files.iter().map(|s| s.as_str()).collect();
-    let import_edges = hotspots_core::imports::resolve_file_deps(&files_as_str, repo_root);
-    let mut current_co_change = hotspots_core::git::extract_co_change_pairs(
-        repo_root,
-        hotspots_core::git::CO_CHANGE_WINDOW_DAYS,
-        hotspots_core::git::CO_CHANGE_MIN_COUNT,
-    )
-    .unwrap_or_default();
-    hotspots_core::aggregates::annotate_static_deps(
-        &mut current_co_change,
-        &import_edges,
-        repo_root,
-    );
-
-    let parent_sha = snapshot.commit.parents.first().cloned();
-    let parent_snapshot: Option<Snapshot> = parent_sha.as_deref().and_then(|sha| {
-        hotspots_core::delta::load_parent_snapshot(repo_root, sha)
-            .ok()
-            .flatten()
-    });
-    let prev_co_change: Vec<hotspots_core::git::CoChangePair> = parent_snapshot
-        .as_ref()
-        .and_then(|s| s.aggregates.as_ref())
-        .map(|a| a.co_change.clone())
-        .unwrap_or_default();
-
-    let mut enriched = delta_val.clone();
-    if policy {
-        let policy_results = hotspots_core::policy::evaluate_policies(&delta_val, resolved_config)
-            .context("failed to evaluate policies")?;
-        if let Some(results) = policy_results {
-            enriched.policy = Some(results);
-        }
-    }
-    // fn_changed_lines is the strongest tested predictor of PR defect risk in our evaluation. Best-effort — no parent snapshot (first commit, or an untracked parent)
-    // or a failed git diff both degrade to an empty line-set map, giving 0, not an error.
-    let fn_changed_lines = match (&parent_snapshot, &parent_sha) {
-        (Some(parent), Some(parent_sha)) => {
-            let diff_lines =
-                hotspots_core::git::diff_line_sets_at(repo_root, parent_sha, &snapshot.commit.sha)
-                    .unwrap_or_default();
-            hotspots_core::git::compute_fn_changed_lines(
-                repo_root,
-                &delta_val.deltas,
-                snapshot,
-                parent,
-                &diff_lines,
-            )
-        }
-        _ => 0,
-    };
-    let current_file_risk = snapshot
-        .aggregates
-        .as_ref()
-        .map(|a| a.file_risk.as_slice())
-        .unwrap_or(&[]);
-    enriched.aggregates = Some(hotspots_core::aggregates::compute_delta_aggregates(
-        &delta_val,
-        &current_co_change,
-        &prev_co_change,
-        fn_changed_lines,
-        current_file_risk,
-    ));
-    Ok(enriched)
 }
 
 struct SnapshotOutputOpts {
@@ -1152,100 +981,6 @@ fn write_json_snapshot(snapshot: &Snapshot, output: Option<PathBuf>) -> anyhow::
             .context("failed to write snapshot JSON")?;
     }
     Ok(())
-}
-
-/// Returns true if there are blocking policy failures (caller should exit non-zero).
-fn emit_delta_output(
-    delta_val: &Delta,
-    format: OutputFormat,
-    with_policy: bool,
-    output: Option<PathBuf>,
-    source_url: Option<&str>,
-) -> anyhow::Result<bool> {
-    let has_blocking_failures = delta_val
-        .policy
-        .as_ref()
-        .map(|p| p.has_blocking_failures())
-        .unwrap_or(false);
-
-    match format {
-        OutputFormat::Json => {
-            println!("{}", delta_val.to_json()?);
-        }
-        OutputFormat::Text => {
-            emit_delta_text(delta_val, with_policy)?;
-        }
-        OutputFormat::Html => {
-            emit_delta_html(delta_val, source_url, output)?;
-        }
-        OutputFormat::Sarif => {
-            anyhow::bail!("SARIF format is not supported for delta mode (use --mode snapshot)");
-        }
-    }
-
-    Ok(has_blocking_failures)
-}
-
-fn emit_delta_text(delta_val: &Delta, with_policy: bool) -> anyhow::Result<()> {
-    if !with_policy {
-        anyhow::bail!(
-            "text format is not supported for delta mode without --policy (use --format json)"
-        );
-    }
-    if let Some(ref policy_results) = delta_val.policy {
-        policy::print_policy_text_output(delta_val, policy_results)?;
-    } else {
-        println!("Delta Analysis");
-        println!("{}", "=".repeat(80));
-        println!("Baseline delta (no parent snapshot) - policy evaluation skipped.");
-        println!(
-            "\nDelta contains {} function changes.",
-            delta_val.deltas.len()
-        );
-    }
-    Ok(())
-}
-
-fn emit_delta_html(
-    delta_val: &Delta,
-    source_url: Option<&str>,
-    output: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    let html = hotspots_core::html::render_html_delta(delta_val, source_url);
-    let output_path = output.unwrap_or_else(|| PathBuf::from(".hotspots/report.html"));
-    write_html_report(&output_path, &html)?;
-    eprintln!("HTML report written to: {}", output_path.display());
-    Ok(())
-}
-
-/// Compute delta for PR mode (compares vs merge-base).
-fn compute_pr_delta(repo_root: &Path, snapshot: &Snapshot) -> anyhow::Result<delta::Delta> {
-    let merge_base_sha = git::resolve_merge_base_auto();
-    let fallback_sha = snapshot.commit.parents.first().map(|s| s.as_str());
-    let parent = load_merge_base_or_fallback(repo_root, merge_base_sha.as_deref(), fallback_sha)?;
-    delta::Delta::new(snapshot, parent.as_ref())
-}
-
-fn load_merge_base_or_fallback(
-    repo_root: &Path,
-    merge_base_sha: Option<&str>,
-    fallback_sha: Option<&str>,
-) -> anyhow::Result<Option<Snapshot>> {
-    if let Some(sha) = merge_base_sha {
-        match delta::load_parent_snapshot(repo_root, sha)? {
-            Some(snap) => return Ok(Some(snap)),
-            None => {
-                eprintln!("Warning: merge-base snapshot not found, falling back to direct parent")
-            }
-        }
-    } else {
-        eprintln!("Warning: failed to resolve merge-base, falling back to direct parent");
-    }
-    if let Some(sha) = fallback_sha {
-        delta::load_parent_snapshot(repo_root, sha)
-    } else {
-        Ok(None)
-    }
 }
 
 /// Fetches burst-score history and touch metrics concurrently on the rayon
@@ -1682,7 +1417,6 @@ mod validate_analyze_flags_tests {
             path: PathBuf::new(),
             format: OutputFormat::Text,
             mode: None,
-            policy: false,
             top: None,
             min_lrs: None,
             config_path: None,
@@ -1753,23 +1487,9 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn policy_requires_delta_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Delta),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            policy: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn explain_rejects_delta_and_models_mode() {
+    fn explain_is_permitted_with_or_without_mode() {
+        // Only Some(OutputMode::Delta) ever rejected --explain; now that Delta is
+        // gone, every remaining mode value is permitted.
         assert!(validate_analyze_flags(&AnalyzeArgs {
             explain: true,
             mode: Some(OutputMode::Snapshot),
@@ -1778,14 +1498,14 @@ mod validate_analyze_flags_tests {
         .is_ok());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             explain: true,
-            mode: Some(OutputMode::Delta),
+            mode: None,
             ..base_args()
         })
-        .is_err());
+        .is_ok());
     }
 
     #[test]
-    fn no_persist_requires_snapshot_or_delta_mode_and_rejects_force() {
+    fn no_persist_requires_snapshot_mode_and_rejects_force() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             no_persist: true,
             mode: None,
@@ -1811,7 +1531,7 @@ mod validate_analyze_flags_tests {
     fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Delta),
+            mode: None,
             ..base_args()
         })
         .is_err());
