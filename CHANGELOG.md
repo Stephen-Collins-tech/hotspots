@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 - Dogfood hotspots on its own diffs before calling a change done (#367)
 
+
+### Features
+- Add hotspots agent command (#376)
+
 ## [3.8.4] - 2026-11-20
 
 ### Bug Fixes
