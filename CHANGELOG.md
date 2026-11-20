@@ -8,10 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Bug Fixes
-- `diff --top N` no longer counts deleted functions toward the N slots or ranks them alongside
-  new/modified entries by absolute pre-deletion LRS; deleted entries are excluded from the
-  top-N cutoff entirely. Research found including them diluted recall of real regressions in
-  the truncated view.
+- Exclude deleted functions from diff's --top N ranking (#372)
 
 ## [3.8.2] - 2026-11-18
 
