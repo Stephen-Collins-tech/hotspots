@@ -1,3 +1,4 @@
+pub(crate) mod agent;
 pub(crate) mod analyze;
 pub(crate) mod config;
 pub(crate) mod coordinate;
