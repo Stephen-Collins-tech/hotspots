@@ -265,6 +265,20 @@ hotspots config validate          # validate auto-discovered config (exit 1 on f
 hotspots config validate --path FILE
 ```
 
+### `hotspots agent [analyze|diff]`
+
+```bash
+hotspots agent             # full contract (analyze + diff)
+hotspots agent analyze     # scoped to analyze
+hotspots agent diff        # scoped to diff
+```
+
+Prints a dense, machine-readable contract for a coding agent driving this CLI: an execution
+contract (always `--format json`, no interactive prompts except `train`'s), a command/schema
+map (flag names and JSON shape), exit-code semantics, and guardrails against common mistakes.
+Plain text to stdout — this command's own output is the documentation, not data meant to be
+parsed. No `--format` flag.
+
 ### Progress output
 
 All progress goes to stderr, so stdout stays clean for `--format json`. In a terminal you get a

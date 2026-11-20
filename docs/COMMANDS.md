@@ -1,6 +1,6 @@
 # Commands
 
-Hotspots has seven commands. This page says why each one exists, when to reach for it, how
+Hotspots has eight commands. This page says why each one exists, when to reach for it, how
 to run it, how to read what it prints, and how it relates to the others. The full flag
 tables are in the [CLI & Config Reference](REFERENCE.md); workflows are in
 [Usage & Workflows](USAGE.md).
@@ -14,6 +14,7 @@ tables are in the [CLI & Config Reference](REFERENCE.md); workflows are in
 | [`prune`](#prune) | Reclaim disk used by the `.hotspots/` snapshot history |
 | [`config`](#config) | Check and inspect the configuration hotspots will use |
 | [`telemetry`](#telemetry) | Opt in or out of anonymous usage pings |
+| [`agent`](#agent) | Print a machine-readable contract for a coding agent driving this CLI |
 
 Two ideas run through all of them:
 
@@ -247,3 +248,32 @@ hotspots telemetry disable
 ```
 
 **Reading the output.** `status` says whether pings are on; `show` prints the payload.
+
+---
+
+## agent
+
+**Why it exists.** A coding agent driving this CLI non-interactively needs the execution
+rules, flag names, JSON shape, and exit codes in one dense pass, not scattered across prose
+written for a human reader skimming a page.
+
+**When to use it.** At the start of an agent session that will call `hotspots`, or any time
+you're writing a CI script/agent harness around `analyze`/`diff` and want the current contract
+rather than remembering it.
+
+**How.**
+
+```bash
+hotspots agent             # full contract (analyze + diff)
+hotspots agent analyze     # scoped to analyze
+hotspots agent diff        # scoped to diff
+```
+
+**Reading the output.** Plain text to stdout — the output itself *is* the documentation, not
+data to parse. Four sections: Execution Contract (how to invoke this CLI safely), Command &
+Schema Map (flags and JSON shape), Exit Code Semantics, and Guardrails & Anti-Patterns (common
+mistakes, like using the removed `analyze --mode delta`). First pass covers `analyze` and
+`diff` only — the two commands an agent is most likely to script against.
+
+**How it relates to the others.** It describes `analyze` and `diff`; it doesn't run them or
+change their behavior.
