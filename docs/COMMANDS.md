@@ -1,20 +1,15 @@
 # Commands
 
-Hotspots has eight commands. This page says why each one exists, when to reach for it, how
+Hotspots has three commands. This page says why each one exists, when to reach for it, how
 to run it, how to read what it prints, and how it relates to the others. The full flag
 tables are in the [CLI & Config Reference](REFERENCE.md); workflows are in
 [Usage & Workflows](USAGE.md).
 
 | Command | One-line purpose |
 |---|---|
-| [`analyze`](#analyze) | Score every function and show where to look first |
+| [`analyze`](#analyze) | Score every function and show where to look first (plus ownership, pruning, config and agent-contract flags) |
 | [`diff`](#diff) | Show what a change did to risk between two git refs |
-| [`coordinate`](#coordinate) | Check ownership risk for files before you start work |
 | [`train`](#train) | Fit a repo-specific ranker from your own bug-fix history |
-| [`prune`](#prune) | Reclaim disk used by the `.hotspots/` snapshot history |
-| [`config`](#config) | Check and inspect the configuration hotspots will use |
-| [`telemetry`](#telemetry) | Opt in or out of anonymous usage pings |
-| [`agent`](#agent) | Print a machine-readable contract for a coding agent driving this CLI |
 
 Two ideas run through all of them:
 
@@ -32,26 +27,29 @@ Two ideas run through all of them:
 ## analyze
 
 **Why it exists.** It is the core of the tool: it parses your source, scores each function,
-and tells you which ones deserve attention. Everything else builds on its output.
+and tells you which ones deserve attention. Everything else builds on its output. A handful
+of smaller, related jobs — ownership risk for a file set, snapshot-storage maintenance,
+config inspection, and printing the agent contract — used to be separate subcommands; they
+are now flags on `analyze` instead (see below), so the CLI has one entry point for anything
+that isn't `diff` or `train`.
 
 **When to use it.** Any time you want to know where the risky code is: locally while
 reviewing a repo, in CI on every pull request, or to produce a report to share.
 
-**How.** Three modes, chosen with `--mode`:
-
-| Mode | What it does | Use it for |
-|---|---|---|
-| *(none)* | Scores the code and prints a ranked list. No git history involved | A quick look at a folder or a single file |
-| `snapshot` | Full analysis tied to the current commit. Adds churn, touch counts and recency, writes the result to `.hotspots/`, and reports an activity score and tier per function | Building the baseline, HTML reports, and the triage view |
-
-Pull-request checks (comparing the current code to a prior commit, optionally gating with
-`--policy`) are `diff`'s job, not a mode of `analyze` — see below.
+**How.**
 
 ```bash
-hotspots analyze src/                              # quick ranked list
-hotspots analyze . --mode snapshot --format html   # interactive report
+hotspots analyze                                   # analyze the current directory
+hotspots analyze src/ --format json                # a specific path, machine-readable
+hotspots analyze . --format html                   # interactive report
 hotspots diff --auto-analyze --policy              # gate a PR
 ```
+
+`PATH` defaults to `.`. There is no `--mode` flag — every run does the same full analysis
+(churn, touch counts, recency, activity score and tier), writes the result to `.hotspots/`
+by default, and gates on PR checks the same way. Pull-request checks (comparing the current
+code to a prior commit, optionally gating with `--policy`) are `diff`'s job, not a flag of
+`analyze` — see below.
 
 **Options worth knowing.**
 
@@ -61,24 +59,106 @@ hotspots diff --auto-analyze --policy              # gate a PR
   merged list, because a file can be a problem for different reasons.
 - `--cold-start` ranks a repo that has too little bug-fix history to train on. It picks a
   strategy per repo and prints which one it used.
-- `--skip-touch-metrics` skips all git history work (useful for benchmarking or very large
-  repos); activity terms then contribute nothing.
-- `--html-output PATH` (snapshot mode, with a non-HTML `--format`) also writes the HTML report
-  from the same analysis, so you get JSON and the report for one commit without analysing twice.
-- `--top`, `--min-lrs`, `--config`, `--jobs` limit and tune the output; `--no-persist` and
-  `--force` control writing the snapshot.
+- `--html-output PATH` (with a non-HTML `--format`) also writes the HTML report from the
+  same analysis, so you get JSON and the report for one commit without analysing twice.
+- `--top`, `--min-lrs`, `--config` limit and tune the output; `--no-persist` (persisted by
+  default now) and `--force` control writing the snapshot.
+- `HOTSPOTS_JOBS`, `HOTSPOTS_SKIP_TOUCH_METRICS`, and `HOTSPOTS_SKIP_GATE` replace the old
+  `--jobs`/`--skip-touch-metrics`/`--skip-gate` flags — set them as environment variables
+  instead (the latter two are on if set to any value, same as `NO_COLOR`).
 
 **Reading the output.** Each function has an LRS and a **band** (Low, Moderate, High,
-Critical; cutoffs 3, 6 and 9). In snapshot mode it also has an **activity risk** and a
-**tier** (`active` or `quiet`). Read the band to judge structure and the activity risk to
-decide order. Activity risk cannot be lowered by a fix; it decays as the file goes quiet.
-Formats are `text`, `json`, `html` and `sarif`. The evidence behind the score, and its
-limits, is written up in [the activity risk formula](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md) and
+Critical; cutoffs 3, 6 and 9), plus an **activity risk** and a **tier** (`active` or
+`quiet`). Read the band to judge structure and the activity risk to decide order. Activity
+risk cannot be lowered by a fix; it decays as the file goes quiet. Formats are `text`,
+`json`, `html` and `sarif`. The evidence behind the score, and its limits, is written up in
+[the activity risk formula](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/activity-risk-formula.md) and
 [why the quadrant became an activity tier](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/quadrant-replaced-by-activity-tier.md).
 
-**How it relates to the others.** `diff` compares the snapshots `analyze` writes; `train` makes
-`analyze` rank with your repo's own history; `prune` cleans up the snapshots `analyze` writes;
-`config` checks the file `analyze` reads.
+**How it relates to the others.** `diff` compares the snapshots `analyze` writes; `train`
+makes `analyze` rank with your repo's own history.
+
+### Ownership risk (`--files`/`--diff`/`--staged`/`--ownership`)
+
+Before you or an AI coding agent start editing a set of files, it helps to know whether
+ownership of those files is concentrated in one person. These flags report ownership facts
+from git history alone, with no code analysis — this used to be the standalone `coordinate`
+command.
+
+```bash
+hotspots analyze . --files src/api.ts,src/db.ts
+hotspots analyze . --staged
+hotspots analyze . --ownership            # defaults to --staged when no file selector is given
+git diff main | hotspots analyze . --diff
+```
+
+`--files`, `--diff`, and `--staged` are mutually exclusive ways to pick the file set; they
+(and bare `--ownership`) are mutually exclusive with a plain analysis, `--prune`,
+`--show-config`/`--validate-config`, and `--help-agent`.
+
+Output is JSON with, for each file, `author_count`, `author_entropy` (0 means one owner,
+higher means more diffuse), `newcomer_rate`, and `knowledge_mode`, which is `"concentrated"`
+when ownership is narrow enough that a handoff is more likely than a real conflict.
+`ownership_risk` (0 to 1) is the same entropy normalized for the number of authors, so files
+with different author counts compare fairly, and `ownership_risk_band` (`low`, `medium` or
+`high`) turns it into a tier. Higher means more diffuse ownership and more cross-author
+collisions; use it to rank a set of files by coordination risk. There is deliberately no
+recommendation field and no coupling facts, because the coupling signals did not hold up in
+our evaluation. `analyze --axes` shows the same ownership signal across the whole repo;
+these flags answer it for the files you are about to touch.
+
+### Snapshot maintenance (`--prune`)
+
+Every run writes to `.hotspots/`, so history grows with each commit analyzed. This used to
+be the standalone `prune` command.
+
+```bash
+hotspots analyze --prune --unreachable --dry-run       # see what would go
+hotspots analyze --prune --unreachable --older-than 30
+hotspots analyze --prune --compact 1 --dry-run         # store snapshots as deltas
+```
+
+Use it after force-pushes or branch deletions, and on long-lived repos whose `.hotspots/`
+directory has grown large. `--unreachable`, `--older-than`, `--compact`, and `--dry-run` all
+require `--prune`; `--older-than` additionally requires `--unreachable`. Output is the number
+of snapshots pruned or converted and the storage saved; `--dry-run` prints the same numbers
+without changing anything. Compaction level 2 keeps only band changes, so it loses per-commit
+detail. It cleans up what a plain `analyze` writes and `diff` reads; pruning a ref's snapshot
+just means it is re-analyzed next time.
+
+### Config inspection (`--show-config`/`--validate-config`)
+
+Hotspots reads a `.hotspotsrc.json` for includes, excludes, output limits and policy
+severity. A typo should fail loudly before CI relies on it. This used to be the standalone
+`config` command.
+
+```bash
+hotspots analyze --validate-config          # exit 1 if the file is invalid
+hotspots analyze --show-config              # the resolved settings, plus telemetry state
+```
+
+`--validate-config` prints the file it checked or the error. `--show-config` prints the
+effective filters and policy severities after merging defaults, plus a line showing whether
+telemetry is currently enabled (see [Telemetry](TELEMETRY.md)). Unknown keys are rejected,
+which includes keys from earlier versions (weights, thresholds, warning thresholds, scoring
+and pattern settings); those values are now built in. Every other command reads this file.
+
+### Agent contract (`--help-agent`)
+
+A coding agent driving this CLI non-interactively needs the execution rules, flag names,
+JSON shape, and exit codes in one dense pass, not scattered across prose written for a human
+reader skimming a page. This used to be the standalone `agent` command.
+
+```bash
+hotspots analyze --help-agent             # full contract (analyze + diff)
+hotspots analyze --help-agent=analyze     # scoped to analyze
+hotspots analyze --help-agent=diff        # scoped to diff
+```
+
+Output is plain text to stdout — the output itself *is* the documentation, not data to
+parse. Four sections: Execution Contract (how to invoke this CLI safely), Command & Schema
+Map (flags and JSON shape), Exit Code Semantics, and Guardrails & Anti-Patterns (common
+mistakes). It describes `analyze` and `diff`; it doesn't run them or change their behavior.
 
 ---
 
@@ -125,36 +205,6 @@ you pick any two.
 
 ---
 
-## coordinate
-
-**Why it exists.** Before you or an AI coding agent start editing a set of files, it helps to
-know whether ownership of those files is concentrated in one person. `coordinate` reports
-ownership facts from git history alone, with no code analysis.
-
-**When to use it.** At the start of a task, and before handing a file set to an agent.
-
-**How.**
-
-```bash
-hotspots coordinate . --files src/api.ts,src/db.ts
-hotspots coordinate . --staged
-git diff main | hotspots coordinate . --diff
-```
-
-**Reading the output.** JSON with, for each file, `author_count`, `author_entropy` (0 means
-one owner, higher means more diffuse), `newcomer_rate`, and `knowledge_mode`, which is
-`"concentrated"` when ownership is narrow enough that a handoff is more likely than a real
-conflict. `ownership_risk` (0 to 1) is the same entropy normalized for the number of authors,
-so files with different author counts compare fairly, and `ownership_risk_band` (`low`,
-`medium` or `high`) turns it into a tier. Higher means more diffuse ownership and more
-cross-author collisions; use it to rank a set of files by coordination risk. There is deliberately no recommendation field and no coupling facts, because the
-coupling signals did not hold up in our evaluation.
-
-**How it relates to the others.** `analyze --axes` shows the same ownership signal across the
-whole repo; `coordinate` answers it for the files you are about to touch.
-
----
-
 ## train
 
 **Why it exists.** Generic scoring treats every repo the same. `train` learns from a repo's
@@ -167,115 +217,21 @@ For a repo without that, use `analyze --cold-start` instead.
 **How.**
 
 ```bash
-hotspots train . --eval          # train, then report Precision@K
-hotspots train . --blame --eval  # function-level labels (slower, more precise)
+hotspots train .          # train; the pre-flight screen and P@K eval always run
+hotspots train . --blame  # function-level labels (slower, more precise)
 ```
 
 The model is written to `.hotspots/ranker.json`. Once it exists, every `analyze` run loads it
-and says so on stderr.
+and says so on stderr. Training always starts with a pre-flight data-quality screen (aborts
+if the repo's signal is too flat to be worth training on) and always ends with a Precision@K
+report — there is no `--screen`/`--eval` flag to gate either one, and no
+`--n-estimators`/`--max-depth`/`--quiet` either (tree count and depth use fixed defaults;
+progress verbosity follows whether stderr is a terminal).
 
-**Reading the output.** `--eval` prints Precision@K against the plain LRS ranking. If P@K is
-well above the base rate, keep the model; if it is about the base rate, skip it, because the
-default ranking is just as good. See [Training a Repo-Specific Ranker](USAGE.md#training-a-repo-specific-ranker).
+**Reading the output.** The P@K table reports Precision@K against the plain LRS ranking. If
+P@K is well above the base rate, keep the model; if it is about the base rate, skip it,
+because the default ranking is just as good. See
+[Training a Repo-Specific Ranker](USAGE.md#training-a-repo-specific-ranker).
 
 **How it relates to the others.** It only changes how `analyze` ranks. It does not change LRS,
 bands or policy results.
-
----
-
-## prune
-
-**Why it exists.** Every snapshot run writes to `.hotspots/`, so history grows with each
-commit analyzed.
-
-**When to use it.** After force-pushes or branch deletions, and on long-lived repos whose
-`.hotspots/` directory has grown large.
-
-**How.**
-
-```bash
-hotspots prune --unreachable --dry-run       # see what would go
-hotspots prune --unreachable --older-than 30
-hotspots prune --compact 1 --dry-run         # store snapshots as deltas
-```
-
-**Reading the output.** The number of snapshots pruned or converted and the storage saved.
-`--dry-run` prints the same numbers without changing anything. Compaction level 2 keeps only
-band changes, so it loses per-commit detail.
-
-**How it relates to the others.** It cleans up what `analyze --mode snapshot` writes and `diff`
-reads; pruning a ref's snapshot just means it is re-analyzed next time.
-
----
-
-## config
-
-**Why it exists.** Hotspots reads a `.hotspotsrc.json` for includes, excludes, output limits
-and policy severity. A typo should fail loudly before CI relies on it.
-
-**When to use it.** After editing the file, and in CI to validate it.
-
-**How.**
-
-```bash
-hotspots config validate          # exit 1 if the file is invalid
-hotspots config show              # the resolved settings
-```
-
-**Reading the output.** `validate` prints the file it checked or the error. `show` prints the
-effective filters and policy severities after merging defaults. Unknown keys are rejected,
-which includes keys from earlier versions (weights, thresholds, warning thresholds,
-scoring and pattern settings); those values are now built in.
-
-**How it relates to the others.** Every other command reads this file.
-
----
-
-## telemetry
-
-**Why it exists.** The maintainer cannot see how hotspots is used. This is an opt-in,
-anonymous daily ping to answer a few questions about versions, platforms and which commands
-get used. It is off unless you turn it on, and the tool behaves the same either way.
-
-**When to use it.** If you are willing to share anonymous usage counts. See
-[Telemetry](TELEMETRY.md) for exactly what is and is not sent.
-
-**How.**
-
-```bash
-hotspots telemetry status
-hotspots telemetry show      # print the exact payload without sending it
-hotspots telemetry enable
-hotspots telemetry disable
-```
-
-**Reading the output.** `status` says whether pings are on; `show` prints the payload.
-
----
-
-## agent
-
-**Why it exists.** A coding agent driving this CLI non-interactively needs the execution
-rules, flag names, JSON shape, and exit codes in one dense pass, not scattered across prose
-written for a human reader skimming a page.
-
-**When to use it.** At the start of an agent session that will call `hotspots`, or any time
-you're writing a CI script/agent harness around `analyze`/`diff` and want the current contract
-rather than remembering it.
-
-**How.**
-
-```bash
-hotspots agent             # full contract (analyze + diff)
-hotspots agent analyze     # scoped to analyze
-hotspots agent diff        # scoped to diff
-```
-
-**Reading the output.** Plain text to stdout — the output itself *is* the documentation, not
-data to parse. Four sections: Execution Contract (how to invoke this CLI safely), Command &
-Schema Map (flags and JSON shape), Exit Code Semantics, and Guardrails & Anti-Patterns (common
-mistakes, like using the removed `analyze --mode delta`). First pass covers `analyze` and
-`diff` only — the two commands an agent is most likely to script against.
-
-**How it relates to the others.** It describes `analyze` and `diff`; it doesn't run them or
-change their behavior.

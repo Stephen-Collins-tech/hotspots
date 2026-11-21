@@ -62,7 +62,7 @@ hotspots analyze src/
 
 ```bash
 # Per-function explanations with refactoring advice
-hotspots analyze . --mode snapshot --format text --explain --top 10
+hotspots analyze . --format text --explain --top 10
 
 # Block complexity regressions in CI
 hotspots diff --auto-analyze --policy
@@ -71,16 +71,16 @@ hotspots diff --auto-analyze --policy
 hotspots diff main HEAD --top 10 --policy
 
 # Interactive HTML report
-hotspots analyze src/ --mode snapshot --format html
+hotspots analyze src/ --format html
 
 # JSON for tooling/AI
 hotspots analyze src/ --format json
 
-# Train a repo-specific ranker from your bug history
-hotspots train . --blame --eval
+# Train a repo-specific ranker from your bug history (always runs its own P@K eval)
+hotspots train . --blame
 
 # Driving this CLI from a coding agent? Start here
-hotspots agent
+hotspots analyze --help-agent
 ```
 
 ---
@@ -102,7 +102,7 @@ LRS = 1.0×R_cc + 0.8×R_nd + 0.6×R_fo + 0.7×R_ns
 
 where each component is log-scaled and capped to prevent outliers from dominating ([full formula, caps, and weight rationale](docs/REFERENCE.md#lrs-formula)).
 
-In **snapshot mode**, LRS is combined with the file's git history (churn, touch frequency, recency) into an absolute **Activity Risk Score**, and each function is marked `active` (its file is touched more than the repo median, or changed in the last 30 days) or `quiet`:
+Every `analyze` run also combines LRS with the file's git history (churn, touch frequency, recency) into an absolute **Activity Risk Score**, and marks each function `active` (its file is touched more than the repo median, or changed in the last 30 days) or `quiet`:
 
 ```
 Activity Risk = LRS/20.2 + churn + touch + recency      (each term scaled to 0–1)
@@ -173,9 +173,10 @@ Exit code 1 on blocking violations, 0 on warnings only.
 function legacyBillingLogic() { ... }
 ```
 
-**Trained ranker** — fit a RandomForest from your repo's bug-fix history:
+**Trained ranker** — fit a RandomForest from your repo's bug-fix history (training always
+checks P@K vs. base rate before saving the model):
 ```bash
-hotspots train . --blame --eval   # train + check P@K vs base rate
+hotspots train . --blame
 ```
 
 **Output formats** — `text` (terminal), `json` (machine), `html` (interactive), `sarif` (GitHub Code Scanning).
@@ -205,7 +206,7 @@ hotspots train . --blame --eval   # train + check P@K vs base rate
 
 ## Telemetry (opt-in)
 
-Off by default. If you choose to enable it, hotspots sends one anonymous ping a day (version, OS, architecture, install channel, subcommand name, random install id) so I can see real usage and decide what to improve. No code, paths or results. Run `hotspots telemetry show` to see exactly what would be sent, and `hotspots telemetry disable` to turn it off. Details: [docs/TELEMETRY.md](docs/TELEMETRY.md).
+Off by default. If you choose to enable it (set `HOTSPOTS_TELEMETRY=on`), hotspots sends one anonymous ping a day (version, OS, architecture, install channel, subcommand name, random install id) so I can see real usage and decide what to improve. No code, paths or results. Run `hotspots analyze --show-config` to see whether it's currently on, and unset `HOTSPOTS_TELEMETRY` (or set it to anything other than `on`) to turn it off. Details: [docs/TELEMETRY.md](docs/TELEMETRY.md).
 
 ---
 

@@ -38,9 +38,9 @@ At most one successful ping per 24 hours, only while enabled. If a ping fails (o
 | `arch` | CPU architecture (e.g. `x86_64`, `aarch64`) |
 | `channel` | Install channel guessed from the executable path: `npm`, `pypi`, `cargo`, `brew` or `binary` |
 | `cmd` | Name of the subcommand that ran, never its arguments |
-| `iid` | Random install id, generated when you enable telemetry. Not derived from your machine, user or paths; `hotspots telemetry reset` replaces it |
+| `iid` | Random install id, generated the first time a ping is sent while telemetry is enabled. Not derived from your machine, user or paths |
 
-That table is the complete list. It mirrors `COLLECTED` in `hotspots-cli/src/cmd/telemetry.rs`, which `hotspots telemetry show` and the opt-in prompt print, and a test fails if the code and this table disagree.
+That table is the complete list. It mirrors `COLLECTED` in `hotspots-cli/src/cmd/telemetry.rs`, which `hotspots analyze --show-config` prints a summary of, and a test fails if the code and this table disagree.
 
 **Added by the server on receipt:** the time of the request, the request's country (from the CDN; your IP address is not stored) and the fixed User-Agent `hotspots-cli`. Nothing else is stored.
 
@@ -48,23 +48,30 @@ That table is the complete list. It mirrors `COLLECTED` in `hotspots-cli/src/cmd
 
 ## Controls
 
+There is no `telemetry` subcommand. Telemetry is controlled entirely by one environment
+variable:
+
 ```bash
-hotspots telemetry status    # enabled or disabled
-hotspots telemetry show      # print the exact payload, send nothing
-hotspots telemetry enable
-hotspots telemetry disable
-hotspots telemetry reset     # new random install id
+export HOTSPOTS_TELEMETRY=on    # enable (persists for the shell session, or add it to your profile)
+unset HOTSPOTS_TELEMETRY        # disable — the default; any value other than "on" also disables it
 ```
 
-On the first interactive run (stdin and stderr are terminals) hotspots asks once whether to enable it; the default is no. It never asks, and never sends, in CI or other non-interactive runs.
+```bash
+hotspots analyze --show-config   # shows a line with the current telemetry state and what it sends
+```
 
-Environment overrides that always win over a saved "enabled":
+It is off by default, with no interactive prompt — set `HOTSPOTS_TELEMETRY=on` explicitly to
+turn it on, in a shell profile or CI environment config, rather than waiting to be asked.
+
+Environment overrides that always win over `HOTSPOTS_TELEMETRY=on`:
 
 - `DO_NOT_TRACK=1`
-- `HOTSPOTS_TELEMETRY=0`
 - any of `CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `JENKINS_URL`
 
-State lives in `~/.hotspots/telemetry.json` (whether it is enabled, your random install id, and when a ping last succeeded or failed); deleting it resets everything. The request is cut off after about 3 seconds (half a second if the network is unreachable), failures are silent and never change output or exit codes. Your choice is never changed by a failed ping: if you opted in, you stay opted in. `hotspots telemetry status` shows whether the last ping was sent or failed.
+So setting `HOTSPOTS_TELEMETRY=on` globally (e.g. in `~/.bashrc`) never causes a CI runner to
+ping, even if that CI environment happens to inherit the same shell profile.
+
+State lives in `~/.hotspots/telemetry.json` (your random install id, and when a ping last succeeded or failed); deleting it resets the install id. The request is cut off after about 3 seconds (half a second if the network is unreachable), failures are silent and never change output or exit codes.
 
 ## Why
 
