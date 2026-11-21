@@ -211,41 +211,17 @@ enum Commands {
         #[arg(long)]
         label_before: Option<String>,
 
-        /// Number of trees in the RandomForest
-        #[arg(long, default_value = "200")]
-        n_estimators: usize,
-
-        /// Maximum tree depth
-        #[arg(long, default_value = "6")]
-        max_depth: usize,
-
         /// Use blame-based function-level labelling instead of file-level labelling.
         /// More precise labels (only the function that owned the changed lines is
         /// marked positive) but slower on repos with many fix commits.
         #[arg(long, default_value = "false")]
         blame: bool,
 
-        /// After training, evaluate the model with P@K on the same label window.
-        /// Prints a table of Precision@K for K in [10, 20, 50, 100, 200] alongside
-        /// the fix-label base rate so you can judge whether the ranker beats random.
-        #[arg(long, default_value = "false")]
-        eval: bool,
-
-        /// Run a pre-flight data-quality check before training. Aborts with SKIP_FT
-        /// when mean hotspots score is too flat; warns on AMBIGUOUS. Saves wasted
-        /// training runs on repos unlikely to produce a useful model.
-        #[arg(long, default_value = "false")]
-        screen: bool,
-
         /// Skip the confirmation prompt before training (non-interactive / CI use).
         /// Only has an effect when the repo has more than 1000 functions —
         /// that's the only case a confirmation prompt is shown at all.
         #[arg(long, short = 'y', default_value = "false")]
         yes: bool,
-
-        /// Suppress per-tree progress lines. Estimate and completion line are still shown.
-        #[arg(long, short = 'q', default_value = "false")]
-        quiet: bool,
     },
     /// Report ownership risk for a set of files before starting work
     Coordinate {
@@ -379,25 +355,15 @@ fn main() -> anyhow::Result<()> {
             output,
             label_window,
             label_before,
-            n_estimators,
-            max_depth,
             blame,
-            eval,
-            screen,
             yes,
-            quiet,
         } => cmd::train::handle_train(cmd::train::TrainArgs {
             path,
             output,
             label_window_days: label_window,
             label_before,
-            n_estimators,
-            max_depth,
             blame_labels: blame,
-            eval,
-            screen,
             yes,
-            quiet,
         })?,
         Commands::Coordinate {
             files,
