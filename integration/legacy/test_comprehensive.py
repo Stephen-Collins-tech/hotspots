@@ -137,7 +137,7 @@ function moderateFunction(x: number) {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot1.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
+            ["analyze", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
@@ -198,7 +198,7 @@ function highComplexityFunction(x: number, y: number, z: number) {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot2.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
+            ["analyze", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
@@ -283,7 +283,7 @@ function criticalFunction() {
         print("   Running snapshot analysis...")
         snapshot_file = self.test_dir / "snapshot3.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"],
+            ["analyze", "--format", "json", "--all-functions", "src/main.ts"],
             output_file=snapshot_file,
             check=False
         )
