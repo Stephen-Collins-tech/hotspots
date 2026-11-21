@@ -8,7 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
+- Surface hotspots agent in README's common commands (#378)
+
+## [4.0.0] - 2026-11-20
+
+### Bug Fixes
+- Remove analyze --mode delta and analyze --policy (#375)
+
+
+### Documentation
 - Dogfood hotspots on its own diffs before calling a change done (#367)
+
+
+### Features
+- Add hotspots agent command (#376)
 
 ## [3.8.4] - 2026-11-20
 
@@ -805,6 +818,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - Add GitHub Action for CI/CD integration (Task 2.1) (#3)
 
+[4.0.0]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v4.0.0
 [3.8.4]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.8.4
 [3.8.3]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.8.3
 [3.8.2]: https://github.com/Stephen-Collins-tech/hotspots/releases/tag/v3.8.2

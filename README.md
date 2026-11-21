@@ -65,7 +65,7 @@ hotspots analyze src/
 hotspots analyze . --mode snapshot --format text --explain --top 10
 
 # Block complexity regressions in CI
-hotspots analyze src/ --mode delta --policy
+hotspots diff --auto-analyze --policy
 
 # Compare any two git refs
 hotspots diff main HEAD --top 10 --policy
@@ -78,6 +78,9 @@ hotspots analyze src/ --format json
 
 # Train a repo-specific ranker from your bug history
 hotspots train . --blame --eval
+
+# Driving this CLI from a coding agent? Start here
+hotspots agent
 ```
 
 ---
@@ -153,7 +156,7 @@ Posts PR comments, generates HTML reports, fails builds on policy violations.
 
 ```bash
 # Fail CI if new critical functions introduced or LRS increases ≥ 1.0
-hotspots analyze src/ --mode delta --policy
+hotspots diff --auto-analyze --policy
 ```
 
 Exit code 1 on blocking violations, 0 on warnings only.

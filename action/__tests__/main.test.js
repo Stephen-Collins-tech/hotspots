@@ -217,7 +217,7 @@ describe('diff summary', () => {
   });
 });
 
-describe('delta fallback analysis', () => {
+describe('diff --auto-analyze fallback', () => {
   let main;
   const exec = require('@actions/exec');
 
@@ -247,7 +247,7 @@ describe('delta fallback analysis', () => {
         policy: { failed: [{ message: 'f became critical' }], warnings: [] }
       }
     });
-    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    const result = await main.runDiffAutoAnalyze('hotspots', inputs);
     expect(result.passed).toBe(false);
     expect(result.violations).toEqual([{ message: 'f became critical', level: 'error' }]);
     expect(result.summary).toContain('f became critical');
@@ -262,7 +262,7 @@ describe('delta fallback analysis', () => {
         policy: { failed: [], warnings: [] }
       }
     });
-    const result = await main.runDeltaAnalysis('hotspots', inputs);
+    const result = await main.runDiffAutoAnalyze('hotspots', inputs);
     expect(result.passed).toBe(true);
     expect(result.violations).toEqual([]);
     expect(result.summary).toContain('Risk ranking');
@@ -273,8 +273,8 @@ describe('delta fallback analysis', () => {
       delta: { deltas: [], policy: { failed: [], warnings: [{ message: 'watch this' }] } }
     };
     mockCliOutput(body);
-    expect((await main.runDeltaAnalysis('hotspots', inputs)).passed).toBe(true);
+    expect((await main.runDiffAutoAnalyze('hotspots', inputs)).passed).toBe(true);
     mockCliOutput(body);
-    expect((await main.runDeltaAnalysis('hotspots', { ...inputs, failOn: 'warn' })).passed).toBe(false);
+    expect((await main.runDiffAutoAnalyze('hotspots', { ...inputs, failOn: 'warn' })).passed).toBe(false);
   });
 });

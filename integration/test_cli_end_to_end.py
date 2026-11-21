@@ -51,20 +51,19 @@ function highComplexityFunction(x, y, z) {
     s2 = read_json(snap2)
     assert len(s2.get("functions", [])) >= 2
 
-    # Delta + policy JSON
+    # Diff + policy JSON (HEAD~1 is the commit snap1 was taken at, HEAD is snap2's)
     delta = repo / "delta.json"
-    proc = r.run(["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"], repo, out=delta)
-    # 0/1: normal policy pass/fail. 4: --policy requested but not evaluated,
-    # because this runner (e.g. this very CI job, triggered by a pull_request
-    # event) is itself a PR context, and `analyze` intentionally skips
-    # persisting snapshots during PR-triggered runs (to avoid writing
-    # ephemeral PR analysis into long-lived snapshot history) — so the
-    # commit-1 snapshot this test just "persisted" above may not actually be
-    # on disk when commit 2's delta looks for it as a parent. That's a real,
-    # intentional outcome of running this test itself inside a PR check, not
-    # a bug in the delta/policy command being tested here.
-    assert proc.returncode in (0, 1, 4)
-    if proc.returncode == 4:
+    proc = r.run(["diff", "HEAD~1", "HEAD", "--policy", "--format", "json"], repo, out=delta)
+    # 0/1: normal policy pass/fail. 3: snapshot missing, because this runner
+    # (e.g. this very CI job, triggered by a pull_request event) is itself a
+    # PR context, and `analyze` intentionally skips persisting snapshots
+    # during PR-triggered runs (to avoid writing ephemeral PR analysis into
+    # long-lived snapshot history) — so the commit-1 snapshot this test just
+    # "persisted" above may not actually be on disk when `diff` looks for
+    # it. That's a real, intentional outcome of running this test itself
+    # inside a PR check, not a bug in the diff/policy command being tested.
+    assert proc.returncode in (0, 1, 3)
+    if proc.returncode == 3:
         return
     d = read_json(delta)
     delta_section = d["delta"]
@@ -259,8 +258,10 @@ class Seg {
     subprocess.run(["git", "commit", "-m", "two"], cwd=repo, check=True)
     r.run(["analyze", "--mode", "snapshot", "--format", "json", "src"], repo, out=repo / "persist.json")
 
+    # commit "one"'s snapshot was never persisted above (--no-persist), so this
+    # needs --auto-analyze to build it on the fly for a real two-commit diff.
     delta = repo / "delta.json"
-    proc = r.run(["analyze", "--mode", "delta", "--format", "json", "src"], repo, out=delta)
+    proc = r.run(["diff", "HEAD~1", "HEAD", "--auto-analyze", "--format", "json"], repo, out=delta)
     assert proc.returncode == 0
     files = [e["file"] for e in read_json(delta)["delta"]["aggregates"]["files"]]
     assert files == ["src/seg.cc"], files

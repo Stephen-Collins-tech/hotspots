@@ -212,7 +212,7 @@ function highComplexityFunction(x: number, y: number, z: number) {
         print("   Testing delta with policy...")
         delta_file = self.test_dir / "delta1.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"],
+            ["diff", "HEAD~1", "HEAD", "--policy", "--format", "json"],
             output_file=delta_file,
             check=False
         )
@@ -297,7 +297,7 @@ function criticalFunction() {
         print("   Testing delta with policy...")
         delta_file = self.test_dir / "delta2.json"
         result = self.hotspots_command(
-            ["analyze", "--mode", "delta", "--policy", "--format", "json", "src/main.ts"],
+            ["diff", "HEAD~1", "HEAD", "--policy", "--format", "json"],
             output_file=delta_file,
             check=False
         )
@@ -400,7 +400,7 @@ function criticalFunction() {
         
         print("   Delta with policy (text):")
         result = self.hotspots_command(
-            ["analyze", "--mode", "delta", "--policy", "--format", "text", "src/main.ts"],
+            ["diff", "HEAD~1", "HEAD", "--policy", "--format", "text"],
             check=False
         )
         if result.returncode == 0:

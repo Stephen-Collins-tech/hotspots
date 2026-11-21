@@ -24,7 +24,7 @@ export declare function getPlatformInfo(): {
     binaryName: string;
 };
 export declare function installFaultline(version: string, token?: string, binaryPath?: string): Promise<string>;
-export declare function runDeltaAnalysis(binaryPath: string, inputs: FaultlineInputs): Promise<FaultlineResult>;
+export declare function runDiffAutoAnalyze(binaryPath: string, inputs: FaultlineInputs): Promise<FaultlineResult>;
 export declare function unwrapDelta(raw: any): any;
 export declare function generateDiffSummary(result: any, baseSha: string, headSha: string): string;
 export declare function commentMarker(analyzedPath: string): string;

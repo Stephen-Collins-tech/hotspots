@@ -12,7 +12,10 @@ mod util;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use cmd::{analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs, telemetry::TelemetryAction};
+use cmd::{
+    agent::AgentAction, analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs,
+    telemetry::TelemetryAction,
+};
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -39,13 +42,9 @@ enum Commands {
         #[arg(long, default_value = "text")]
         format: OutputFormat,
 
-        /// Output mode (snapshot or delta)
+        /// Output mode (snapshot)
         #[arg(long)]
         mode: Option<OutputMode>,
-
-        /// Evaluate policies (only valid with --mode delta)
-        #[arg(long)]
-        policy: bool,
 
         /// Show only top N results (overrides config file)
         #[arg(long)]
@@ -71,7 +70,7 @@ enum Commands {
         #[arg(short = 'f', long)]
         force: bool,
 
-        /// Skip writing snapshot to disk (only valid with --mode snapshot or --mode delta)
+        /// Skip writing snapshot to disk (only valid with --mode snapshot)
         #[arg(long)]
         no_persist: bool,
 
@@ -271,6 +270,11 @@ enum Commands {
         #[command(subcommand)]
         action: TelemetryAction,
     },
+    /// Print a dense, machine-readable contract for coding agents driving this CLI
+    Agent {
+        #[command(subcommand)]
+        action: Option<AgentAction>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -284,7 +288,6 @@ pub(crate) enum OutputFormat {
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
 pub(crate) enum OutputMode {
     Snapshot,
-    Delta,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -304,7 +307,6 @@ fn main() -> anyhow::Result<()> {
             path,
             format,
             mode,
-            policy,
             top,
             min_lrs,
             config: config_path,
@@ -325,7 +327,6 @@ fn main() -> anyhow::Result<()> {
             path,
             format,
             mode,
-            policy,
             top,
             min_lrs,
             config_path,
@@ -421,6 +422,7 @@ fn main() -> anyhow::Result<()> {
             })?
         }
         Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
+        Commands::Agent { action } => cmd::agent::handle_agent(action.unwrap_or(AgentAction::All)),
     }
 
     if command_name != "telemetry" {
@@ -439,6 +441,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Train { .. } => "train",
         Commands::Coordinate { .. } => "coordinate",
         Commands::Telemetry { .. } => "telemetry",
+        Commands::Agent { .. } => "agent",
     }
 }
 

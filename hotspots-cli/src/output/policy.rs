@@ -17,15 +17,6 @@ pub(crate) fn render_policy_text_output(
     Ok(out)
 }
 
-/// Print all policy sections followed by a summary.
-pub(crate) fn print_policy_text_output(
-    delta: &Delta,
-    policy_results: &PolicyResults,
-) -> anyhow::Result<()> {
-    print!("{}", render_policy_text_output(delta, policy_results)?);
-    Ok(())
-}
-
 fn write_co_change_delta_section(out: &mut String, delta: &Delta) -> anyhow::Result<()> {
     let co_change_delta = match delta.aggregates.as_ref().map(|a| &a.co_change_delta) {
         Some(d) if !d.is_empty() => d,
