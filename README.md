@@ -78,6 +78,9 @@ hotspots analyze src/ --format json
 
 # Train a repo-specific ranker from your bug history
 hotspots train . --blame --eval
+
+# Driving this CLI from a coding agent? Start here
+hotspots agent
 ```
 
 ---
