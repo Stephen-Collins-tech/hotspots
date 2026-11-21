@@ -1,8 +1,8 @@
-//! `hotspots agent` — a dense, machine-readable contract for coding agents driving
-//! `hotspots` non-interactively. Hand-written, not derived from the Clap command tree:
-//! validate the shape manually first, consider codegen later.
+//! `analyze --help-agent` — a dense, machine-readable contract for coding agents
+//! driving `hotspots` non-interactively. Hand-written, not derived from the Clap
+//! command tree: validate the shape manually first, consider codegen later.
 
-#[derive(clap::Subcommand)]
+#[derive(Clone, Copy, clap::ValueEnum)]
 pub(crate) enum AgentAction {
     /// Print the full contract (analyze + diff)
     All,
@@ -15,6 +15,9 @@ pub(crate) enum AgentAction {
 const EXECUTION_CONTRACT: &str = "\
 ## Execution Contract
 
+- The CLI has exactly three subcommands: `analyze`, `diff`, `train`. Everything else
+  (ownership/ranked file lists, snapshot pruning, config inspection) is a flag on `analyze`, not
+  its own subcommand.
 - Always pass `--format json`. Human-readable `text`/`html` output is for people, not parsers.
 - Neither `analyze` nor `diff` prompts interactively. The one exception in the whole CLI is
   `hotspots train`: it shows a confirmation prompt on repos with more than 1000 functions. Pass
@@ -28,24 +31,38 @@ const EXECUTION_CONTRACT: &str = "\
 const ANALYZE_SCHEMA_MAP: &str = "\
 ## Command & Schema Map — analyze
 
-    hotspots analyze <PATH> --mode snapshot --format json [OPTIONS]
+    hotspots analyze <PATH> --format json [OPTIONS]
+
+PATH defaults to `.`. There is no `--mode` flag — this is the only analysis behavior.
 
 Flags (see docs/REFERENCE.md \"hotspots analyze <path>\" for the full table and defaults):
   --top N            limit output to top N functions by LRS
   --min-lrs F         filter functions below this LRS
   --config PATH       config file (default: auto-discover)
-  --all-functions     flat array instead of triage buckets (snapshot JSON only)
+  --all-functions     flat array instead of triage buckets (--format json only)
   --explain           per-function risk breakdown (requires --level or non-json text — not
                       needed with --format json, which always includes full fields)
   --level file        ranked file risk table instead of per-function (text format only)
-  --no-persist        skip writing the snapshot to disk
+  --no-persist        skip writing the snapshot to disk (persisted by default)
   --force / -f        overwrite an existing snapshot
-  --skip-touch-metrics  skip git-history I/O (churn/recency/coupling/burst) entirely
   --cold-start        Gini-gated ranking strategy for repos with no fix-commit label history
-  --jobs N / -j N     parallel worker threads
 
-Mode is `snapshot` only — there is no other `--mode` value. `analyze` has no policy-evaluation
-mode; use `hotspots diff --policy` to gate a change.
+Absorbed subcommands, now flags on `analyze` instead of their own verbs:
+  --files a,b,c / --diff / --staged / --ownership   ownership-risk report for a file set (was
+                      `hotspots coordinate`; mutually exclusive with plain analysis)
+  --prune [--unreachable] [--older-than D] [--compact L] [--dry-run]   snapshot storage
+                      maintenance (was `hotspots prune`)
+  --show-config / --validate-config   resolved-config inspection (was `hotspots config`)
+  --help-agent [analyze|diff]         print this contract (was `hotspots agent`)
+
+Environment variables replace the flags that used to control parallelism/diagnostics directly:
+  HOTSPOTS_JOBS=N                worker thread count (was --jobs/-j)
+  HOTSPOTS_SKIP_TOUCH_METRICS=1   skip git-history I/O entirely (was --skip-touch-metrics)
+  HOTSPOTS_SKIP_GATE=1            skip the suppression gate check (was --skip-gate)
+  HOTSPOTS_TELEMETRY=on           opt in to anonymous usage pings (off by default; see
+                      docs/TELEMETRY.md)
+
+`analyze` has no policy-evaluation mode; use `hotspots diff --policy` to gate a change.
 
 JSON shape: schema_version, functions[] (with --all-functions) or triage{active,quiet} buckets,
 aggregates (file-level rollups), suppression gate verdict. Full field-by-field shape, including
@@ -100,8 +117,10 @@ const GUARDRAILS: &str = "\
 
 - Don't parse the `text` table output. Column widths and wrapping are for terminals, not
   programs — use `--format json` and read the documented fields.
-- `analyze --mode delta` and `analyze --policy` do not exist. Use `hotspots diff --policy`
-  instead for any \"what did this change break\" question.
+- There is no `hotspots coordinate`, `hotspots prune`, `hotspots config`, `hotspots telemetry`,
+  or `hotspots agent` subcommand, and no `analyze --mode`/`analyze --policy`. Their behavior
+  lives on `analyze`'s own flags (see the Command & Schema Map above) or an env var.
+  `hotspots diff --policy` remains the only policy-evaluation entry point.
 - `diff --auto-analyze` without `--scope-to-diff` walks and parses the entire repo to build a
   missing snapshot, even for a one-file PR — see the benchmark numbers in docs/REFERENCE.md
   under \"--scope-to-diff\" before defaulting to the unscoped form on a large repo.
@@ -109,7 +128,9 @@ const GUARDRAILS: &str = "\
   function's own lrs/activity_risk/band are unchanged — don't key a CI gate on it; see
   docs/REFERENCE.md \"Field stability\".
 - `train`'s confirmation prompt only appears above 1000 functions; pass `--yes` for
-  non-interactive runs rather than assuming it never prompts.
+  non-interactive runs rather than assuming it never prompts. `train` always runs its pre-flight
+  screen and post-training P@K eval now — there is no `--screen`/`--eval` flag to gate them, and
+  no `--n-estimators`/`--max-depth`/`--quiet` either.
 ";
 
 fn print_analyze_contract() {

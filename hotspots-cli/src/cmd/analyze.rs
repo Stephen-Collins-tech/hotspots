@@ -1,18 +1,17 @@
 use crate::output::explain;
 use crate::util::{find_repo_root, write_html_report};
-use crate::{OutputFormat, OutputLevel, OutputMode};
+use crate::{OutputFormat, OutputLevel};
 use anyhow::Context;
 use hotspots_core::gate::{check_gate_smoothed, GateConfig, GateVerdict};
 use hotspots_core::git;
 use hotspots_core::snapshot::{self, Snapshot};
 use hotspots_core::{analyze_with_progress, AnalysisOptions};
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 pub(crate) struct AnalyzeArgs {
     pub path: PathBuf,
     pub format: OutputFormat,
-    pub mode: Option<OutputMode>,
     pub top: Option<usize>,
     pub min_lrs: Option<f64>,
     pub config_path: Option<PathBuf>,
@@ -24,53 +23,83 @@ pub(crate) struct AnalyzeArgs {
     pub all_functions: bool,
     /// URL of the corresponding written analysis post, embedded as a banner in HTML output.
     pub source_url: Option<String>,
-    /// Also write the HTML report from the same analysis (snapshot mode, non-html --format).
+    /// Also write the HTML report from the same analysis (non-html --format).
     pub html_output: Option<PathBuf>,
-    /// Number of rayon worker threads; None = use all logical CPUs.
-    pub jobs: Option<usize>,
-    /// When true, skip all touch metrics (no git log calls at all).
-    pub skip_touch_metrics: bool,
-    /// Skip the suppression gate check entirely.
-    pub skip_gate: bool,
     /// Rank via Gini-gated cold-start routing instead of a trained ranker.
     /// Explicit opt-in only; reads no fix-commit label data.
     pub cold_start: bool,
     /// Print three independent ranked sections (Risk, Coupling, Ownership)
     /// instead of a single merged list.
     pub axes: bool,
+    /// Comma-separated file list for the absorbed `coordinate` ownership-risk report.
+    pub files: Option<String>,
+    /// Derive the coordinate file set from a unified diff read on stdin.
+    pub diff: bool,
+    /// Derive the coordinate file set from `git diff --cached --name-only`.
+    pub staged: bool,
+    /// Run the ownership-risk report (defaults file selection to `--staged`
+    /// when none of `--files`/`--diff`/`--staged` is also given).
+    pub ownership: bool,
+    /// Run prune instead of analyze.
+    pub prune: bool,
+    pub unreachable: bool,
+    pub older_than: Option<u64>,
+    pub compact: Option<u32>,
+    pub dry_run: bool,
+    pub show_config: bool,
+    pub validate_config: bool,
+    pub help_agent: Option<crate::cmd::agent::AgentAction>,
 }
 
-/// Validate flag combinations that are mode/format-specific.
+/// Validate flag combinations that are format-specific, or that govern which
+/// of the absorbed subcommands (coordinate/prune/config/agent) runs instead
+/// of a plain analysis.
 pub(crate) fn validate_analyze_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    validate_mode_bypass_flags(args)?;
-    validate_explain_flag(args)?;
+    validate_dispatch_flags(args)?;
     validate_no_persist_flag(args)?;
     validate_html_output_flag(args)?;
     validate_level_flag(args)?;
     validate_all_functions_flag(args)?;
-    validate_format_mode_requirements(args)?;
     Ok(())
 }
 
-/// `--cold-start`/`--axes` both bypass the trained-ranker/snapshot pipeline
-/// entirely, so neither is compatible with `--mode`, and they're mutually
-/// exclusive with each other.
-fn validate_mode_bypass_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.cold_start && args.mode.is_some() {
-        anyhow::bail!("--cold-start is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
-    }
-    if args.axes && args.mode.is_some() {
-        anyhow::bail!("--axes is not compatible with --mode (it bypasses the trained-ranker/snapshot pipeline entirely)");
-    }
+/// `--cold-start`/`--axes` bypass the trained-ranker/snapshot pipeline
+/// entirely and are mutually exclusive with each other and with every other
+/// absorbed-subcommand trigger (`--prune`, `--show-config`/`--validate-config`,
+/// `--help-agent`, and the coordinate selectors `--files`/`--diff`/`--staged`/
+/// `--ownership`). Each dispatch group runs instead of, never alongside,
+/// another.
+fn validate_dispatch_flags(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if args.axes && args.cold_start {
         anyhow::bail!("--axes and --cold-start are mutually exclusive");
     }
-    Ok(())
-}
 
-fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.explain && args.mode.is_some() && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--explain is only compatible with --mode snapshot");
+    let prune_sub_flags_set =
+        args.unreachable || args.older_than.is_some() || args.compact.is_some() || args.dry_run;
+    if prune_sub_flags_set && !args.prune {
+        anyhow::bail!("--unreachable, --older-than, --compact, and --dry-run require --prune");
+    }
+
+    let coordinate_requested = args.files.is_some() || args.diff || args.staged || args.ownership;
+    let config_requested = args.show_config || args.validate_config;
+    let agent_requested = args.help_agent.is_some();
+
+    let active = [
+        args.cold_start,
+        args.axes,
+        coordinate_requested,
+        args.prune,
+        config_requested,
+        agent_requested,
+    ]
+    .iter()
+    .filter(|&&v| v)
+    .count();
+    if active > 1 {
+        anyhow::bail!(
+            "--cold-start, --axes, --prune, --show-config/--validate-config, --help-agent, and \
+             the coordinate flags (--files/--diff/--staged/--ownership) are mutually exclusive"
+        );
     }
     Ok(())
 }
@@ -78,9 +107,6 @@ fn validate_explain_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
 fn validate_no_persist_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if !args.no_persist {
         return Ok(());
-    }
-    if args.mode.is_none() {
-        anyhow::bail!("--no-persist is only valid with --mode snapshot");
     }
     if args.force {
         anyhow::bail!("--no-persist and --force are mutually exclusive");
@@ -92,9 +118,6 @@ fn validate_html_output_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if args.html_output.is_none() {
         return Ok(());
     }
-    if args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--html-output is only valid with --mode snapshot");
-    }
     if matches!(args.format, OutputFormat::Html) {
         anyhow::bail!("--html-output is redundant with --format html (use --output)");
     }
@@ -104,9 +127,6 @@ fn validate_html_output_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
 fn validate_level_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
     if args.level.is_none() {
         return Ok(());
-    }
-    if args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--level is only valid with --mode snapshot");
     }
     if !matches!(args.format, OutputFormat::Text) {
         anyhow::bail!("--level is only valid with --format text");
@@ -118,20 +138,21 @@ fn validate_level_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
 }
 
 fn validate_all_functions_flag(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if args.all_functions
-        && (args.mode != Some(OutputMode::Snapshot) || !matches!(args.format, OutputFormat::Json))
-    {
-        anyhow::bail!("--all-functions is only valid with --mode snapshot --format json");
+    if args.all_functions && !matches!(args.format, OutputFormat::Json) {
+        anyhow::bail!("--all-functions is only valid with --format json");
     }
     Ok(())
 }
 
-/// Output formats that require `--mode snapshot` specifically.
-fn validate_format_mode_requirements(args: &AnalyzeArgs) -> anyhow::Result<()> {
-    if matches!(args.format, OutputFormat::Sarif) && args.mode != Some(OutputMode::Snapshot) {
-        anyhow::bail!("--format sarif requires --mode snapshot");
-    }
-    Ok(())
+/// `true` when the env var is set at all (any value, including empty),
+/// mirroring `NO_COLOR`'s presence-based truthiness convention elsewhere in
+/// this file rather than parsing "true"/"1"/etc.
+fn env_flag_set(name: &str) -> bool {
+    std::env::var_os(name).is_some()
+}
+
+fn env_jobs() -> Option<usize> {
+    std::env::var("HOTSPOTS_JOBS").ok()?.parse().ok()
 }
 
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
@@ -142,7 +163,6 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let AnalyzeArgs {
         path,
         format,
-        mode,
         top,
         min_lrs,
         config_path,
@@ -151,15 +171,63 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         force,
         no_persist,
         level,
-        skip_touch_metrics,
         all_functions,
         source_url,
         html_output,
-        jobs,
-        skip_gate,
         cold_start,
         axes,
+        files,
+        diff,
+        staged,
+        ownership,
+        prune,
+        unreachable,
+        older_than,
+        compact,
+        dry_run,
+        show_config,
+        validate_config,
+        help_agent,
     } = args;
+
+    if let Some(action) = help_agent {
+        crate::cmd::agent::handle_agent(action);
+        return Ok(());
+    }
+
+    if show_config || validate_config {
+        let action = if validate_config {
+            crate::cmd::config::ConfigAction::Validate { path: config_path }
+        } else {
+            crate::cmd::config::ConfigAction::Show { path: config_path }
+        };
+        return crate::cmd::config::handle_config(action);
+    }
+
+    if prune {
+        return crate::cmd::prune::handle_prune(unreachable, older_than, compact, dry_run);
+    }
+
+    if files.is_some() || diff || staged || ownership {
+        let diff_text = if diff {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("read diff from stdin")?;
+            Some(buf)
+        } else {
+            None
+        };
+        // `--ownership` on its own (no explicit file selector) defaults to the
+        // most common pre-commit use case: ownership risk for staged changes.
+        let staged = staged || (ownership && files.is_none() && diff_text.is_none());
+        return crate::cmd::coordinate::handle_coordinate(crate::cmd::coordinate::CoordinateArgs {
+            files,
+            diff: diff_text,
+            staged,
+            path,
+        });
+    }
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
@@ -170,7 +238,7 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     // (e.g. in tests), which is harmless.
     {
         let mut builder = rayon::ThreadPoolBuilder::new().stack_size(32 * 1024 * 1024);
-        if let Some(n) = jobs {
+        if let Some(n) = env_jobs() {
             builder = builder.num_threads(n);
         }
         let _ = builder.build_global();
@@ -208,67 +276,29 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         return result;
     }
 
-    if let Some(output_mode) = mode {
-        let result = handle_mode_output(
-            &normalized_path,
-            output_mode,
-            &resolved_config,
-            ModeOutputOptions {
-                format,
-                top: effective_top,
-                min_lrs: effective_min_lrs,
-                output,
-                explain,
-                force,
-                no_persist,
-                level,
-                all_functions,
-                source_url,
-                html_output,
-                skip_touch_metrics,
-                skip_gate,
-            },
-        );
-        return result;
-    }
-
-    // If a trained ranker exists, promote to snapshot mode so activity_risk
-    // fields are populated and the ranker can be applied. The ranker has no
-    // effect in the default LRS-only path.
-    let repo_root_for_ranker =
-        find_repo_root(&normalized_path).unwrap_or_else(|_| normalized_path.clone());
-    let ranker_path = snapshot::hotspots_dir(&repo_root_for_ranker).join("ranker.json");
-    if ranker_path.exists() {
-        let result = handle_mode_output(
-            &normalized_path,
-            OutputMode::Snapshot,
-            &resolved_config,
-            ModeOutputOptions {
-                format,
-                top: effective_top,
-                min_lrs: effective_min_lrs,
-                output,
-                explain: matches!(format, OutputFormat::Text),
-                force,
-                no_persist: true, // default analyze doesn't persist snapshots
-                level,
-                all_functions: false,
-                source_url,
-                html_output,
-                skip_touch_metrics,
-                skip_gate,
-            },
-        );
-        return result;
-    }
-
-    // Default behavior (no --mode): simple text/JSON output
-    handle_default_output(
+    // Snapshot mode is the only analysis mode now (post-v4.0.0's `--mode
+    // delta` removal and this change's removal of `--mode` itself), so every
+    // plain analysis always takes this path. `--no-persist` (default false)
+    // is the only way to skip writing the snapshot to disk now; there is no
+    // more implicit "promote to snapshot but force no-persist" branch.
+    handle_mode_output(
         &normalized_path,
-        format,
-        effective_min_lrs,
-        effective_top,
         &resolved_config,
+        ModeOutputOptions {
+            format,
+            top: effective_top,
+            min_lrs: effective_min_lrs,
+            output,
+            explain,
+            force,
+            no_persist,
+            level,
+            all_functions,
+            source_url,
+            html_output,
+            skip_touch_metrics: env_flag_set("HOTSPOTS_SKIP_TOUCH_METRICS"),
+            skip_gate: env_flag_set("HOTSPOTS_SKIP_GATE"),
+        },
     )
 }
 
@@ -425,59 +455,6 @@ fn handle_axes(
     Ok(())
 }
 
-fn handle_default_output(
-    path: &Path,
-    format: OutputFormat,
-    min_lrs: Option<f64>,
-    top: Option<usize>,
-    resolved_config: &hotspots_core::ResolvedConfig,
-) -> anyhow::Result<()> {
-    let analysis_progress = make_analysis_progress();
-    let explicit_top = top.or(resolved_config.top_n);
-    // 0 is the sentinel for "show all"; otherwise default to 20 for text output
-    let limit = match explicit_top {
-        Some(0) => usize::MAX,
-        Some(n) => n,
-        None => 20,
-    };
-    let reports = hotspots_core::analyze_with_progress(
-        path,
-        AnalysisOptions {
-            min_lrs,
-            top_n: if matches!(format, OutputFormat::Text) {
-                Some(limit).filter(|&n| n != usize::MAX)
-            } else {
-                explicit_top.filter(|&n| n != 0)
-            },
-            file_allowlist: None,
-        },
-        Some(resolved_config),
-        Some(analysis_progress.as_ref()),
-    )?;
-
-    let result: anyhow::Result<()> = match format {
-        OutputFormat::Text => {
-            let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-            print!(
-                "{}",
-                hotspots_core::render_text_grouped(&reports, limit, color)
-            );
-            Ok(())
-        }
-        OutputFormat::Json => {
-            println!("{}", hotspots_core::render_json_envelope(&reports));
-            Ok(())
-        }
-        OutputFormat::Html => {
-            anyhow::bail!("HTML format requires --mode snapshot");
-        }
-        OutputFormat::Sarif => {
-            anyhow::bail!("SARIF format requires --mode snapshot");
-        }
-    };
-    result
-}
-
 pub(crate) struct ModeOutputOptions {
     pub format: OutputFormat,
     pub top: Option<usize>,
@@ -496,7 +473,6 @@ pub(crate) struct ModeOutputOptions {
 
 pub(crate) fn handle_mode_output(
     path: &Path,
-    mode: OutputMode,
     resolved_config: &hotspots_core::ResolvedConfig,
     opts: ModeOutputOptions,
 ) -> anyhow::Result<()> {
@@ -514,9 +490,7 @@ pub(crate) fn handle_mode_output(
     )?;
     let pr_context = git::detect_pr_context();
 
-    match mode {
-        OutputMode::Snapshot => handle_snapshot_mode(&repo_root, reports, pr_context, opts),
-    }
+    handle_snapshot_mode(&repo_root, reports, pr_context, opts)
 }
 
 fn handle_snapshot_mode(
@@ -547,7 +521,7 @@ fn handle_snapshot_mode(
     if matches!(format, OutputFormat::Text) && !explain && !matches!(level, Some(OutputLevel::File))
     {
         anyhow::bail!(
-            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+            "text format without --explain is not supported (use --format json or add --explain)"
         );
     }
 
@@ -766,7 +740,7 @@ fn emit_text_output(
         explain::print_explain_output(snapshot, total_function_count, color)?;
     } else {
         anyhow::bail!(
-            "text format without --explain is not supported for snapshot mode (use --format json or add --explain)"
+            "text format without --explain is not supported (use --format json or add --explain)"
         );
     }
     Ok(())
@@ -1410,13 +1384,12 @@ mod progress_format_tests {
 mod validate_analyze_flags_tests {
     use super::*;
 
-    /// All-permissive baseline: no mode, text format, every bool false, every
+    /// All-permissive baseline: text format, every bool false, every
     /// optional field unset. Individual tests override just the field(s) under test.
     fn base_args() -> AnalyzeArgs {
         AnalyzeArgs {
             path: PathBuf::new(),
             format: OutputFormat::Text,
-            mode: None,
             top: None,
             min_lrs: None,
             config_path: None,
@@ -1428,52 +1401,42 @@ mod validate_analyze_flags_tests {
             all_functions: false,
             source_url: None,
             html_output: None,
-            jobs: None,
-            skip_touch_metrics: false,
-            skip_gate: false,
             cold_start: false,
             axes: false,
+            files: None,
+            diff: false,
+            staged: false,
+            ownership: false,
+            prune: false,
+            unreachable: false,
+            older_than: None,
+            compact: None,
+            dry_run: false,
+            show_config: false,
+            validate_config: false,
+            help_agent: None,
         }
-    }
-
-    #[test]
-    fn html_output_requires_snapshot_mode() {
-        let mut a = base_args();
-        a.html_output = Some(PathBuf::from("r.html"));
-        assert!(validate_analyze_flags(&a).is_err());
-        a.mode = Some(OutputMode::Snapshot);
-        a.format = OutputFormat::Json;
-        assert!(validate_analyze_flags(&a).is_ok());
     }
 
     #[test]
     fn html_output_rejects_html_format() {
         let mut a = base_args();
-        a.mode = Some(OutputMode::Snapshot);
         a.format = OutputFormat::Html;
         a.html_output = Some(PathBuf::from("r.html"));
         assert!(validate_analyze_flags(&a).is_err());
     }
 
     #[test]
-    fn base_args_pass_validation() {
-        assert!(validate_analyze_flags(&base_args()).is_ok());
+    fn html_output_is_fine_with_non_html_format() {
+        let mut a = base_args();
+        a.format = OutputFormat::Json;
+        a.html_output = Some(PathBuf::from("r.html"));
+        assert!(validate_analyze_flags(&a).is_ok());
     }
 
     #[test]
-    fn cold_start_and_axes_reject_mode() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            cold_start: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            axes: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_err());
+    fn base_args_pass_validation() {
+        assert!(validate_analyze_flags(&base_args()).is_ok());
     }
 
     #[test]
@@ -1487,88 +1450,60 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn explain_is_permitted_with_or_without_mode() {
-        // Only Some(OutputMode::Delta) ever rejected --explain; now that Delta is
-        // gone, every remaining mode value is permitted.
+    fn explain_is_permitted_by_default() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             explain: true,
-            mode: Some(OutputMode::Snapshot),
-            ..base_args()
-        })
-        .is_ok());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            explain: true,
-            mode: None,
             ..base_args()
         })
         .is_ok());
     }
 
     #[test]
-    fn no_persist_requires_snapshot_mode_and_rejects_force() {
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            no_persist: true,
-            mode: None,
-            ..base_args()
-        })
-        .is_err());
+    fn no_persist_rejects_force() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             no_persist: true,
             force: true,
-            mode: Some(OutputMode::Snapshot),
             ..base_args()
         })
         .is_err());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             no_persist: true,
-            mode: Some(OutputMode::Snapshot),
             ..base_args()
         })
         .is_ok());
     }
 
     #[test]
-    fn level_requires_snapshot_mode_text_format_and_rejects_explain() {
+    fn level_requires_text_format_and_rejects_explain() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             level: Some(OutputLevel::File),
-            mode: None,
-            ..base_args()
-        })
-        .is_err());
-        assert!(validate_analyze_flags(&AnalyzeArgs {
-            level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
             format: OutputFormat::Json,
             ..base_args()
         })
         .is_err());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
             explain: true,
             ..base_args()
         })
         .is_err());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             level: Some(OutputLevel::File),
-            mode: Some(OutputMode::Snapshot),
             ..base_args()
         })
         .is_ok());
     }
 
     #[test]
-    fn all_functions_requires_snapshot_mode_and_json_format() {
+    fn all_functions_requires_json_format() {
         assert!(validate_analyze_flags(&AnalyzeArgs {
             all_functions: true,
-            mode: Some(OutputMode::Snapshot),
             format: OutputFormat::Json,
             ..base_args()
         })
         .is_ok());
         assert!(validate_analyze_flags(&AnalyzeArgs {
             all_functions: true,
-            mode: Some(OutputMode::Snapshot),
             format: OutputFormat::Text,
             ..base_args()
         })
@@ -1576,16 +1511,82 @@ mod validate_analyze_flags_tests {
     }
 
     #[test]
-    fn sarif_format_requires_snapshot_mode() {
+    fn sarif_format_is_unconditionally_valid_now() {
+        // Previously `--format sarif` required `--mode snapshot`; snapshot is the
+        // only analysis mode now, so sarif works with no extra flag.
         assert!(validate_analyze_flags(&AnalyzeArgs {
             format: OutputFormat::Sarif,
-            mode: None,
+            ..base_args()
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn prune_sub_flags_require_prune() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            unreachable: true,
             ..base_args()
         })
         .is_err());
         assert!(validate_analyze_flags(&AnalyzeArgs {
-            format: OutputFormat::Sarif,
-            mode: Some(OutputMode::Snapshot),
+            older_than: Some(30),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            compact: Some(1),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            dry_run: true,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            prune: true,
+            unreachable: true,
+            ..base_args()
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn dispatch_triggers_are_mutually_exclusive() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            prune: true,
+            show_config: true,
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            cold_start: true,
+            files: Some("a.rs".to_string()),
+            ..base_args()
+        })
+        .is_err());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            axes: true,
+            help_agent: Some(crate::cmd::agent::AgentAction::All),
+            ..base_args()
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn single_dispatch_trigger_is_fine() {
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            show_config: true,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            staged: true,
+            ..base_args()
+        })
+        .is_ok());
+        assert!(validate_analyze_flags(&AnalyzeArgs {
+            help_agent: Some(crate::cmd::agent::AgentAction::Diff),
             ..base_args()
         })
         .is_ok());

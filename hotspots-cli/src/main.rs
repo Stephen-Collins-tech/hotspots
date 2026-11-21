@@ -10,13 +10,8 @@ mod cmd;
 mod output;
 mod util;
 
-use anyhow::Context;
 use clap::{Parser, Subcommand};
-use cmd::{
-    agent::AgentAction, analyze::AnalyzeArgs, config::ConfigAction, diff::DiffArgs,
-    telemetry::TelemetryAction,
-};
-use std::io::Read;
+use cmd::{agent::AgentAction, analyze::AnalyzeArgs, diff::DiffArgs};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -36,15 +31,12 @@ enum Commands {
     /// Analyze source files (TypeScript, JavaScript, Go, Java, Python, Rust)
     Analyze {
         /// Path to source file or directory
+        #[arg(default_value = ".")]
         path: PathBuf,
 
         /// Output format
         #[arg(long, default_value = "text")]
         format: OutputFormat,
-
-        /// Output mode (snapshot)
-        #[arg(long)]
-        mode: Option<OutputMode>,
 
         /// Show only top N results (overrides config file)
         #[arg(long)]
@@ -62,7 +54,7 @@ enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
 
-        /// Show human-readable risk explanations (only valid with --mode snapshot)
+        /// Show human-readable risk explanations
         #[arg(long)]
         explain: bool,
 
@@ -70,7 +62,7 @@ enum Commands {
         #[arg(short = 'f', long)]
         force: bool,
 
-        /// Skip writing snapshot to disk (only valid with --mode snapshot)
+        /// Skip writing the snapshot to disk (persisted by default)
         #[arg(long)]
         no_persist: bool,
 
@@ -78,12 +70,7 @@ enum Commands {
         #[arg(long, value_name = "LEVEL")]
         level: Option<OutputLevel>,
 
-        /// Skip all touch metrics (no git log calls for churn/recency), directed
-        /// coupling, and burst_score. For benchmarking pure analysis performance.
-        #[arg(long)]
-        skip_touch_metrics: bool,
-
-        /// Output all functions as a flat array (only valid with --mode snapshot --format json).
+        /// Output all functions as a flat array (only valid with --format json).
         /// Note: `tier` is population-relative and can change run-to-run even when a
         /// function's own `lrs`/`activity_risk`/`band` don't; see docs/REFERENCE.md
         /// "Field stability" before keying CI gates on it.
@@ -95,18 +82,9 @@ enum Commands {
         source_url: Option<String>,
 
         /// Also write the HTML report from this same analysis to PATH (only valid with
-        /// --mode snapshot and a non-html --format; avoids a second full analysis)
+        /// a non-html --format; avoids a second full analysis)
         #[arg(long, value_name = "PATH")]
         html_output: Option<PathBuf>,
-
-        /// Number of parallel worker threads (default: number of logical CPUs)
-        #[arg(long, short = 'j', value_name = "N")]
-        jobs: Option<usize>,
-
-        /// Skip the suppression gate check (the P@10 calibration that warns when
-        /// the activity ranker may be producing misleading rankings).
-        #[arg(long)]
-        skip_gate: bool,
 
         /// Rank using a Gini-gated cold-start strategy (formula / IsolationForest
         /// anomaly / uniform prior) instead of a trained ranker. For repos with no
@@ -120,31 +98,62 @@ enum Commands {
         /// section; overlap is not deduplicated. Use --top to control section size.
         #[arg(long)]
         axes: bool,
-    },
-    /// Reduce snapshot storage: drop unreachable snapshots and/or compact history
-    Prune {
-        /// Prune unreachable snapshots (must be explicitly specified)
+
+        /// Report ownership risk instead of analyzing: comma-separated list of files
+        /// (was `hotspots coordinate --files`)
+        #[arg(long, value_name = "FILES")]
+        files: Option<String>,
+
+        /// Report ownership risk instead of analyzing: derive the file set from a
+        /// unified diff read on stdin (was `hotspots coordinate --diff`)
+        #[arg(long)]
+        diff: bool,
+
+        /// Report ownership risk instead of analyzing: derive the file set from
+        /// `git diff --cached --name-only` (was `hotspots coordinate --staged`)
+        #[arg(long)]
+        staged: bool,
+
+        /// Report ownership risk for files before starting work; defaults to
+        /// `--staged` when none of --files/--diff/--staged is also given
+        /// (was `hotspots coordinate`)
+        #[arg(long)]
+        ownership: bool,
+
+        /// Run prune instead of analyze: reduce snapshot storage (was `hotspots prune`)
+        #[arg(long)]
+        prune: bool,
+
+        /// With --prune: prune unreachable snapshots (must be explicitly specified)
         #[arg(long)]
         unreachable: bool,
 
-        /// Only prune commits older than this many days (requires --unreachable)
+        /// With --prune --unreachable: only prune commits older than this many days
         #[arg(long)]
         older_than: Option<u64>,
 
-        /// Compact history to the given level (0 = full snapshots, 1 = deltas only,
-        /// 2 = band transitions only)
+        /// With --prune: compact history to the given level (0 = full snapshots,
+        /// 1 = deltas only, 2 = band transitions only)
         #[arg(long, value_name = "LEVEL")]
         compact: Option<u32>,
 
-        /// Dry-run mode (report what would change without modifying any files)
+        /// With --prune: dry-run mode (report what would change without modifying
+        /// any files)
         #[arg(long)]
         dry_run: bool,
-    },
-    /// Validate a configuration file
-    #[command(name = "config")]
-    Config {
-        #[command(subcommand)]
-        action: ConfigAction,
+
+        /// Show the resolved configuration instead of analyzing (was `hotspots config show`)
+        #[arg(long)]
+        show_config: bool,
+
+        /// Validate the config file instead of analyzing (was `hotspots config validate`)
+        #[arg(long)]
+        validate_config: bool,
+
+        /// Print a dense, machine-readable contract for coding agents instead of
+        /// analyzing (was `hotspots agent`)
+        #[arg(long, value_name = "SUBCOMMAND", num_args = 0..=1, default_missing_value = "all")]
+        help_agent: Option<AgentAction>,
     },
     /// Compare analysis snapshots between two git refs
     Diff {
@@ -223,34 +232,6 @@ enum Commands {
         #[arg(long, short = 'y', default_value = "false")]
         yes: bool,
     },
-    /// Report ownership risk for a set of files before starting work
-    Coordinate {
-        /// Comma-separated list of file paths to analyze
-        #[arg(long)]
-        files: Option<String>,
-
-        /// Derive the file set from a unified diff read on stdin
-        #[arg(long)]
-        diff: bool,
-
-        /// Derive the file set from `git diff --cached --name-only`
-        #[arg(long)]
-        staged: bool,
-
-        /// Path to repository root
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
-    /// Manage opt-in anonymous usage telemetry (off by default)
-    Telemetry {
-        #[command(subcommand)]
-        action: TelemetryAction,
-    },
-    /// Print a dense, machine-readable contract for coding agents driving this CLI
-    Agent {
-        #[command(subcommand)]
-        action: Option<AgentAction>,
-    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -259,11 +240,6 @@ pub(crate) enum OutputFormat {
     Json,
     Html,
     Sarif,
-}
-
-#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
-pub(crate) enum OutputMode {
-    Snapshot,
 }
 
 #[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
@@ -282,7 +258,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Analyze {
             path,
             format,
-            mode,
             top,
             min_lrs,
             config: config_path,
@@ -291,18 +266,26 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            skip_touch_metrics,
             all_functions,
             source_url,
             html_output,
-            jobs,
-            skip_gate,
             cold_start,
             axes,
+            files,
+            diff,
+            staged,
+            ownership,
+            prune,
+            unreachable,
+            older_than,
+            compact,
+            dry_run,
+            show_config,
+            validate_config,
+            help_agent,
         } => cmd::analyze::handle_analyze(AnalyzeArgs {
             path,
             format,
-            mode,
             top,
             min_lrs,
             config_path,
@@ -311,22 +294,24 @@ fn main() -> anyhow::Result<()> {
             force,
             no_persist,
             level,
-            skip_touch_metrics,
             all_functions,
             source_url,
             html_output,
-            jobs,
-            skip_gate,
             cold_start,
             axes,
-        })?,
-        Commands::Prune {
+            files,
+            diff,
+            staged,
+            ownership,
+            prune,
             unreachable,
             older_than,
             compact,
             dry_run,
-        } => cmd::prune::handle_prune(unreachable, older_than, compact, dry_run)?,
-        Commands::Config { action } => cmd::config::handle_config(action)?,
+            show_config,
+            validate_config,
+            help_agent,
+        })?,
         Commands::Diff {
             base,
             head,
@@ -365,35 +350,9 @@ fn main() -> anyhow::Result<()> {
             blame_labels: blame,
             yes,
         })?,
-        Commands::Coordinate {
-            files,
-            diff,
-            staged,
-            path,
-        } => {
-            let diff_text = if diff {
-                let mut buf = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buf)
-                    .context("read diff from stdin")?;
-                Some(buf)
-            } else {
-                None
-            };
-            cmd::coordinate::handle_coordinate(cmd::coordinate::CoordinateArgs {
-                files,
-                diff: diff_text,
-                staged,
-                path,
-            })?
-        }
-        Commands::Telemetry { action } => cmd::telemetry::handle_telemetry(action)?,
-        Commands::Agent { action } => cmd::agent::handle_agent(action.unwrap_or(AgentAction::All)),
     }
 
-    if command_name != "telemetry" {
-        cmd::telemetry::after_command(command_name);
-    }
+    cmd::telemetry::after_command(command_name);
 
     Ok(())
 }
@@ -401,13 +360,8 @@ fn main() -> anyhow::Result<()> {
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Analyze { .. } => "analyze",
-        Commands::Prune { .. } => "prune",
-        Commands::Config { .. } => "config",
         Commands::Diff { .. } => "diff",
         Commands::Train { .. } => "train",
-        Commands::Coordinate { .. } => "coordinate",
-        Commands::Telemetry { .. } => "telemetry",
-        Commands::Agent { .. } => "agent",
     }
 }
 
@@ -438,16 +392,18 @@ mod help_text_tests {
         );
     }
 
-    /// Regression test for #226: `prune --older-than` requires `--unreachable`
-    /// to also be set; that dependency must be disclosed in --help.
+    /// Regression test for #226, moved to `analyze --older-than` now that
+    /// `prune` is a flag on `analyze` rather than its own subcommand:
+    /// `--older-than` requires `--unreachable` (and `--prune`) to also be
+    /// set; that dependency must be disclosed in --help.
     #[test]
-    fn prune_older_than_help_discloses_unreachable_dependency() {
+    fn analyze_older_than_help_discloses_unreachable_dependency() {
         let cmd = Cli::command();
-        let prune = cmd
+        let analyze = cmd
             .get_subcommands()
-            .find(|c| c.get_name() == "prune")
-            .expect("prune subcommand must exist");
-        let older_than_help = prune
+            .find(|c| c.get_name() == "analyze")
+            .expect("analyze subcommand must exist");
+        let older_than_help = analyze
             .get_arguments()
             .find(|a| a.get_id() == "older_than")
             .and_then(|a| a.get_help())
@@ -455,7 +411,7 @@ mod help_text_tests {
             .unwrap_or_default();
         assert!(
             older_than_help.contains("--unreachable"),
-            "prune --older-than help should disclose its dependency on --unreachable, got: {older_than_help:?}"
+            "analyze --older-than help should disclose its dependency on --unreachable, got: {older_than_help:?}"
         );
     }
 }
