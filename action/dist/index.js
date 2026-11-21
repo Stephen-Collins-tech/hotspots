@@ -219,8 +219,8 @@ async function runFaultline(binaryPath, inputs, context) {
     if (context === 'pr') {
         return runPRAnalysis(binaryPath, inputs);
     }
-    // Push: create snapshot for this commit
-    const args = ['analyze', inputs.path, '--mode', 'snapshot'];
+    // Push: create snapshot for this commit (every analyze run persists one by default now)
+    const args = ['analyze', inputs.path];
     if (inputs.minLrs) {
         args.push('--min-lrs', inputs.minLrs);
     }
@@ -281,7 +281,7 @@ async function runFaultline(binaryPath, inputs, context) {
 }
 async function runPRAnalysis(binaryPath, inputs) {
     // Step 1: ensure HEAD snapshot exists so diff has something to compare against
-    const snapshotArgs = ['analyze', inputs.path, '--mode', 'snapshot', '--force'];
+    const snapshotArgs = ['analyze', inputs.path, '--force'];
     if (inputs.config)
         snapshotArgs.push('--config', inputs.config);
     if (inputs.minLrs)

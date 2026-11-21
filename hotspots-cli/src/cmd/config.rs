@@ -107,6 +107,8 @@ pub(crate) fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
                 policy_mode_str(resolved.excessive_risk_regression_mode),
                 reason_suffix(resolved.excessive_risk_regression_reason.as_deref())
             );
+            println!();
+            println!("{}", crate::cmd::telemetry::status_line());
         }
     }
     Ok(())

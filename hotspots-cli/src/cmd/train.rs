@@ -6,6 +6,7 @@ use hotspots_core::trainer::{
     collect_fix_files, precision_at_k, score, screen_repo, train, FunctionId, ModelClass,
     RankerModel, RegimeVerdict, ScoredFunction, ScreenerVerdict, TrainConfig,
 };
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -15,13 +16,8 @@ pub(crate) struct TrainArgs {
     pub output: PathBuf,
     pub label_window_days: u32,
     pub label_before: Option<String>,
-    pub n_estimators: usize,
-    pub max_depth: usize,
     pub blame_labels: bool,
-    pub eval: bool,
-    pub screen: bool,
     pub yes: bool,
-    pub quiet: bool,
 }
 
 pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
@@ -38,27 +34,23 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
     let cfg = TrainConfig {
         label_window_days: args.label_window_days,
         label_before: args.label_before.clone(),
-        n_estimators: args.n_estimators,
-        max_depth: args.max_depth,
         blame_labels: args.blame_labels,
         ..Default::default()
     };
 
-    if args.screen {
-        let (verdict, mean_hs) = screen_repo(&snapshot);
-        match verdict {
-            ScreenerVerdict::SkipFt => {
-                bail!(
-                    "Screener: SKIP_FT (mean_hotspots_score={mean_hs:.4}). Use tabular ranking instead."
-                );
-            }
-            ScreenerVerdict::Ambiguous => {
-                eprintln!(
-                    "Screener: AMBIGUOUS (mean_hotspots_score={mean_hs:.4}). Training may not beat tabular baseline."
-                );
-            }
-            ScreenerVerdict::RunFt => {}
+    let (verdict, mean_hs) = screen_repo(&snapshot);
+    match verdict {
+        ScreenerVerdict::SkipFt => {
+            bail!(
+                "Screener: SKIP_FT (mean_hotspots_score={mean_hs:.4}). Use tabular ranking instead."
+            );
         }
+        ScreenerVerdict::Ambiguous => {
+            eprintln!(
+                "Screener: AMBIGUOUS (mean_hotspots_score={mean_hs:.4}). Training may not beat tabular baseline."
+            );
+        }
+        ScreenerVerdict::RunFt => {}
     }
 
     let n_funcs = snapshot.functions.len();
@@ -84,7 +76,7 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
         }
     }
 
-    let quiet = args.quiet;
+    let quiet = !std::io::stderr().is_terminal();
     let start = Instant::now();
 
     // Sliding-window ETA: track (done, elapsed_secs) at each report point,
@@ -144,15 +136,13 @@ pub(crate) fn handle_train(args: TrainArgs) -> Result<()> {
             report_model(&model, n_funcs, elapsed.as_secs());
             model.save(&args.output)?;
             eprintln!("Model saved → {}", args.output.display());
-            if args.eval {
-                run_eval(
-                    &model,
-                    &snapshot,
-                    &repo_root,
-                    args.label_window_days,
-                    args.label_before.as_deref(),
-                )?;
-            }
+            run_eval(
+                &model,
+                &snapshot,
+                &repo_root,
+                args.label_window_days,
+                args.label_before.as_deref(),
+            )?;
         }
     }
 

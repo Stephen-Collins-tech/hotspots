@@ -2,42 +2,83 @@
 
 ## CLI Commands
 
-### `hotspots analyze <path>`
+### `hotspots analyze [path]`
 
-Core analysis command. Scans source files, computes metrics, scores functions.
+Core analysis command. Scans source files, computes metrics, scores functions. Also the
+entry point for ownership risk, snapshot pruning, config inspection, and the agent
+contract — former standalone subcommands (`coordinate`, `prune`, `config`, `agent`) that are
+now flags here instead; see their own subsections below.
 
 ```
-hotspots analyze <PATH> [OPTIONS]
+hotspots analyze [PATH] [OPTIONS]
 ```
+
+`PATH` defaults to `.`. There is no `--mode` flag — every run does the full analysis that
+used to be `--mode snapshot` (the only mode that survived #375's removal of `--mode delta`).
 
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | `text`, `json`, `html`, `sarif` |
-| `--mode` | — | `snapshot` |
 | `--top N` | none | Show top N functions by LRS |
 | `--min-lrs F` | `0.0` | Filter functions below this LRS |
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
-| `--html-output PATH` | — | Also write the HTML report from the same analysis (snapshot mode, with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
-| `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
-| `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
+| `--html-output PATH` | — | Also write the HTML report from the same analysis (with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
+| `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (text format only) |
+| `--level` | — | `file` aggregate view (ranked file risk table) (text format only) |
 | `--force` | off | Overwrite existing snapshot |
-| `--no-persist` | off | Skip writing snapshot to disk |
-| `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
-| `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
-| `--skip-gate` | off | Disable suppression gate P@10 check |
-| — | — | Suppression gate verdicts are smoothed: `Suppressed` is only reported after 3 consecutive raw `Suppressed` readings across runs, tracked in `.hotspots/gate_history.json` |
+| `--no-persist` | off | Skip writing snapshot to disk (persisted by default) |
+| `--all-functions` | off | Output flat array instead of triage buckets (JSON format only) |
 | `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
-| `-j N` / `--jobs N` | CPU count | Parallel worker threads |
+
+**Ownership risk** (was `hotspots coordinate`; see below):
+
+| Flag | Description |
+|---|---|
+| `--files <FILES>` | Comma-separated file paths to report ownership risk for, instead of analyzing |
+| `--diff` | Derive that file set from a unified diff read on stdin |
+| `--staged` | Derive that file set from `git diff --cached --name-only` |
+| `--ownership` | Report ownership risk; defaults to `--staged` when no other selector is given |
+
+**Snapshot maintenance** (was `hotspots prune`; see below):
+
+| Flag | Description |
+|---|---|
+| `--prune` | Run pruning instead of analyzing |
+| `--unreachable` | With `--prune`: remove unreachable snapshots |
+| `--older-than DAYS` | With `--prune --unreachable`: only remove ones older than this |
+| `--compact LEVEL` | With `--prune`: compact retained history to level `0`/`1`/`2` |
+| `--dry-run` | With `--prune`: report what would change without modifying anything |
+
+**Config inspection** (was `hotspots config`; see below):
+
+| Flag | Description |
+|---|---|
+| `--show-config` | Print the resolved configuration instead of analyzing |
+| `--validate-config` | Validate the config file instead of analyzing (exit 1 on failure) |
+
+**Agent contract** (was `hotspots agent`; see below):
+
+| Flag | Description |
+|---|---|
+| `--help-agent [analyze\|diff]` | Print the machine-readable agent contract instead of analyzing |
 
 **Notes:**
 - `--explain` and `--level` are mutually exclusive
 - `--force` and `--no-persist` are mutually exclusive
-- Snapshot mode text output requires `--explain` or `--level`
-- SARIF requires `--mode snapshot`; HTML requires `--mode snapshot`
-- `--cold-start` is not compatible with `--mode` — it bypasses the trained-ranker/snapshot pipeline entirely
+- Text format requires `--explain` or `--level`
+- `--cold-start`, `--axes`, `--prune`, `--show-config`/`--validate-config`, `--help-agent`, and
+  the ownership-risk flags (`--files`/`--diff`/`--staged`/`--ownership`) are all mutually
+  exclusive with each other and with a plain analysis
+- `--unreachable`/`--older-than`/`--compact`/`--dry-run` require `--prune`; `--older-than`
+  additionally requires `--unreachable`
 - `analyze` has no policy-evaluation mode; use `hotspots diff --policy` for comparing two states
   — it has auto base-ref detection, `--scope-to-diff`, and `--explain`
+
+Three environment variables replace flags that used to configure parallelism and
+diagnostics directly — see [Environment variables](#environment-variables):
+`HOTSPOTS_JOBS` (worker threads, was `-j`/`--jobs`), `HOTSPOTS_SKIP_TOUCH_METRICS` (was
+`--skip-touch-metrics`), and `HOTSPOTS_SKIP_GATE` (was `--skip-gate`).
 
 ### `hotspots diff [base] [head]`
 
@@ -106,7 +147,10 @@ linear. See [`docs/USAGE.md`](USAGE.md#ridge-vs-randomforest-automatic-model-cla
 for the full verdict table. This selection is automatic; there is no flag to force one
 model class over the other.
 
-Before training, the command prints an estimate and (for repos with > 1,000 functions) prompts for confirmation:
+Before training, the command always runs the pre-flight screen (there is no `--screen` flag
+to gate it — it aborts with `SKIP_FT` when the mean hotspots score is too flat to be worth
+training on), then prints an estimate and (for repos with > 1,000 functions) prompts for
+confirmation:
 
 ```
 hotspots train: 12914 functions · 200 trees · 365 days of git history (file-level labels) · estimated ~4m 30s
@@ -125,17 +169,19 @@ Model class: Ridge (regime=LINEAR, Δρ=+0.03) — RandomForest training skipped
 Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 ```
 
+Training always ends with a Precision@K report (there is no `--eval` flag to gate it either).
+
 | Flag | Default | Description |
 |---|---|---|
 | `--blame` | off | Blame-based function-level labels (slower, more precise) |
 | `--label-window DAYS` | `365` | Days of history to scan |
-| `--n-estimators N` | `200` | Trees in RandomForest (ignored if the screener selects Ridge) |
-| `--max-depth N` | `6` | Maximum tree depth (ignored if the screener selects Ridge) |
 | `--output PATH` | `.hotspots/ranker.json` | Model output path |
-| `--eval` | off | Print Precision@K table after training |
-| `--screen` | off | Pre-flight check; aborts when mean hotspots score is too flat |
 | `--yes` / `-y` | off | Skip confirmation prompt (CI / non-interactive) |
-| `--quiet` / `-q` | off | Suppress per-tree progress lines; estimate and completion still shown |
+
+There is no `--n-estimators`/`--max-depth` (tree count and depth use `TrainConfig`'s fixed
+defaults — 200 trees, depth 6 — ignored if the screener selects Ridge anyway) and no
+`--quiet` (per-tree progress lines are shown when stderr is a terminal and suppressed
+otherwise, the same convention `analyze` already uses for its own progress output).
 
 Requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
@@ -147,14 +193,15 @@ The trained model (`model_version 6`) uses 9 features: `lrs`, `cc`, `nd`, `loc`,
 hotspots: using trained ranker (model class: Ridge)
 ```
 
-Once a model is trained, `hotspots analyze . --mode snapshot --explain` adds a `✦` phrase line below each CRITICAL/HIGH function — e.g. `✦ Churns heavily and is load-bearing.` — derived from which features rank in the top 20th percentile for that repo. No `✦` lines appear without a trained ranker.
+Once a model is trained, `hotspots analyze . --explain` adds a `✦` phrase line below each CRITICAL/HIGH function — e.g. `✦ Churns heavily and is load-bearing.` — derived from which features rank in the top 20th percentile for that repo. No `✦` lines appear without a trained ranker.
 
 ### Cold-Start Ranking
 
 `hotspots analyze <PATH> --cold-start` produces a ranking without a trained ranker and
 without the label thresholds `hotspots train` requires (≥ 50 functions, ≥ 5 positive / ≥
 10 negative labels). It skips the trained-ranker lookup and snapshot pipeline entirely —
-`--mode` cannot be combined with it.
+mutually exclusive with `--axes` and with every other absorbed-subcommand flag
+(`--prune`, `--show-config`/`--validate-config`, `--help-agent`, the ownership-risk flags).
 
 ```
 hotspots analyze . --cold-start
@@ -201,49 +248,56 @@ The 0.55 and 0.60 constants themselves are unchanged; the dead zone only shrinks
 }
 ```
 
-### `hotspots coordinate [PATH]`
+### `hotspots analyze` — ownership risk
 
-Reports ownership risk for a set of files before work starts. Needs only git history (no snapshot or AST analysis) and prints JSON. See
-[USAGE.md](USAGE.md#hotspots-coordinate) for a longer walkthrough.
+Was the standalone `hotspots coordinate` command; now flags on `analyze`. Reports ownership
+risk for a set of files before work starts. Needs only git history (no snapshot or AST
+analysis) and prints JSON. See [USAGE.md](USAGE.md#hotspots-analyze--ownership-risk) for a
+longer walkthrough.
 
 ```
-hotspots coordinate [PATH] (--files a.rs,b.rs | --diff | --staged)
+hotspots analyze [PATH] (--files a.rs,b.rs | --diff | --staged | --ownership)
 ```
 
 | Flag | Description |
 |---|---|
-| `--files <FILES>` | Comma-separated file paths to analyze |
+| `--files <FILES>` | Comma-separated file paths to report ownership risk for |
 | `--diff` | Derive the file set from a unified diff read on stdin |
 | `--staged` | Derive the file set from `git diff --cached --name-only` |
+| `--ownership` | Report ownership risk; defaults to `--staged` when no other selector is given |
 
-JSON output only today. `PATH` defaults to `.`.
+JSON output only today. `PATH` defaults to `.`. `--files`/`--diff`/`--staged` are mutually
+exclusive with each other.
 
 Output is the master-schema envelope's `coordinate` section (`schema_version: 6`):
 - `ownership`: per-file `author_count`, `author_entropy`, `newcomer_rate`, `knowledge_mode` (`"concentrated"` for narrow ownership: at most 3 authors and normalized entropy below 0.5; otherwise `null`), `ownership_risk` (normalized author entropy, 0 to 1, higher = more diffuse; `null` with fewer than two authors) and `ownership_risk_band` (`"low"` below 0.754, `"medium"` below 0.907, else `"high"`; the cutoffs are terciles from our evaluation; [evidence and limits](https://github.com/Stephen-Collins-tech/hotspots-public-research/blob/main/docs/findings/ownership-risk-bands.md)).
 
 There is no `recommendation` field, and no `within_set`/`hidden_dependencies` coupling
 facts either — both removed in hotspots 2.0 for lack of validated evidence. See
-[USAGE.md](USAGE.md#hotspots-coordinate) for the full rationale and an example walkthrough.
+[USAGE.md](USAGE.md#hotspots-analyze--ownership-risk) for the full rationale and an example
+walkthrough.
 
-### `hotspots prune`
+### `hotspots analyze --prune`
 
-Reduce the disk space used by the `.hotspots/` snapshot history. Two independent actions,
-at least one of which must be given:
+Was the standalone `hotspots prune` command; now a flag on `analyze`. Reduces the disk
+space used by the `.hotspots/` snapshot history. Requires `--prune`, plus at least one of
+`--unreachable`/`--compact`:
 
 ```
-hotspots prune --unreachable [--older-than DAYS] [--dry-run]
-hotspots prune --compact LEVEL [--dry-run]
+hotspots analyze --prune --unreachable [--older-than DAYS] [--dry-run]
+hotspots analyze --prune --compact LEVEL [--dry-run]
 ```
 
 | Flag | Description |
 |---|---|
+| `--prune` | Run pruning instead of analyzing |
 | `--unreachable` | Remove snapshots whose commit is no longer reachable from `refs/heads/*`, `refs/tags/*` or `refs/remotes/*` (after a force-push or branch deletion), and snapshots that reference a commit no longer in git history |
 | `--older-than DAYS` | With `--unreachable`: only remove unreachable snapshots older than this many days |
 | `--compact LEVEL` | Compact the retained history: `0` keeps full snapshots (the default, and the way to undo a compaction setting), `1` stores intermediate snapshots as deltas against their parent, `2` drops snapshots in which no function changed band |
 | `--dry-run` | Report what would change without modifying any files |
 
-**Why it exists.** Every `analyze --mode snapshot` run writes a snapshot, so history grows
-with every commit analyzed. `prune` is the cleanup for that growth.
+**Why it exists.** Every `analyze` run writes a snapshot by default, so history grows with
+every commit analyzed. `--prune` is the cleanup for that growth.
 
 **When to use it.** Run `--unreachable --dry-run` after force-pushes or deleting branches;
 run `--compact 1` on a long-lived repo whose `.hotspots/` directory has grown large. Level 2
@@ -253,27 +307,34 @@ score.
 **Reading the output.** It prints the number of snapshots pruned or converted and, for
 compaction, the storage saved. `--dry-run` prints the same numbers without changing anything.
 
-### `hotspots config`
+### `hotspots analyze --show-config`/`--validate-config`
+
+Was the standalone `hotspots config` command; now flags on `analyze`.
 
 ```bash
-hotspots config show              # show resolved config (merged defaults + file)
-hotspots config show --path FILE  # show specific file
-hotspots config validate          # validate auto-discovered config (exit 1 on failure)
-hotspots config validate --path FILE
+hotspots analyze --show-config                    # show resolved config (merged defaults + file)
+hotspots analyze --show-config --config FILE      # show a specific file
+hotspots analyze --validate-config                # validate auto-discovered config (exit 1 on failure)
+hotspots analyze --validate-config --config FILE
 ```
 
-### `hotspots agent [analyze|diff]`
+`--show-config`'s output also includes a line reporting whether telemetry is currently
+enabled (see [Telemetry](TELEMETRY.md)).
+
+### `hotspots analyze --help-agent [analyze|diff]`
+
+Was the standalone `hotspots agent` command; now a flag on `analyze`.
 
 ```bash
-hotspots agent             # full contract (analyze + diff)
-hotspots agent analyze     # scoped to analyze
-hotspots agent diff        # scoped to diff
+hotspots analyze --help-agent             # full contract (analyze + diff)
+hotspots analyze --help-agent=analyze     # scoped to analyze
+hotspots analyze --help-agent=diff        # scoped to diff
 ```
 
 Prints a dense, machine-readable contract for a coding agent driving this CLI: an execution
 contract (always `--format json`, no interactive prompts except `train`'s), a command/schema
 map (flag names and JSON shape), exit-code semantics, and guardrails against common mistakes.
-Plain text to stdout — this command's own output is the documentation, not data meant to be
+Plain text to stdout — this flag's own output is the documentation, not data meant to be
 parsed. No `--format` flag.
 
 ### Progress output
@@ -346,8 +407,17 @@ hotspots --version
 
 - `NO_COLOR` — disable ANSI colors in text output
 - `GIT_DIR`, `GIT_WORK_TREE` — override git repository location
-- `GITHUB_EVENT_NAME=pull_request` — triggers merge-base comparison in delta mode
+- `GITHUB_EVENT_NAME=pull_request` — triggers PR-context detection (affects whether `analyze`
+  persists a snapshot by default)
 - `CI_MERGE_REQUEST_IID` (GitLab), `CIRCLE_PULL_REQUEST` (CircleCI), `TRAVIS_PULL_REQUEST` (Travis) — same effect
+- `HOTSPOTS_JOBS=N` — parallel worker threads for `analyze` (was `-j`/`--jobs`; default: CPU count)
+- `HOTSPOTS_SKIP_TOUCH_METRICS` — set (to any value) to skip all git log I/O in `analyze`:
+  touch counts, churn, recency, directed coupling and burst score are omitted. For
+  benchmarking or very large repos (was `--skip-touch-metrics`)
+- `HOTSPOTS_SKIP_GATE` — set (to any value) to disable `analyze`'s suppression gate P@10
+  check (was `--skip-gate`)
+- `HOTSPOTS_TELEMETRY=on` — opt in to anonymous usage pings, off by default; see
+  [Telemetry](TELEMETRY.md) (was `hotspots telemetry enable`/`disable`)
 
 ### Exit codes
 
@@ -508,8 +578,8 @@ gave the strongest, monotonic gain of every window tested, with a size-confound 
 ruling out "it's just counting more commits." On a high-commit-velocity repo this is a
 real, measured wall-clock cost (a single git subprocess call, but scanning more history:
 +16ms on a moderate-velocity repo, up to +943ms on a very active one in testing) —
-use `--skip-touch-metrics` to skip git history entirely if that cost matters more than
-the ranking-quality gain. The window is fixed and not configurable.
+set `HOTSPOTS_SKIP_TOUCH_METRICS=1` to skip git history entirely if that cost matters more
+than the ranking-quality gain. The window is fixed and not configurable.
 
 ### Signal confidence (snapshot mode)
 
@@ -586,7 +656,7 @@ Config file is auto-discovered from project root in this order:
 
 The project root is determined by walking up from the analyzed path to find `.git`. CLI flags take precedence over config file values.
 
-Validate: `hotspots config validate` / Inspect resolved: `hotspots config show`
+Validate: `hotspots analyze --validate-config` / Inspect resolved: `hotspots analyze --show-config`
 
 Test files are excluded by default using each language's naming convention, so ranking is
 about shipped code: `*.test.*` and `*.spec.*` (TypeScript/JavaScript), `test_*.py` and
@@ -642,7 +712,7 @@ themselves are fixed.
 Downgrading a policy below `"block"` requires a `<name>_reason` string — mirroring the
 `// hotspots-ignore: <reason>` convention for per-function suppression — so that anyone
 reviewing a `.hotspotsrc.json` diff sees *why* a blocking gate was weakened, not just
-that it was. `hotspots config validate` rejects a downgrade with a missing or
+that it was. `hotspots analyze --validate-config` rejects a downgrade with a missing or
 whitespace-only reason. This does not make the override unbypassable — anyone with
 commit access to the config can still weaken it, the same as anyone with access to a CI
 workflow file can remove a required check — but it does mean the change can't be silent.
@@ -664,14 +734,14 @@ else is an **optional section**, present only when that command/flag computed it
 |---|---|---|
 | `functions` | always | Full per-function array (`FunctionSnapshot`) |
 | `summary` | always | Population-level aggregate stats |
-| `triage` | `--mode snapshot`, not `--all-functions` | `active`/`quiet` groups, each with a count and the top functions by `activity_risk` |
+| `triage` | default `analyze`, not `--all-functions` | `active`/`quiet` groups, each with a count and the top functions by `activity_risk` |
 | `architecture` | `--all-functions` | `file_risk`/`modules` aggregates |
 | `co_change` | `--all-functions` | File co-change pairs |
-| `coordinate` | `hotspots coordinate` | Ownership/knowledge-mode facts for a file set |
+| `coordinate` | `analyze --files`/`--diff`/`--staged`/`--ownership` | Ownership/knowledge-mode facts for a file set |
 | `delta` | `hotspots diff` | `deltas` array + PR-wide aggregates |
 | `axes` | `--axes` | Risk/Coupling/Ownership per-axis rankings |
 
-`--all-functions` toggles which sections a snapshot-mode run populates (full
+`--all-functions` toggles which sections an `analyze` run populates (full
 `architecture`/`co_change` instead of the triage buckets) — it is not a
 different schema version, just a different set of sections inside the same
 envelope. Always check `schema_version` before consuming output in tooling, and
@@ -725,15 +795,15 @@ is not guaranteed to bump it.
 }
 ```
 
-This is the full per-function shape in `functions[]` — present on every `--mode
-snapshot` run, with or without `--all-functions`. `suppression_reason` is omitted (not null)
+This is the full per-function shape in `functions[]` — present on every `analyze`
+run, with or without `--all-functions`. `suppression_reason` is omitted (not null)
 when no suppression is present. `risk_factors` is the `{complexity, churn,
 touch, recency}` breakdown that sums into `activity_risk` (see Activity Risk
 above) — `fan_in`/`cyclic_dependency`/`depth`/`burst` have no field here; they were
 removed from `RiskFactors` in hotspots 2.0.
 
 **This is distinct from the triage view's per-function entries** (`triage.{active,quiet}.top[]`,
-present only on `--mode snapshot` *without* `--all-functions`): those use a
+present on a default `analyze` run *without* `--all-functions`): those use a
 slimmer shape (`function`, `file`, `line`, `band`, `tier`,
 `lrs`, `activity_risk`, `metrics`, `touch_count`, `days_since_last_change`,
 `fan_in`) that omits

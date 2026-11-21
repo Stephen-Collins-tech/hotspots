@@ -26,7 +26,7 @@ function moderateFunction(x) { return x > 0 ? x * 2 : -x; }
 
     # Snapshot JSON (all functions view)
     snap1 = repo / "snap1.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"], repo, out=snap1)
+    proc = r.run(["analyze", "--format", "json", "--all-functions", "src/main.ts"], repo, out=snap1)
     assert proc.returncode == 0
     s1 = read_json(snap1)
     assert "functions" in s1 and isinstance(s1["functions"], list)
@@ -46,7 +46,7 @@ function highComplexityFunction(x, y, z) {
 
     # Snapshot 2
     snap2 = repo / "snap2.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "src/main.ts"], repo, out=snap2)
+    proc = r.run(["analyze", "--format", "json", "--all-functions", "src/main.ts"], repo, out=snap2)
     assert proc.returncode == 0
     s2 = read_json(snap2)
     assert len(s2.get("functions", [])) >= 2
@@ -71,10 +71,11 @@ function highComplexityFunction(x, y, z) {
     assert delta_section.get("aggregates") is not None
 
 
-def test_snapshot_mode_format_error_does_not_persist(tmp_path: Path):
-    # Regression test for #222: `--mode snapshot` without `--format json`/
-    # `--explain` must error out (exit 1) *and* leave no durable state behind
-    # (no .hotspots/index.json, no .hotspots/snapshots/, no gate_history.json).
+def test_analyze_format_error_does_not_persist(tmp_path: Path):
+    # Regression test for #222: plain `analyze` (now the only mode — `--mode`
+    # itself was removed) without `--format json`/`--explain` must error out
+    # (exit 1) *and* leave no durable state behind (no .hotspots/index.json,
+    # no .hotspots/snapshots/, no gate_history.json).
     repo_root = Path(__file__).resolve().parents[1]
     r = Runner(repo_root)
     r.ensure_built()
@@ -89,7 +90,7 @@ function simpleFunction() { return 42; }
 
     assert not (repo / ".hotspots").exists()
 
-    proc = r.run(["analyze", "--mode", "snapshot", "--force", "src/main.ts"], repo)
+    proc = r.run(["analyze", "--force", "src/main.ts"], repo)
     assert proc.returncode == 1
     assert "text format without --explain is not supported" in proc.stderr
 
@@ -110,7 +111,7 @@ def test_html_output_writes_report_and_json_from_one_run(tmp_path: Path):
     snap = repo / "snap.json"
     report = repo / "out" / "report.html"
     proc = r.run(
-        ["analyze", "--mode", "snapshot", "--format", "json", "--no-persist",
+        ["analyze", "--format", "json", "--no-persist",
          "--html-output", str(report), "src/main.ts"],
         repo,
         out=snap,
@@ -137,12 +138,15 @@ def test_html_output_rejects_invalid_combinations(tmp_path: Path):
     write_ts(repo, "function simpleFunction() { return 42; }")
     report = str(repo / "report.html")
 
+    # --html-output itself has no mode to require anymore (--mode is gone), but
+    # the default --format text still requires --explain/--level, which this
+    # command doesn't pass, so it still fails -- just with that error instead.
     no_mode = r.run(["analyze", "--html-output", report, "src/main.ts"], repo)
     assert no_mode.returncode != 0
-    assert "--html-output is only valid with --mode snapshot" in no_mode.stderr
+    assert "text format without --explain is not supported" in no_mode.stderr
 
     with_html = r.run(
-        ["analyze", "--mode", "snapshot", "--format", "html", "--html-output", report, "src/main.ts"], repo
+        ["analyze", "--format", "html", "--html-output", report, "src/main.ts"], repo
     )
     assert with_html.returncode != 0
     assert "redundant with --format html" in with_html.stderr
@@ -160,7 +164,7 @@ def test_non_tty_progress_goes_to_stderr_with_phase_lines(tmp_path: Path):
     write_ts(repo, "function simpleFunction() { return 42; }")
 
     snap = repo / "snap.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src/main.ts"], repo, out=snap)
+    proc = r.run(["analyze", "--format", "json", "--no-persist", "src/main.ts"], repo, out=snap)
     assert proc.returncode == 0
     assert read_json(snap)["schema_version"] == 6  # stdout is still pure JSON
 
@@ -183,7 +187,7 @@ def test_unsupported_language_files_are_reported_on_stderr(tmp_path: Path):
     (repo / "src" / "engine.swift").write_text("int f();\n")
 
     snap = repo / "snap.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
+    proc = r.run(["analyze", "--format", "json", "--no-persist", "src"], repo, out=snap)
     assert proc.returncode == 0
     assert read_json(snap)["schema_version"] == 6  # stdout is still pure JSON
     assert "Not analyzed: 2 source file(s) in unsupported languages (1 .rb, 1 .swift)" in proc.stderr
@@ -198,7 +202,7 @@ def test_no_unsupported_line_when_nothing_was_left_out(tmp_path: Path):
     write_ts(repo, "function simpleFunction() { return 42; }")
 
     snap = repo / "snap.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=snap)
+    proc = r.run(["analyze", "--format", "json", "--no-persist", "src"], repo, out=snap)
     assert proc.returncode == 0
     assert "Not analyzed" not in proc.stderr
 
@@ -235,7 +239,7 @@ class Seg {
 
     # Snapshot: ids are qualified, overloads carry their signature, short names are plain.
     snap = repo / "snap.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--all-functions", "--no-persist", "src"], repo, out=snap)
+    proc = r.run(["analyze", "--format", "json", "--all-functions", "--no-persist", "src"], repo, out=snap)
     assert proc.returncode == 0
     ids = sorted(f["function_id"] for f in read_json(snap)["functions"])
     assert ids == [
@@ -245,7 +249,7 @@ class Seg {
     ], ids
 
     top = repo / "top.json"
-    proc = r.run(["analyze", "--mode", "snapshot", "--format", "json", "--no-persist", "src"], repo, out=top)
+    proc = r.run(["analyze", "--format", "json", "--no-persist", "src"], repo, out=top)
     assert proc.returncode == 0
     triage = read_json(top)["triage"]
     names = [f["function"] for tier in ("active", "quiet") for f in triage[tier].get("top", [])]
@@ -256,7 +260,7 @@ class Seg {
     cc.write_text(cc.read_text().replace("int plain() { return 0; }", "int plain(int x) { if (x) { return 1; } return 0; }"))
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "two"], cwd=repo, check=True)
-    r.run(["analyze", "--mode", "snapshot", "--format", "json", "src"], repo, out=repo / "persist.json")
+    r.run(["analyze", "--format", "json", "src"], repo, out=repo / "persist.json")
 
     # commit "one"'s snapshot was never persisted above (--no-persist), so this
     # needs --auto-analyze to build it on the fly for a real two-commit diff.

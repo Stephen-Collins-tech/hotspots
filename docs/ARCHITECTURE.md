@@ -35,7 +35,7 @@ Source Code
 [Output: text / JSON / HTML / SARIF]
 ```
 
-Stages above the enrichment line run on source code alone. Stages below require a git repository (`analyze --mode snapshot` or `diff`).
+Stages above the enrichment line run on source code alone. Stages below require a git repository (`analyze` or `diff`).
 
 ## Phase Details
 

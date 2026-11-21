@@ -1,10 +1,9 @@
-//! `hotspots telemetry` — opt-in, anonymous usage pings. Off unless the user enables it.
+//! Opt-in, anonymous usage pings. Off unless `HOTSPOTS_TELEMETRY=on` is set.
 //! See docs/TELEMETRY.md for the exact payload and every way to turn it off.
 
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
-use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,8 +28,8 @@ const CI_VARS: [&str; 5] = [
 ];
 
 /// The complete list of what a ping contains, as `(field, meaning)`. This is the single source of
-/// truth: `hotspots telemetry show`, the opt-in prompt, docs/TELEMETRY.md and a test all follow it.
-/// Adding a field to `Meta` without listing it here fails `payload_has_only_the_documented_fields`.
+/// truth: `analyze --show-config`, docs/TELEMETRY.md and a test all follow it. Adding a field to
+/// `Meta` without listing it here fails `payload_has_only_the_documented_fields`.
 pub(crate) const COLLECTED: [(&str, &str); 6] = [
     ("v", "hotspots version"),
     ("os", "operating system (e.g. linux, macos, windows)"),
@@ -49,36 +48,12 @@ pub(crate) const COLLECTED: [(&str, &str); 6] = [
     ),
 ];
 
-/// What the receiving server adds on its own. Nothing else is stored.
-pub(crate) const SERVER_SIDE: [&str; 3] = [
-    "the time the request arrived",
-    "the request's country, from the CDN (your IP address is not stored)",
-    "the User-Agent header, always the fixed string `hotspots-cli`",
-];
-
 /// Never collected, and not representable in the payload.
 pub(crate) const NEVER_COLLECTED: &str = "source code, file or repo names, paths, languages, \
 scores, analysis results, command arguments, environment variables, hostnames, usernames, IP addresses";
 
-#[derive(clap::Subcommand)]
-pub(crate) enum TelemetryAction {
-    /// Show whether telemetry is enabled
-    Status,
-    /// Turn anonymous usage pings on
-    Enable,
-    /// Turn anonymous usage pings off
-    Disable,
-    /// Print the exact payload that would be sent, without sending it
-    Show,
-    /// Generate a new random install id
-    Reset,
-}
-
 #[derive(Serialize, Deserialize, Default)]
 struct State {
-    enabled: bool,
-    /// The one-time prompt has been shown (whatever the answer was).
-    asked: bool,
     install_id: String,
     /// When a ping last succeeded.
     last_ping_unix: u64,
@@ -176,12 +151,17 @@ fn channel(exe_path: &str) -> &'static str {
     }
 }
 
-/// Environment-level opt-outs that win over a saved "enabled".
-fn env_opted_out(get: &dyn Fn(&str) -> Option<String>) -> bool {
+/// Telemetry is strictly opt-in via `HOTSPOTS_TELEMETRY=on`; every other value
+/// (unset, "off", anything else) keeps it off. `DO_NOT_TRACK` and common CI
+/// environment variables still force it off even when `HOTSPOTS_TELEMETRY=on`
+/// is set somewhere persistent (e.g. a shell profile), so a CI runner never
+/// pings by surprise.
+fn telemetry_enabled(get: &dyn Fn(&str) -> Option<String>) -> bool {
+    if get("HOTSPOTS_TELEMETRY").as_deref() != Some("on") {
+        return false;
+    }
     let set = |k: &str| get(k).is_some_and(|v| !v.is_empty() && v != "0");
-    set("DO_NOT_TRACK")
-        || get("HOTSPOTS_TELEMETRY").is_some_and(|v| v == "0")
-        || CI_VARS.iter().any(|k| set(k))
+    !(set("DO_NOT_TRACK") || CI_VARS.iter().any(|k| set(k)))
 }
 
 fn env_get(k: &str) -> Option<String> {
@@ -243,24 +223,17 @@ fn ping_due(state: &State, now: u64) -> bool {
 
 /// Called after a command finishes. Silent and best-effort: never changes exit codes or output.
 pub(crate) fn after_command(cmd: &'static str) {
-    if env_opted_out(&env_get) {
+    if !telemetry_enabled(&env_get) {
         return;
     }
     let Some(path) = state_path() else { return };
     let mut state = read_state(&path);
 
-    if !state.asked && std::io::stdin().is_terminal() && std::io::stderr().is_terminal() {
-        state.asked = true;
-        state.enabled = prompt_opt_in();
-        if state.enabled && state.install_id.is_empty() {
-            state.install_id = new_install_id();
-        }
+    if state.install_id.is_empty() {
+        state.install_id = new_install_id();
         let _ = write_state(&path, &state);
     }
 
-    if !state.enabled || state.install_id.is_empty() {
-        return;
-    }
     let now = now_unix();
     if !ping_due(&state, now) {
         return;
@@ -275,7 +248,33 @@ pub(crate) fn after_command(cmd: &'static str) {
     }
 }
 
-/// One line for `telemetry status`, so a failing ping is visible on request, never in normal output.
+/// One line for `analyze --show-config`: whether telemetry is active right
+/// now, and what it sends when it is. Pure env-var check plus a best-effort
+/// state-file read — never prompts, never blocks.
+pub(crate) fn status_line() -> String {
+    if !telemetry_enabled(&env_get) {
+        return format!(
+            "Telemetry: disabled (set HOTSPOTS_TELEMETRY=on to enable). Never collected: {NEVER_COLLECTED}."
+        );
+    }
+    let fields = COLLECTED
+        .iter()
+        .map(|(f, _)| *f)
+        .collect::<Vec<_>>()
+        .join(", ");
+    match state_path() {
+        Some(path) => {
+            let state = read_state(&path);
+            format!(
+                "Telemetry: enabled (HOTSPOTS_TELEMETRY=on). Sends: {fields}. {}",
+                last_ping_summary(&state, now_unix())
+            )
+        }
+        None => format!("Telemetry: enabled (HOTSPOTS_TELEMETRY=on). Sends: {fields}."),
+    }
+}
+
+/// One line for `analyze --show-config`'s telemetry status, so a failing ping is visible on request.
 fn last_ping_summary(state: &State, now: u64) -> String {
     let ago = |t: u64| {
         let s = now.saturating_sub(t);
@@ -300,95 +299,6 @@ fn last_ping_summary(state: &State, now: u64) -> String {
     }
 }
 
-fn prompt_opt_in() -> bool {
-    eprintln!();
-    eprintln!("Share anonymous usage stats? At most once a day, this is everything sent:");
-    for (field, meaning) in COLLECTED {
-        eprintln!("  {field:<8} {meaning}");
-    }
-    eprintln!("Never sent: {NEVER_COLLECTED}.");
-    eprintln!("See the exact payload any time: `hotspots telemetry show`.");
-    eprint!("Enable? [y/N] ");
-    let _ = std::io::stderr().flush();
-    let mut line = String::new();
-    if std::io::stdin().lock().read_line(&mut line).is_err() {
-        return false;
-    }
-    let enabled = matches!(line.trim().to_lowercase().as_str(), "y" | "yes");
-    eprintln!(
-        "{}",
-        if enabled {
-            "Telemetry enabled. Disable any time: `hotspots telemetry disable`."
-        } else {
-            "Telemetry stays off."
-        }
-    );
-    enabled
-}
-
-pub(crate) fn handle_telemetry(action: TelemetryAction) -> anyhow::Result<()> {
-    let path = state_path().ok_or_else(|| anyhow::anyhow!("could not find a home directory"))?;
-    let mut state = read_state(&path);
-    match action {
-        TelemetryAction::Status => {
-            let overridden = env_opted_out(&env_get);
-            println!(
-                "Telemetry is {}{}.",
-                if state.enabled { "enabled" } else { "disabled" },
-                if state.enabled && overridden {
-                    " but overridden off by the environment (DO_NOT_TRACK, HOTSPOTS_TELEMETRY=0 or CI)"
-                } else {
-                    ""
-                }
-            );
-            if state.enabled {
-                println!("{}", last_ping_summary(&state, now_unix()));
-            }
-            println!("State file: {}", path.display());
-        }
-        TelemetryAction::Enable => {
-            state.enabled = true;
-            state.asked = true;
-            if state.install_id.is_empty() {
-                state.install_id = new_install_id();
-            }
-            write_state(&path, &state)?;
-            println!("Telemetry enabled. See exactly what is sent with `hotspots telemetry show`.");
-        }
-        TelemetryAction::Disable => {
-            state.enabled = false;
-            state.asked = true;
-            write_state(&path, &state)?;
-            println!("Telemetry disabled.");
-        }
-        TelemetryAction::Show => {
-            if state.install_id.is_empty() {
-                state.install_id = "<generated when enabled>".to_string();
-            }
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&build_event(&state, "analyze"))?
-            );
-            println!("POST {ENDPOINT} at most once every 24 hours, only while enabled.");
-            println!("\nFields:");
-            for (field, meaning) in COLLECTED {
-                println!("  {field:<8} {meaning}");
-            }
-            println!("\nAdded by the server:");
-            for item in SERVER_SIDE {
-                println!("  - {item}");
-            }
-            println!("\nNever collected: {NEVER_COLLECTED}.");
-        }
-        TelemetryAction::Reset => {
-            state.install_id = new_install_id();
-            write_state(&path, &state)?;
-            println!("Generated a new random install id.");
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,20 +313,37 @@ mod tests {
     }
 
     #[test]
-    fn opt_out_env_vars() {
-        assert!(!env_opted_out(&env(&[])));
-        assert!(env_opted_out(&env(&[("DO_NOT_TRACK", "1")])));
-        assert!(env_opted_out(&env(&[("HOTSPOTS_TELEMETRY", "0")])));
-        assert!(env_opted_out(&env(&[("CI", "true")])));
-        assert!(env_opted_out(&env(&[("GITHUB_ACTIONS", "true")])));
-        assert!(!env_opted_out(&env(&[("DO_NOT_TRACK", "0")])));
+    fn telemetry_requires_explicit_on() {
+        assert!(!telemetry_enabled(&env(&[])));
+        assert!(!telemetry_enabled(&env(&[("HOTSPOTS_TELEMETRY", "1")])));
+        assert!(!telemetry_enabled(&env(&[("HOTSPOTS_TELEMETRY", "off")])));
+        assert!(telemetry_enabled(&env(&[("HOTSPOTS_TELEMETRY", "on")])));
+    }
+
+    #[test]
+    fn opt_out_env_vars_force_off_even_when_on() {
+        assert!(!telemetry_enabled(&env(&[
+            ("HOTSPOTS_TELEMETRY", "on"),
+            ("DO_NOT_TRACK", "1"),
+        ])));
+        assert!(!telemetry_enabled(&env(&[
+            ("HOTSPOTS_TELEMETRY", "on"),
+            ("CI", "true"),
+        ])));
+        assert!(!telemetry_enabled(&env(&[
+            ("HOTSPOTS_TELEMETRY", "on"),
+            ("GITHUB_ACTIONS", "true"),
+        ])));
+        assert!(telemetry_enabled(&env(&[
+            ("HOTSPOTS_TELEMETRY", "on"),
+            ("DO_NOT_TRACK", "0"),
+        ])));
     }
 
     #[test]
     fn failed_ping_retries_after_an_hour_not_a_day() {
         let day = PING_INTERVAL_SECS;
         let mut st = State {
-            enabled: true,
             install_id: "x".into(),
             ..Default::default()
         };

@@ -25,8 +25,6 @@ function a(x){return x+1}
     proc = r.run(
         [
             "analyze",
-            "--mode",
-            "snapshot",
             "--format",
             "html",
             "--output",

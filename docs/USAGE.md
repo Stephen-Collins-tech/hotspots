@@ -3,41 +3,46 @@
 ## Basic Analysis
 
 ```bash
-hotspots analyze src/              # text output, all functions
-hotspots analyze src/ --top 20     # top 20 by LRS
-hotspots analyze src/ --min-lrs 5  # only LRS ≥ 5.0
-hotspots analyze src/ --format json
-hotspots analyze src/ --format json | jq '.[] | select(.band=="critical")'
+hotspots analyze src/ --format json                  # JSON output, all functions
+hotspots analyze src/ --format json --top 20         # top 20 by LRS
+hotspots analyze src/ --format json --min-lrs 5       # only LRS ≥ 5.0
+hotspots analyze src/ --explain --top 10              # human-readable, with risk breakdown
+hotspots analyze src/ --format json | jq '.functions[] | select(.band=="critical")'
 ```
 
-## Snapshot Mode
+Text format needs `--explain` or `--level file` (plain text output without either is an
+error — see [Troubleshooting](#troubleshooting)); `--format json`/`html`/`sarif` need
+neither.
 
-Snapshot mode captures a full analysis tied to the current git commit. It enables:
+## Snapshots
+
+Every `analyze` run captures a full analysis tied to the current git commit and, by
+default, writes it to disk. This enables:
 - Diff comparisons (`hotspots diff`)
 - HTML trend charts
 - Trained ranker scoring
 
 ```bash
-# Capture current state
-hotspots analyze . --mode snapshot
+# Capture current state (persisted by default)
+hotspots analyze .
 
-# Snapshot with detailed per-function explanation
-hotspots analyze . --mode snapshot --format text --explain --top 10
+# With detailed per-function explanation
+hotspots analyze . --format text --explain --top 10
 
-# Snapshot without saving to disk
-hotspots analyze . --mode snapshot --no-persist --format json
+# Without saving to disk
+hotspots analyze . --no-persist --format json
 
 # Regenerate an existing snapshot (e.g. after config change)
-hotspots analyze . --mode snapshot --force
+hotspots analyze . --force
 ```
 
 Snapshots are stored as `.hotspots/snapshots/<commit-sha>.json.zst` and are immutable by default.
 
-### Higher-level views (snapshot mode only)
+### Higher-level views
 
 ```bash
 # File-level risk table (ranked by composite file_risk_score)
-hotspots analyze . --mode snapshot --format text --level file
+hotspots analyze . --format text --level file
 ```
 
 File risk score = `max_cc×0.4 + avg_cc×0.3 + log2(fn_count+1)×0.2`.
@@ -54,9 +59,9 @@ hotspots analyze . --cold-start
 hotspots analyze . --cold-start --top 20
 ```
 
-It skips the trained-ranker/snapshot pipeline entirely (`--mode` can't be combined with
-it) and picks one of three strategies per-repo, printed as the route before the ranked
-list:
+It skips the trained-ranker/snapshot pipeline entirely (mutually exclusive with `--axes`
+and every other absorbed-subcommand flag) and picks one of three strategies per-repo,
+printed as the route before the ranked list:
 
 - **`formula`** — commit activity is concentrated in a few files; the existing
   `activity_risk`/`lrs` score is already a good day-one ranking.
@@ -90,8 +95,8 @@ hotspots diff main HEAD --format json
 
 Both refs must have existing snapshots. If one is missing:
 ```bash
-git checkout main && hotspots analyze . --mode snapshot
-git checkout my-branch && hotspots analyze . --mode snapshot
+git checkout main && hotspots analyze .
+git checkout my-branch && hotspots analyze .
 hotspots diff main HEAD
 ```
 
@@ -134,15 +139,17 @@ table; JSON exposes the full ranking as `file_risk_score`/`file_risk_diff_percen
 shown with a misleading low score, and a diff with only one scoreable file gets no flag at
 all. See [Reference](REFERENCE.md) for the full field list.
 
-## `hotspots coordinate`
+## `hotspots analyze` — ownership risk
 
 Before starting work on a set of files — your own, or a set an AI coding agent is about
-to touch — check whether they're entangled with other in-flight work:
+to touch — check whether they're entangled with other in-flight work. This used to be the
+standalone `hotspots coordinate` command; it's a set of flags on `analyze` now:
 
 ```bash
-hotspots coordinate . --files src/api.ts,src/db.ts
-hotspots coordinate . --staged                    # from `git diff --cached --name-only`
-git diff main | hotspots coordinate . --diff       # derive the file set from a unified diff on stdin
+hotspots analyze . --files src/api.ts,src/db.ts
+hotspots analyze . --staged                    # from `git diff --cached --name-only`
+hotspots analyze . --ownership                 # same as --staged, with no file list to type
+git diff main | hotspots analyze . --diff      # derive the file set from a unified diff on stdin
 ```
 
 Output (JSON only today):
@@ -210,7 +217,7 @@ future regression detection on them):
 
 Each policy accepts `"block"` (default), `"warn"` (report, exit 0), or `"off"`
 (skip entirely). Downgrading below `"block"` **requires** a `<name>_reason` string —
-`hotspots config validate` rejects a missing or blank one. This mirrors the
+`hotspots analyze --validate-config` rejects a missing or blank one. This mirrors the
 `// hotspots-ignore: <reason>` convention: the point isn't to make the gate
 unbypassable (anyone with commit access to `.hotspotsrc.json` can weaken it, same as
 anyone with access to a CI workflow file can remove a required check) — it's to make
@@ -332,9 +339,8 @@ hotspots:
 ### Text
 
 ```bash
-hotspots analyze src/ --format text             # basic table
-hotspots analyze . --mode snapshot --format text --explain  # with per-function detail
-hotspots analyze . --mode snapshot --format text --level file
+hotspots analyze . --format text --explain  # with per-function detail
+hotspots analyze . --format text --level file
 ```
 
 Color-coded by risk band (critical=red, high=yellow, moderate=blue, low=green). Disable: `NO_COLOR=1 hotspots analyze ...`.
@@ -353,12 +359,12 @@ No `✦` lines appear without a trained ranker.
 
 ```bash
 hotspots analyze src/ --format json
-hotspots analyze . --mode snapshot --format json --all-functions  # full functions array
+hotspots analyze . --format json --all-functions  # full functions array
 ```
 
 Every JSON output is the unified master-schema envelope (`schema_version: 6`, same version
-across `analyze`, `diff`, `coordinate`, and `--axes`). Default snapshot JSON omits the flat
-`functions` array in favor of the triage-first structure (`active`/`quiet` groups);
+across `analyze`, `diff`, the ownership-risk flags, and `--axes`). Default JSON omits the
+flat `functions` array in favor of the triage-first structure (`active`/`quiet` groups);
 use `--all-functions` to get the flat `functions` array instead. Always check `schema_version`
 in tooling.
 
@@ -380,7 +386,7 @@ jq '.functions | sort_by(.lrs) | reverse | .[0:10]' output.json
 Interactive self-contained report with sortable table, risk landscape scatter plot, and trend charts (requires ≥ 2 snapshots):
 
 ```bash
-hotspots analyze . --mode snapshot --format html
+hotspots analyze . --format html
 open .hotspots/report.html   # macOS
 ```
 
@@ -388,20 +394,20 @@ Need JSON and the report for the same commit? One run writes both, so the second
 expensive as the first on large repos) is avoided:
 
 ```bash
-hotspots analyze . --mode snapshot --format json --html-output report.html > snapshot.json
+hotspots analyze . --format json --html-output report.html > snapshot.json
 ```
 
 ### SARIF (GitHub Code Scanning)
 
 ```bash
-hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+hotspots analyze . --format sarif --output .hotspots/results.sarif
 ```
 
-Requires `--mode snapshot`. Maps bands to SARIF levels: critical→error, high→warning, moderate→note. Integrate with GitHub code scanning:
+Maps bands to SARIF levels: critical→error, high→warning, moderate→note. Integrate with GitHub code scanning:
 
 ```yaml
 - name: Run Hotspots
-  run: hotspots analyze . --mode snapshot --format sarif --output .hotspots/results.sarif
+  run: hotspots analyze . --format sarif --output .hotspots/results.sarif
 - uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: .hotspots/results.sarif
@@ -437,22 +443,25 @@ Touch metrics measure how often a file has changed in the last 365 days and how 
 
 ```bash
 # Default: touch, churn and recency are computed
-hotspots analyze . --mode snapshot
+hotspots analyze .
 
-# Skip all git I/O (benchmarking, or very large repos)
-hotspots analyze . --mode snapshot --skip-touch-metrics
+# Skip all git I/O (benchmarking, or very large repos) — an env var now, not a flag
+HOTSPOTS_SKIP_TOUCH_METRICS=1 hotspots analyze .
 ```
 
 ## Snapshot Management
 
+This used to be the standalone `hotspots prune` command; it's the `--prune` flag on
+`analyze` now:
+
 ```bash
 # Prune snapshots for deleted/force-pushed branches
-hotspots prune --unreachable --dry-run
-hotspots prune --unreachable --older-than 30
+hotspots analyze --prune --unreachable --dry-run
+hotspots analyze --prune --unreachable --older-than 30
 
 # Compact snapshot storage (1 = deltas between snapshots, 2 = keep only band changes)
-hotspots prune --compact 1 --dry-run
-hotspots prune --compact 1
+hotspots analyze --prune --compact 1 --dry-run
+hotspots analyze --prune --compact 1
 ```
 
 ## Training a Repo-Specific Ranker
@@ -460,17 +469,14 @@ hotspots prune --compact 1
 By default, hotspots ranks by LRS. Training fits a model from your repo's bug-fix history to re-rank based on which structural features actually predict bugs in *your* codebase.
 
 ```bash
-# File-level labels (fast)
+# File-level labels (fast); always runs a pre-flight screen and a post-training P@K eval
 hotspots train .
 
 # Blame-based function-level labels (more precise, slower)
 hotspots train . --blame
-
-# Train and immediately check whether the model is better than base LRS
-hotspots train . --blame --eval
 ```
 
-Example `--eval` output:
+There is no `--eval` flag — the P@K report always prints after a successful training run:
 ```
 P@K evaluation (365-day fix-label window):
   K      P@K      base_rate
@@ -488,11 +494,7 @@ hotspots: using trained ranker (model class: Ridge)
 
 Training requires: ≥ 50 functions in snapshot, ≥ 5 positive and ≥ 10 negative labels from fix commits. Fix keywords: `fix:`, `bug`, `patch`, `hotfix`, `regression`, `defect`.
 
-Training is most valuable on repos with 1+ year of history, recognizable fix-commit conventions, and bug clusters in specific files. Use `--screen` to check suitability before fitting:
-
-```bash
-hotspots train . --screen   # check only, no model written
-```
+Training is most valuable on repos with 1+ year of history, recognizable fix-commit conventions, and bug clusters in specific files. There is no `--screen` flag to check suitability separately — every `train` run screens the repo first and aborts with `SKIP_FT` before fitting anything if the signal is too flat.
 
 ### Ridge vs. RandomForest: automatic model class selection
 
@@ -537,16 +539,19 @@ repo, so you always know which kind of model produced your rankings.
 
 ```bash
 # Agent-optimized snapshot JSON (triage buckets + action text)
-hotspots analyze . --mode snapshot --format json
+hotspots analyze . --format json
 
 # Flat array for tooling that expects a complete function list
-hotspots analyze . --mode snapshot --format json --all-functions
+hotspots analyze . --format json --all-functions
 
 # Diff for PR review context
 hotspots diff --auto-analyze --format json
 
 # Pipe critical functions to Claude/Cursor/Copilot
 hotspots analyze src/ --format json | jq '.functions[] | select(.lrs > 9)'
+
+# Print the dense, machine-readable agent contract (flags, JSON shape, exit codes)
+hotspots analyze --help-agent
 ```
 
 ## Hooks and CI templates
@@ -555,7 +560,7 @@ Policy checks run via `diff --auto-analyze --policy`, which compares against the
 merge-base. Seed a baseline first, otherwise `--auto-analyze` has to build it on the fly:
 
 ```bash
-hotspots analyze . --mode snapshot
+hotspots analyze .
 ```
 
 **Pre-push hook, with the pre-commit framework** (`.pre-commit-config.yaml`):
@@ -631,9 +636,9 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             hotspots diff --auto-analyze --policy
           else
-            # --mode snapshot requires --format json (or --explain) when not
-            # printing text; the snapshot is persisted to .hotspots/ either way.
-            hotspots analyze . --mode snapshot --format json > /dev/null
+            # text format requires --explain (or --level) when not --format
+            # json/html/sarif; the snapshot is persisted to .hotspots/ either way.
+            hotspots analyze . --format json > /dev/null
           fi
 ```
 
@@ -641,12 +646,12 @@ jobs:
 
 **`"snapshot already exists and differs"`** — regenerate with `--force`.
 
-**`"no snapshot found for ref ..."` from `diff`** — run `hotspots analyze . --mode snapshot` on
+**`"no snapshot found for ref ..."` from `diff`** — run `hotspots analyze .` on
 that ref first, or pass `--auto-analyze` to generate it on the fly.
 
 **`"failed to extract git context"`** — must be run inside a git repository.
 
-**Snapshot mode text output requires `--explain` or `--level`** — text format in snapshot mode without one of these flags is an error.
+**Text format without `--explain` is not supported** — `--format text` needs `--explain` or `--level file`; use `--format json` if you don't want either.
 
 **`--no-persist` and `--force` are mutually exclusive** — pick one.
 
