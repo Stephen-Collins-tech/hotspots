@@ -19,12 +19,14 @@ hotspots analyze <PATH> [OPTIONS]
 | `--config PATH` | auto | Path to config file |
 | `--output PATH` | `.hotspots/report.html` | Output file (HTML/SARIF) |
 | `--html-output PATH` | — | Also write the HTML report from the same analysis (snapshot mode, with a non-html `--format`). Saves running a second full analysis when you want JSON and HTML for one commit; on large repos that second pass is roughly as costly as the first |
+| `--source-url URL` | — | URL of the written analysis post to link from the HTML report (HTML format only) |
 | `--explain` | off | Per-function risk breakdown + phrase-table explanations for CRITICAL/HIGH when a trained ranker is active (snapshot+text only) |
 | `--level` | — | `file` aggregate view (ranked file risk table) (snapshot+text only) |
 | `--force` | off | Overwrite existing snapshot |
 | `--no-persist` | off | Skip writing snapshot to disk |
 | `--skip-touch-metrics` | off | Skip all git log I/O: touch counts, churn, recency, directed coupling and burst score are omitted. For benchmarking or very large repos |
 | `--all-functions` | off | Output flat array instead of triage buckets (snapshot JSON only) |
+| `--axes` | off | Print three independent ranked sections — Risk, Coupling, Ownership — instead of a single merged list. Files may appear in more than one section; overlap is not deduplicated. `--top` controls section size |
 | `--skip-gate` | off | Disable suppression gate P@10 check |
 | — | — | Suppression gate verdicts are smoothed: `Suppressed` is only reported after 3 consecutive raw `Suppressed` readings across runs, tracked in `.hotspots/gate_history.json` |
 | `--cold-start` | off | Gini/label-density-gated ranking with no trained ranker required — see [Cold-Start Ranking](#cold-start-ranking) |
@@ -129,6 +131,7 @@ Trained: 0 trees × depth 0 | 874 samples | elapsed 2s
 |---|---|---|
 | `--blame` | off | Blame-based function-level labels (slower, more precise) |
 | `--label-window DAYS` | `365` | Days of history to scan |
+| `--label-before DATE` | — | Upper bound for the label window (ISO date, e.g. `2025-01-01`). Only fix commits before this date are used as training labels — useful for matching a specific benchmark label window exactly |
 | `--n-estimators N` | `200` | Trees in RandomForest (ignored if the screener selects Ridge) |
 | `--max-depth N` | `6` | Maximum tree depth (ignored if the screener selects Ridge) |
 | `--output PATH` | `.hotspots/ranker.json` | Model output path |
