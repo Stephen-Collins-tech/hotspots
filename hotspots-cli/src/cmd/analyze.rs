@@ -155,10 +155,100 @@ fn env_jobs() -> Option<usize> {
     std::env::var("HOTSPOTS_JOBS").ok()?.parse().ok()
 }
 
+/// Checks whether `args` selects one of the subcommands absorbed into
+/// `analyze` (`--help-agent`; `--show-config`/`--validate-config`; `--prune`
+/// plus its subflags; or the coordinate selectors `--files`/`--diff`/
+/// `--staged`/`--ownership`) and, if so, runs it and returns its result.
+/// Returns `None` when none of those flags is set, so `handle_analyze` falls
+/// through to the plain analysis path. `validate_dispatch_flags` has already
+/// ensured at most one of these triggers is active, so trying each in turn
+/// (rather than one combined condition) is just a dispatch order, not a
+/// precedence rule. Split into one small function per absorbed command —
+/// mirroring `validate_analyze_flags`'s own decomposition — so each stays
+/// simple on its own instead of recreating a single large dispatch function.
+fn dispatch_absorbed_command(args: &AnalyzeArgs) -> Option<anyhow::Result<()>> {
+    dispatch_help_agent(args)
+        .or_else(|| dispatch_config(args))
+        .or_else(|| dispatch_prune(args))
+        .or_else(|| dispatch_coordinate(args))
+}
+
+fn dispatch_help_agent(args: &AnalyzeArgs) -> Option<anyhow::Result<()>> {
+    let action = args.help_agent?;
+    crate::cmd::agent::handle_agent(action);
+    Some(Ok(()))
+}
+
+fn dispatch_config(args: &AnalyzeArgs) -> Option<anyhow::Result<()>> {
+    if !(args.show_config || args.validate_config) {
+        return None;
+    }
+    let action = if args.validate_config {
+        crate::cmd::config::ConfigAction::Validate {
+            path: args.config_path.clone(),
+        }
+    } else {
+        crate::cmd::config::ConfigAction::Show {
+            path: args.config_path.clone(),
+        }
+    };
+    Some(crate::cmd::config::handle_config(action))
+}
+
+fn dispatch_prune(args: &AnalyzeArgs) -> Option<anyhow::Result<()>> {
+    if !args.prune {
+        return None;
+    }
+    Some(crate::cmd::prune::handle_prune(
+        args.unreachable,
+        args.older_than,
+        args.compact,
+        args.dry_run,
+    ))
+}
+
+fn dispatch_coordinate(args: &AnalyzeArgs) -> Option<anyhow::Result<()>> {
+    if !(args.files.is_some() || args.diff || args.staged || args.ownership) {
+        return None;
+    }
+    let diff_text = match read_coordinate_diff_stdin(args) {
+        Ok(text) => text,
+        Err(e) => return Some(Err(e)),
+    };
+    // `--ownership` on its own (no explicit file selector) defaults to the
+    // most common pre-commit use case: ownership risk for staged changes.
+    let staged = args.staged || (args.ownership && args.files.is_none() && diff_text.is_none());
+    Some(crate::cmd::coordinate::handle_coordinate(
+        crate::cmd::coordinate::CoordinateArgs {
+            files: args.files.clone(),
+            diff: diff_text,
+            staged,
+            path: args.path.clone(),
+        },
+    ))
+}
+
+/// Reads the unified diff from stdin for `dispatch_coordinate` when `--diff`
+/// is set; `None` otherwise (no stdin read happens in that case).
+fn read_coordinate_diff_stdin(args: &AnalyzeArgs) -> anyhow::Result<Option<String>> {
+    if !args.diff {
+        return Ok(None);
+    }
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .context("read diff from stdin")?;
+    Ok(Some(buf))
+}
+
 pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     // Anchor progress timestamps to the start of the run.
     let _ = process_start();
     validate_analyze_flags(&args)?;
+
+    if let Some(result) = dispatch_absorbed_command(&args) {
+        return result;
+    }
 
     let AnalyzeArgs {
         path,
@@ -176,58 +266,8 @@ pub(crate) fn handle_analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
         html_output,
         cold_start,
         axes,
-        files,
-        diff,
-        staged,
-        ownership,
-        prune,
-        unreachable,
-        older_than,
-        compact,
-        dry_run,
-        show_config,
-        validate_config,
-        help_agent,
+        ..
     } = args;
-
-    if let Some(action) = help_agent {
-        crate::cmd::agent::handle_agent(action);
-        return Ok(());
-    }
-
-    if show_config || validate_config {
-        let action = if validate_config {
-            crate::cmd::config::ConfigAction::Validate { path: config_path }
-        } else {
-            crate::cmd::config::ConfigAction::Show { path: config_path }
-        };
-        return crate::cmd::config::handle_config(action);
-    }
-
-    if prune {
-        return crate::cmd::prune::handle_prune(unreachable, older_than, compact, dry_run);
-    }
-
-    if files.is_some() || diff || staged || ownership {
-        let diff_text = if diff {
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .context("read diff from stdin")?;
-            Some(buf)
-        } else {
-            None
-        };
-        // `--ownership` on its own (no explicit file selector) defaults to the
-        // most common pre-commit use case: ownership risk for staged changes.
-        let staged = staged || (ownership && files.is_none() && diff_text.is_none());
-        return crate::cmd::coordinate::handle_coordinate(crate::cmd::coordinate::CoordinateArgs {
-            files,
-            diff: diff_text,
-            staged,
-            path,
-        });
-    }
 
     // Configure the global rayon thread pool before any parallel work begins.
     // Worker threads default to a 2MB stack (std::thread default), which is too
