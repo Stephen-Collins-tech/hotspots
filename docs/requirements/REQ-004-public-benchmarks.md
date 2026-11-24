@@ -119,7 +119,7 @@ for repo in corpus["repos"]:
     scores_path = out / "scores.json"
     with scores_path.open("w") as f:
         subprocess.run(
-            [binary, "analyze", str(worktree), "--mode", "snapshot",
+            [binary, "analyze", str(worktree),
              "--format", "json", "--all-functions"],
             stdout=f, check=True,
         )
