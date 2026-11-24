@@ -5,9 +5,9 @@
 #   ./scripts/rss-watch.sh [--interval N] [--csv FILE] -- <hotspots args...>
 #
 # Examples:
-#   ./scripts/rss-watch.sh -- analyze /path/to/repo --mode snapshot
-#   ./scripts/rss-watch.sh --interval 0.5 --csv /tmp/rss.csv -- analyze . --mode snapshot
-#   ./scripts/rss-watch.sh --csv /tmp/rss.csv -- analyze /path/to/expo/expo --mode snapshot \
+#   ./scripts/rss-watch.sh -- analyze /path/to/repo
+#   ./scripts/rss-watch.sh --interval 0.5 --csv /tmp/rss.csv -- analyze .
+#   ./scripts/rss-watch.sh --csv /tmp/rss.csv -- analyze /path/to/expo/expo \
 #       --callgraph-skip-above 500000
 #
 # Output columns (stdout + optional CSV):

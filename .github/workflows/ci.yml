@@ -164,7 +164,7 @@ jobs:
 
       - name: Create snapshot
         if: github.event_name == 'push'
-        run: ./target/release/hotspots analyze . --mode snapshot --format json --force
+        run: ./target/release/hotspots analyze . --format json --force
 
       - name: Cache snapshot
         if: github.event_name == 'push'
@@ -185,7 +185,7 @@ jobs:
 
       - name: Create HEAD snapshot
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
-        run: ./target/release/hotspots analyze . --mode snapshot --format json --force
+        run: ./target/release/hotspots analyze . --format json --force
 
       - name: Generate HTML delta report
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit == 'true'
@@ -198,7 +198,7 @@ jobs:
       - name: Generate HTML snapshot report (cold cache fallback)
         if: github.event_name == 'pull_request' && steps.base-snapshot.outputs.cache-hit != 'true'
         run: |
-          ./target/release/hotspots analyze . --mode snapshot --format html \
+          ./target/release/hotspots analyze . --format html \
             --output .hotspots/delta-report.html --force
         continue-on-error: true
 

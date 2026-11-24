@@ -91,7 +91,6 @@ jobs:
           echo ""
 
           hotspots analyze "$ANALYZE_PATH" \
-            --mode snapshot \
             --format json \
             --no-persist \
             $TOUCH_ARGS \
