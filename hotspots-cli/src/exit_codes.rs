@@ -4,6 +4,11 @@
 /// `hotspots diff --policy` found a blocking policy violation.
 pub(crate) const POLICY_VIOLATION: i32 = 1;
 
+/// `hotspots analyze --validate-config` (or `config validate`) found an invalid config file.
+/// Shares the same numeric value as [`POLICY_VIOLATION`] but is a distinct failure mode,
+/// hence its own name.
+pub(crate) const CONFIG_INVALID: i32 = 1;
+
 /// `hotspots diff --auto-analyze` failed to generate a missing snapshot.
 pub(crate) const AUTO_ANALYZE_FAILED: i32 = 2;
 
