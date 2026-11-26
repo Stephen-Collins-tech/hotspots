@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Drop removed --mode flag from CI and docs (#382)
 - Update cookie and url to patch RUSTSEC-2026-0594 and RUSTSEC-2026-0592 (#385)
 
+
+### Documentation
+- Add missing --source-url, --axes, --label-before flags to REFERENCE.md (#377)
+
 ## [5.0.0] - 2026-11-21
 
 ### Documentation
