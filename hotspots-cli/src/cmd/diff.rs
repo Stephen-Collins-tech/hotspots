@@ -128,10 +128,10 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
                 }
             }
             if any_failed {
-                std::process::exit(2);
+                std::process::exit(crate::exit_codes::AUTO_ANALYZE_FAILED);
             }
             eprintln!("\nOnce both snapshots exist, re-run: hotspots diff {base} {head}");
-            std::process::exit(3);
+            std::process::exit(crate::exit_codes::SNAPSHOT_MISSING);
         }
     };
 
@@ -190,7 +190,7 @@ pub(crate) fn handle_diff(args: DiffArgs) -> anyhow::Result<()> {
     // Render output
     let has_blocking_failures = emit_diff_output(&delta_val, format, policy, output, explain)?;
     if has_blocking_failures {
-        std::process::exit(1);
+        std::process::exit(crate::exit_codes::POLICY_VIOLATION);
     }
 
     Ok(())

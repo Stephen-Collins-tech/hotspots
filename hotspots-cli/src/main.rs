@@ -7,6 +7,7 @@
 // - Identical input yields byte-for-byte identical output
 
 mod cmd;
+mod exit_codes;
 mod output;
 mod util;
 
@@ -338,13 +339,13 @@ fn main() -> anyhow::Result<()> {
                 scope_to_diff,
                 explain,
             }) {
-                // Exit 1 is reserved for a policy *violation* (see --policy's
-                // --help text and handle_diff's own std::process::exit(1)).
+                // POLICY_VIOLATION is reserved for a policy *violation* (see
+                // --policy's --help text and handle_diff's own exit there).
                 // Any other failure reaching here (config load, ref
                 // resolution, delta computation, etc.) is a tool error, not
                 // a policy finding, so CI must be able to tell them apart.
                 eprintln!("Error: {e:#}");
-                std::process::exit(4);
+                std::process::exit(exit_codes::DIFF_TOOL_ERROR);
             }
         }
         Commands::Train {
