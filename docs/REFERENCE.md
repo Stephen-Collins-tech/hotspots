@@ -101,7 +101,7 @@ explicitly if auto-detection picks the wrong branch or fails.
 |---|---|
 | `--format` | `text` (default), `json`, `html` |
 | `--output PATH` | Write output to file |
-| `--policy` | Evaluate policies; exit 1 on blocking violations |
+| `--policy` | Evaluate policies; exit 1 on blocking violations, exit 4 on a tool error (see [Exit codes](#exit-codes)) |
 | `--top N` | Limit to N `new`/`modified` functions by LRS (new) / \|ΔLRS\| (modified); `deleted` functions never count toward N (see below) |
 | `--config PATH` | Config file |
 | `--auto-analyze` | Generate missing snapshots via git worktrees |
@@ -427,14 +427,14 @@ hotspots --version
 | Code | Meaning |
 |---|---|
 | 0 | Success (or warnings only) |
-| 1 | Error or blocking policy failure |
+| 1 | Blocking policy failure (`--policy`) |
 | 2 | Auto-analysis failed (`hotspots diff --auto-analyze` only) |
 | 3 | Snapshot missing (`hotspots diff` only) |
+| 4 | Tool error in `hotspots diff` other than a policy violation (e.g. bad ref, config load failure) |
 
-Exit code 4 ("policy requested but could not be evaluated") existed for `analyze --mode delta
---policy`'s baseline-delta case; removed along with that mode. `diff` always requires both
-snapshots up front (or generates them via `--auto-analyze`), so it can never reach that state —
-exit 3 already covers "a snapshot is missing" more specifically.
+`hotspots analyze` (non-diff) still reports any error on exit 1; the 1 vs. 4 split above is
+specific to `diff`, since that's the command CI gates on and where conflating "the code has a
+real policy violation" with "the tool itself failed to run" is most costly.
 
 ---
 

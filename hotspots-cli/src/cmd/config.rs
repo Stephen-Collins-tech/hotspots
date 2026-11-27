@@ -48,7 +48,7 @@ pub(crate) fn handle_config(action: ConfigAction) -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     eprintln!("Config validation failed: {:#}", e);
-                    std::process::exit(1);
+                    std::process::exit(crate::exit_codes::CONFIG_INVALID);
                 }
             }
         }

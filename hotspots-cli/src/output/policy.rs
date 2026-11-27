@@ -138,5 +138,13 @@ fn write_policy_summary(out: &mut String, policy_results: &PolicyResults) -> any
     if !policy_results.warnings.is_empty() {
         writeln!(out, "  Warnings: {}", policy_results.warnings.len())?;
     }
+    if !policy_results.failed.is_empty() {
+        writeln!(
+            out,
+            "\nTo resolve: extract a smaller function, or add a \
+             `// hotspots-ignore: <reason>` comment directly above the \
+             function (above any doc comment) if the complexity is deliberate."
+        )?;
+    }
     Ok(())
 }

@@ -7,6 +7,7 @@
 // - Identical input yields byte-for-byte identical output
 
 mod cmd;
+mod exit_codes;
 mod output;
 mod util;
 
@@ -173,7 +174,9 @@ enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
 
-        /// Evaluate policy rules; exit 1 on blocking failures
+        /// Evaluate policy rules; exit 1 on blocking failures (exit 4 on a
+        /// tool error, so CI can tell a real policy violation apart from
+        /// diff itself failing to run)
         #[arg(long)]
         policy: bool,
 
@@ -323,18 +326,28 @@ fn main() -> anyhow::Result<()> {
             auto_analyze,
             scope_to_diff,
             explain,
-        } => cmd::diff::handle_diff(DiffArgs {
-            base,
-            head,
-            format,
-            output,
-            policy,
-            top,
-            config_path: config,
-            auto_analyze,
-            scope_to_diff,
-            explain,
-        })?,
+        } => {
+            if let Err(e) = cmd::diff::handle_diff(DiffArgs {
+                base,
+                head,
+                format,
+                output,
+                policy,
+                top,
+                config_path: config,
+                auto_analyze,
+                scope_to_diff,
+                explain,
+            }) {
+                // POLICY_VIOLATION is reserved for a policy *violation* (see
+                // --policy's --help text and handle_diff's own exit there).
+                // Any other failure reaching here (config load, ref
+                // resolution, delta computation, etc.) is a tool error, not
+                // a policy finding, so CI must be able to tell them apart.
+                eprintln!("Error: {e:#}");
+                std::process::exit(exit_codes::DIFF_TOOL_ERROR);
+            }
+        }
         Commands::Train {
             path,
             output,
