@@ -106,9 +106,11 @@ const EXIT_CODES: &str = "\
   1   error, or a blocking policy failure from --policy
   2   auto-analysis failed (diff --auto-analyze only)
   3   a required snapshot is missing (diff only, without --auto-analyze)
+  4   diff tool error other than a policy violation (bad ref, config load failure, etc.) —
+      distinct from 1 so CI can tell \"the code has a real problem\" apart from \"the tool
+      itself failed to run\"
 
-Full table and the exit-4 case `analyze --mode delta --policy` used to occupy (removed along
-with that mode) is in docs/REFERENCE.md \"Exit codes\". Codes 2 and 3 are diff-specific; analyze
+Full table is in docs/REFERENCE.md \"Exit codes\". Codes 2, 3, and 4 are diff-specific; analyze
 only ever returns 0 or 1.
 ";
 
